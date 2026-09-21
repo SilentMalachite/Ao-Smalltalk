@@ -7,7 +7,10 @@ FetchContent_Declare(
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-add_library(ao_runtime src/Runtime.cpp)
+add_library(ao_runtime
+  src/Runtime.cpp
+  src/abi.cpp
+)
 target_include_directories(ao_runtime
   PUBLIC
     ${CMAKE_SOURCE_DIR}/runtime/include
