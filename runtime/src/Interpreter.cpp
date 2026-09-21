@@ -153,13 +153,22 @@ struct FieldRoots {
 struct ActiveGuard {
   CallContext& ctx;
   Oop saved;
-  ActiveGuard(CallContext& c, Oop next) : ctx(c), saved(c.activeContext) {
+  bool rootShared;
+  // saved is this guard's own slot. activeContext is one CallContext field:
+  // only the outermost run may register it. A second registration is forwarded
+  // twice by collectOld.
+  ActiveGuard(CallContext& c, Oop next, bool rootShared)
+      : ctx(c), saved(c.activeContext), rootShared(rootShared) {
     ctx.roots.add(&saved);
     ctx.activeContext = next;
-    ctx.roots.add(&ctx.activeContext);
+    if (rootShared) {
+      ctx.roots.add(&ctx.activeContext);
+    }
   }
   ~ActiveGuard() {
-    ctx.roots.remove(&ctx.activeContext);
+    if (rootShared) {
+      ctx.roots.remove(&ctx.activeContext);
+    }
     ctx.activeContext = saved;
     ctx.roots.remove(&saved);
   }
@@ -169,11 +178,18 @@ struct ActiveGuard {
 
 struct NonlocalGuard {
   CallContext& ctx;
-  explicit NonlocalGuard(CallContext& c) : ctx(c) {
+  bool rootShared;
+  explicit NonlocalGuard(CallContext& c, bool rootShared) : ctx(c), rootShared(rootShared) {
+    if (!rootShared) {
+      return;
+    }
     ctx.roots.add(&ctx.nonlocalHome);
     ctx.roots.add(&ctx.nonlocalValue);
   }
   ~NonlocalGuard() {
+    if (!rootShared) {
+      return;
+    }
     ctx.roots.remove(&ctx.nonlocalValue);
     ctx.roots.remove(&ctx.nonlocalHome);
   }
@@ -380,7 +396,7 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     argHold.ptr()[i] = args[i];
   }
   DepthGuard depth(gInterpreterDepth);
-  NonlocalGuard nonlocal(ctx);
+  NonlocalGuard nonlocal(ctx, depth.outermost);
   // Root inputs before the safepoint. applyMethod's caller may hold the method only in a register.
   Gc gc(ctx.heap, ctx.roots);
   gc.safepoint();
@@ -400,7 +416,7 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     }
   }
 
-  ActiveGuard active(ctx, frame->context);
+  ActiveGuard active(ctx, frame->context, depth.outermost);
   Temps temps(ctx.roots, numTemps);
   for (std::uint32_t i = 0; i < argc; ++i) {
     temps.put(i, argHold.ptr()[i]);

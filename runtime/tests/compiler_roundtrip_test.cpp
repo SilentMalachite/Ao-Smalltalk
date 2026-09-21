@@ -5,7 +5,10 @@
 #include "ao/CompiledMethod.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
+#include "ao/Gc.hpp"
 #include "ao/Interpreter.hpp"
+#include "ao/Lookup.hpp"
+#include "ao/MethodDictionary.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -90,6 +93,42 @@ TEST(CompilerRoundtrip, HandWrittenJumpFalseSkipsPush) {
 
 namespace {
 
+ao::Oop forceOld(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return ao::Oop{};
+  }
+  ao::Gc gc(ctx.heap, ctx.roots);
+  gc.collectOld();
+  return ao::Oop::nil();
+}
+
+ao::Oop forceNursery(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return ao::Oop{};
+  }
+  ao::Gc gc(ctx.heap, ctx.roots);
+  gc.collectNursery();
+  return ao::Oop::nil();
+}
+
+ao::Oop forceSlide(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return ao::Oop{};
+  }
+  ao::Gc gc(ctx.heap, ctx.roots);
+  gc.collectNursery();
+  gc.collectOld();
+  return ao::Oop::nil();
+}
+
+void installNative(Boot& b, ao::Oop cls, const char* selector, ao::NativeFn fn) {
+  auto dict = b.heap.slotAt(cls, ao::kClassSlotMethodDict);
+  auto sel = ao::Symbol::intern(b.wk, selector);
+  auto idx = ao::NativeRegistry::add(fn);
+  auto meth = ao::NativeMethod::create(b.heap, b.wk, sel, 0, selector, idx, cls);
+  ao::MethodDictionary::atPut(b.heap, dict, sel, meth);
+}
+
 ao::Oop subclassOfObject(Boot& b, const char* name, const char* ivars) {
   auto n = b.wk.intern(name);
   auto iv = ao::Str::fromUtf8(b.heap, b.wk, ivars);
@@ -130,4 +169,40 @@ TEST(CompilerRoundtrip, HolderInstVarRoundTrip) {
   ASSERT_TRUE(obj.isHeap());
   send1(b, obj, "set:", ao::Oop::fromSmallInteger(41));
   EXPECT_EQ(41, send0(b, obj, "get").smallIntegerValue());
+}
+
+TEST(CompilerRoundtrip, NestedCompiledSendKeepsOuterContext) {
+  Boot b;
+  auto cls = subclassOfObject(b, "Nest", "x");
+  ASSERT_TRUE(cls.isHeap());
+  installNative(b, cls, "forceOld", forceOld);
+  installNative(b, cls, "forceNursery", forceNursery);
+  installNative(b, cls, "forceSlide", forceSlide);
+  ao::compiler::CompileEnv env;
+  env.instVarNames.emplace_back("x");
+  auto innerOld = ao::compiler::compileMethod("innerOld\n  self forceOld.\n  ^1", env);
+  ASSERT_TRUE(innerOld.ok) << innerOld.error.message;
+  auto innerSlide = ao::compiler::compileMethod("innerSlide\n  self forceSlide.\n  ^thisContext", env);
+  ASSERT_TRUE(innerSlide.ok) << innerSlide.error.message;
+  auto outer = ao::compiler::compileMethod(
+      "outer\n  x := self innerOld.\n  self forceNursery.\n  ^self innerSlide", env);
+  ASSERT_TRUE(outer.ok) << outer.error.message;
+  ASSERT_TRUE(ao::installMethod(b.ctx, b.wk.named("Nest"), innerOld.image).isHeap());
+  ASSERT_TRUE(ao::installMethod(b.ctx, b.wk.named("Nest"), innerSlide.image).isHeap());
+  ASSERT_TRUE(ao::installMethod(b.ctx, b.wk.named("Nest"), outer.image).isHeap());
+  auto obj = send0(b, b.wk.named("Nest"), "new");
+  ASSERT_TRUE(obj.isHeap());
+  auto got = send0(b, obj, "outer");
+  ASSERT_TRUE(got.isHeap());
+  EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(got));
+  auto home = b.heap.slotAt(got, ao::kCtxSender);
+  ASSERT_TRUE(home.isHeap());
+  EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(home));
+  auto nest = b.wk.named("Nest");
+  auto outerMeth = ao::lookup(b.heap, nest, b.wk.intern("outer"));
+  EXPECT_EQ(outerMeth, b.heap.slotAt(home, ao::kCtxMethod));
+  auto rcvr = b.heap.slotAt(home, ao::kCtxReceiver);
+  ASSERT_TRUE(rcvr.isHeap());
+  EXPECT_EQ(nest, b.heap.klass(rcvr));
+  EXPECT_EQ(1, b.heap.slotAt(rcvr, 0).smallIntegerValue());
 }
