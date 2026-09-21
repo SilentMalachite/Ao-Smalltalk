@@ -14,6 +14,15 @@ namespace {
 
 using Digits = std::vector<std::uint32_t>;
 
+struct Root {
+  Roots& roots;
+  Oop slot;
+  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
+  ~Root() { roots.remove(&slot); }
+  Root(const Root&) = delete;
+  Root& operator=(const Root&) = delete;
+};
+
 struct Big {
   bool neg = false;
   Digits d;
@@ -377,12 +386,13 @@ Oop box(CallContext& ctx, const Big& b) {
     return Oop::fromSmallInteger(v);
   }
   const auto n = static_cast<std::uint32_t>(b.d.size() * 4);
-  const Oop cls = b.neg ? ctx.wk.largeNegativeIntegerClass : ctx.wk.largePositiveIntegerClass;
-  Oop o = ctx.heap.allocate(cls, n, kFlagBytes);
+  Root cls(ctx.roots,
+           b.neg ? ctx.wk.largeNegativeIntegerClass : ctx.wk.largePositiveIntegerClass);
+  Oop o = ctx.heap.allocate(cls.slot, n, kFlagBytes);
   if (!o.isHeap()) {
     Gc gc(ctx.heap, ctx.roots);
     gc.collectNursery();
-    o = ctx.heap.allocate(cls, n, kFlagBytes);
+    o = ctx.heap.allocate(cls.slot, n, kFlagBytes);
   }
   if (!o.isHeap()) {
     return Oop{};

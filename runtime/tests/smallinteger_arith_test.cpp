@@ -193,6 +193,68 @@ TEST(SmallIntegerArith, FloatArithmetic) {
   EXPECT_TRUE(send1(b, x, "=", makeFloat(b, 1.5)).isTrue());
 }
 
+TEST(SmallIntegerArith, FloatEqualsDoesNotCoerceInteger) {
+  Boot b;
+  auto one = makeFloat(b, 1.0);
+  auto i = ao::Oop::fromSmallInteger(1);
+  EXPECT_TRUE(send1(b, one, "=", i).isFalse());
+  EXPECT_TRUE(send1(b, i, "=", one).isFalse());
+  EXPECT_TRUE(send1(b, one, "=", makeFloat(b, 1.0)).isTrue());
+}
+
+static void expectNormalizedLarge(ao::Heap& heap, ao::Oop o) {
+  ASSERT_TRUE(o.isHeap());
+  ASSERT_EQ(0u, heap.size(o) % 4);
+  ASSERT_GE(heap.size(o), 4u);
+  std::uint32_t hi = 0;
+  std::memcpy(&hi, heap.bytes(o) + heap.size(o) - 4, 4);
+  EXPECT_NE(0u, hi);
+}
+
+TEST(SmallIntegerArith, SchoolbookAddMulBeyondInt64) {
+  Boot b;
+  auto two63 = send1(b, ao::Oop::fromSmallInteger(1), "bitShift:", ao::Oop::fromSmallInteger(63));
+  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, two63));
+  bool fits = true;
+  ao::LargeInteger::asInt64IfFits(b.heap, b.wk, two63, &fits);
+  EXPECT_FALSE(fits);
+  expectNormalizedLarge(b.heap, two63);
+
+  auto sum = send1(b, two63, "+", two63);
+  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, sum));
+  expectNormalizedLarge(b.heap, sum);
+  bool sumFits = true;
+  ao::LargeInteger::asInt64IfFits(b.heap, b.wk, sum, &sumFits);
+  EXPECT_FALSE(sumFits);
+  auto two64 = send1(b, ao::Oop::fromSmallInteger(1), "bitShift:", ao::Oop::fromSmallInteger(64));
+  EXPECT_TRUE(send1(b, sum, "=", two64).isTrue());
+
+  auto prod = send1(b, two63, "*", two63);
+  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, prod));
+  expectNormalizedLarge(b.heap, prod);
+  auto two126 = send1(b, ao::Oop::fromSmallInteger(1), "bitShift:", ao::Oop::fromSmallInteger(126));
+  EXPECT_TRUE(send1(b, prod, "=", two126).isTrue());
+
+  auto neg = send1(b, ao::Oop::fromSmallInteger(0), "-", two63);
+  auto z = send1(b, two63, "+", neg);
+  ASSERT_TRUE(z.isSmallInteger());
+  EXPECT_EQ(0, z.smallIntegerValue());
+}
+
+TEST(SmallIntegerArith, OverflowAfterNurseryCollectKeepsClass) {
+  Boot b;
+  while (true) {
+    auto junk = b.heap.allocate(b.wk.arrayClass, 64, 0);
+    if (!junk.isHeap()) {
+      break;
+    }
+  }
+  auto max = ao::Oop::fromSmallInteger((std::int64_t{1} << 62) - 1);
+  auto r = send1(b, max, "+", ao::Oop::fromSmallInteger(1));
+  ASSERT_TRUE(r.isHeap());
+  EXPECT_EQ(b.wk.largePositiveIntegerClass, b.heap.klass(r));
+}
+
 TEST(SmallIntegerArith, LargeReceiverAddViaIntegerMethod) {
   Boot b;
   auto max = ao::Oop::fromSmallInteger((std::int64_t{1} << 62) - 1);

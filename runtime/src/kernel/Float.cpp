@@ -238,12 +238,11 @@ Oop ao_Float_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   if (argc != 1) {
     return Oop{};
   }
-  double x = 0;
-  double y = 0;
-  if (!asFloat(ctx, receiver, &x) || !asFloat(ctx, args[0], &y)) {
+  if (!isFloat(ctx.wk, receiver) || !isFloat(ctx.wk, args[0])) {
     return Oop::false_();
   }
-  return x == y ? Oop::true_() : Oop::false_();
+  return asDouble(ctx.heap, receiver) == asDouble(ctx.heap, args[0]) ? Oop::true_()
+                                                                     : Oop::false_();
 }
 
 Oop ao_Float_lessThan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
