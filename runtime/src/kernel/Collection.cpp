@@ -172,6 +172,9 @@ Oop ao_ArrayedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, st
     Oop idx = Oop::fromSmallInteger(i);
     elt.slot = send(ctx, rcvr.slot, ctx.wk.selAt_, &idx, 1, nullptr);
     send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+    if (ctx.nonlocalReturn) {
+      return rcvr.slot;
+    }
   }
   return rcvr.slot;
 }

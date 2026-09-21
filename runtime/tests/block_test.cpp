@@ -41,6 +41,26 @@ TEST(BlockEval, NonLocalReturnSkipsRest) {
   EXPECT_EQ(4, got.smallIntegerValue());
 }
 
+TEST(BlockEval, ToDoNonLocalReturnStopsAtFirst) {
+  Boot b;
+  auto img = ao::compiler::compileMethod(
+      "foo\n  1 to: 3 do: [:i | ^i].\n  ^0");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  auto cm = ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass);
+  auto got = ao::Interpreter::run(b.ctx, cm, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_EQ(1, got.smallIntegerValue());
+}
+
+TEST(BlockEval, ArrayDoNonLocalReturnStopsAtFirst) {
+  Boot b;
+  auto img = ao::compiler::compileMethod(
+      "foo\n  #(9 8 7) do: [:e | ^e].\n  ^0");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  auto cm = ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass);
+  auto got = ao::Interpreter::run(b.ctx, cm, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_EQ(9, got.smallIntegerValue());
+}
+
 TEST(BlockEval, IfTrueIfFalseFromCompiledMethod) {
   Boot b;
   auto img = ao::compiler::compileMethod(

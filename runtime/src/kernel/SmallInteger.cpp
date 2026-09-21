@@ -176,6 +176,9 @@ Oop ao_Integer_to_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   for (std::int64_t i = start; i <= stop; ++i) {
     Oop n = Oop::fromSmallInteger(i);
     send(ctx, blk.slot, ctx.wk.selValue_, &n, 1, nullptr);
+    if (ctx.nonlocalReturn) {
+      return receiver;
+    }
     if ((i & 0xFFFF) == 0) {
       gc.safepoint();
     }
