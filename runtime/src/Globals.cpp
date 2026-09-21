@@ -4,8 +4,9 @@ namespace ao {
 namespace Globals {
 
 static constexpr const char* kNames[kSmalltalkCount] = {
-    "Object", "Behavior", "ClassDescription", "Class", "Metaclass",
-    "UndefinedObject", "Boolean", "True", "False", "SmallInteger", "Character"};
+    "Object",          "Behavior", "ClassDescription", "Class",        "Metaclass",
+    "UndefinedObject", "Boolean",  "True",             "False",        "SmallInteger",
+    "Character",       "Symbol",   "MethodDictionary", "NativeMethod", "Message"};
 
 void install(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   auto dict = heap.allocate(Oop::nil(), kSmalltalkCount, 0);

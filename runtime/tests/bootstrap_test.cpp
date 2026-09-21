@@ -56,9 +56,9 @@ TEST(Bootstrap, ClassSkeletonsAreHeapAndNamed) {
   ao::Bootstrap::allocateSkeletons(heap, roots, wk);
 
   const char* names[] = {
-      "Object",         "Behavior", "ClassDescription", "Class",        "Metaclass",
-      "UndefinedObject","Boolean",  "True",             "False",        "SmallInteger",
-      "Character"};
+      "Object",          "Behavior", "ClassDescription", "Class",          "Metaclass",
+      "UndefinedObject", "Boolean",  "True",             "False",          "SmallInteger",
+      "Character",       "Symbol",   "MethodDictionary", "NativeMethod",   "Message"};
   for (const char* n : names) {
     auto cls = wk.named(n);
     ASSERT_TRUE(cls.isHeap()) << n;
@@ -218,7 +218,7 @@ TEST(Bootstrap, SmalltalkMapsObjectNameToClass) {
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
   ASSERT_TRUE(wk.smalltalk.isHeap());
-  EXPECT_EQ(11u, heap.size(wk.smalltalk));
+  EXPECT_EQ(15u, heap.size(wk.smalltalk));
   EXPECT_EQ(wk.objectClass, ao::Globals::at(wk, "Object"));
   EXPECT_EQ(wk.objectClass, heap.slotAt(wk.smalltalk, 0));
   EXPECT_EQ(wk.metaclassClass, ao::Globals::at(wk, "Metaclass"));
@@ -228,14 +228,15 @@ TEST(Bootstrap, SmalltalkMapsObjectNameToClass) {
   EXPECT_TRUE(ao::Globals::at(wk, "nope").isNil());
 }
 
-TEST(Bootstrap, SmalltalkContainsAllElevenClasses) {
+TEST(Bootstrap, SmalltalkContainsAllNamedClasses) {
   ao::Heap heap;
   ao::Roots roots;
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
   const char* names[] = {
-      "Object", "Behavior", "ClassDescription", "Class", "Metaclass",
-      "UndefinedObject", "Boolean", "True", "False", "SmallInteger", "Character"};
+      "Object",          "Behavior", "ClassDescription", "Class",        "Metaclass",
+      "UndefinedObject", "Boolean",  "True",             "False",        "SmallInteger",
+      "Character",       "Symbol",   "MethodDictionary", "NativeMethod", "Message"};
   for (const char* n : names) {
     EXPECT_EQ(wk.named(n), ao::Globals::at(wk, n)) << n;
     EXPECT_TRUE(ao::Globals::at(wk, n).isHeap()) << n;

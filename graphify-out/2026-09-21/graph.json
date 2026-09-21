@@ -321,138 +321,6 @@
       "source_location": "L8"
     },
     {
-      "id": "runtime_src_roots_roots_add",
-      "label": "Roots::add()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots::add()",
-      "source_file": "runtime/src/Roots.cpp",
-      "source_location": "L7"
-    },
-    {
-      "id": "runtime_src_roots_roots_drophandle",
-      "label": "Roots::dropHandle()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots::drophandle()",
-      "source_file": "runtime/src/Roots.cpp",
-      "source_location": "L32"
-    },
-    {
-      "id": "runtime_src_roots_roots_handleat",
-      "label": "Roots::handleAt()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots::handleat()",
-      "source_file": "runtime/src/Roots.cpp",
-      "source_location": "L41"
-    },
-    {
-      "id": "runtime_src_roots_roots_pushhandle",
-      "label": "Roots::pushHandle()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots::pushhandle()",
-      "source_file": "runtime/src/Roots.cpp",
-      "source_location": "L18"
-    },
-    {
-      "id": "runtime_src_roots_roots_remove",
-      "label": "Roots::remove()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots::remove()",
-      "source_file": "runtime/src/Roots.cpp",
-      "source_location": "L14"
-    },
-    {
-      "id": "runtime_src_roots_roots_setstackwalker",
-      "label": "Roots::setStackWalker()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots::setstackwalker()",
-      "source_file": "runtime/src/Roots.cpp",
-      "source_location": "L48"
-    },
-    {
-      "id": "runtime_src_roots_roots_visitall",
-      "label": "Roots::visitAll()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots::visitall()",
-      "source_file": "runtime/src/Roots.cpp",
-      "source_location": "L53"
-    },
-    {
-      "id": "runtime_src_wellknown_wellknown_addroots",
-      "label": "WellKnown::addRoots()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "wellknown::addroots()",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L32"
-    },
-    {
-      "id": "runtime_src_wellknown_wellknown_classof",
-      "label": "WellKnown::classOf()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "wellknown::classof()",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L77"
-    },
-    {
-      "id": "runtime_src_wellknown_wellknown_named",
-      "label": "WellKnown::named()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "wellknown::named()",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L58"
-    },
-    {
-      "id": "runtime_src_wellknown_wellknown_wellknown",
-      "label": "WellKnown::WellKnown()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "wellknown::wellknown()",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L5"
-    },
-    {
       "id": "runtime_src_heap_align8",
       "label": "align8()",
       "_callable": true,
@@ -597,6 +465,90 @@
       "source_location": "L120"
     },
     {
+      "id": "runtime_src_roots_roots_add",
+      "label": "Roots::add()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::add()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L7"
+    },
+    {
+      "id": "runtime_src_roots_roots_drophandle",
+      "label": "Roots::dropHandle()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::drophandle()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L32"
+    },
+    {
+      "id": "runtime_src_roots_roots_handleat",
+      "label": "Roots::handleAt()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::handleat()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L41"
+    },
+    {
+      "id": "runtime_src_roots_roots_pushhandle",
+      "label": "Roots::pushHandle()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::pushhandle()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L18"
+    },
+    {
+      "id": "runtime_src_roots_roots_remove",
+      "label": "Roots::remove()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::remove()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L14"
+    },
+    {
+      "id": "runtime_src_roots_roots_setstackwalker",
+      "label": "Roots::setStackWalker()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::setstackwalker()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L48"
+    },
+    {
+      "id": "runtime_src_roots_roots_visitall",
+      "label": "Roots::visitAll()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::visitall()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L53"
+    },
+    {
       "id": "runtime_include_ao_oop_oop_fromheap",
       "label": ".fromHeap()",
       "_callable": true,
@@ -693,18 +645,6 @@
       "source_location": "L80"
     },
     {
-      "id": "runtime_tests_bootstrap_test_clsof",
-      "label": "clsOf()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "clsof()",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L79"
-    },
-    {
       "id": "runtime_tests_bootstrap_test_test",
       "label": "TEST()",
       "_callable": true,
@@ -714,7 +654,7 @@
       "file_type": "code",
       "norm_label": "test()",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L10"
+      "source_location": "L17"
     },
     {
       "id": "app_aotests_smoketests_smoketests_testplaceholdertypeexists",
@@ -762,7 +702,7 @@
       "file_type": "code",
       "norm_label": "superof()",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L81"
+      "source_location": "L88"
     },
     {
       "id": "runtime_include_ao_oop_oop_heappointer",
@@ -873,18 +813,6 @@
       "source_location": "L62"
     },
     {
-      "id": "runtime_tests_gc_test_oldwalkvisits",
-      "label": "oldWalkVisits()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "oldwalkvisits()",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L447"
-    },
-    {
       "id": "runtime_src_heap_heap_header",
       "label": "Heap::header()",
       "_callable": true,
@@ -895,6 +823,30 @@
       "norm_label": "heap::header()",
       "source_file": "runtime/src/Heap.cpp",
       "source_location": "L56"
+    },
+    {
+      "id": "runtime_tests_gc_test_oldwalkvisits",
+      "label": "oldWalkVisits()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 49,
+      "community_name": "gc_test.cpp",
+      "file_type": "code",
+      "norm_label": "oldwalkvisits()",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L447"
+    },
+    {
+      "id": "runtime_tests_bootstrap_test_clsof",
+      "label": "clsOf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 50,
+      "community_name": "klass",
+      "file_type": "code",
+      "norm_label": "clsof()",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L86"
     },
     {
       "id": "runtime_include_ao_oop_oop_nil",
@@ -918,7 +870,19 @@
       "file_type": "code",
       "norm_label": ".nil()",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L17"
+      "source_location": "L21"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_wellknown",
+      "label": ".WellKnown()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": ".wellknown()",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L14"
     },
     {
       "id": "runtime_src_bootstrap_allocateskeletons",
@@ -1025,6 +989,54 @@
       "norm_label": "install()",
       "source_file": "runtime/src/Globals.cpp",
       "source_location": "L10"
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_addroots",
+      "label": "WellKnown::addRoots()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "wellknown::addroots()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L32"
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_classof",
+      "label": "WellKnown::classOf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "wellknown::classof()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L77"
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_named",
+      "label": "WellKnown::named()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "wellknown::named()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L58"
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_wellknown",
+      "label": "WellKnown::WellKnown()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "wellknown::wellknown()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L5"
     },
     {
       "id": "runtime_include_ao_oop_oop_charactervalue",
@@ -1216,7 +1228,7 @@
       "file_type": "code",
       "norm_label": ".false_()",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L19"
+      "source_location": "L23"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_true",
@@ -1228,7 +1240,7 @@
       "file_type": "code",
       "norm_label": ".true_()",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L18"
+      "source_location": "L22"
     },
     {
       "id": "compiler_src_compiler_version",
@@ -1409,6 +1421,17 @@
       "source_file": "runtime/CMakeLists.txt",
       "source_location": "L26",
       "source_url": null
+    },
+    {
+      "id": "bridge_ao_abi",
+      "label": "ao_abi.h",
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "SPEC.md",
+      "file_type": "code",
+      "norm_label": "ao_abi.h",
+      "source_file": "bridge/ao_abi.h",
+      "source_location": "L1"
     },
     {
       "id": "byteobjectpayloadisnotscannedasoops",
@@ -1664,6 +1687,28 @@
       "source_location": ""
     },
     {
+      "id": "runtime_include_ao_heap_heap_innursery",
+      "label": "inNursery",
+      "_origin": "ast",
+      "community": 11,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "innursery",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L48"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_inold",
+      "label": "inOld",
+      "_origin": "ast",
+      "community": 11,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "inold",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L49"
+    },
+    {
       "id": "sharedchildcopiedonce",
       "label": "SharedChildCopiedOnce",
       "_origin": "ast",
@@ -1717,28 +1762,6 @@
       "norm_label": "unrootedreferentbecomesnil",
       "source_file": "",
       "source_location": ""
-    },
-    {
-      "id": "runtime_include_ao_bootstrap",
-      "label": "Bootstrap.hpp",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "bootstrap.hpp",
-      "source_file": "runtime/include/ao/Bootstrap.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_include_ao_globals",
-      "label": "Globals.hpp",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "globals.hpp",
-      "source_file": "runtime/include/ao/Globals.hpp",
-      "source_location": "L1"
     },
     {
       "id": "runtime_include_ao_roots",
@@ -1895,17 +1918,6 @@
       "source_location": "L24"
     },
     {
-      "id": "runtime_include_ao_roots_roots_walker",
-      "label": "walker_",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "walker_",
-      "source_file": "runtime/include/ao/Roots.hpp",
-      "source_location": "L31"
-    },
-    {
       "id": "runtime_include_ao_roots_roots_walkerctx",
       "label": "walkerCtx_",
       "_origin": "ast",
@@ -1915,72 +1927,6 @@
       "norm_label": "walkerctx_",
       "source_file": "runtime/include/ao/Roots.hpp",
       "source_location": "L32"
-    },
-    {
-      "id": "runtime_include_ao_wellknown_wellknown_addroots",
-      "label": "addRoots",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "addroots",
-      "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L49"
-    },
-    {
-      "id": "runtime_src_roots",
-      "label": "Roots.cpp",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots.cpp",
-      "source_file": "runtime/src/Roots.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_roots_cpp_stackwalker",
-      "label": "StackWalker",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "stackwalker",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_roots_cpp_uint32_t",
-      "label": "uint32_t",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "uint32_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_wellknown",
-      "label": "WellKnown.cpp",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "wellknown.cpp",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_wellknown_cpp_string_view",
-      "label": "string_view",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "string_view",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "uint8_t",
@@ -2001,17 +1947,6 @@
       "community_name": "Roots",
       "file_type": "code",
       "norm_label": "vector",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "visitfn",
-      "label": "VisitFn",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "visitfn",
       "source_file": "",
       "source_location": ""
     },
@@ -2056,6 +1991,61 @@
       "community_name": "Heap.cpp",
       "file_type": "code",
       "norm_label": "size_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_walker",
+      "label": "walker_",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "walker_",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L31"
+    },
+    {
+      "id": "runtime_src_roots",
+      "label": "Roots.cpp",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots.cpp",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_roots_cpp_stackwalker",
+      "label": "StackWalker",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "stackwalker",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_roots_cpp_uint32_t",
+      "label": "uint32_t",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "uint32_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "visitfn",
+      "label": "VisitFn",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "visitfn",
       "source_file": "",
       "source_location": ""
     },
@@ -2234,17 +2224,6 @@
       "norm_label": "immediateclassslotsreserved",
       "source_file": "",
       "source_location": ""
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_klass",
-      "label": "klass",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "klass",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L37"
     },
     {
       "id": "skeletonslotsstartnil",
@@ -2437,6 +2416,17 @@
       "source_location": ""
     },
     {
+      "id": "runtime_include_ao_heap",
+      "label": "Heap.hpp",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "heap.hpp",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L1"
+    },
+    {
       "id": "runtime_include_ao_oop",
       "label": "Oop.hpp",
       "_origin": "ast",
@@ -2613,17 +2603,6 @@
       "source_location": "L1"
     },
     {
-      "id": "runtime_tests_gc_test",
-      "label": "gc_test.cpp",
-      "_origin": "ast",
-      "community": 21,
-      "community_name": "bootstrap_test.cpp",
-      "file_type": "code",
-      "norm_label": "gc_test.cpp",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L1"
-    },
-    {
       "id": "runtime_tests_heap_alloc_test",
       "label": "heap_alloc_test.cpp",
       "_origin": "ast",
@@ -2704,6 +2683,114 @@
       "norm_label": "compiler.hpp",
       "source_file": "compiler/include/ao/Compiler.hpp",
       "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_03",
+      "label": "P9-03.md",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p9-03.md",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_03_files",
+      "label": "Files",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "files",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L11"
+    },
+    {
+      "id": "docs_prs_p9_03_interfaces",
+      "label": "Interfaces",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "interfaces",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L16"
+    },
+    {
+      "id": "docs_prs_p9_03_p9_03_\u30a8\u30e9\u30fc\u8868\u793a\u3068_voiceover",
+      "label": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "p9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 voiceover",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_03_\u30b3\u30df\u30c3\u30c8\u6587",
+      "label": "\u30b3\u30df\u30c3\u30c8\u6587",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L31"
+    },
+    {
+      "id": "docs_prs_p9_03_\u30c6\u30b9\u30c8",
+      "label": "\u30c6\u30b9\u30c8",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u30c6\u30b9\u30c8",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L21"
+    },
+    {
+      "id": "docs_prs_p9_03_\u5b8c\u4e86\u6761\u4ef6",
+      "label": "\u5b8c\u4e86\u6761\u4ef6",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L40"
+    },
+    {
+      "id": "docs_prs_p9_03_\u624b\u9806",
+      "label": "\u624b\u9806",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u624b\u9806",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L25"
+    },
+    {
+      "id": "docs_prs_p9_03_\u76ee\u7684",
+      "label": "\u76ee\u7684",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u76ee\u7684",
+      "source_file": "docs/prs/P9-03.md",
+      "source_location": "L7"
     },
     {
       "id": "runtime_include_ao_gc",
@@ -2934,23 +3021,11 @@
       "source_location": "L7"
     },
     {
-      "id": "docs_prs_p9_01",
-      "label": "P9-01.md",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p9-01.md",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L1"
-    },
-    {
       "id": "docs_prs_p9_01_files",
       "label": "Files",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "files",
@@ -2962,7 +3037,7 @@
       "label": "Interfaces",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "interfaces",
@@ -2974,7 +3049,7 @@
       "label": "P9-01: Do it / Print it / Inspect it",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "p9-01: do it / print it / inspect it",
@@ -2986,7 +3061,7 @@
       "label": "\u30b3\u30df\u30c3\u30c8\u6587",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
@@ -2998,7 +3073,7 @@
       "label": "\u30c6\u30b9\u30c8",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u30c6\u30b9\u30c8",
@@ -3010,7 +3085,7 @@
       "label": "\u5b8c\u4e86\u6761\u4ef6",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
@@ -3022,7 +3097,7 @@
       "label": "\u624b\u9806",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u624b\u9806",
@@ -3034,7 +3109,7 @@
       "label": "\u76ee\u7684",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u76ee\u7684",
@@ -3042,239 +3117,11 @@
       "source_location": "L7"
     },
     {
-      "id": "docs_prs_p9_02",
-      "label": "P9-02.md",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p9-02.md",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p9_02_files",
-      "label": "Files",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "files",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L11"
-    },
-    {
-      "id": "docs_prs_p9_02_interfaces",
-      "label": "Interfaces",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "interfaces",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L16"
-    },
-    {
-      "id": "docs_prs_p9_02_p9_02_browser_accept",
-      "label": "P9-02: Browser accept",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "p9-02: browser accept",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p9_02_\u30b3\u30df\u30c3\u30c8\u6587",
-      "label": "\u30b3\u30df\u30c3\u30c8\u6587",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L31"
-    },
-    {
-      "id": "docs_prs_p9_02_\u30c6\u30b9\u30c8",
-      "label": "\u30c6\u30b9\u30c8",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u30c6\u30b9\u30c8",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L21"
-    },
-    {
-      "id": "docs_prs_p9_02_\u5b8c\u4e86\u6761\u4ef6",
-      "label": "\u5b8c\u4e86\u6761\u4ef6",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L40"
-    },
-    {
-      "id": "docs_prs_p9_02_\u624b\u9806",
-      "label": "\u624b\u9806",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u624b\u9806",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L25"
-    },
-    {
-      "id": "docs_prs_p9_02_\u76ee\u7684",
-      "label": "\u76ee\u7684",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u76ee\u7684",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L7"
-    },
-    {
-      "id": "docs_prs_p9_03",
-      "label": "P9-03.md",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p9-03.md",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p9_03_files",
-      "label": "Files",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "files",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L11"
-    },
-    {
-      "id": "docs_prs_p9_03_interfaces",
-      "label": "Interfaces",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "interfaces",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L16"
-    },
-    {
-      "id": "docs_prs_p9_03_p9_03_\u30a8\u30e9\u30fc\u8868\u793a\u3068_voiceover",
-      "label": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "p9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 voiceover",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p9_03_\u30b3\u30df\u30c3\u30c8\u6587",
-      "label": "\u30b3\u30df\u30c3\u30c8\u6587",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L31"
-    },
-    {
-      "id": "docs_prs_p9_03_\u30c6\u30b9\u30c8",
-      "label": "\u30c6\u30b9\u30c8",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u30c6\u30b9\u30c8",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L21"
-    },
-    {
-      "id": "docs_prs_p9_03_\u5b8c\u4e86\u6761\u4ef6",
-      "label": "\u5b8c\u4e86\u6761\u4ef6",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L40"
-    },
-    {
-      "id": "docs_prs_p9_03_\u624b\u9806",
-      "label": "\u624b\u9806",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u624b\u9806",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L25"
-    },
-    {
-      "id": "docs_prs_p9_03_\u76ee\u7684",
-      "label": "\u76ee\u7684",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u76ee\u7684",
-      "source_file": "docs/prs/P9-03.md",
-      "source_location": "L7"
-    },
-    {
-      "id": "docs_prs_p9_04",
-      "label": "P9-04.md",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p9-04.md",
-      "source_file": "docs/prs/P9-04.md",
-      "source_location": "L1"
-    },
-    {
       "id": "docs_prs_p9_04_files",
       "label": "Files",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "files",
@@ -3286,7 +3133,7 @@
       "label": "Interfaces",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "interfaces",
@@ -3298,7 +3145,7 @@
       "label": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "p9-04: v1 \u30b3\u30fc\u30eb\u30c6\u30f3\u53d7\u3051\u5165\u308c",
@@ -3310,7 +3157,7 @@
       "label": "\u30b3\u30df\u30c3\u30c8\u6587",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
@@ -3322,7 +3169,7 @@
       "label": "\u30c6\u30b9\u30c8",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u30c6\u30b9\u30c8",
@@ -3334,7 +3181,7 @@
       "label": "\u5b8c\u4e86\u6761\u4ef6",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
@@ -3346,7 +3193,7 @@
       "label": "\u624b\u9806",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u624b\u9806",
@@ -3358,7 +3205,7 @@
       "label": "\u76ee\u7684",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9 \u2014 Integration",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u76ee\u7684",
@@ -3421,28 +3268,6 @@
       "source_location": "L64"
     },
     {
-      "id": "runtime_include_ao_heap_heap_innursery",
-      "label": "inNursery",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "innursery",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L48"
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_inold",
-      "label": "inOld",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "inold",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L49"
-    },
-    {
       "id": "runtime_include_ao_heap_heap_nexthash",
       "label": "nextHash_",
       "_origin": "ast",
@@ -3474,17 +3299,6 @@
       "norm_label": "nurseryhalf_",
       "source_file": "runtime/include/ao/Heap.hpp",
       "source_location": "L63"
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_objectbytes",
-      "label": "objectBytes",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "objectbytes",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L46"
     },
     {
       "id": "runtime_include_ao_heap_heap_old",
@@ -3529,17 +3343,6 @@
       "norm_label": "oldstart_",
       "source_file": "runtime/include/ao/Heap.hpp",
       "source_location": "L70"
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_oldused",
-      "label": "oldUsed",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "oldused",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L50"
     },
     {
       "id": "runtime_include_ao_heap_heap_reserveold",
@@ -3653,14 +3456,111 @@
       "source_location": "L1"
     },
     {
-      "id": "runtime_include_ao_heap",
-      "label": "Heap.hpp",
+      "id": "docs_prs_p1_07_files",
+      "label": "Files",
       "_origin": "ast",
-      "community": 44,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "heap.hpp",
-      "source_file": "runtime/include/ao/Heap.hpp",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "files",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L11"
+    },
+    {
+      "id": "docs_prs_p1_07_interfaces",
+      "label": "Interfaces",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "interfaces",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L15"
+    },
+    {
+      "id": "docs_prs_p1_07_p1_07_immovable_old_objects",
+      "label": "P1-07: immovable old objects",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "p1-07: immovable old objects",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p1_07_\u30c6\u30b9\u30c8",
+      "label": "\u30c6\u30b9\u30c8",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u30c6\u30b9\u30c8",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L20"
+    },
+    {
+      "id": "docs_prs_p1_07_\u624b\u9806",
+      "label": "\u624b\u9806",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u624b\u9806",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L24"
+    },
+    {
+      "id": "docs_prs_p1_07_\u76ee\u7684",
+      "label": "\u76ee\u7684",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u76ee\u7684",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L7"
+    },
+    {
+      "id": "docs_prs_p9_01",
+      "label": "P9-01.md",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p9-01.md",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_02",
+      "label": "P9-02.md",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p9-02.md",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_04",
+      "label": "P9-04.md",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p9-04.md",
+      "source_file": "docs/prs/P9-04.md",
       "source_location": "L1"
     },
     {
@@ -3730,14 +3630,154 @@
       "source_location": "L20"
     },
     {
-      "id": "bridge_ao_abi",
-      "label": "ao_abi.h",
+      "id": "docs_prs_p9_02_files",
+      "label": "Files",
+      "_origin": "ast",
+      "community": 46,
+      "community_name": "P9-02: Browser accept",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "files",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L11"
+    },
+    {
+      "id": "docs_prs_p9_02_interfaces",
+      "label": "Interfaces",
+      "_origin": "ast",
+      "community": 46,
+      "community_name": "P9-02: Browser accept",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "interfaces",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L16"
+    },
+    {
+      "id": "docs_prs_p9_02_p9_02_browser_accept",
+      "label": "P9-02: Browser accept",
+      "_origin": "ast",
+      "community": 46,
+      "community_name": "P9-02: Browser accept",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "p9-02: browser accept",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_02_\u30b3\u30df\u30c3\u30c8\u6587",
+      "label": "\u30b3\u30df\u30c3\u30c8\u6587",
+      "_origin": "ast",
+      "community": 46,
+      "community_name": "P9-02: Browser accept",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L31"
+    },
+    {
+      "id": "docs_prs_p9_02_\u30c6\u30b9\u30c8",
+      "label": "\u30c6\u30b9\u30c8",
+      "_origin": "ast",
+      "community": 46,
+      "community_name": "P9-02: Browser accept",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u30c6\u30b9\u30c8",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L21"
+    },
+    {
+      "id": "docs_prs_p9_02_\u5b8c\u4e86\u6761\u4ef6",
+      "label": "\u5b8c\u4e86\u6761\u4ef6",
+      "_origin": "ast",
+      "community": 46,
+      "community_name": "P9-02: Browser accept",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L40"
+    },
+    {
+      "id": "docs_prs_p9_02_\u624b\u9806",
+      "label": "\u624b\u9806",
+      "_origin": "ast",
+      "community": 46,
+      "community_name": "P9-02: Browser accept",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u624b\u9806",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L25"
+    },
+    {
+      "id": "docs_prs_p9_02_\u76ee\u7684",
+      "label": "\u76ee\u7684",
+      "_origin": "ast",
+      "community": 46,
+      "community_name": "P9-02: Browser accept",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u76ee\u7684",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L7"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_objectbytes",
+      "label": "objectBytes",
       "_origin": "ast",
       "community": 49,
-      "community_name": "ao_abi.h",
+      "community_name": "gc_test.cpp",
       "file_type": "code",
-      "norm_label": "ao_abi.h",
-      "source_file": "bridge/ao_abi.h",
+      "norm_label": "objectbytes",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L46"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_oldused",
+      "label": "oldUsed",
+      "_origin": "ast",
+      "community": 49,
+      "community_name": "gc_test.cpp",
+      "file_type": "code",
+      "norm_label": "oldused",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L50"
+    },
+    {
+      "id": "runtime_tests_gc_test",
+      "label": "gc_test.cpp",
+      "_origin": "ast",
+      "community": 49,
+      "community_name": "gc_test.cpp",
+      "file_type": "code",
+      "norm_label": "gc_test.cpp",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_include_ao_bootstrap",
+      "label": "Bootstrap.hpp",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "P2-02 class object skeletons",
+      "file_type": "code",
+      "norm_label": "bootstrap.hpp",
+      "source_file": "runtime/include/ao/Bootstrap.hpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_include_ao_globals",
+      "label": "Globals.hpp",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "P2-02 class object skeletons",
+      "file_type": "code",
+      "norm_label": "globals.hpp",
+      "source_file": "runtime/include/ao/Globals.hpp",
       "source_location": "L1"
     },
     {
@@ -3752,76 +3792,26 @@
       "source_location": "L1"
     },
     {
-      "id": "docs_prs_p1_07_files",
-      "label": "Files",
+      "id": "runtime_include_ao_heap_heap_klass",
+      "label": "klass",
       "_origin": "ast",
-      "community": 51,
-      "community_name": "P1-07: immovable old objects",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "files",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L11"
+      "community": 50,
+      "community_name": "klass",
+      "file_type": "code",
+      "norm_label": "klass",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L37"
     },
     {
-      "id": "docs_prs_p1_07_interfaces",
-      "label": "Interfaces",
+      "id": "runtime_include_ao_wellknown_wellknown_addroots",
+      "label": "addRoots",
       "_origin": "ast",
-      "community": 51,
-      "community_name": "P1-07: immovable old objects",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "interfaces",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L15"
-    },
-    {
-      "id": "docs_prs_p1_07_p1_07_immovable_old_objects",
-      "label": "P1-07: immovable old objects",
-      "_origin": "ast",
-      "community": 51,
-      "community_name": "P1-07: immovable old objects",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "p1-07: immovable old objects",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p1_07_\u30c6\u30b9\u30c8",
-      "label": "\u30c6\u30b9\u30c8",
-      "_origin": "ast",
-      "community": 51,
-      "community_name": "P1-07: immovable old objects",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u30c6\u30b9\u30c8",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L20"
-    },
-    {
-      "id": "docs_prs_p1_07_\u624b\u9806",
-      "label": "\u624b\u9806",
-      "_origin": "ast",
-      "community": 51,
-      "community_name": "P1-07: immovable old objects",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u624b\u9806",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L24"
-    },
-    {
-      "id": "docs_prs_p1_07_\u76ee\u7684",
-      "label": "\u76ee\u7684",
-      "_origin": "ast",
-      "community": 51,
-      "community_name": "P1-07: immovable old objects",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u76ee\u7684",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L7"
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "addroots",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L53"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_behaviorclass",
@@ -3832,7 +3822,7 @@
       "file_type": "code",
       "norm_label": "behaviorclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L26"
+      "source_location": "L30"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_behaviormetaclass",
@@ -3843,7 +3833,7 @@
       "file_type": "code",
       "norm_label": "behaviormetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L27"
+      "source_location": "L31"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_booleanclass",
@@ -3854,7 +3844,7 @@
       "file_type": "code",
       "norm_label": "booleanclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L36"
+      "source_location": "L40"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_booleanmetaclass",
@@ -3865,7 +3855,7 @@
       "file_type": "code",
       "norm_label": "booleanmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L37"
+      "source_location": "L41"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_characterclass",
@@ -3876,7 +3866,7 @@
       "file_type": "code",
       "norm_label": "characterclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L44"
+      "source_location": "L48"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_charactermetaclass",
@@ -3887,7 +3877,7 @@
       "file_type": "code",
       "norm_label": "charactermetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L45"
+      "source_location": "L49"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classclass",
@@ -3898,7 +3888,7 @@
       "file_type": "code",
       "norm_label": "classclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L30"
+      "source_location": "L34"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classdescriptionclass",
@@ -3909,7 +3899,7 @@
       "file_type": "code",
       "norm_label": "classdescriptionclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L28"
+      "source_location": "L32"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classdescriptionmetaclass",
@@ -3920,7 +3910,7 @@
       "file_type": "code",
       "norm_label": "classdescriptionmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L29"
+      "source_location": "L33"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classmetaclass",
@@ -3931,7 +3921,7 @@
       "file_type": "code",
       "norm_label": "classmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L31"
+      "source_location": "L35"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classof",
@@ -3942,7 +3932,7 @@
       "file_type": "code",
       "norm_label": "classof",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L22"
+      "source_location": "L26"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_falseclass",
@@ -3953,7 +3943,7 @@
       "file_type": "code",
       "norm_label": "falseclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L40"
+      "source_location": "L44"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_falsemetaclass",
@@ -3964,7 +3954,7 @@
       "file_type": "code",
       "norm_label": "falsemetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L41"
+      "source_location": "L45"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_heap",
@@ -3975,7 +3965,7 @@
       "file_type": "code",
       "norm_label": "heap_",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L50"
+      "source_location": "L54"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_metaclassclass",
@@ -3986,7 +3976,7 @@
       "file_type": "code",
       "norm_label": "metaclassclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L32"
+      "source_location": "L36"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_metaclassmetaclass",
@@ -3997,7 +3987,7 @@
       "file_type": "code",
       "norm_label": "metaclassmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L33"
+      "source_location": "L37"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_named",
@@ -4008,7 +3998,7 @@
       "file_type": "code",
       "norm_label": "named",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L21"
+      "source_location": "L25"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_objectclass",
@@ -4019,7 +4009,7 @@
       "file_type": "code",
       "norm_label": "objectclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L24"
+      "source_location": "L28"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_objectmetaclass",
@@ -4030,7 +4020,7 @@
       "file_type": "code",
       "norm_label": "objectmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L25"
+      "source_location": "L29"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_smallintegerclass",
@@ -4041,7 +4031,7 @@
       "file_type": "code",
       "norm_label": "smallintegerclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L42"
+      "source_location": "L46"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_smallintegermetaclass",
@@ -4052,7 +4042,7 @@
       "file_type": "code",
       "norm_label": "smallintegermetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L43"
+      "source_location": "L47"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_smalltalk",
@@ -4063,7 +4053,7 @@
       "file_type": "code",
       "norm_label": "smalltalk",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L46"
+      "source_location": "L50"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_trueclass",
@@ -4074,7 +4064,7 @@
       "file_type": "code",
       "norm_label": "trueclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L38"
+      "source_location": "L42"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_truemetaclass",
@@ -4085,7 +4075,7 @@
       "file_type": "code",
       "norm_label": "truemetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L39"
+      "source_location": "L43"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_undefinedobjectclass",
@@ -4096,7 +4086,7 @@
       "file_type": "code",
       "norm_label": "undefinedobjectclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L34"
+      "source_location": "L38"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_undefinedobjectmetaclass",
@@ -4107,7 +4097,7 @@
       "file_type": "code",
       "norm_label": "undefinedobjectmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L35"
+      "source_location": "L39"
     },
     {
       "id": "runtime_src_bootstrap",
@@ -4144,6 +4134,28 @@
     },
     {
       "id": "runtime_src_globals_cpp_string_view",
+      "label": "string_view",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "string_view",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_wellknown",
+      "label": "WellKnown.cpp",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "wellknown.cpp",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_wellknown_cpp_string_view",
       "label": "string_view",
       "_origin": "ast",
       "community": 6,
@@ -4385,6 +4397,126 @@
       "source_location": ""
     },
     {
+      "id": "bridge_ao_abi_ao_runtime_boot",
+      "label": "ao_runtime_boot",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "ao_runtime_boot",
+      "source_file": "bridge/ao_abi.h",
+      "source_location": "13",
+      "source_url": null
+    },
+    {
+      "id": "bridge_ao_abi_ao_runtime_shutdown",
+      "label": "ao_runtime_shutdown",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "ao_runtime_shutdown",
+      "source_file": "bridge/ao_abi.h",
+      "source_location": "14",
+      "source_url": null
+    },
+    {
+      "id": "bridge_ao_abi_ao_version",
+      "label": "ao_version",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "ao_version",
+      "source_file": "bridge/ao_abi.h",
+      "source_location": "12",
+      "source_url": null
+    },
+    {
+      "id": "cmakelists",
+      "label": "Root CMakeLists.txt",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "root cmakelists.txt",
+      "source_file": "CMakeLists.txt",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "compiler_cmakelists",
+      "label": "compiler CMakeLists",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "compiler cmakelists",
+      "source_file": "compiler/CMakeLists.txt",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "compiler_include_ao_compiler_version",
+      "label": "ao::compiler::version",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "ao::compiler::version",
+      "source_file": "compiler/include/ao/Compiler.hpp",
+      "source_location": "5",
+      "source_url": null
+    },
+    {
+      "id": "compiler_src_compiler_version_impl",
+      "label": "version() implementation",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "version() implementation",
+      "source_file": "compiler/src/Compiler.cpp",
+      "source_location": "5",
+      "source_url": null
+    },
+    {
+      "id": "compiler_tests_smoke_test_compiler",
+      "label": "CompilerSmoke.VersionIsNonEmpty",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "compilersmoke.versionisnonempty",
+      "source_file": "compiler/tests/smoke_test.cpp",
+      "source_location": "6:10",
+      "source_url": null
+    },
+    {
       "id": "concept_ao",
       "label": "Ao macOS native Smalltalk",
       "_origin": "semantic",
@@ -4427,6 +4559,21 @@
       "norm_label": "ao cli",
       "source_file": "SPEC.md",
       "source_location": "72",
+      "source_url": null
+    },
+    {
+      "id": "concept_ao_oop_type",
+      "label": "ao::Oop typed pointer",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "ao::oop typed pointer",
+      "source_file": "CLAUDE.md",
+      "source_location": "157",
       "source_url": null
     },
     {
@@ -4492,6 +4639,22 @@
       "source_url": null
     },
     {
+      "id": "concept_c_abi_boundary",
+      "label": "C ABI runtime-app boundary",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "c abi runtime-app boundary",
+      "rationale": "Only bridge/ao_abi.h crosses runtime and Swift app; Swift must not depend on C++ templates",
+      "source_file": "SPEC.md",
+      "source_location": "391:403",
+      "source_url": null
+    },
+    {
       "id": "concept_compiledmethod",
       "label": "CompiledMethod",
       "_origin": "semantic",
@@ -4535,6 +4698,21 @@
       "rationale": "Kernel category classes and methods must all be native C++ code; Smalltalk sources in image/Kernel are comments and protocol only",
       "source_file": "SPEC.md",
       "source_location": "217:219",
+      "source_url": null
+    },
+    {
+      "id": "concept_libao_runtime",
+      "label": "libao_runtime",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "libao_runtime",
+      "source_file": "SPEC.md",
+      "source_location": "71",
       "source_url": null
     },
     {
@@ -4583,6 +4761,22 @@
       "source_url": null
     },
     {
+      "id": "concept_tagged_oop",
+      "label": "64-bit tagged OOP",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "64-bit tagged oop",
+      "rationale": "No object table; direct tagged pointers for SmallInteger, Character, immediates, and heap objects",
+      "source_file": "SPEC.md",
+      "source_location": "128:137",
+      "source_url": null
+    },
+    {
       "id": "concept_vendor_import",
       "label": "Vendor class library import",
       "_origin": "semantic",
@@ -4610,6 +4804,21 @@
       "file_type": "document",
       "norm_label": "readme.md",
       "source_file": "README.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "serena_memories_abi_boundary",
+      "label": "ABI boundary memory",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "abi boundary memory",
+      "source_file": ".serena/memories/abi_boundary.md",
       "source_location": null,
       "source_url": null
     },
@@ -4895,6 +5104,51 @@
       "file_type": "concept",
       "norm_label": "methoddictionary",
       "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p3_nativemethod",
+      "label": "NativeMethod",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 1,
+      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nativemethod",
+      "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p3_selector_mangle",
+      "label": "selector mangle ao_<Class>_<selectorMangled>",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 1,
+      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "selector mangle ao_<class>_<selectormangled>",
+      "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p7_native_rebind",
+      "label": "NativeMethod symbol rebind on load",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 1,
+      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nativemethod symbol rebind on load",
+      "source_file": "docs/phases/P7.md",
       "source_location": null,
       "source_url": null
     },
@@ -5799,187 +6053,6 @@
       "source_url": null
     },
     {
-      "id": "serena_project",
-      "label": "Serena project.yml",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "serena project.yml",
-      "source_file": ".serena/project.yml",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "concept_ao_oop_type",
-      "label": "ao::Oop typed pointer",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "ao::oop typed pointer",
-      "source_file": "CLAUDE.md",
-      "source_location": "157",
-      "source_url": null
-    },
-    {
-      "id": "concept_claude_authority",
-      "label": "CLAUDE.md process authority",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "claude.md process authority",
-      "source_file": "AGENTS.md",
-      "source_location": "5:8",
-      "source_url": null
-    },
-    {
-      "id": "concept_graphify",
-      "label": "Graphify knowledge graph tool",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "graphify knowledge graph tool",
-      "source_file": "CLAUDE.md",
-      "source_location": "30:39",
-      "source_url": null
-    },
-    {
-      "id": "concept_phase_p0",
-      "label": "Phase P0 skeleton",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "phase p0 skeleton",
-      "source_file": "SPEC.md",
-      "source_location": "110",
-      "source_url": null
-    },
-    {
-      "id": "concept_phase_pipeline",
-      "label": "Phase pipeline P0-P9",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "phase pipeline p0-p9",
-      "source_file": "SPEC.md",
-      "source_location": "106:122",
-      "source_url": null
-    },
-    {
-      "id": "concept_serena",
-      "label": "Serena LSP symbol tool",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "serena lsp symbol tool",
-      "source_file": "CLAUDE.md",
-      "source_location": "30:39",
-      "source_url": null
-    },
-    {
-      "id": "concept_spec_authority",
-      "label": "SPEC.md product authority",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "spec.md product authority",
-      "source_file": "AGENTS.md",
-      "source_location": "5:8",
-      "source_url": null
-    },
-    {
-      "id": "concept_tagged_oop",
-      "label": "64-bit tagged OOP",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "64-bit tagged oop",
-      "rationale": "No object table; direct tagged pointers for SmallInteger, Character, immediates, and heap objects",
-      "source_file": "SPEC.md",
-      "source_location": "128:137",
-      "source_url": null
-    },
-    {
-      "id": "agents",
-      "label": "AGENTS.md",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "agents.md",
-      "source_file": "AGENTS.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "claude",
-      "label": "CLAUDE.md",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "claude.md",
-      "source_file": "CLAUDE.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p0",
-      "label": "P0 phase doc",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "P0 phase doc",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p0 phase doc",
-      "source_file": "docs/phases/P0.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_prs_p8_01_ao_abi",
       "label": "ao_abi boot/shutdown",
       "_origin": "semantic",
@@ -6171,216 +6244,6 @@
       "file_type": "rationale",
       "norm_label": "no function-pointer fields in image",
       "source_file": "docs/prs/P7-01.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p0_03_ao_boot",
-      "label": "ao::boot / shutdown / version_string",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 26,
-      "community_name": "P0-03: CMake + GoogleTest + CLI",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "ao::boot / shutdown / version_string",
-      "source_file": "docs/prs/P0-03.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p0_04_ao_abi",
-      "label": "ao_abi.h C ABI stub",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 26,
-      "community_name": "P0-03: CMake + GoogleTest + CLI",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "ao_abi.h c abi stub",
-      "source_file": "docs/prs/P0-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p0_06_serena",
-      "label": "Serena project.yml",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 26,
-      "community_name": "P0-03: CMake + GoogleTest + CLI",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "serena project.yml",
-      "source_file": "docs/prs/P0-06.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p0_07_graphify_out",
-      "label": "graphify-out artifacts",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 26,
-      "community_name": "P0-03: CMake + GoogleTest + CLI",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "graphify-out artifacts",
-      "source_file": "docs/prs/P0-07.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p0_03",
-      "label": "P0-03: CMake + GoogleTest + CLI",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 26,
-      "community_name": "P0-03: CMake + GoogleTest + CLI",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p0-03: cmake + googletest + cli",
-      "source_file": "docs/prs/P0-03.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p0_04",
-      "label": "P0-04: C ABI + Swift smoke",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 26,
-      "community_name": "P0-03: CMake + GoogleTest + CLI",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p0-04: c abi + swift smoke",
-      "source_file": "docs/prs/P0-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p0_06",
-      "label": "P0-06: Serena project",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 26,
-      "community_name": "P0-03: CMake + GoogleTest + CLI",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p0-06: serena project",
-      "source_file": "docs/prs/P0-06.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p0_07",
-      "label": "P0-07: Graphify initial graph",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 26,
-      "community_name": "P0-03: CMake + GoogleTest + CLI",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p0-07: graphify initial graph",
-      "source_file": "docs/prs/P0-07.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p8_browser",
-      "label": "System Browser 5-pane",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "system browser 5-pane",
-      "source_file": "docs/phases/P8.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p8_transcript",
-      "label": "Transcript NSWindow",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "transcript nswindow",
-      "source_file": "docs/phases/P8.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p8_workspace",
-      "label": "Workspace NSWindow",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "workspace nswindow",
-      "source_file": "docs/phases/P8.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p9_do_it",
-      "label": "Do it / Print it / accept",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "do it / print it / accept",
-      "source_file": "docs/phases/P9.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p8",
-      "label": "P8 \u2014 AppKit Tools",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p8 \u2014 appkit tools",
-      "source_file": "docs/phases/P8.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p9",
-      "label": "P9 \u2014 Integration",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 28,
-      "community_name": "P9 \u2014 Integration",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p9 \u2014 integration",
-      "source_file": "docs/phases/P9.md",
       "source_location": null,
       "source_url": null
     },
@@ -6715,6 +6578,111 @@
       "source_url": null
     },
     {
+      "id": "serena_project",
+      "label": "Serena project.yml",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "serena project.yml",
+      "source_file": ".serena/project.yml",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "concept_claude_authority",
+      "label": "CLAUDE.md process authority",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "claude.md process authority",
+      "source_file": "AGENTS.md",
+      "source_location": "5:8",
+      "source_url": null
+    },
+    {
+      "id": "concept_graphify",
+      "label": "Graphify knowledge graph tool",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "graphify knowledge graph tool",
+      "source_file": "CLAUDE.md",
+      "source_location": "30:39",
+      "source_url": null
+    },
+    {
+      "id": "concept_phase_p0",
+      "label": "Phase P0 skeleton",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "phase p0 skeleton",
+      "source_file": "SPEC.md",
+      "source_location": "110",
+      "source_url": null
+    },
+    {
+      "id": "concept_phase_pipeline",
+      "label": "Phase pipeline P0-P9",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "phase pipeline p0-p9",
+      "source_file": "SPEC.md",
+      "source_location": "106:122",
+      "source_url": null
+    },
+    {
+      "id": "concept_serena",
+      "label": "Serena LSP symbol tool",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "serena lsp symbol tool",
+      "source_file": "CLAUDE.md",
+      "source_location": "30:39",
+      "source_url": null
+    },
+    {
+      "id": "concept_spec_authority",
+      "label": "SPEC.md product authority",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "spec.md product authority",
+      "source_file": "AGENTS.md",
+      "source_location": "5:8",
+      "source_url": null
+    },
+    {
       "id": "docs_phases_p1_ao_oop",
       "label": "ao::Oop",
       "_origin": "semantic",
@@ -6790,6 +6758,81 @@
       "source_url": null
     },
     {
+      "id": "docs_phases_p7_aoimage",
+      "label": ".aoimage save/load",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": ".aoimage save/load",
+      "source_file": "docs/phases/P7.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p8_browser",
+      "label": "System Browser 5-pane",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "system browser 5-pane",
+      "source_file": "docs/phases/P8.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p8_transcript",
+      "label": "Transcript NSWindow",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "transcript nswindow",
+      "source_file": "docs/phases/P8.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p8_workspace",
+      "label": "Workspace NSWindow",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "workspace nswindow",
+      "source_file": "docs/phases/P8.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p9_do_it",
+      "label": "Do it / Print it / accept",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "do it / print it / accept",
+      "source_file": "docs/phases/P9.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "docs_prs_p0_01_phase_marker",
       "label": "PHASE file marker",
       "_origin": "semantic",
@@ -6801,6 +6844,66 @@
       "file_type": "concept",
       "norm_label": "phase file marker",
       "source_file": "docs/prs/P0-01.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p0_03_ao_boot",
+      "label": "ao::boot / shutdown / version_string",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "ao::boot / shutdown / version_string",
+      "source_file": "docs/prs/P0-03.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p0_04_ao_abi",
+      "label": "ao_abi.h C ABI stub",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "ao_abi.h c abi stub",
+      "source_file": "docs/prs/P0-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p0_06_serena",
+      "label": "Serena project.yml",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "serena project.yml",
+      "source_file": "docs/prs/P0-06.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p0_07_graphify_out",
+      "label": "graphify-out artifacts",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "graphify-out artifacts",
+      "source_file": "docs/prs/P0-07.md",
       "source_location": null,
       "source_url": null
     },
@@ -6850,6 +6953,141 @@
       "source_url": null
     },
     {
+      "id": "docs_prs_p1_04_gc_collectold",
+      "label": "Gc::collectOld()",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc::collectold()",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_nursery_gc",
+      "label": "nursery GC",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nursery gc",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_promotion",
+      "label": "old-generation promotion",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "old-generation promotion",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_gc",
+      "label": "Gc",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_roots",
+      "label": "Roots",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "roots",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_roots_add",
+      "label": "Roots::add(Oop*)",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "roots::add(oop*)",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "agents",
+      "label": "AGENTS.md",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "agents.md",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "claude",
+      "label": "CLAUDE.md",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "claude.md",
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p0",
+      "label": "P0 phase doc",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p0 phase doc",
+      "source_file": "docs/phases/P0.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "docs_phases_p1",
       "label": "P1 \u2014 Object Memory",
       "_origin": "semantic",
@@ -6861,6 +7099,51 @@
       "file_type": "document",
       "norm_label": "p1 \u2014 object memory",
       "source_file": "docs/phases/P1.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p7",
+      "label": "P7 \u2014 Image",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p7 \u2014 image",
+      "source_file": "docs/phases/P7.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p8",
+      "label": "P8 \u2014 AppKit Tools",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p8 \u2014 appkit tools",
+      "source_file": "docs/phases/P8.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p9",
+      "label": "P9 \u2014 Integration",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p9 \u2014 integration",
+      "source_file": "docs/phases/P9.md",
       "source_location": null,
       "source_url": null
     },
@@ -6895,6 +7178,36 @@
       "source_url": null
     },
     {
+      "id": "docs_prs_p0_03",
+      "label": "P0-03: CMake + GoogleTest + CLI",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p0-03: cmake + googletest + cli",
+      "source_file": "docs/prs/P0-03.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p0_04",
+      "label": "P0-04: C ABI + Swift smoke",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p0-04: c abi + swift smoke",
+      "source_file": "docs/prs/P0-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "docs_prs_p0_05",
       "label": "P0-05: docs/phases and docs/prs",
       "_origin": "semantic",
@@ -6906,6 +7219,36 @@
       "file_type": "document",
       "norm_label": "p0-05: docs/phases and docs/prs",
       "source_file": "docs/prs/P0-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p0_06",
+      "label": "P0-06: Serena project",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p0-06: serena project",
+      "source_file": "docs/prs/P0-06.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p0_07",
+      "label": "P0-07: Graphify initial graph",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p0-07: graphify initial graph",
+      "source_file": "docs/prs/P0-07.md",
       "source_location": null,
       "source_url": null
     },
@@ -6951,6 +7294,36 @@
       "file_type": "document",
       "norm_label": "p1-03: nursery gc",
       "source_file": "docs/prs/P1-03.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_pr",
+      "label": "P1-04 old-generation mark-compact",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-04 old-generation mark-compact",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_pr",
+      "label": "P1-05 GC root API",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-05 gc root api",
+      "source_file": "docs/prs/P1-05.md",
       "source_location": null,
       "source_url": null
     },
@@ -7210,126 +7583,6 @@
       "source_url": null
     },
     {
-      "id": "docs_prs_p1_04_gc_collectold",
-      "label": "Gc::collectOld()",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 46,
-      "community_name": "P1-04 old-generation mark-compact",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc::collectold()",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_nursery_gc",
-      "label": "nursery GC",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 46,
-      "community_name": "P1-04 old-generation mark-compact",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nursery gc",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_promotion",
-      "label": "old-generation promotion",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 46,
-      "community_name": "P1-04 old-generation mark-compact",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "old-generation promotion",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_gc",
-      "label": "Gc",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 46,
-      "community_name": "P1-04 old-generation mark-compact",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots",
-      "label": "Roots",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 46,
-      "community_name": "P1-04 old-generation mark-compact",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "roots",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots_add",
-      "label": "Roots::add(Oop*)",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 46,
-      "community_name": "P1-04 old-generation mark-compact",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "roots::add(oop*)",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_pr",
-      "label": "P1-04 old-generation mark-compact",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 46,
-      "community_name": "P1-04 old-generation mark-compact",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-04 old-generation mark-compact",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_pr",
-      "label": "P1-05 GC root API",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 46,
-      "community_name": "P1-04 old-generation mark-compact",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-05 gc root api",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_prs_p4_08_geometry_cpp",
       "label": "runtime/src/kernel/Geometry.cpp",
       "_origin": "semantic",
@@ -7536,82 +7789,6 @@
       "file_type": "document",
       "norm_label": "p4-09 kernel nativemethod scan and bench",
       "source_file": "docs/prs/P4-09.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "bridge_ao_abi_ao_runtime_boot",
-      "label": "ao_runtime_boot",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 49,
-      "community_name": "ao_abi.h",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "ao_runtime_boot",
-      "source_file": "bridge/ao_abi.h",
-      "source_location": "13",
-      "source_url": null
-    },
-    {
-      "id": "bridge_ao_abi_ao_runtime_shutdown",
-      "label": "ao_runtime_shutdown",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 49,
-      "community_name": "ao_abi.h",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "ao_runtime_shutdown",
-      "source_file": "bridge/ao_abi.h",
-      "source_location": "14",
-      "source_url": null
-    },
-    {
-      "id": "bridge_ao_abi_ao_version",
-      "label": "ao_version",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 49,
-      "community_name": "ao_abi.h",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "ao_version",
-      "source_file": "bridge/ao_abi.h",
-      "source_location": "12",
-      "source_url": null
-    },
-    {
-      "id": "concept_c_abi_boundary",
-      "label": "C ABI runtime-app boundary",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 49,
-      "community_name": "ao_abi.h",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "c abi runtime-app boundary",
-      "rationale": "Only bridge/ao_abi.h crosses runtime and Swift app; Swift must not depend on C++ templates",
-      "source_file": "SPEC.md",
-      "source_location": "391:403",
-      "source_url": null
-    },
-    {
-      "id": "serena_memories_abi_boundary",
-      "label": "ABI boundary memory",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 49,
-      "community_name": "ao_abi.h",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "abi boundary memory",
-      "source_file": ".serena/memories/abi_boundary.md",
       "source_location": null,
       "source_url": null
     },
@@ -7991,96 +8168,6 @@
       "source_url": null
     },
     {
-      "id": "cmakelists",
-      "label": "Root CMakeLists.txt",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 50,
-      "community_name": "ao::compiler::version",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "root cmakelists.txt",
-      "source_file": "CMakeLists.txt",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "compiler_cmakelists",
-      "label": "compiler CMakeLists",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 50,
-      "community_name": "ao::compiler::version",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "compiler cmakelists",
-      "source_file": "compiler/CMakeLists.txt",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "compiler_include_ao_compiler_version",
-      "label": "ao::compiler::version",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 50,
-      "community_name": "ao::compiler::version",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "ao::compiler::version",
-      "source_file": "compiler/include/ao/Compiler.hpp",
-      "source_location": "5",
-      "source_url": null
-    },
-    {
-      "id": "compiler_src_compiler_version_impl",
-      "label": "version() implementation",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 50,
-      "community_name": "ao::compiler::version",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "version() implementation",
-      "source_file": "compiler/src/Compiler.cpp",
-      "source_location": "5",
-      "source_url": null
-    },
-    {
-      "id": "compiler_tests_smoke_test_compiler",
-      "label": "CompilerSmoke.VersionIsNonEmpty",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 50,
-      "community_name": "ao::compiler::version",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "compilersmoke.versionisnonempty",
-      "source_file": "compiler/tests/smoke_test.cpp",
-      "source_location": "6:10",
-      "source_url": null
-    },
-    {
-      "id": "concept_libao_runtime",
-      "label": "libao_runtime",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 50,
-      "community_name": "ao::compiler::version",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "libao_runtime",
-      "source_file": "SPEC.md",
-      "source_location": "71",
-      "source_url": null
-    },
-    {
       "id": "docs_prs_p4_02_behavior_cpp",
       "label": "runtime/src/kernel/Behavior.cpp",
       "_origin": "semantic",
@@ -8231,36 +8318,6 @@
       "source_url": null
     },
     {
-      "id": "docs_phases_p3_nativemethod",
-      "label": "NativeMethod",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 8,
-      "community_name": "P6b \u2014 vendor file-in",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nativemethod",
-      "source_file": "docs/phases/P3.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p3_selector_mangle",
-      "label": "selector mangle ao_<Class>_<selectorMangled>",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 8,
-      "community_name": "P6b \u2014 vendor file-in",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "selector mangle ao_<class>_<selectormangled>",
-      "source_file": "docs/phases/P3.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_phases_p5_ast",
       "label": "AST via lexer/parser",
       "_origin": "semantic",
@@ -8396,36 +8453,6 @@
       "source_url": null
     },
     {
-      "id": "docs_phases_p7_aoimage",
-      "label": ".aoimage save/load",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 8,
-      "community_name": "P6b \u2014 vendor file-in",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": ".aoimage save/load",
-      "source_file": "docs/phases/P7.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p7_native_rebind",
-      "label": "NativeMethod symbol rebind on load",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 8,
-      "community_name": "P6b \u2014 vendor file-in",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nativemethod symbol rebind on load",
-      "source_file": "docs/phases/P7.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_phases_p5",
       "label": "P5 \u2014 Compiler",
       "_origin": "semantic",
@@ -8471,21 +8498,6 @@
       "source_url": null
     },
     {
-      "id": "docs_phases_p7",
-      "label": "P7 \u2014 Image",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 8,
-      "community_name": "P6b \u2014 vendor file-in",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p7 \u2014 image",
-      "source_file": "docs/phases/P7.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_prs_p6b_01_notice",
       "label": "NOTICE mixed licenses",
       "_origin": "semantic",
@@ -8499,30 +8511,6 @@
       "source_file": "docs/prs/P6b-01.md",
       "source_location": null,
       "source_url": null
-    },
-    {
-      "id": "algorithm",
-      "label": "algorithm",
-      "_origin": "semantic",
-      "community": 12,
-      "community_name": "Roots",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "algorithm",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "wellknown",
-      "label": "wellknown",
-      "_origin": "semantic",
-      "community": 12,
-      "community_name": "Roots",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "wellknown",
-      "source_file": "",
-      "type": "external"
     },
     {
       "id": "cassert",
@@ -8549,6 +8537,30 @@
       "type": "external"
     },
     {
+      "id": "algorithm",
+      "label": "algorithm",
+      "_origin": "semantic",
+      "community": 15,
+      "community_name": "Roots.cpp",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "algorithm",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "cstddef",
+      "label": "cstddef",
+      "_origin": "semantic",
+      "community": 2,
+      "community_name": "TEST",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "cstddef",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "cstdint",
       "label": "cstdint",
       "_origin": "semantic",
@@ -8561,14 +8573,14 @@
       "type": "external"
     },
     {
-      "id": "gc",
-      "label": "gc",
+      "id": "memory",
+      "label": "memory",
       "_origin": "semantic",
-      "community": 21,
-      "community_name": "bootstrap_test.cpp",
+      "community": 2,
+      "community_name": "TEST",
       "external": true,
       "file_type": "concept",
-      "norm_label": "gc",
+      "norm_label": "memory",
       "source_file": "",
       "type": "external"
     },
@@ -8633,26 +8645,50 @@
       "type": "external"
     },
     {
-      "id": "cstddef",
-      "label": "cstddef",
+      "id": "gc",
+      "label": "gc",
       "_origin": "semantic",
-      "community": 44,
-      "community_name": "ObjectHeader",
+      "community": 49,
+      "community_name": "gc_test.cpp",
       "external": true,
       "file_type": "concept",
-      "norm_label": "cstddef",
+      "norm_label": "gc",
       "source_file": "",
       "type": "external"
     },
     {
-      "id": "memory",
-      "label": "memory",
+      "id": "string_view",
+      "label": "string_view",
       "_origin": "semantic",
-      "community": 44,
-      "community_name": "ObjectHeader",
+      "community": 5,
+      "community_name": "P2-02 class object skeletons",
       "external": true,
       "file_type": "concept",
-      "norm_label": "memory",
+      "norm_label": "string_view",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "wellknown",
+      "label": "wellknown",
+      "_origin": "semantic",
+      "community": 5,
+      "community_name": "P2-02 class object skeletons",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "wellknown",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "globals",
+      "label": "globals",
+      "_origin": "semantic",
+      "community": 6,
+      "community_name": "WellKnown",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "globals",
       "source_file": "",
       "type": "external"
     },
@@ -8705,24 +8741,13 @@
       "type": "external"
     },
     {
-      "id": "string_view",
-      "label": "string_view",
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
+      "id": "type_traits",
+      "label": "type_traits",
+      "community": 21,
+      "community_name": "bootstrap_test.cpp",
       "external": true,
       "file_type": "concept",
-      "norm_label": "string_view",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "globals",
-      "label": "globals",
-      "community": 6,
-      "community_name": "WellKnown",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "globals",
+      "norm_label": "type_traits",
       "source_file": "",
       "type": "external"
     }
@@ -8809,7 +8834,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L19",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -8821,7 +8846,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L17",
+      "source_location": "L21",
       "weight": 1.0
     },
     {
@@ -8833,7 +8858,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L18",
+      "source_location": "L22",
       "weight": 1.0
     },
     {
@@ -9121,7 +9146,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L106",
+      "source_location": "L113",
       "weight": 1.0
     },
     {
@@ -9133,7 +9158,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L90",
+      "source_location": "L97",
       "weight": 1.0
     },
     {
@@ -9913,7 +9938,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L21",
+      "source_location": "L25",
       "weight": 1.0
     },
     {
@@ -9925,7 +9950,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L22",
+      "source_location": "L26",
       "weight": 1.0
     },
     {
@@ -9937,7 +9962,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L24",
+      "source_location": "L28",
       "weight": 1.0
     },
     {
@@ -9949,7 +9974,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L25",
+      "source_location": "L29",
       "weight": 1.0
     },
     {
@@ -9961,7 +9986,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L26",
+      "source_location": "L30",
       "weight": 1.0
     },
     {
@@ -9973,7 +9998,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L27",
+      "source_location": "L31",
       "weight": 1.0
     },
     {
@@ -9985,7 +10010,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L28",
+      "source_location": "L32",
       "weight": 1.0
     },
     {
@@ -9997,7 +10022,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L29",
+      "source_location": "L33",
       "weight": 1.0
     },
     {
@@ -10009,7 +10034,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L30",
+      "source_location": "L34",
       "weight": 1.0
     },
     {
@@ -10021,7 +10046,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L31",
+      "source_location": "L35",
       "weight": 1.0
     },
     {
@@ -10033,7 +10058,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L32",
+      "source_location": "L36",
       "weight": 1.0
     },
     {
@@ -10045,7 +10070,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L33",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
@@ -10057,7 +10082,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L34",
+      "source_location": "L38",
       "weight": 1.0
     },
     {
@@ -10069,7 +10094,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L35",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -10081,7 +10106,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L36",
+      "source_location": "L40",
       "weight": 1.0
     },
     {
@@ -10093,7 +10118,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L37",
+      "source_location": "L41",
       "weight": 1.0
     },
     {
@@ -10105,7 +10130,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L38",
+      "source_location": "L42",
       "weight": 1.0
     },
     {
@@ -10117,7 +10142,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L39",
+      "source_location": "L43",
       "weight": 1.0
     },
     {
@@ -10129,7 +10154,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L40",
+      "source_location": "L44",
       "weight": 1.0
     },
     {
@@ -10141,7 +10166,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L41",
+      "source_location": "L45",
       "weight": 1.0
     },
     {
@@ -10153,7 +10178,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L42",
+      "source_location": "L46",
       "weight": 1.0
     },
     {
@@ -10165,7 +10190,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L43",
+      "source_location": "L47",
       "weight": 1.0
     },
     {
@@ -10177,7 +10202,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L44",
+      "source_location": "L48",
       "weight": 1.0
     },
     {
@@ -10189,7 +10214,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L45",
+      "source_location": "L49",
       "weight": 1.0
     },
     {
@@ -10201,7 +10226,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L46",
+      "source_location": "L50",
       "weight": 1.0
     },
     {
@@ -10213,7 +10238,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L49",
+      "source_location": "L53",
       "weight": 1.0
     },
     {
@@ -10225,7 +10250,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L50",
+      "source_location": "L54",
       "weight": 1.0
     },
     {
@@ -10381,7 +10406,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L46",
+      "source_location": "L50",
       "weight": 1.0
     },
     {
@@ -10393,7 +10418,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L50",
+      "source_location": "L54",
       "weight": 1.0
     },
     {
@@ -11126,6 +11151,18 @@
       "context": "import",
       "source_file": "runtime/tests/bootstrap_test.cpp",
       "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test",
+      "target": "type_traits",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
@@ -12085,7 +12122,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L79",
+      "source_location": "L86",
       "weight": 1.0
     },
     {
@@ -12097,7 +12134,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L79",
+      "source_location": "L86",
       "weight": 1.0
     },
     {
@@ -12109,7 +12146,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L81",
+      "source_location": "L88",
       "weight": 1.0
     },
     {
@@ -12121,223 +12158,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L81",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "wellknownimmediatesmatchooptags",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L10",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cycleobjectsuperclassisnil",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L101",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cycleobjectclasssuperclassisclass",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L109",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cycleeveryclassisinstanceofitsmetaclass",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L117",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cycleeverymetaclassisinstanceofmetaclass",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L129",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cyclemetaclasshierarchyparallelsclasses",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L141",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cyclemetaclassinheritsfromclassdescription",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L154",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cyclemethoddictisnilandformatissmi",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L163",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cycleimmediateclassof",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L177",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cyclesurvivesnurserygc",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L195",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "smalltalkmapsobjectnametoclass",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L208",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "wellknownnamedimmediates",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L22",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "bootstrap",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L224",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "smalltalkcontainsallelevenclasses",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L224",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "immediateclassslotsreserved",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L33",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "classskeletonsareheapandnamed",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L45",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "skeletonslotsstartnil",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L69",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_bootstrap_test_test",
-      "target": "cycleobjectclassclassismetaclass",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L85",
+      "source_location": "L88",
       "weight": 1.0
     },
     {
@@ -12349,7 +12170,223 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L93",
+      "source_location": "L100",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cycleobjectsuperclassisnil",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L108",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cycleobjectclasssuperclassisclass",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L116",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cycleeveryclassisinstanceofitsmetaclass",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L124",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cycleeverymetaclassisinstanceofmetaclass",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L136",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cyclemetaclasshierarchyparallelsclasses",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L148",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cyclemetaclassinheritsfromclassdescription",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L161",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "wellknownimmediatesmatchooptags",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cyclemethoddictisnilandformatissmi",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L170",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cycleimmediateclassof",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L184",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cyclesurvivesnurserygc",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L202",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "smalltalkmapsobjectnametoclass",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L215",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "bootstrap",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L231",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "smalltalkcontainsallelevenclasses",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L231",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "wellknownnamedimmediates",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "immediateclassslotsreserved",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L40",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "classskeletonsareheapandnamed",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L52",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "skeletonslotsstartnil",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L76",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_bootstrap_test_test",
+      "target": "cycleobjectclassclassismetaclass",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L92",
       "weight": 1.0
     },
     {
@@ -12901,7 +12938,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L19",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -12913,7 +12950,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L17",
+      "source_location": "L21",
       "weight": 1.0
     },
     {
@@ -12925,7 +12962,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L18",
+      "source_location": "L22",
       "weight": 1.0
     },
     {
@@ -14304,7 +14341,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L224",
+      "source_location": "L231",
       "weight": 1.0
     },
     {
@@ -14315,7 +14352,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L79",
+      "source_location": "L86",
       "weight": 1.0
     },
     {
@@ -14326,7 +14363,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L81",
+      "source_location": "L88",
       "weight": 1.0
     },
     {
@@ -14639,13 +14676,24 @@
     },
     {
       "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_wellknown",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
       "target": "runtime_include_ao_wellknown_wellknown_nil",
       "relation": "method",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L17",
+      "source_location": "L21",
       "weight": 1.0
     },
     {
@@ -14656,7 +14704,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L18",
+      "source_location": "L22",
       "weight": 1.0
     },
     {
@@ -14667,7 +14715,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L19",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -15678,7 +15726,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L79",
+      "source_location": "L86",
       "weight": 1.0
     },
     {
@@ -15690,7 +15738,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L82",
+      "source_location": "L89",
       "weight": 1.0
     },
     {
@@ -15702,7 +15750,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L58",
+      "source_location": "L65",
       "weight": 1.0
     },
     {
@@ -15714,7 +15762,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L59",
+      "source_location": "L66",
       "weight": 1.0
     },
     {
@@ -15726,7 +15774,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L60",
+      "source_location": "L67",
       "weight": 1.0
     },
     {
@@ -20334,5 +20382,5 @@
       "source_file": "runtime/src/abi.cpp"
     }
   ],
-  "built_at_commit": "5770a507b07f402f61ba116ad18446db2b327f0a"
+  "built_at_commit": "d90d54bbf1d937ab37d437176ed0b6a671553a02"
 }

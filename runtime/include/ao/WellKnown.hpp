@@ -4,6 +4,7 @@
 #include "ao/Oop.hpp"
 #include "ao/Roots.hpp"
 
+#include <memory>
 #include <string_view>
 
 namespace ao {
@@ -11,6 +12,7 @@ namespace ao {
 class WellKnown {
  public:
   WellKnown(Heap& heap, Roots& roots);
+  ~WellKnown();
   WellKnown(const WellKnown&) = delete;
   WellKnown& operator=(const WellKnown&) = delete;
   WellKnown(WellKnown&&) = delete;
@@ -24,6 +26,7 @@ class WellKnown {
 
   Oop named(std::string_view name) const;
   Oop classOf(Oop obj) const;
+  Oop intern(std::string_view utf8);
 
   Oop objectClass{};
   Oop objectMetaclass{};
@@ -47,11 +50,22 @@ class WellKnown {
   Oop smallIntegerMetaclass{};
   Oop characterClass{};
   Oop characterMetaclass{};
+  Oop symbolClass{};
+  Oop symbolMetaclass{};
+  Oop methodDictionaryClass{};
+  Oop methodDictionaryMetaclass{};
+  Oop nativeMethodClass{};
+  Oop nativeMethodMetaclass{};
+  Oop messageClass{};
+  Oop messageMetaclass{};
   Oop smalltalk{};
 
  private:
   void addRoots(Roots& roots);
+  struct InternTable;
   Heap* heap_;
+  Roots* roots_ = nullptr;
+  std::unique_ptr<InternTable> intern_;
 };
 
 }  // namespace ao

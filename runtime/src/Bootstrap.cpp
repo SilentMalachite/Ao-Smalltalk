@@ -52,6 +52,14 @@ void allocateSkeletons(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   wk.smallIntegerMetaclass = allocClass(heap);
   wk.characterClass = allocClass(heap);
   wk.characterMetaclass = allocClass(heap);
+  wk.symbolClass = allocClass(heap);
+  wk.symbolMetaclass = allocClass(heap);
+  wk.methodDictionaryClass = allocClass(heap);
+  wk.methodDictionaryMetaclass = allocClass(heap);
+  wk.nativeMethodClass = allocClass(heap);
+  wk.nativeMethodMetaclass = allocClass(heap);
+  wk.messageClass = allocClass(heap);
+  wk.messageMetaclass = allocClass(heap);
 }
 
 void wireCycle(Heap& heap, WellKnown& wk) {
@@ -75,6 +83,12 @@ void wireCycle(Heap& heap, WellKnown& wk) {
             "SmallInteger");
   wireClass(heap, wk.characterClass, wk.characterMetaclass, wk.objectClass, Oop::nil(), 0,
             "Character");
+  wireClass(heap, wk.symbolClass, wk.symbolMetaclass, wk.objectClass, Oop::nil(), 0, "Symbol");
+  wireClass(heap, wk.methodDictionaryClass, wk.methodDictionaryMetaclass, wk.objectClass, Oop::nil(),
+            2, "MethodDictionary");
+  wireClass(heap, wk.nativeMethodClass, wk.nativeMethodMetaclass, wk.objectClass, Oop::nil(), 6,
+            "NativeMethod");
+  wireClass(heap, wk.messageClass, wk.messageMetaclass, wk.objectClass, Oop::nil(), 2, "Message");
 
   wireClass(heap, wk.objectMetaclass, wk.metaclassClass, wk.classClass, wk.objectClass, five,
             "Object class");
@@ -98,6 +112,14 @@ void wireCycle(Heap& heap, WellKnown& wk) {
             wk.smallIntegerClass, five, "SmallInteger class");
   wireClass(heap, wk.characterMetaclass, wk.metaclassClass, wk.objectMetaclass, wk.characterClass,
             five, "Character class");
+  wireClass(heap, wk.symbolMetaclass, wk.metaclassClass, wk.objectMetaclass, wk.symbolClass, five,
+            "Symbol class");
+  wireClass(heap, wk.methodDictionaryMetaclass, wk.metaclassClass, wk.objectMetaclass,
+            wk.methodDictionaryClass, five, "MethodDictionary class");
+  wireClass(heap, wk.nativeMethodMetaclass, wk.metaclassClass, wk.objectMetaclass,
+            wk.nativeMethodClass, five, "NativeMethod class");
+  wireClass(heap, wk.messageMetaclass, wk.metaclassClass, wk.objectMetaclass, wk.messageClass, five,
+            "Message class");
 }
 
 void run(Heap& heap, Roots& roots, WellKnown& wk) {

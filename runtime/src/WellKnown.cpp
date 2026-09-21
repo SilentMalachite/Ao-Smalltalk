@@ -1,8 +1,19 @@
 #include "ao/WellKnown.hpp"
 
+#include <cstring>
+#include <deque>
+#include <string>
+#include <unordered_map>
+
 namespace ao {
 
-WellKnown::WellKnown(Heap& heap, Roots& roots) : heap_(&heap) {
+struct WellKnown::InternTable {
+  std::deque<Oop> table;
+  std::unordered_map<std::string, std::size_t> byBytes;
+};
+
+WellKnown::WellKnown(Heap& heap, Roots& roots)
+    : heap_(&heap), roots_(&roots), intern_(std::make_unique<InternTable>()) {
   objectClass = Oop::nil();
   objectMetaclass = Oop::nil();
   behaviorClass = Oop::nil();
@@ -25,9 +36,19 @@ WellKnown::WellKnown(Heap& heap, Roots& roots) : heap_(&heap) {
   smallIntegerMetaclass = Oop::nil();
   characterClass = Oop::nil();
   characterMetaclass = Oop::nil();
+  symbolClass = Oop::nil();
+  symbolMetaclass = Oop::nil();
+  methodDictionaryClass = Oop::nil();
+  methodDictionaryMetaclass = Oop::nil();
+  nativeMethodClass = Oop::nil();
+  nativeMethodMetaclass = Oop::nil();
+  messageClass = Oop::nil();
+  messageMetaclass = Oop::nil();
   smalltalk = Oop::nil();
   addRoots(roots);
 }
+
+WellKnown::~WellKnown() = default;
 
 void WellKnown::addRoots(Roots& roots) {
   roots.add(&objectClass);
@@ -52,6 +73,14 @@ void WellKnown::addRoots(Roots& roots) {
   roots.add(&smallIntegerMetaclass);
   roots.add(&characterClass);
   roots.add(&characterMetaclass);
+  roots.add(&symbolClass);
+  roots.add(&symbolMetaclass);
+  roots.add(&methodDictionaryClass);
+  roots.add(&methodDictionaryMetaclass);
+  roots.add(&nativeMethodClass);
+  roots.add(&nativeMethodMetaclass);
+  roots.add(&messageClass);
+  roots.add(&messageMetaclass);
   roots.add(&smalltalk);
 }
 
@@ -70,6 +99,10 @@ Oop WellKnown::named(std::string_view name) const {
   if (name == "False") return falseClass;
   if (name == "SmallInteger") return smallIntegerClass;
   if (name == "Character") return characterClass;
+  if (name == "Symbol") return symbolClass;
+  if (name == "MethodDictionary") return methodDictionaryClass;
+  if (name == "NativeMethod") return nativeMethodClass;
+  if (name == "Message") return messageClass;
   if (name == "Smalltalk") return smalltalk;
   return Oop::nil();
 }
@@ -82,6 +115,26 @@ Oop WellKnown::classOf(Oop obj) const {
   if (obj.isCharacter()) return characterClass;
   if (obj.isHeap()) return heap_->klass(obj);
   return Oop::nil();
+}
+
+Oop WellKnown::intern(std::string_view utf8) {
+  std::string key(utf8);
+  auto it = intern_->byBytes.find(key);
+  if (it != intern_->byBytes.end()) {
+    return intern_->table[it->second];
+  }
+  const auto n = static_cast<std::uint32_t>(utf8.size());
+  Oop sym = heap_->allocate(symbolClass, n, kFlagBytes);
+  if (!sym.isHeap()) {
+    return Oop{};
+  }
+  if (n != 0) {
+    std::memcpy(heap_->bytes(sym), utf8.data(), n);
+  }
+  intern_->table.push_back(sym);
+  roots_->add(&intern_->table.back());
+  intern_->byBytes.emplace(std::move(key), intern_->table.size() - 1);
+  return intern_->table.back();
 }
 
 }  // namespace ao
