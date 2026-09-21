@@ -23,6 +23,7 @@ void installFloat(Heap& heap, WellKnown& wk);
 void installCollection(Heap& heap, WellKnown& wk);
 void installArray(Heap& heap, WellKnown& wk);
 void installString(Heap& heap, WellKnown& wk);
+void installDictionary(Heap& heap, WellKnown& wk);
 void installAll(Heap& heap, Roots& roots, WellKnown& wk);
 
 }  // namespace kernel
