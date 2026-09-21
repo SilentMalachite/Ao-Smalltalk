@@ -13,11 +13,13 @@ class Gc {
   void addRoot(Oop* slot);
   void removeRoot(Oop* slot);
   void collectNursery();
+  void collectOld();
 
  private:
   Oop copy(Oop obj);
   Heap* heap_;
   std::vector<Oop*> roots_;
+  bool oldCompacted_ = false;
 };
 
 }  // namespace ao

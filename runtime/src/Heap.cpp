@@ -127,4 +127,15 @@ bool Heap::containsNurseryFrom(void* p) const {
   return b >= fromStart_ && b < fromEnd_;
 }
 
+bool Heap::fitsOld(std::size_t n) const { return oldBump_ + n <= oldEnd_; }
+
+std::byte* Heap::reserveOld(std::size_t n) {
+  if (!fitsOld(n)) {
+    return nullptr;
+  }
+  std::byte* dest = oldBump_;
+  oldBump_ += n;
+  return dest;
+}
+
 }  // namespace ao

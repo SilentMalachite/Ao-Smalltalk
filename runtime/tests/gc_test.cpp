@@ -13,8 +13,7 @@ TEST(GcNursery, UnrootedObjectIsReclaimed) {
   (void)heap.allocate(ao::Oop::nil(), 1, 0);  // unrooted garbage
   gc.collectNursery();
   ASSERT_TRUE(keep.isHeap());
-  // P1-03 keeps survivors in nursery to-space. Do not assert inOld.
-  EXPECT_TRUE(heap.inNursery(keep));
+  EXPECT_TRUE(heap.inOld(keep));
   // fill nursery; must succeed because garbage was reclaimed
   int allocated = 0;
   for (int i = 0; i < 20; ++i) {
@@ -36,8 +35,8 @@ TEST(GcNursery, RootedObjectSurvivesAndSlotsUpdate) {
   ASSERT_TRUE(parent.isHeap());
   auto movedChild = heap.slotAt(parent, 0);
   ASSERT_TRUE(movedChild.isHeap());
-  EXPECT_TRUE(heap.inNursery(parent));
-  EXPECT_TRUE(heap.inNursery(movedChild));
+  EXPECT_TRUE(heap.inOld(parent));
+  EXPECT_TRUE(heap.inOld(movedChild));
 }
 
 TEST(GcNursery, ImmediateClassIsNotFollowed) {
@@ -63,7 +62,7 @@ TEST(GcNursery, SharedChildCopiedOnce) {
   auto b = heap.slotAt(parent, 1);
   ASSERT_TRUE(a.isHeap());
   EXPECT_EQ(a, b);
-  EXPECT_TRUE(heap.inNursery(a));
+  EXPECT_TRUE(heap.inOld(a));
 }
 
 TEST(GcNursery, ByteObjectPayloadIsNotScannedAsOops) {
@@ -78,8 +77,42 @@ TEST(GcNursery, ByteObjectPayloadIsNotScannedAsOops) {
   gc.addRoot(&obj);
   gc.collectNursery();
   ASSERT_TRUE(obj.isHeap());
-  EXPECT_TRUE(heap.inNursery(obj));
+  EXPECT_TRUE(heap.inOld(obj));
   EXPECT_EQ(8u, heap.size(obj));
   EXPECT_EQ(std::byte{0xFF}, heap.bytes(obj)[0]);
   EXPECT_EQ(std::byte{0xFF}, heap.bytes(obj)[7]);
+}
+
+TEST(GcOld, NurserySurvivorIsPromoted) {
+  ao::Heap heap(512, 8192);
+  ao::Gc gc(heap);
+  auto obj = heap.allocate(ao::Oop::nil(), 1, 0);
+  heap.slotAtPut(obj, 0, ao::Oop::fromSmallInteger(9));
+  gc.addRoot(&obj);
+  gc.collectNursery();
+  ASSERT_TRUE(obj.isHeap());
+  EXPECT_TRUE(heap.inOld(obj));
+  EXPECT_FALSE(heap.inNursery(obj));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(9), heap.slotAt(obj, 0));
+}
+
+TEST(GcOld, InternalPointersUpdatedAfterCompact) {
+  ao::Heap heap(256, 1024);
+  ao::Gc gc(heap);
+  auto a = heap.allocate(ao::Oop::nil(), 1, 0);
+  auto b = heap.allocate(ao::Oop::nil(), 0, 0);
+  heap.slotAtPut(a, 0, b);
+  gc.addRoot(&a);
+  gc.collectNursery();  // promote a and b
+  ASSERT_TRUE(heap.inOld(a));
+  auto garbage = heap.allocate(ao::Oop::nil(), 2, 0);
+  gc.addRoot(&garbage);
+  gc.collectNursery();  // promote garbage
+  gc.removeRoot(&garbage);
+  gc.collectOld();      // reclaim garbage, slide a/b
+  ASSERT_TRUE(a.isHeap());
+  EXPECT_TRUE(heap.inOld(a));
+  auto child = heap.slotAt(a, 0);
+  ASSERT_TRUE(child.isHeap());
+  EXPECT_TRUE(heap.inOld(child));
 }

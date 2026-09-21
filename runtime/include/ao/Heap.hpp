@@ -54,6 +54,8 @@ class Heap {
   void flipNursery();
   std::byte* reserveToSpace(std::size_t n);
   bool containsNurseryFrom(void* p) const;
+  bool fitsOld(std::size_t n) const;
+  std::byte* reserveOld(std::size_t n);
 
   std::unique_ptr<std::byte[]> nursery_;
   std::unique_ptr<std::byte[]> old_;
