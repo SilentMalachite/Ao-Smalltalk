@@ -678,15 +678,15 @@
     "semantic_hash": ""
   },
   "runtime/src/Gc.cpp": {
-    "mtime": 1789959540.072243,
-    "seen": 1789959585.064747,
+    "mtime": 1789960512.3460813,
+    "seen": 1789960520.768624,
     "ast_hash": "981e91247d8fb254140a72b99303932c",
     "semantic_hash": ""
   },
   "runtime/tests/gc_test.cpp": {
-    "mtime": 1789959499.4634726,
-    "seen": 1789959585.064752,
-    "ast_hash": "8fbfdf5e64c51bb0dc593fac725ab065",
+    "mtime": 1789960477.70039,
+    "seen": 1789960520.768629,
+    "ast_hash": "62c7e5ecc71c8c9a68fe6bb8fc1215b9",
     "semantic_hash": ""
   },
   ".serena/memories/abi_boundary.md": {

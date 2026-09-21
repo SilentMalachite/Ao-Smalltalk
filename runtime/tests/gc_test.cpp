@@ -99,20 +99,34 @@ TEST(GcOld, NurserySurvivorIsPromoted) {
 TEST(GcOld, InternalPointersUpdatedAfterCompact) {
   ao::Heap heap(256, 1024);
   ao::Gc gc(heap);
+  // Dead old object must sit at a lower address than live a/b so compact slides them.
+  auto garbage = heap.allocate(ao::Oop::nil(), 2, 0);
+  gc.addRoot(&garbage);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(garbage));
+  gc.removeRoot(&garbage);
+
   auto a = heap.allocate(ao::Oop::nil(), 1, 0);
   auto b = heap.allocate(ao::Oop::nil(), 0, 0);
   heap.slotAtPut(a, 0, b);
   gc.addRoot(&a);
-  gc.collectNursery();  // promote a and b
+  gc.collectNursery();  // promote a and b above garbage
   ASSERT_TRUE(heap.inOld(a));
-  auto garbage = heap.allocate(ao::Oop::nil(), 2, 0);
-  gc.addRoot(&garbage);
-  gc.collectNursery();  // promote garbage
-  gc.removeRoot(&garbage);
-  gc.collectOld();      // reclaim garbage, slide a/b
+  auto childBefore = heap.slotAt(a, 0);
+  ASSERT_TRUE(childBefore.isHeap());
+  ASSERT_TRUE(heap.inOld(childBefore));
+  void* aBefore = a.heapPointer();
+  void* bBefore = childBefore.heapPointer();
+  ASSERT_LT(static_cast<std::byte*>(garbage.heapPointer()),
+            static_cast<std::byte*>(aBefore));
+
+  gc.collectOld();  // reclaim garbage, slide a/b, rewrite a[0]
+
   ASSERT_TRUE(a.isHeap());
   EXPECT_TRUE(heap.inOld(a));
+  EXPECT_NE(a.heapPointer(), aBefore);
   auto child = heap.slotAt(a, 0);
   ASSERT_TRUE(child.isHeap());
   EXPECT_TRUE(heap.inOld(child));
+  EXPECT_NE(child.heapPointer(), bBefore);
 }
