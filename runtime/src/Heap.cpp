@@ -92,7 +92,8 @@ bool Heap::inNursery(Oop obj) const {
     return false;
   }
   auto* p = static_cast<std::byte*>(obj.heapPointer());
-  return p >= fromStart_ && p < toEnd_;
+  auto* start = nursery_.get();
+  return p >= start && p < start + 2 * nurseryHalf_;
 }
 
 bool Heap::inOld(Oop obj) const {
