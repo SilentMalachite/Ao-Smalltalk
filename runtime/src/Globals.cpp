@@ -77,11 +77,12 @@ void install(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
 }
 
 Oop at(const WellKnown& wk, std::string_view name) {
-  if (!wk.smalltalk.isHeap()) return Oop::nil();
-  for (std::uint32_t i = 0; i < kSmalltalkCount; ++i) {
-    if (name == kNames[i]) return wk.heap().slotAt(wk.smalltalk, i);
+  if (wk.smalltalk.isHeap()) {
+    for (std::uint32_t i = 0; i < kSmalltalkCount; ++i) {
+      if (name == kNames[i]) return wk.heap().slotAt(wk.smalltalk, i);
+    }
   }
-  return Oop::nil();
+  return wk.named(name);
 }
 
 }  // namespace Globals

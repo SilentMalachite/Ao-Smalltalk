@@ -182,6 +182,12 @@ void WellKnown::eachClass(void (*fn)(void* baton, Oop cls), void* baton) const {
   for (const auto& e : kNamedClasses) {
     fn(baton, this->*e.cls);
   }
+  if (extra_ == nullptr) {
+    return;
+  }
+  for (const auto& e : extra_->table) {
+    fn(baton, e.cls);
+  }
 }
 
 Oop WellKnown::classOf(Oop obj) const {
