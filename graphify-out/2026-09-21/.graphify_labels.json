@@ -7,7 +7,7 @@
   "5": "P2-02 class object skeletons",
   "6": "P3-04 lookup / super / doesNotUnderstand:",
   "7": "Oop",
-  "8": "Roots.cpp",
+  "8": "P6b — vendor file-in",
   "9": "TEST",
   "10": "Bytecode interpreter",
   "11": "TEST",
@@ -15,7 +15,7 @@
   "13": "Heap.cpp",
   "14": "P4 — Kernel Native Implementation",
   "15": "SmokeTests.swift",
-  "16": "P4-04 Array / ByteArray / String / Symbol",
+  "16": "oldWalkVisits",
   "17": "P9-02: Browser accept",
   "18": "P9-04: v1 ゴールデン受け入れ",
   "19": "Ao.app skeleton",
@@ -43,13 +43,7 @@
   "41": "header",
   "42": "heap",
   "43": "oop",
-  "44": "gc_test.cpp",
-  "45": "P4-06 Stream / Transcript model",
-  "46": "P4-07 Process / ProcessorScheduler / Semaphore",
+  "44": "Heap.hpp",
   "47": "P9-01: Do it / Print it / Inspect it",
-  "48": "P1-07: immovable old objects",
-  "49": "P3-01 Symbol intern",
-  "50": "P4-05 Dictionary / Set / OrderedCollection",
-  "51": "P4-08 Point / Rectangle",
-  "52": "P3-02 MethodDictionary"
+  "49": "P3-01 Symbol intern"
 }
