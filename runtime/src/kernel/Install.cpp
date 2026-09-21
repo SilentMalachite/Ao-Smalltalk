@@ -27,6 +27,7 @@ void putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, st
 void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   installObject(heap, wk);
   installBoolean(heap, wk);
+  installBehavior(heap, wk);
   putNative(heap, wk, wk.smallIntegerClass, "+", 1, "ao_SmallInteger_add", ao_SmallInteger_add);
   putNative(heap, wk, wk.blockContextClass, "value", 0, "ao_BlockContext_value",
             ao_BlockContext_value);

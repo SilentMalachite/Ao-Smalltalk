@@ -27,6 +27,7 @@ add_library(ao_runtime
   src/kernel/BlockContext.cpp
   src/kernel/Object.cpp
   src/kernel/Boolean.cpp
+  src/kernel/Behavior.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -52,6 +53,7 @@ add_executable(ao_runtime_tests
   tests/lookup_test.cpp
   tests/native_send_test.cpp
   tests/object_boolean_test.cpp
+  tests/behavior_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

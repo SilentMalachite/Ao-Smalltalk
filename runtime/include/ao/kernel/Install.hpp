@@ -15,6 +15,7 @@ void putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, st
                std::string_view name, NativeFn fn);
 void installObject(Heap& heap, WellKnown& wk);
 void installBoolean(Heap& heap, WellKnown& wk);
+void installBehavior(Heap& heap, WellKnown& wk);
 void installAll(Heap& heap, Roots& roots, WellKnown& wk);
 
 }  // namespace kernel

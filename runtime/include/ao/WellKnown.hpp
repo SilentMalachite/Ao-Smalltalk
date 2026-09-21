@@ -27,6 +27,7 @@ class WellKnown {
   Oop named(std::string_view name) const;
   Oop classOf(Oop obj) const;
   Oop intern(std::string_view utf8);
+  void define(std::string_view name, Oop cls);
   void eachClass(void (*fn)(void* baton, Oop cls), void* baton) const;
 
   Oop objectClass{};
@@ -161,9 +162,11 @@ class WellKnown {
  private:
   void addRoots(Roots& roots);
   struct InternTable;
+  struct ExtraTable;
   Heap* heap_;
   Roots* roots_ = nullptr;
   std::unique_ptr<InternTable> intern_;
+  std::unique_ptr<ExtraTable> extra_;
 };
 
 }  // namespace ao

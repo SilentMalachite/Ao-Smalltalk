@@ -12,6 +12,14 @@ struct WellKnown::InternTable {
   std::unordered_map<std::string, std::size_t> byBytes;
 };
 
+struct WellKnown::ExtraTable {
+  struct Entry {
+    std::string name;
+    Oop cls;
+  };
+  std::deque<Entry> table;
+};
+
 namespace {
 
 struct NamedClass {
@@ -88,7 +96,10 @@ constexpr NamedClass kNamedClasses[] = {
 }  // namespace
 
 WellKnown::WellKnown(Heap& heap, Roots& roots)
-    : heap_(&heap), roots_(&roots), intern_(std::make_unique<InternTable>()) {
+    : heap_(&heap),
+      roots_(&roots),
+      intern_(std::make_unique<InternTable>()),
+      extra_(std::make_unique<ExtraTable>()) {
   for (const auto& e : kNamedClasses) {
     this->*e.cls = Oop::nil();
     this->*e.meta = Oop::nil();
@@ -142,7 +153,26 @@ Oop WellKnown::named(std::string_view name) const {
   for (const auto& e : kNamedClasses) {
     if (name == e.name) return this->*e.cls;
   }
+  if (extra_ != nullptr) {
+    for (const auto& e : extra_->table) {
+      if (name == e.name) return e.cls;
+    }
+  }
   return Oop::nil();
+}
+
+void WellKnown::define(std::string_view name, Oop cls) {
+  if (extra_ == nullptr) {
+    extra_ = std::make_unique<ExtraTable>();
+  }
+  for (auto& e : extra_->table) {
+    if (e.name == name) {
+      e.cls = cls;
+      return;
+    }
+  }
+  extra_->table.push_back(ExtraTable::Entry{std::string(name), cls});
+  roots_->add(&extra_->table.back().cls);
 }
 
 void WellKnown::eachClass(void (*fn)(void* baton, Oop cls), void* baton) const {
