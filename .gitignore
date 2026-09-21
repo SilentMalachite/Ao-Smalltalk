@@ -1,0 +1,12 @@
+/build/
+/compile_commands.json
+.serena/compile_commands.json
+/.swiftpm/
+/app/.build/
+/app/.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.DS_Store
+CMakeCache.txt
+CMakeFiles/
