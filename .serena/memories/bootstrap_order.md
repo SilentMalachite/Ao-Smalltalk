@@ -1,0 +1,1 @@
+Bootstrap order is SPEC.md §3.7: heap, immediates nil/true/false, uninitialized class skeletons on the well-known table, wire superclass/methodDict/format/metaclass, install NativeMethod from function pointers, register classes in Smalltalk, then snapshot. Well-known names live in include/ao/WellKnown.hpp (created in P2, not P0).

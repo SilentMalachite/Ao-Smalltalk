@@ -1,0 +1,1 @@
+The only runtime ↔ app boundary is bridge/ao_abi.h. Swift must not depend on C++ templates. P0 ABI: ao_version, ao_runtime_boot, ao_runtime_shutdown. Do not add eval/browser/image APIs until SPEC is updated for that phase (P6/P8).

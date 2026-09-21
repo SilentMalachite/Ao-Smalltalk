@@ -1,0 +1,1 @@
+Kernel classes and methods are C++ NativeMethod. Do not implement Kernel as Smalltalk interpreter methods. image/Kernel/*.st is comments and protocol only. Existing Smalltalk VM sources must not be copied.

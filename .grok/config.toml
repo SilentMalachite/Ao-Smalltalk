@@ -1,0 +1,13 @@
+[mcp_servers.serena]
+command = "uvx"
+args = [
+    "--from",
+    "git+https://github.com/oraios/serena",
+    "serena",
+    "start-mcp-server",
+    "--context",
+    "ide-assistant",
+    "--project-from-cwd",
+]
+enabled = true
+startup_timeout_sec = 60
