@@ -2,7 +2,9 @@
 
 #include "ao/Scanner.hpp"
 
+#include <deque>
 #include <utility>
+#include <vector>
 
 namespace ao::compiler {
 namespace {
@@ -38,15 +40,32 @@ class Parser {
   std::string_view src_;
   Token cur_;
   Token prev_;
+  std::deque<Token> queued_;
   bool hadError_ = false;
   CompileError error_;
 
   void advance() {
     prev_ = cur_;
-    cur_ = scanner_.next();
+    if (!queued_.empty()) {
+      cur_ = queued_.front();
+      queued_.pop_front();
+    } else {
+      cur_ = scanner_.next();
+    }
     if (cur_.kind == Tok::Error) {
       fail("invalid token");
     }
+  }
+
+  void replay(const std::vector<Token>& toks) {
+    if (toks.empty()) {
+      return;
+    }
+    queued_.push_front(cur_);
+    for (std::size_t i = toks.size(); i-- > 1;) {
+      queued_.push_front(toks[i]);
+    }
+    cur_ = toks[0];
   }
 
   bool check(Tok k) const { return cur_.kind == k; }
@@ -59,9 +78,13 @@ class Parser {
     return true;
   }
 
-  bool isPipe() const { return cur_.kind == Tok::Binary && cur_.text == "|"; }
+  bool checkBinary(std::string_view text) const {
+    return cur_.kind == Tok::Binary && cur_.text == text;
+  }
 
-  bool isEmptyTemps() const { return cur_.kind == Tok::Binary && cur_.text == "||"; }
+  bool isPipe() const { return checkBinary("|"); }
+
+  bool isEmptyTemps() const { return checkBinary("||"); }
 
   SourceSpan errorSpan() const {
     if (cur_.span.end > cur_.span.start) {
@@ -96,6 +119,9 @@ class Parser {
     Ast method = make(Ast::Kind::Method, SourceSpan{0, static_cast<std::uint32_t>(src_.size())});
     parseMessagePattern(method);
     parseTemps(method);
+    if (checkBinary("<")) {
+      method.kids.push_back(parsePrimitive());
+    }
     Ast body = parseStatements();
     method.kids.push_back(std::move(body));
     return method;
@@ -165,7 +191,31 @@ class Parser {
     advance();
   }
 
-  Ast parseStatements() {
+  Ast parsePrimitive() {
+    SourceSpan start = cur_.span;
+    advance();
+    if (!(check(Tok::Keyword) && cur_.text == "primitive:")) {
+      fail("expected primitive:");
+      return {};
+    }
+    advance();
+    if (!check(Tok::Number) || cur_.isFloat) {
+      fail("expected primitive number");
+      return {};
+    }
+    Ast prim = make(Ast::Kind::Primitive, start);
+    prim.intValue = static_cast<std::int64_t>(cur_.number);
+    advance();
+    if (!checkBinary(">")) {
+      fail("expected '>'");
+      return prim;
+    }
+    prim.span = join(start, cur_.span);
+    advance();
+    return prim;
+  }
+
+  std::vector<Ast> collectStatements() {
     std::vector<Ast> stmts;
     while (!hadError_ && !check(Tok::Eof) && !check(Tok::RParen) && !check(Tok::RBracket)) {
       if (match(Tok::Period)) {
@@ -186,6 +236,11 @@ class Parser {
         break;
       }
     }
+    return stmts;
+  }
+
+  Ast parseStatements() {
+    std::vector<Ast> stmts = collectStatements();
     if (stmts.empty()) {
       return make(Ast::Kind::Sequence, methodSpanFallback());
     }
@@ -193,6 +248,17 @@ class Parser {
       return std::move(stmts[0]);
     }
     Ast seq = make(Ast::Kind::Sequence, join(stmts.front().span, stmts.back().span));
+    seq.kids = std::move(stmts);
+    return seq;
+  }
+
+  Ast parseStatementsAsSequence() {
+    std::vector<Ast> stmts = collectStatements();
+    SourceSpan sp = cur_.span;
+    if (!stmts.empty()) {
+      sp = join(stmts.front().span, stmts.back().span);
+    }
+    Ast seq = make(Ast::Kind::Sequence, sp);
     seq.kids = std::move(stmts);
     return seq;
   }
@@ -242,22 +308,79 @@ class Parser {
     return s;
   }
 
+  Ast makeBareSend(std::string selector, std::vector<Ast> args, SourceSpan span) {
+    Ast s = make(Ast::Kind::Send, span);
+    s.name = std::move(selector);
+    s.argc = static_cast<std::uint8_t>(args.size());
+    s.kids = std::move(args);
+    return s;
+  }
+
   Ast parseKeyword(Ast recv) {
     recv = parseBinary(std::move(recv));
-    if (!check(Tok::Keyword)) {
+    if (check(Tok::Keyword)) {
+      std::string selector;
+      std::vector<Ast> args;
+      SourceSpan end = recv.span;
+      while (check(Tok::Keyword)) {
+        selector += cur_.text;
+        advance();
+        Ast arg = parseBinary(parsePrimaryFromStart());
+        end = arg.span;
+        args.push_back(std::move(arg));
+      }
+      recv = makeSend(std::move(recv), std::move(selector), std::move(args), end);
+    }
+    return parseCascade(std::move(recv));
+  }
+
+  Ast parseCascade(Ast recv) {
+    if (!check(Tok::Semicolon)) {
       return recv;
     }
-    std::string selector;
-    std::vector<Ast> args;
-    SourceSpan end = recv.span;
-    while (check(Tok::Keyword)) {
-      selector += cur_.text;
-      advance();
-      Ast arg = parseBinary(parsePrimaryFromStart());
-      end = arg.span;
-      args.push_back(std::move(arg));
+    if (recv.kind != Ast::Kind::Send) {
+      fail("cascade requires a message");
+      return recv;
     }
-    return makeSend(std::move(recv), std::move(selector), std::move(args), end);
+    Ast casc = make(Ast::Kind::Cascade, recv.span);
+    casc.kids.push_back(std::move(recv));
+    while (match(Tok::Semicolon)) {
+      Ast extra = parseCascadeMessage();
+      casc.span = join(casc.span, extra.span);
+      casc.kids.push_back(std::move(extra));
+    }
+    return casc;
+  }
+
+  Ast parseCascadeMessage() {
+    if (check(Tok::Ident)) {
+      Token sel = cur_;
+      advance();
+      return makeBareSend(sel.text, {}, sel.span);
+    }
+    if (check(Tok::Binary)) {
+      Token sel = cur_;
+      advance();
+      Ast arg = parseUnary(parsePrimaryFromStart());
+      const SourceSpan end = arg.span;
+      return makeBareSend(sel.text, {std::move(arg)}, join(sel.span, end));
+    }
+    if (check(Tok::Keyword)) {
+      std::string selector;
+      std::vector<Ast> args;
+      SourceSpan start = cur_.span;
+      SourceSpan end = start;
+      while (check(Tok::Keyword)) {
+        selector += cur_.text;
+        advance();
+        Ast arg = parseBinary(parsePrimaryFromStart());
+        end = arg.span;
+        args.push_back(std::move(arg));
+      }
+      return makeBareSend(std::move(selector), std::move(args), join(start, end));
+    }
+    fail("expected cascade message");
+    return {};
   }
 
   Ast parseBinary(Ast recv) {
@@ -303,6 +426,178 @@ class Parser {
     return lit;
   }
 
+  Ast stringLiteral() {
+    Ast lit = make(Ast::Kind::Literal, cur_.span);
+    lit.name = "'";
+    lit.text = cur_.text;
+    advance();
+    return lit;
+  }
+
+  Ast symbolLiteral() {
+    Ast lit = make(Ast::Kind::Literal, cur_.span);
+    lit.name = "#";
+    lit.text = cur_.text;
+    advance();
+    return lit;
+  }
+
+  Ast characterLiteral() {
+    Ast lit = make(Ast::Kind::Literal, cur_.span);
+    lit.name = "$";
+    lit.text = cur_.text;
+    advance();
+    return lit;
+  }
+
+  Ast parseBlock() {
+    SourceSpan start = cur_.span;
+    advance();
+    Ast blk = make(Ast::Kind::Block, start);
+    while (check(Tok::Colon)) {
+      advance();
+      if (!check(Tok::Ident)) {
+        fail("expected block parameter");
+        return blk;
+      }
+      blk.params.push_back(cur_.text);
+      advance();
+    }
+    if (isEmptyTemps()) {
+      advance();
+    } else if (isPipe()) {
+      advance();
+      if (isPipe()) {
+        advance();
+      } else {
+        std::vector<Token> ids;
+        while (check(Tok::Ident)) {
+          ids.push_back(cur_);
+          advance();
+        }
+        if (isPipe()) {
+          for (const Token& id : ids) {
+            blk.temps.push_back(id.text);
+          }
+          advance();
+        } else {
+          replay(ids);
+        }
+      }
+    }
+    Ast body = parseStatementsAsSequence();
+    if (!check(Tok::RBracket)) {
+      fail("expected ']'");
+      return blk;
+    }
+    blk.span = join(start, cur_.span);
+    advance();
+    blk.kids.push_back(std::move(body));
+    return blk;
+  }
+
+  Ast finishLiteralArray(SourceSpan start, Tok closer, bool bytes) {
+    Ast arr = make(Ast::Kind::Literal, start);
+    arr.name = bytes ? "#[" : "#(";
+    while (!hadError_ && !check(Tok::Eof) && !check(closer)) {
+      if (bytes) {
+        arr.kids.push_back(parseByteElement());
+      } else {
+        arr.kids.push_back(parseArrayElement());
+      }
+    }
+    if (!check(closer)) {
+      fail(bytes ? "expected ']'" : "expected ')'");
+      return arr;
+    }
+    arr.span = join(start, cur_.span);
+    advance();
+    return arr;
+  }
+
+  Ast parseByteElement() {
+    if (!check(Tok::Number) || cur_.isFloat) {
+      fail("expected byte 0-255");
+      return {};
+    }
+    const auto v = static_cast<std::int64_t>(cur_.number);
+    if (v < 0 || v > 255 || cur_.number != static_cast<double>(v)) {
+      fail("expected byte 0-255");
+      return {};
+    }
+    Token n = cur_;
+    advance();
+    return numberLiteral(n.span, n, 1);
+  }
+
+  Ast parseArrayElement() {
+    if (check(Tok::Number)) {
+      Token n = cur_;
+      advance();
+      return numberLiteral(n.span, n, 1);
+    }
+    if (check(Tok::String)) {
+      return stringLiteral();
+    }
+    if (check(Tok::Symbol)) {
+      return symbolLiteral();
+    }
+    if (check(Tok::Character)) {
+      return characterLiteral();
+    }
+    if (check(Tok::Ident)) {
+      Ast lit = make(Ast::Kind::Literal, cur_.span);
+      lit.name = "#";
+      lit.text = cur_.text;
+      advance();
+      return lit;
+    }
+    if (check(Tok::Keyword)) {
+      SourceSpan start = cur_.span;
+      std::string text;
+      while (check(Tok::Keyword)) {
+        text += cur_.text;
+        advance();
+      }
+      Ast lit = make(Ast::Kind::Literal, join(start, prev_.span));
+      lit.name = "#";
+      lit.text = std::move(text);
+      return lit;
+    }
+    if (checkBinary("-")) {
+      Token minus = cur_;
+      advance();
+      if (check(Tok::Number)) {
+        Token n = cur_;
+        advance();
+        return numberLiteral(join(minus.span, n.span), n, -1);
+      }
+      Ast lit = make(Ast::Kind::Literal, minus.span);
+      lit.name = "#";
+      lit.text = "-";
+      return lit;
+    }
+    if (check(Tok::Binary)) {
+      Ast lit = make(Ast::Kind::Literal, cur_.span);
+      lit.name = "#";
+      lit.text = cur_.text;
+      advance();
+      return lit;
+    }
+    if (check(Tok::LParen) || check(Tok::HashLParen)) {
+      SourceSpan start = cur_.span;
+      advance();
+      return finishLiteralArray(start, Tok::RParen, false);
+    }
+    if (check(Tok::HashLBracket)) {
+      SourceSpan start = cur_.span;
+      advance();
+      return finishLiteralArray(start, Tok::RBracket, true);
+    }
+    fail("expected array element");
+    return {};
+  }
+
   Ast parsePrimary() {
     if (hadError_) {
       return {};
@@ -313,27 +608,15 @@ class Parser {
       return numberLiteral(n.span, n, 1);
     }
     if (check(Tok::String)) {
-      Ast lit = make(Ast::Kind::Literal, cur_.span);
-      lit.name = "'";
-      lit.text = cur_.text;
-      advance();
-      return lit;
+      return stringLiteral();
     }
     if (check(Tok::Symbol)) {
-      Ast lit = make(Ast::Kind::Literal, cur_.span);
-      lit.name = "#";
-      lit.text = cur_.text;
-      advance();
-      return lit;
+      return symbolLiteral();
     }
     if (check(Tok::Character)) {
-      Ast lit = make(Ast::Kind::Literal, cur_.span);
-      lit.name = "$";
-      lit.text = cur_.text;
-      advance();
-      return lit;
+      return characterLiteral();
     }
-    if (check(Tok::Binary) && cur_.text == "-") {
+    if (checkBinary("-")) {
       Token minus = cur_;
       advance();
       if (!check(Tok::Number)) {
@@ -357,12 +640,17 @@ class Parser {
       return inner;
     }
     if (check(Tok::LBracket)) {
-      fail("blocks not implemented");
-      return {};
+      return parseBlock();
     }
-    if (check(Tok::HashLParen) || check(Tok::HashLBracket)) {
-      fail("literal arrays not implemented");
-      return {};
+    if (check(Tok::HashLParen)) {
+      SourceSpan start = cur_.span;
+      advance();
+      return finishLiteralArray(start, Tok::RParen, false);
+    }
+    if (check(Tok::HashLBracket)) {
+      SourceSpan start = cur_.span;
+      advance();
+      return finishLiteralArray(start, Tok::RBracket, true);
     }
     fail("expected expression");
     return {};

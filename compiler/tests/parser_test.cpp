@@ -40,3 +40,38 @@ TEST(Parser, ErrorSpanDoesNotTouchOkFlag) {
   EXPECT_GT(r.error.span.end, r.error.span.start);
   EXPECT_FALSE(r.error.message.empty());
 }
+
+TEST(Parser, Cascade) {
+  auto r = parseMethod("foo\n  ^self bar: 1; baz");
+  ASSERT_TRUE(r.ok);
+  auto& casc = r.method.kids.at(0).kids.at(0);
+  EXPECT_EQ(Ast::Kind::Cascade, casc.kind);
+  // kids[0] = first full send (receiver + message); kids[1..] = extra Sends with empty receiver
+  ASSERT_GE(casc.kids.size(), 2u);
+  EXPECT_EQ("bar:", casc.kids[0].name);
+  EXPECT_EQ("baz", casc.kids[1].name);
+}
+
+TEST(Parser, BlockWithArgs) {
+  auto r = parseMethod("foo\n  ^[:a :b | a + b]");
+  ASSERT_TRUE(r.ok);
+  auto& blk = r.method.kids.at(0).kids.at(0);
+  EXPECT_EQ(Ast::Kind::Block, blk.kind);
+  ASSERT_EQ(2u, blk.params.size());
+  EXPECT_EQ("a", blk.params[0]);
+}
+
+TEST(Parser, LiteralArrayAndByteArray) {
+  auto r = parseMethod("foo\n  ^#(1 #b 'c' (2))");
+  ASSERT_TRUE(r.ok);
+  EXPECT_EQ(Ast::Kind::Literal, r.method.kids.at(0).kids.at(0).kind);
+  auto r2 = parseMethod("foo\n  ^#[1 2 255]");
+  ASSERT_TRUE(r2.ok);
+}
+
+TEST(Parser, PrimitivePragma) {
+  auto r = parseMethod("at: i\n  <primitive: 60>\n  ^self basicAt: i");
+  ASSERT_TRUE(r.ok);
+  EXPECT_EQ(Ast::Kind::Primitive, r.method.kids.at(0).kind);
+  EXPECT_EQ(60, r.method.kids.at(0).intValue);
+}

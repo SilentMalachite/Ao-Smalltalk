@@ -17,6 +17,9 @@ struct Ast {
     Send,
     Variable,
     Literal,
+    Cascade,
+    Block,
+    Primitive,
   };
 
   Kind kind = Kind::Method;
