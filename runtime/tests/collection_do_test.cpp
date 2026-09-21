@@ -210,6 +210,33 @@ TEST(CollectionDo, IntervalFromToByAndIntegerTo) {
   EXPECT_EQ(3, send0(b, to, "size").smallIntegerValue());
 }
 
+TEST(CollectionDo, StringCollectYieldsCharacters) {
+  Boot b;
+  auto s = ao::Str::fromUtf8(b.heap, b.wk, "Aあ");
+  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) { return args[0]; };
+  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
+  auto r = send1(b, s, "collect:", blk);
+  ASSERT_TRUE(r.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(r));
+  EXPECT_EQ(2, send0(b, r, "size").smallIntegerValue());
+  ASSERT_TRUE(b.heap.slotAt(r, 0).isCharacter());
+  ASSERT_TRUE(b.heap.slotAt(r, 1).isCharacter());
+  EXPECT_EQ(U'A', b.heap.slotAt(r, 0).characterValue());
+  EXPECT_EQ(U'あ', b.heap.slotAt(r, 1).characterValue());
+}
+
+TEST(CollectionDo, CollectDoesNotGrowNativeRegistry) {
+  Boot b;
+  ao::Oop slots[1] = {ao::Oop::fromSmallInteger(1)};
+  auto arr = ao::Arr::fromSlots(b.heap, b.wk, slots, 1);
+  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) { return args[0]; };
+  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
+  send1(b, arr, "collect:", blk);
+  const auto n = ao::NativeRegistry::size();
+  send1(b, arr, "collect:", blk);
+  EXPECT_EQ(n, ao::NativeRegistry::size());
+}
+
 TEST(CollectionDo, AssociationKeyValue) {
   Boot b;
   auto k = b.wk.intern("a");
@@ -227,7 +254,10 @@ TEST(CollectionDo, AssociationKeyValue) {
 TEST(CollectionDo, BagLinkedListMappedCollectionStubs) {
   Boot b;
   const ao::Oop classes[3] = {b.wk.bagClass, b.wk.linkedListClass, b.wk.mappedCollectionClass};
-  for (ao::Oop cls : classes) {
+  const char* doNames[3] = {"ao_Bag_do_", "ao_LinkedList_do_", "ao_MappedCollection_do_"};
+  const char* sizeNames[3] = {"ao_Bag_size", "ao_LinkedList_size", "ao_MappedCollection_size"};
+  for (int i = 0; i < 3; ++i) {
+    auto cls = classes[i];
     auto o = send0(b, cls, "new");
     ASSERT_TRUE(o.isHeap());
     EXPECT_EQ(0, send0(b, o, "size").smallIntegerValue());
@@ -235,5 +265,9 @@ TEST(CollectionDo, BagLinkedListMappedCollectionStubs) {
     auto r = send1(b, o, "add:", ao::Oop::fromSmallInteger(1));
     ASSERT_TRUE(r.isHeap());
     EXPECT_EQ("subclassResponsibility", ao::Str::toUtf8(b.heap, r));
+    auto doMeth = send1(b, cls, "compiledMethodAt:", b.wk.intern("do:"));
+    auto sizeMeth = send1(b, cls, "compiledMethodAt:", b.wk.intern("size"));
+    EXPECT_EQ(doNames[i], ao::NativeMethod::nameBytes(b.heap, doMeth));
+    EXPECT_EQ(sizeNames[i], ao::NativeMethod::nameBytes(b.heap, sizeMeth));
   }
 }

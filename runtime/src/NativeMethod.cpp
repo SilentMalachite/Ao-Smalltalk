@@ -14,10 +14,17 @@ std::vector<NativeFn> gNativeFns;
 namespace NativeRegistry {
 
 std::uint32_t add(NativeFn fn) {
+  for (std::uint32_t i = 0; i < gNativeFns.size(); ++i) {
+    if (gNativeFns[i] == fn) {
+      return i;
+    }
+  }
   const auto i = static_cast<std::uint32_t>(gNativeFns.size());
   gNativeFns.push_back(fn);
   return i;
 }
+
+std::uint32_t size() { return static_cast<std::uint32_t>(gNativeFns.size()); }
 
 }  // namespace NativeRegistry
 

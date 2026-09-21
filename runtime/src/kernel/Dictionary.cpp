@@ -855,11 +855,22 @@ void installDictionary(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.intervalClass, "size", 0, "ao_Interval_size", ao_Interval_size);
   putNative(heap, wk, wk.intervalClass, "do:", 1, "ao_Interval_do_", ao_Interval_do_);
 
-  const Oop stubs[3] = {wk.bagClass, wk.linkedListClass, wk.mappedCollectionClass};
-  for (Oop cls : stubs) {
-    putNative(heap, wk, cls, "do:", 1, "ao_Bag_do_", ao_Bag_do_);
-    putNative(heap, wk, cls, "size", 0, "ao_Bag_size", ao_Bag_size);
-    putNative(heap, wk, cls, "add:", 1, "ao_Bag_add_", ao_Bag_add_);
+  struct Stub {
+    Oop cls;
+    const char* doName;
+    const char* sizeName;
+    const char* addName;
+  };
+  const Stub stubs[] = {
+      {wk.bagClass, "ao_Bag_do_", "ao_Bag_size", "ao_Bag_add_"},
+      {wk.linkedListClass, "ao_LinkedList_do_", "ao_LinkedList_size", "ao_LinkedList_add_"},
+      {wk.mappedCollectionClass, "ao_MappedCollection_do_", "ao_MappedCollection_size",
+       "ao_MappedCollection_add_"},
+  };
+  for (const auto& s : stubs) {
+    putNative(heap, wk, s.cls, "do:", 1, s.doName, ao_Bag_do_);
+    putNative(heap, wk, s.cls, "size", 0, s.sizeName, ao_Bag_size);
+    putNative(heap, wk, s.cls, "add:", 1, s.addName, ao_Bag_add_);
   }
 }
 

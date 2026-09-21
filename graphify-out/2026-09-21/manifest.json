@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "runtime/CMakeLists.txt": {
-    "mtime": 1789990329.0773792,
-    "seen": 1789990525.048192,
-    "ast_hash": "828de19468556d9761e84b7d3e7f3b48",
+    "mtime": 1789992844.864676,
+    "seen": 1789992884.540887,
+    "ast_hash": "0049c0a9702cb0477db13d9cb6865203",
     "semantic_hash": ""
   },
   "runtime/include/ao/Roots.hpp": {
@@ -1338,9 +1338,9 @@
     "semantic_hash": "031ffb666b3dbaf3ce80371a46867733"
   },
   "runtime/include/ao/kernel/Install.hpp": {
-    "mtime": 1789990329.0773628,
-    "seen": 1789990525.048091,
-    "ast_hash": "7e89cc22155a8e8ef377198efa8f5688",
+    "mtime": 1789992844.8644364,
+    "seen": 1789992884.540771,
+    "ast_hash": "79a31ac535f5282abc6d34fa5f217cc5",
     "semantic_hash": ""
   },
   "runtime/src/kernel/BlockContext.cpp": {
@@ -1350,9 +1350,9 @@
     "semantic_hash": "84eb343ab1c29f9fd37cc82bd6a0c8bf"
   },
   "runtime/src/kernel/Install.cpp": {
-    "mtime": 1789990329.0776954,
-    "seen": 1789990525.0481112,
-    "ast_hash": "702db4e80bf56e72d2cb557119e61666",
+    "mtime": 1789992844.8646088,
+    "seen": 1789992884.540789,
+    "ast_hash": "45daa3990da94e21eca9c4dde876feb5",
     "semantic_hash": ""
   },
   "runtime/tests/object_boolean_test.cpp": {
@@ -1440,9 +1440,9 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Collection.cpp": {
-    "mtime": 1789990493.541857,
-    "seen": 1789990525.04811,
-    "ast_hash": "e60dd6172fefab0663cfb1848e2fa987",
+    "mtime": 1789992844.8644943,
+    "seen": 1789992884.540787,
+    "ast_hash": "f27239c6a97fdc9592e881459edf0cdf",
     "semantic_hash": ""
   },
   "runtime/src/kernel/String.cpp": {
@@ -1455,6 +1455,18 @@
     "mtime": 1789991303.2514966,
     "seen": 1789991346.827351,
     "ast_hash": "55bedbdc95ba6d379dc017a804cab824",
+    "semantic_hash": ""
+  },
+  "runtime/src/kernel/Dictionary.cpp": {
+    "mtime": 1789992844.8648765,
+    "seen": 1789992884.540788,
+    "ast_hash": "eca8549b670ed061046c31fa238946bc",
+    "semantic_hash": ""
+  },
+  "runtime/tests/collection_do_test.cpp": {
+    "mtime": 1789992487.0856817,
+    "seen": 1789992884.5407958,
+    "ast_hash": "19b7602f54c88b098614aca2881cff6e",
     "semantic_hash": ""
   }
 }

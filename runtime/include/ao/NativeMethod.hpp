@@ -48,6 +48,7 @@ using NativeFn = Oop (*)(CallContext& ctx, Oop receiver, const Oop* args, std::u
 
 namespace NativeRegistry {
 std::uint32_t add(NativeFn fn);
+std::uint32_t size();
 }
 
 namespace NativeMethod {

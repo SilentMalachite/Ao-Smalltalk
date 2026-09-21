@@ -30,3 +30,9 @@ TEST(NativeMethod, NameAndApply) {
   auto recv = ao::Oop::fromSmallInteger(1);
   EXPECT_TRUE(ao::NativeMethod::apply(ctx, meth, recv, &arg, 1).isTrue());
 }
+
+TEST(NativeMethod, AddInternsByFunctionPointer) {
+  auto idx1 = ao::NativeRegistry::add(stubEq);
+  auto idx2 = ao::NativeRegistry::add(stubEq);
+  EXPECT_EQ(idx1, idx2);
+}
