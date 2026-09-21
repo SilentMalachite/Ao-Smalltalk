@@ -1,13 +1,18 @@
 #include "ao/CompiledMethod.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/MethodImage.hpp"
+#include "ao/Send.hpp"
+#include "ao/Symbol.hpp"
 
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace ao {
 namespace {
@@ -102,6 +107,99 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
   return Oop{};
 }
 
+Oop boxUtf8(CallContext& ctx, std::string_view utf8) {
+  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, utf8);
+  if (s.isHeap()) {
+    return s;
+  }
+  Gc gc(ctx.heap, ctx.roots);
+  gc.collectNursery();
+  return Str::fromUtf8(ctx.heap, ctx.wk, utf8);
+}
+
+void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
+  std::vector<Oop> chain;
+  Oop c = cls;
+  while (c.isHeap()) {
+    chain.push_back(c);
+    c = ctx.heap.slotAt(c, kClassSlotSuperclass);
+  }
+  for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+    const Oop names = ctx.heap.slotAt(*it, kClassSlotInstVarNames);
+    if (!names.isHeap() || (ctx.heap.flags(names) & kFlagBytes) != 0) {
+      continue;
+    }
+    const auto n = ctx.heap.size(names);
+    for (std::uint32_t i = 0; i < n; ++i) {
+      const Oop name = ctx.heap.slotAt(names, i);
+      if (!name.isHeap()) {
+        continue;
+      }
+      env.instVarNames.push_back(Str::toUtf8(ctx.heap, name));
+    }
+  }
+}
+
+bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
+                   std::vector<compiler::CompileError>& errors) {
+  Root super(ctx.roots, ctx.wk.named(action.superName));
+  if (!super.slot.isHeap()) {
+    errors.push_back(compiler::CompileError{{}, "missing class: " + action.superName});
+    return false;
+  }
+  Root name(ctx.roots, ctx.wk.intern(action.className));
+  Root ivars(ctx.roots, boxUtf8(ctx, action.instVars));
+  Root cvars(ctx.roots, boxUtf8(ctx, action.classVars));
+  Root pools(ctx.roots, boxUtf8(ctx, action.pools));
+  Root cat(ctx.roots, boxUtf8(ctx, action.category));
+  if (!name.slot.isHeap() || !ivars.slot.isHeap() || !cvars.slot.isHeap() || !pools.slot.isHeap() ||
+      !cat.slot.isHeap()) {
+    errors.push_back(compiler::CompileError{{}, "class definition allocation failed: " + action.className});
+    return false;
+  }
+  Oop args[5] = {name.slot, ivars.slot, cvars.slot, pools.slot, cat.slot};
+  const Oop sel = Symbol::intern(
+      ctx.wk, "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:");
+  const Oop created = send(ctx, super.slot, sel, args, 5, nullptr);
+  if (!created.isHeap()) {
+    errors.push_back(compiler::CompileError{{}, "subclass failed: " + action.className});
+    return false;
+  }
+  return true;
+}
+
+bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
+                     std::vector<compiler::CompileError>& errors) {
+  Root cls(ctx.roots, ctx.wk.named(action.className));
+  if (!cls.slot.isHeap()) {
+    errors.push_back(compiler::CompileError{{}, "missing class: " + action.className});
+    return false;
+  }
+  const Oop target = action.meta ? ctx.heap.klass(cls.slot) : cls.slot;
+  if (!target.isHeap()) {
+    errors.push_back(compiler::CompileError{{}, "missing class: " + action.className});
+    return false;
+  }
+  Root tgt(ctx.roots, target);
+  compiler::CompileEnv env;
+  fillInstVars(ctx, tgt.slot, env);
+  for (const auto& m : action.methods) {
+    compiler::CompileResult cr = compiler::compileMethod(m.source, env);
+    if (!cr.ok) {
+      compiler::CompileError e = std::move(cr.error);
+      e.span.start += m.span.start;
+      e.span.end += m.span.start;
+      errors.push_back(std::move(e));
+      continue;
+    }
+    const Oop installed = installMethod(ctx, tgt.slot, cr.image);
+    if (!installed.isHeap()) {
+      errors.push_back(compiler::CompileError{m.span, "install failed"});
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 Oop boxMethodImage(CallContext& ctx, const compiler::MethodImage& image, Oop methodClass) {
@@ -136,6 +234,27 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
   const Oop sel = ctx.heap.slotAt(cm.slot, kCmSlotSelector);
   MethodDictionary::atPut(ctx.heap, d.slot, sel, cm.slot);
   return cm.slot;
+}
+
+bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
+                 std::vector<compiler::CompileError>& errors) {
+  for (const auto& action : actions) {
+    switch (action.kind) {
+      case compiler::ChunkKind::ClassDef:
+        if (!applyClassDef(ctx, action, errors)) {
+          return false;
+        }
+        break;
+      case compiler::ChunkKind::MethodsFor:
+        if (!applyMethodsFor(ctx, action, errors)) {
+          return false;
+        }
+        break;
+      case compiler::ChunkKind::DoIt:
+        break;
+    }
+  }
+  return true;
 }
 
 }  // namespace ao

@@ -76,6 +76,7 @@ add_executable(ao_runtime_tests
   tests/geometry_test.cpp
   tests/kernel_scan_test.cpp
   tests/compiled_method_test.cpp
+  tests/chunk_filein_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
 include(GoogleTest)

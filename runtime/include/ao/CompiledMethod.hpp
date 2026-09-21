@@ -1,8 +1,10 @@
 #pragma once
 
+#include "ao/Chunk.hpp"
 #include "ao/NativeMethod.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace ao {
 namespace compiler {
@@ -24,5 +26,7 @@ Oop create(CallContext& ctx, std::uint8_t numArgs, std::uint8_t numTemps, std::u
 
 Oop boxMethodImage(CallContext& ctx, const compiler::MethodImage& image, Oop methodClass);
 Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image);
+bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
+                 std::vector<compiler::CompileError>& errors);
 
 }  // namespace ao
