@@ -84,4 +84,5 @@ TEST(KernelBench, TenMillionToDo) {
   auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
   EXPECT_LT(ms, 30000);
   std::printf("P4 to:do: 10000000 native %lld ms\n", static_cast<long long>(ms));
+  EXPECT_EQ(0u, b.ctx.interpretedBytecodes);
 }

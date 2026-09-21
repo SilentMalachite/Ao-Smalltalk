@@ -1,6 +1,8 @@
 #include "ao/Send.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/CompiledMethod.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/Symbol.hpp"
 
@@ -36,8 +38,16 @@ bool icMatches(CallContext& ctx, InlineCache* ic, Oop klass, Oop selector) {
   if (ic == nullptr || ic->cachedClass != klass || !ic->cachedMethod.isHeap()) {
     return false;
   }
-  // Same IC object may be reused for another selector; NativeMethod slot 0 is the selector.
-  return ctx.heap.slotAt(ic->cachedMethod, kNativeSlotSelector) == selector;
+  // NativeMethod selector is slot 0. CompiledMethod slot 0 is the header; its selector is slot 4.
+  const Oop meth = ic->cachedMethod;
+  const Oop mk = ctx.heap.klass(meth);
+  if (mk == ctx.wk.nativeMethodClass) {
+    return ctx.heap.slotAt(meth, kNativeSlotSelector) == selector;
+  }
+  if (mk == ctx.wk.compiledMethodClass) {
+    return ctx.heap.slotAt(meth, kCmSlotSelector) == selector;
+  }
+  return false;
 }
 
 void fillCaches(CallContext& ctx, InlineCache* ic, Oop klass, Oop selector, Oop method) {
@@ -81,7 +91,10 @@ Oop doesNotUnderstand(CallContext& ctx, Oop receiver, Oop selector, const Oop* a
   if (!meth.isHeap()) {
     return msg;
   }
-  return NativeMethod::apply(ctx, meth, receiver, &msg, 1);
+  ctx.roots.add(&msg);
+  const Oop applied = applyMethod(ctx, meth, receiver, &msg, 1);
+  ctx.roots.remove(&msg);
+  return applied;
 }
 
 }  // namespace
@@ -114,13 +127,13 @@ Oop send(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uin
   IcGuard guard(ctx.roots, ic);
   const Oop klass = ctx.wk.classOf(receiver);
   if (icMatches(ctx, ic, klass, selector)) {
-    return NativeMethod::apply(ctx, ic->cachedMethod, receiver, args, argc);
+    return applyMethod(ctx, ic->cachedMethod, receiver, args, argc);
   }
   if (ctx.cache != nullptr) {
     const Oop cached = ctx.cache->probe(ctx.heap, klass, selector);
     if (cached.isHeap()) {
       fillCaches(ctx, ic, klass, selector, cached);
-      return NativeMethod::apply(ctx, cached, receiver, args, argc);
+      return applyMethod(ctx, cached, receiver, args, argc);
     }
   }
   const Oop meth = lookup(ctx.heap, klass, selector);
@@ -128,7 +141,7 @@ Oop send(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uin
     return doesNotUnderstand(ctx, receiver, selector, args, argc);
   }
   fillCaches(ctx, ic, klass, selector, meth);
-  return NativeMethod::apply(ctx, meth, receiver, args, argc);
+  return applyMethod(ctx, meth, receiver, args, argc);
 }
 
 Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uint32_t argc,
@@ -141,7 +154,7 @@ Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std
   if (!meth.isHeap()) {
     return doesNotUnderstand(ctx, receiver, selector, args, argc);
   }
-  return NativeMethod::apply(ctx, meth, receiver, args, argc);
+  return applyMethod(ctx, meth, receiver, args, argc);
 }
 
 }  // namespace ao

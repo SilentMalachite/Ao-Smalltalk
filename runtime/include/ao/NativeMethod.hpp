@@ -42,6 +42,12 @@ struct CallContext {
   ClassMethodCache* cache;
   HostOopHook inspectHook = nullptr;
   HostOopHook transcriptHook = nullptr;
+  Oop activeContext{};
+  std::uint64_t interpretedBytecodes = 0;
+  int testFailures = 0;
+  bool nonlocalReturn = false;
+  Oop nonlocalHome{};
+  Oop nonlocalValue{};
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);

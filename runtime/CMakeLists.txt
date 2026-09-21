@@ -22,6 +22,7 @@ add_library(ao_runtime
   src/NativeMethod.cpp
   src/CompiledMethod.cpp
   src/Context.cpp
+  src/Interpreter.cpp
   src/Compile.cpp
   src/Lookup.cpp
   src/Send.cpp
@@ -79,6 +80,7 @@ add_executable(ao_runtime_tests
   tests/compiled_method_test.cpp
   tests/chunk_filein_test.cpp
   tests/context_test.cpp
+  tests/compiler_roundtrip_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
 include(GoogleTest)

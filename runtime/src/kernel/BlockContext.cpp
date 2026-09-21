@@ -1,6 +1,7 @@
 #include "ao/Context.hpp"
 
 #include "ao/Heap.hpp"
+#include "ao/Interpreter.hpp"
 
 #include <cstring>
 #include <string>
@@ -16,10 +17,11 @@ Oop applyBlock(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t ar
   }
   const Oop meth = ctx.heap.slotAt(receiver, kCtxMethod);
   Oop rcvr = ctx.heap.slotAt(receiver, kCtxReceiver);
-  if (!rcvr.isHeap()) {
+  const bool compiled = meth.isHeap() && ctx.heap.klass(meth) == ctx.wk.compiledMethodClass;
+  if (!compiled && !rcvr.isHeap()) {
     rcvr = receiver;
   }
-  return NativeMethod::apply(ctx, meth, rcvr, args, argc);
+  return applyMethod(ctx, meth, rcvr, args, argc, receiver);
 }
 
 }  // namespace
