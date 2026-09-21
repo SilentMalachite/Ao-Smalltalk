@@ -71,6 +71,7 @@ add_executable(ao_runtime_tests
   tests/transcript_model_test.cpp
   tests/process_test.cpp
   tests/geometry_test.cpp
+  tests/kernel_scan_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

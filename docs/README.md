@@ -19,7 +19,7 @@
 | P1 オブジェクトメモリ | [phases/P1.md](phases/P1.md) | done |
 | P2 ブートストラップ | [phases/P2.md](phases/P2.md) | done |
 | P3 ネイティブディスパッチ | [phases/P3.md](phases/P3.md) | done |
-| P4 Kernel ネイティブ | [phases/P4.md](phases/P4.md) | planned |
+| P4 Kernel ネイティブ | [phases/P4.md](phases/P4.md) | done |
 | P5 コンパイラ | [phases/P5.md](phases/P5.md) | planned |
 | P6 インタプリタ | [phases/P6.md](phases/P6.md) | planned |
 | P6b vendor file-in | [phases/P6b.md](phases/P6b.md) | planned |
