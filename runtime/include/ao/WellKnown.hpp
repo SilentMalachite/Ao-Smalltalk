@@ -145,6 +145,7 @@ class WellKnown {
 
   Oop smalltalk{};
   Oop processor{};
+  Oop transcript{};
 
   Oop selValue{};
   Oop selValue_{};

@@ -1260,22 +1260,22 @@
     "semantic_hash": "96dc6d2fb6472ea463888e3219b23c07"
   },
   "runtime/include/ao/NativeMethod.hpp": {
-    "mtime": 1789983183.7401192,
-    "seen": 1789983397.604327,
-    "ast_hash": "a72119331272172d9158a40800ec5fec",
-    "semantic_hash": "a72119331272172d9158a40800ec5fec"
+    "mtime": 1789993627.9749966,
+    "seen": 1789993686.809203,
+    "ast_hash": "d68b507a23b9760220165a2c2b3a503e",
+    "semantic_hash": ""
   },
   "runtime/src/NativeMethod.cpp": {
-    "mtime": 1789982500.1471632,
-    "seen": 1789983397.6044118,
-    "ast_hash": "91e55a30de4aefafea5202278884bd18",
-    "semantic_hash": "91e55a30de4aefafea5202278884bd18"
+    "mtime": 1789993665.1246402,
+    "seen": 1789993686.809216,
+    "ast_hash": "270ed7695253f83b414246974768dc96",
+    "semantic_hash": ""
   },
   "runtime/tests/native_method_test.cpp": {
-    "mtime": 1789982500.1491623,
-    "seen": 1789983397.604588,
-    "ast_hash": "8de20833cec2968fc20348d11652c3da",
-    "semantic_hash": "8de20833cec2968fc20348d11652c3da"
+    "mtime": 1789993614.1900747,
+    "seen": 1789993686.809241,
+    "ast_hash": "9627953916cb30b5cfa195e41d0b19f4",
+    "semantic_hash": ""
   },
   "docs/native-selectors.md": {
     "mtime": 1789990437.4168572,
@@ -1458,15 +1458,15 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Dictionary.cpp": {
-    "mtime": 1789992844.8648765,
-    "seen": 1789992884.540788,
-    "ast_hash": "eca8549b670ed061046c31fa238946bc",
+    "mtime": 1789993665.1247568,
+    "seen": 1789993686.809228,
+    "ast_hash": "afa85de35fc1f0c3e38ac45546a4bd59",
     "semantic_hash": ""
   },
   "runtime/tests/collection_do_test.cpp": {
-    "mtime": 1789992487.0856817,
-    "seen": 1789992884.5407958,
-    "ast_hash": "19b7602f54c88b098614aca2881cff6e",
+    "mtime": 1789993614.1958358,
+    "seen": 1789993686.809237,
+    "ast_hash": "7e93b9205033660d82692c5af7199e9e",
     "semantic_hash": ""
   }
 }

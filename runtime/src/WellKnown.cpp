@@ -106,6 +106,7 @@ WellKnown::WellKnown(Heap& heap, Roots& roots)
   }
   smalltalk = Oop::nil();
   processor = Oop::nil();
+  transcript = Oop::nil();
   selValue = Oop::nil();
   selValue_ = Oop::nil();
   selNew = Oop::nil();
@@ -130,6 +131,7 @@ void WellKnown::addRoots(Roots& roots) {
   }
   roots.add(&smalltalk);
   roots.add(&processor);
+  roots.add(&transcript);
   roots.add(&selValue);
   roots.add(&selValue_);
   roots.add(&selNew);

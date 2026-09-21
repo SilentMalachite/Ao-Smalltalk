@@ -36,6 +36,7 @@ add_library(ao_runtime
   src/kernel/Array.cpp
   src/kernel/String.cpp
   src/kernel/Dictionary.cpp
+  src/kernel/Stream.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -65,6 +66,7 @@ add_executable(ao_runtime_tests
   tests/smallinteger_arith_test.cpp
   tests/array_string_test.cpp
   tests/collection_do_test.cpp
+  tests/transcript_model_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

@@ -241,6 +241,10 @@ void installNatives(Heap& heap, Roots& roots, WellKnown& wk) {
   if (wk.processorSchedulerClass.isHeap()) {
     wk.processor = heap.allocate(wk.processorSchedulerClass, 2, 0);
   }
+  if (wk.transcriptClass.isHeap()) {
+    const auto n = Format::instSize(heap.slotAt(wk.transcriptClass, kClassSlotFormat));
+    wk.transcript = heap.allocate(wk.transcriptClass, static_cast<std::uint32_t>(n), 0);
+  }
 }
 
 void run(Heap& heap, Roots& roots, WellKnown& wk) {
