@@ -2,6 +2,7 @@
 
 #include "ao/Span.hpp"
 
+#include <cstdint>
 #include <string>
 
 namespace ao::compiler {
@@ -36,6 +37,7 @@ struct Token {
   SourceSpan span;
   std::string text;
   double number = 0;
+  std::int64_t intValue = 0;
   bool isFloat = false;
 };
 

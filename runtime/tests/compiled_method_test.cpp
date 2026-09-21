@@ -1,4 +1,5 @@
 #include "test_support.hpp"
+#include "ao/Compile.hpp"
 #include "ao/CompiledMethod.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
@@ -31,4 +32,21 @@ TEST(CompiledMethod, BoxFromImageNativeCodeNil) {
   EXPECT_EQ(b.wk.compiledMethodClass, b.heap.klass(cm));
   EXPECT_TRUE(send0(b, cm, "nativeCode").isNil());
   EXPECT_EQ(0, send0(b, cm, "numArgs").smallIntegerValue());
+}
+
+TEST(CompiledMethod, BoxLiteralArrayPseudoObjects) {
+  Boot b;
+  auto img = ao::compiler::compileMethod("foo\n  ^#(nil true false)");
+  ASSERT_TRUE(img.ok);
+  auto cm = ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass);
+  ASSERT_TRUE(cm.isHeap());
+  auto lits = b.heap.slotAt(cm, ao::kCmSlotLiterals);
+  ASSERT_TRUE(lits.isHeap());
+  ASSERT_GE(b.heap.size(lits), 1u);
+  auto arr = b.heap.slotAt(lits, 0);
+  ASSERT_TRUE(arr.isHeap());
+  ASSERT_EQ(3u, b.heap.size(arr));
+  EXPECT_TRUE(b.heap.slotAt(arr, 0).isNil());
+  EXPECT_TRUE(b.heap.slotAt(arr, 1).isTrue());
+  EXPECT_TRUE(b.heap.slotAt(arr, 2).isFalse());
 }

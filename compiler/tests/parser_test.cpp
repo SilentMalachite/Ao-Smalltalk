@@ -97,3 +97,27 @@ TEST(Parser, LiteralArrayKeepsSeparateKeywords) {
   ASSERT_EQ(1u, arr2.kids.size());
   EXPECT_EQ("at:put:", arr2.kids[0].text);
 }
+
+TEST(Parser, LiteralArrayPseudoObjectsAreNotSymbols) {
+  auto r = parseMethod("foo\n  ^#(nil true false)");
+  ASSERT_TRUE(r.ok);
+  auto& arr = r.method.kids.at(0).kids.at(0);
+  ASSERT_EQ(3u, arr.kids.size());
+  EXPECT_EQ(Ast::Kind::Literal, arr.kids[0].kind);
+  EXPECT_EQ(Ast::Kind::Literal, arr.kids[1].kind);
+  EXPECT_EQ(Ast::Kind::Literal, arr.kids[2].kind);
+  EXPECT_EQ("nil", arr.kids[0].name);
+  EXPECT_EQ("true", arr.kids[1].name);
+  EXPECT_EQ("false", arr.kids[2].name);
+  EXPECT_NE("#", arr.kids[0].name);
+  EXPECT_NE("#", arr.kids[1].name);
+  EXPECT_NE("#", arr.kids[2].name);
+}
+
+TEST(Parser, TrueExpressionIsVariable) {
+  auto r = parseMethod("foo\n  ^true");
+  ASSERT_TRUE(r.ok);
+  auto& v = r.method.kids.at(0).kids.at(0);
+  EXPECT_EQ(Ast::Kind::Variable, v.kind);
+  EXPECT_EQ("true", v.name);
+}

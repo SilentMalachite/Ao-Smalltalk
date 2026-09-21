@@ -4,6 +4,8 @@
 
 TEST(BytecodeIsa, RequiredGroupsArePresent) {
   using ao::compiler::Op;
+  using ao::compiler::operandBytes;
+  using ao::compiler::specialSelector;
   std::set<Op> ops{
       Op::PushReceiver, Op::PushTemp, Op::PushLiteral, Op::PushNil, Op::PushTrue,
       Op::Pop, Op::Dup, Op::Send, Op::SendSuper, Op::SendSpecial,

@@ -204,7 +204,7 @@ class Parser {
       return {};
     }
     Ast prim = make(Ast::Kind::Primitive, start);
-    prim.intValue = static_cast<std::int64_t>(cur_.number);
+    prim.intValue = cur_.intValue;
     advance();
     if (!checkBinary(">")) {
       fail("expected '>'");
@@ -418,11 +418,12 @@ class Parser {
   Ast numberLiteral(SourceSpan span, const Token& num, int sign) {
     Ast lit = make(Ast::Kind::Literal, span);
     lit.isFloat = num.isFloat;
-    const double v = num.number * static_cast<double>(sign);
-    lit.floatValue = v;
-    if (!num.isFloat) {
-      lit.intValue = static_cast<std::int64_t>(v);
+    lit.text = num.text;
+    if (num.isFloat) {
+      lit.floatValue = num.number * static_cast<double>(sign);
+      return lit;
     }
+    lit.intValue = sign < 0 ? -num.intValue : num.intValue;
     return lit;
   }
 
@@ -520,8 +521,7 @@ class Parser {
       fail("expected byte 0-255");
       return {};
     }
-    const auto v = static_cast<std::int64_t>(cur_.number);
-    if (v < 0 || v > 255 || cur_.number != static_cast<double>(v)) {
+    if (cur_.intValue < 0 || cur_.intValue > 255) {
       fail("expected byte 0-255");
       return {};
     }
@@ -547,8 +547,12 @@ class Parser {
     }
     if (check(Tok::Ident)) {
       Ast lit = make(Ast::Kind::Literal, cur_.span);
-      lit.name = "#";
-      lit.text = cur_.text;
+      if (cur_.text == "nil" || cur_.text == "true" || cur_.text == "false") {
+        lit.name = cur_.text;
+      } else {
+        lit.name = "#";
+        lit.text = cur_.text;
+      }
       advance();
       return lit;
     }

@@ -98,6 +98,3 @@ inline const char* specialSelector(std::uint8_t i) {
 }
 
 }  // namespace ao::compiler
-
-using ao::compiler::operandBytes;
-using ao::compiler::specialSelector;

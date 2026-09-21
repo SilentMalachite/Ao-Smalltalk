@@ -1,8 +1,11 @@
 #include "test_support.hpp"
 #include "ao/Chunk.hpp"
-#include "ao/CompiledMethod.hpp"
+#include "ao/Compile.hpp"
+#include "ao/Compiler.hpp"
 #include "ao/Lookup.hpp"
+#include <cstring>
 #include <gtest/gtest.h>
+#include <string>
 
 TEST(ChunkFileIn, InstallsCompiledMethodAndKeepsOldOnError) {
   Boot b;
@@ -44,4 +47,33 @@ TEST(ChunkFileIn, DoItIsNotEvaluated) {
   ASSERT_EQ(1u, acts.size());
   EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[0].kind);
   EXPECT_TRUE(ao::applyChunks(b.ctx, acts, errs));
+}
+
+TEST(ChunkFileIn, InstVarReadCompilesPushInstVar) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #CmIvar\n"
+      "  instanceVariableNames: 'a'\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'P5-Test'!\n"
+      "!CmIvar methodsFor: 't'!\n"
+      "x\n"
+      "  ^a!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(ao::applyChunks(b.ctx, acts, errs)) << (errs.empty() ? "" : errs[0].message);
+  auto cls = b.wk.named("CmIvar");
+  ASSERT_TRUE(cls.isHeap());
+  auto meth = ao::lookup(b.heap, cls, b.wk.intern("x"));
+  ASSERT_TRUE(meth.isHeap());
+  auto ba = send0(b, meth, "bytecodes");
+  ASSERT_TRUE(ba.isHeap());
+  ao::compiler::MethodImage image;
+  image.bytes.resize(b.heap.size(ba));
+  if (!image.bytes.empty()) {
+    std::memcpy(image.bytes.data(), b.heap.bytes(ba), image.bytes.size());
+  }
+  const std::string d = ao::compiler::disassemble(image);
+  EXPECT_NE(std::string::npos, d.find("PushInstVar 0")) << d;
 }

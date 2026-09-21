@@ -548,6 +548,18 @@ class Emitter {
       lit.text = n.text;
       return lit;
     }
+    if (n.name == "nil") {
+      lit.kind = LitKind::Nil;
+      return lit;
+    }
+    if (n.name == "true") {
+      lit.kind = LitKind::True;
+      return lit;
+    }
+    if (n.name == "false") {
+      lit.kind = LitKind::False;
+      return lit;
+    }
     if (n.name == "#") {
       lit.kind = LitKind::Symbol;
       lit.text = n.text;

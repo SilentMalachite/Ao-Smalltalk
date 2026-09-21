@@ -1,3 +1,5 @@
+#include "ao/Compile.hpp"
+
 #include "ao/CompiledMethod.hpp"
 
 #include "ao/Bootstrap.hpp"

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace ao::compiler {
@@ -119,34 +120,55 @@ Token Scanner::lexNumber(std::uint32_t start) {
     return p < src_.size() ? src_[p] : '\0';
   };
 
-  double intPart = 0;
+  auto addDigit = [](std::int64_t& acc, int radix, int digit) -> bool {
+    const std::int64_t r = radix;
+    const std::int64_t d = digit;
+    if (acc > (std::numeric_limits<std::int64_t>::max() - d) / r) {
+      return false;
+    }
+    acc = acc * r + d;
+    return true;
+  };
+
+  std::int64_t intAcc = 0;
+  double dblAcc = 0;
+  bool overflow = false;
   while (isDigit(at(0))) {
-    intPart = intPart * 10 + (at(0) - '0');
+    const int d = at(0) - '0';
+    if (!overflow && !addDigit(intAcc, 10, d)) {
+      overflow = true;
+    }
+    dblAcc = dblAcc * 10.0 + static_cast<double>(d);
     i_++;
   }
 
   int radix = 10;
-  if ((at(0) == 'r' || at(0) == 'R') && intPart >= 2 && intPart <= 36 &&
-      digitValue(at(1), static_cast<int>(intPart)) >= 0) {
-    radix = static_cast<int>(intPart);
+  if ((at(0) == 'r' || at(0) == 'R') && !overflow && intAcc >= 2 && intAcc <= 36 &&
+      digitValue(at(1), static_cast<int>(intAcc)) >= 0) {
+    radix = static_cast<int>(intAcc);
     i_++;
-    intPart = 0;
+    intAcc = 0;
+    dblAcc = 0;
+    overflow = false;
     int dv = 0;
     while ((dv = digitValue(at(0), radix)) >= 0) {
-      intPart = intPart * radix + dv;
+      if (!overflow && !addDigit(intAcc, radix, dv)) {
+        overflow = true;
+      }
+      dblAcc = dblAcc * static_cast<double>(radix) + static_cast<double>(dv);
       i_++;
     }
   }
 
   bool isFloat = false;
-  double value = intPart;
+  double value = overflow ? dblAcc : static_cast<double>(intAcc);
   if (at(0) == '.' && digitValue(at(1), radix) >= 0) {
     isFloat = true;
     i_++;
     double place = 1.0 / static_cast<double>(radix);
     int dv = 0;
     while ((dv = digitValue(at(0), radix)) >= 0) {
-      value += dv * place;
+      value += static_cast<double>(dv) * place;
       place /= static_cast<double>(radix);
       i_++;
     }
@@ -168,18 +190,34 @@ Token Scanner::lexNumber(std::uint32_t start) {
         expSign = -1;
         i_++;
       }
-      int exp = 0;
+      std::int64_t exp = 0;
+      bool expOverflow = false;
       while (isDigit(at(0))) {
-        exp = exp * 10 + (at(0) - '0');
+        const int d = at(0) - '0';
+        if (!expOverflow) {
+          if (exp > (std::numeric_limits<std::int64_t>::max() - d) / 10) {
+            expOverflow = true;
+            exp = std::numeric_limits<std::int64_t>::max();
+          } else {
+            exp = exp * 10 + d;
+          }
+        }
         i_++;
       }
-      value *= std::pow(10.0, expSign * exp);
+      if (expOverflow || exp > 400) {
+        value = expSign < 0 ? 0.0 : std::numeric_limits<double>::infinity();
+      } else {
+        value *= std::pow(10.0, static_cast<double>(expSign) * static_cast<double>(exp));
+      }
     }
   }
 
   Token t = make(Tok::Number, start, std::string(src_.substr(start, i_ - start)));
   t.number = value;
   t.isFloat = isFloat;
+  if (!isFloat && !overflow) {
+    t.intValue = intAcc;
+  }
   return t;
 }
 

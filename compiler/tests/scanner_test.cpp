@@ -1,4 +1,5 @@
 #include "ao/Scanner.hpp"
+#include <cstdint>
 #include <gtest/gtest.h>
 
 using ao::compiler::Scanner;
@@ -55,4 +56,13 @@ TEST(Scanner, UnterminatedStringHasSpan) {
   EXPECT_EQ(Tok::Error, t.kind);
   EXPECT_EQ(0u, t.span.start);
   EXPECT_EQ(4u, t.span.end);
+}
+
+TEST(Scanner, EighteenDigitIntegerIsExactInt64) {
+  Scanner s("100000000000000001");
+  auto n = s.next();
+  EXPECT_EQ(Tok::Number, n.kind);
+  EXPECT_FALSE(n.isFloat);
+  EXPECT_EQ(100000000000000001LL, n.intValue);
+  EXPECT_NE(100000000000000001LL, static_cast<std::int64_t>(n.number));
 }

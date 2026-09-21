@@ -4,6 +4,7 @@
 
 using ao::compiler::compileMethod;
 using ao::compiler::disassemble;
+using ao::compiler::LitKind;
 
 TEST(Codegen, ReturnOnePlusTwo) {
   auto r = compileMethod("foo\n  ^1 + 2");
@@ -55,4 +56,23 @@ TEST(Codegen, ErrorSpanOnDanglingBinary) {
   auto r = compileMethod("foo\n  ^1 +");
   EXPECT_FALSE(r.ok);
   EXPECT_GT(r.error.span.end, r.error.span.start);
+}
+
+TEST(Codegen, LiteralArrayPseudoObjectsAreNotSymbols) {
+  auto r = compileMethod("foo\n  ^#(nil true false)");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  ASSERT_EQ(1u, r.image.literals.size());
+  EXPECT_EQ(LitKind::Array, r.image.literals[0].kind);
+  ASSERT_EQ(3u, r.image.literals[0].elements.size());
+  EXPECT_EQ(LitKind::Nil, r.image.literals[0].elements[0].kind);
+  EXPECT_EQ(LitKind::True, r.image.literals[0].elements[1].kind);
+  EXPECT_EQ(LitKind::False, r.image.literals[0].elements[2].kind);
+}
+
+TEST(Codegen, EighteenDigitIntegerSurvivesAsInt) {
+  auto r = compileMethod("foo\n  ^100000000000000001");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  ASSERT_EQ(1u, r.image.literals.size());
+  EXPECT_EQ(LitKind::Int, r.image.literals[0].kind);
+  EXPECT_EQ(100000000000000001LL, r.image.literals[0].intValue);
 }
