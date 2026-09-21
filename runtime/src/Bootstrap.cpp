@@ -1,5 +1,9 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Globals.hpp"
+#include "ao/MethodDictionary.hpp"
+#include "ao/NativeMethod.hpp"
+#include "ao/Natives.hpp"
+#include "ao/Symbol.hpp"
 
 #include <cstring>
 
@@ -122,9 +126,75 @@ void wireCycle(Heap& heap, WellKnown& wk) {
             "Message class");
 }
 
+static void putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector,
+                      std::uint32_t argc, std::string_view name, NativeFn fn) {
+  auto dict = heap.slotAt(cls, kClassSlotMethodDict);
+  if (!dict.isHeap()) {
+    return;
+  }
+  auto sel = Symbol::intern(wk, selector);
+  auto idx = NativeRegistry::add(fn);
+  auto meth = NativeMethod::create(heap, wk, sel, argc, name, idx, cls);
+  if (!meth.isHeap()) {
+    return;
+  }
+  MethodDictionary::atPut(heap, dict, sel, meth);
+}
+
+void installNatives(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
+  const Oop classes[] = {
+      wk.objectClass,
+      wk.objectMetaclass,
+      wk.behaviorClass,
+      wk.behaviorMetaclass,
+      wk.classDescriptionClass,
+      wk.classDescriptionMetaclass,
+      wk.classClass,
+      wk.classMetaclass,
+      wk.metaclassClass,
+      wk.metaclassMetaclass,
+      wk.undefinedObjectClass,
+      wk.undefinedObjectMetaclass,
+      wk.booleanClass,
+      wk.booleanMetaclass,
+      wk.trueClass,
+      wk.trueMetaclass,
+      wk.falseClass,
+      wk.falseMetaclass,
+      wk.smallIntegerClass,
+      wk.smallIntegerMetaclass,
+      wk.characterClass,
+      wk.characterMetaclass,
+      wk.symbolClass,
+      wk.symbolMetaclass,
+      wk.methodDictionaryClass,
+      wk.methodDictionaryMetaclass,
+      wk.nativeMethodClass,
+      wk.nativeMethodMetaclass,
+      wk.messageClass,
+      wk.messageMetaclass,
+  };
+  for (Oop cls : classes) {
+    if (!cls.isHeap()) {
+      continue;
+    }
+    if (heap.slotAt(cls, kClassSlotMethodDict).isNil()) {
+      auto dict = MethodDictionary::create(heap, wk, 8);
+      if (dict.isHeap()) {
+        heap.slotAtPut(cls, kClassSlotMethodDict, dict);
+      }
+    }
+  }
+  putNative(heap, wk, wk.objectClass, "==", 1, "ao_Object_identityEquals", ao_Object_identityEquals);
+  putNative(heap, wk, wk.objectClass, "class", 0, "ao_Object_class", ao_Object_class);
+  putNative(heap, wk, wk.objectClass, "doesNotUnderstand:", 1, "ao_Object_doesNotUnderstand_",
+            ao_Object_doesNotUnderstand_);
+}
+
 void run(Heap& heap, Roots& roots, WellKnown& wk) {
   allocateSkeletons(heap, roots, wk);
   wireCycle(heap, wk);
+  installNatives(heap, roots, wk);
   Globals::install(heap, roots, wk);
 }
 

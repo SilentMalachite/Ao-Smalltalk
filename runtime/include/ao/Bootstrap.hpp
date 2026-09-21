@@ -18,6 +18,7 @@ inline constexpr std::uint32_t kClassSlotCount      = 5;
 namespace Bootstrap {
 void allocateSkeletons(Heap& heap, Roots& roots, WellKnown& wk);
 void wireCycle(Heap& heap, WellKnown& wk);
+void installNatives(Heap& heap, Roots& roots, WellKnown& wk);
 void run(Heap& heap, Roots& roots, WellKnown& wk);
 }
 

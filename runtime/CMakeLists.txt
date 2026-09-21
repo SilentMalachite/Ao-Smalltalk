@@ -20,6 +20,8 @@ add_library(ao_runtime
   src/Symbol.cpp
   src/MethodDictionary.cpp
   src/NativeMethod.cpp
+  src/Lookup.cpp
+  src/Natives.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -42,6 +44,7 @@ add_executable(ao_runtime_tests
   tests/symbol_test.cpp
   tests/method_dictionary_test.cpp
   tests/native_method_test.cpp
+  tests/lookup_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

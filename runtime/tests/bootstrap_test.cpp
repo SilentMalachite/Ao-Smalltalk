@@ -167,12 +167,14 @@ TEST(Bootstrap, CycleMetaclassInheritsFromClassDescription) {
   EXPECT_EQ(wk.classDescriptionMetaclass, superOf(heap, wk.metaclassMetaclass));
 }
 
-TEST(Bootstrap, CycleMethodDictIsNilAndFormatIsSmi) {
+TEST(Bootstrap, CycleMethodDictIsMethodDictionary) {
   ao::Heap heap;
   ao::Roots roots;
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
-  EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotMethodDict).isNil());
+  auto d = heap.slotAt(wk.objectClass, ao::kClassSlotMethodDict);
+  ASSERT_TRUE(d.isHeap());
+  EXPECT_EQ(wk.methodDictionaryClass, heap.klass(d));
   EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotFormat).isSmallInteger());
   EXPECT_EQ(0, heap.slotAt(wk.objectClass, ao::kClassSlotFormat).smallIntegerValue());
   EXPECT_EQ(static_cast<std::int64_t>(ao::kClassSlotCount),

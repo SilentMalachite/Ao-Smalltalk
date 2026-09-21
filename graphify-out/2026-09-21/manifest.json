@@ -936,9 +936,9 @@
     "semantic_hash": ""
   },
   "docs/prs/P3-03.md": {
-    "mtime": 1789974376.582086,
-    "seen": 1789974424.988226,
-    "ast_hash": "dbbc7c099f244d67ebbbe6bc21527c60",
+    "mtime": 1789976631.7126117,
+    "seen": 1789976643.194035,
+    "ast_hash": "d3e305be0280e53184611ddd8f3398b0",
     "semantic_hash": ""
   },
   "docs/prs/P3-04.md": {
@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "runtime/CMakeLists.txt": {
-    "mtime": 1789975812.8238773,
-    "seen": 1789975918.6495612,
-    "ast_hash": "77e466b3f0777dcc64891a43db7d778c",
+    "mtime": 1789976587.7268715,
+    "seen": 1789976643.194062,
+    "ast_hash": "4ace4e7e0ba9814da99fac9951c7bb95",
     "semantic_hash": ""
   },
   "runtime/include/ao/Roots.hpp": {
@@ -1257,6 +1257,30 @@
     "mtime": 1789975734.039598,
     "seen": 1789975918.6494951,
     "ast_hash": "96dc6d2fb6472ea463888e3219b23c07",
+    "semantic_hash": ""
+  },
+  "runtime/include/ao/NativeMethod.hpp": {
+    "mtime": 1789976587.7266343,
+    "seen": 1789976643.193977,
+    "ast_hash": "f265c930f4fafa63557f4f5501c625f2",
+    "semantic_hash": ""
+  },
+  "runtime/src/NativeMethod.cpp": {
+    "mtime": 1789976587.7266347,
+    "seen": 1789976643.1939871,
+    "ast_hash": "91e55a30de4aefafea5202278884bd18",
+    "semantic_hash": ""
+  },
+  "runtime/tests/native_method_test.cpp": {
+    "mtime": 1789976545.1247041,
+    "seen": 1789976643.1939971,
+    "ast_hash": "8de20833cec2968fc20348d11652c3da",
+    "semantic_hash": ""
+  },
+  "docs/native-selectors.md": {
+    "mtime": 1789976545.1247098,
+    "seen": 1789976643.194011,
+    "ast_hash": "472c80a015ec09a19e70c15c2542216c",
     "semantic_hash": ""
   }
 }
