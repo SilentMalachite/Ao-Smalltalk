@@ -344,3 +344,67 @@ TEST(GcWeak, NurseryWeakSlotNilsUnmarkedOldReferent) {
   EXPECT_TRUE(heap.inNursery(weak));
   EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
 }
+
+TEST(GcOld, ImmovableKeepsAddressAcrossCompact) {
+  ao::Heap heap(256, 2048);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+
+  // Dead object must sit at a lower address than pin so today's compact would slide pin.
+  auto garbage = heap.allocate(ao::Oop::nil(), 2, 0);
+  roots.add(&garbage);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(garbage));
+  roots.remove(&garbage);
+
+  auto pin = heap.allocate(ao::Oop::nil(), 0, ao::kFlagImmovable);
+  roots.add(&pin);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(pin));
+  void* pinAddr = pin.heapPointer();
+  ASSERT_LT(static_cast<std::byte*>(garbage.heapPointer()),
+            static_cast<std::byte*>(pinAddr));
+
+  gc.collectOld();
+
+  ASSERT_TRUE(pin.isHeap());
+  EXPECT_EQ(pin.heapPointer(), pinAddr);
+  EXPECT_TRUE(heap.inOld(pin));
+}
+
+TEST(GcOld, MovableAfterPinSlidesAndSlotsUpdate) {
+  ao::Heap heap(256, 2048);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+
+  auto pin = heap.allocate(ao::Oop::nil(), 0, ao::kFlagImmovable);
+  roots.add(&pin);
+  gc.collectNursery();
+  void* pinAddr = pin.heapPointer();
+
+  auto garbage = heap.allocate(ao::Oop::nil(), 2, 0);
+  roots.add(&garbage);
+  gc.collectNursery();
+  roots.remove(&garbage);
+
+  auto parent = heap.allocate(ao::Oop::nil(), 1, 0);
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  heap.slotAtPut(parent, 0, child);
+  roots.add(&parent);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(parent));
+  void* parentBefore = parent.heapPointer();
+  ASSERT_LT(static_cast<std::byte*>(pinAddr),
+            static_cast<std::byte*>(garbage.heapPointer()));
+  ASSERT_LT(static_cast<std::byte*>(garbage.heapPointer()),
+            static_cast<std::byte*>(parentBefore));
+
+  gc.collectOld();
+
+  EXPECT_EQ(pin.heapPointer(), pinAddr);
+  ASSERT_TRUE(parent.isHeap());
+  EXPECT_NE(parent.heapPointer(), parentBefore);
+  auto movedChild = heap.slotAt(parent, 0);
+  ASSERT_TRUE(movedChild.isHeap());
+  EXPECT_TRUE(heap.inOld(movedChild));
+}

@@ -239,15 +239,48 @@ void Gc::collectOld() {
 
   clearWeakAfterOldMark();
 
-  std::unordered_map<std::uintptr_t, Oop> fwd;
-  std::byte* dest = heap_->oldStart_;
+  std::vector<std::pair<std::byte*, std::byte*>> pins;
   std::byte* scan = heap_->oldStart_;
   while (scan < heap_->oldBump_) {
     auto* h = reinterpret_cast<ObjectHeader*>(scan);
     const std::size_t n = heap_->objectBytes(h);
+    if ((h->flags & kFlagMarked) && (h->flags & kFlagImmovable)) {
+      pins.emplace_back(scan, scan + n);
+    }
+    scan += n;
+  }
+
+  auto overlapsPin = [&](std::byte* p, std::size_t n) {
+    std::byte* end = p + n;
+    for (auto [a, b] : pins) {
+      if (p < b && end > a) {
+        return b;
+      }
+    }
+    return static_cast<std::byte*>(nullptr);
+  };
+
+  std::unordered_map<std::uintptr_t, Oop> fwd;
+  std::vector<std::byte*> objs;
+  std::byte* dest = heap_->oldStart_;
+  scan = heap_->oldStart_;
+  while (scan < heap_->oldBump_) {
+    auto* h = reinterpret_cast<ObjectHeader*>(scan);
+    const std::size_t n = heap_->objectBytes(h);
     if (h->flags & kFlagMarked) {
-      fwd.emplace(reinterpret_cast<std::uintptr_t>(h), Oop::fromHeap(dest));
-      dest += n;
+      objs.push_back(scan);
+      if (h->flags & kFlagImmovable) {
+        fwd.emplace(reinterpret_cast<std::uintptr_t>(h), Oop::fromHeap(scan));
+        if (dest < scan + static_cast<std::ptrdiff_t>(n)) {
+          dest = scan + n;
+        }
+      } else {
+        while (auto pinEnd = overlapsPin(dest, n)) {
+          dest = pinEnd;
+        }
+        fwd.emplace(reinterpret_cast<std::uintptr_t>(h), Oop::fromHeap(dest));
+        dest += n;
+      }
     }
     scan += n;
   }
@@ -302,23 +335,43 @@ void Gc::collectOld() {
     scan += n;
   }
 
-  dest = heap_->oldStart_;
-  scan = heap_->oldStart_;
-  while (scan < heap_->oldBump_) {
-    auto* h = reinterpret_cast<ObjectHeader*>(scan);
-    const std::size_t n = heap_->objectBytes(h);
-    std::byte* next = scan + n;
-    if (h->flags & kFlagMarked) {
-      if (dest != scan) {
-        std::memmove(dest, scan, n);
-      }
-      auto* nh = reinterpret_cast<ObjectHeader*>(dest);
-      nh->flags = static_cast<std::uint16_t>(nh->flags & ~kFlagMarked);
-      dest += n;
+  bool slideUp = false;
+  for (auto& [from, toOop] : fwd) {
+    auto* fromp = reinterpret_cast<std::byte*>(from);
+    auto* top = static_cast<std::byte*>(toOop.heapPointer());
+    if (top > fromp) {
+      slideUp = true;
+      break;
     }
-    scan = next;
   }
-  heap_->oldBump_ = dest;
+
+  std::byte* usedEnd = heap_->oldStart_;
+  auto moveOne = [&](std::byte* p) {
+    auto* h = reinterpret_cast<ObjectHeader*>(p);
+    const std::size_t n = heap_->objectBytes(h);
+    auto it = fwd.find(reinterpret_cast<std::uintptr_t>(h));
+    std::byte* target = static_cast<std::byte*>(it->second.heapPointer());
+    if (target != p) {
+      std::memmove(target, p, n);
+    }
+    auto* nh = reinterpret_cast<ObjectHeader*>(target);
+    nh->flags = static_cast<std::uint16_t>(nh->flags & ~kFlagMarked);
+    std::byte* objEnd = target + n;
+    if (objEnd > usedEnd) {
+      usedEnd = objEnd;
+    }
+  };
+
+  if (slideUp) {
+    for (auto it = objs.rbegin(); it != objs.rend(); ++it) {
+      moveOne(*it);
+    }
+  } else {
+    for (auto* p : objs) {
+      moveOne(p);
+    }
+  }
+  heap_->oldBump_ = usedEnd;
 }
 
 }  // namespace ao
