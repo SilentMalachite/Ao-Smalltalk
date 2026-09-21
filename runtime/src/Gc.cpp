@@ -1,5 +1,6 @@
 #include "ao/Gc.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <unordered_map>
@@ -262,6 +263,7 @@ void Gc::collectOld() {
 
   std::unordered_map<std::uintptr_t, Oop> fwd;
   std::vector<std::byte*> objs;
+  std::vector<std::pair<std::byte*, std::byte*>> live;
   std::byte* dest = heap_->oldStart_;
   scan = heap_->oldStart_;
   while (scan < heap_->oldBump_) {
@@ -271,14 +273,37 @@ void Gc::collectOld() {
       objs.push_back(scan);
       if (h->flags & kFlagImmovable) {
         fwd.emplace(reinterpret_cast<std::uintptr_t>(h), Oop::fromHeap(scan));
+        live.emplace_back(scan, scan + n);
         if (dest < scan + static_cast<std::ptrdiff_t>(n)) {
           dest = scan + n;
         }
       } else {
-        while (auto pinEnd = overlapsPin(dest, n)) {
-          dest = pinEnd;
+        while (true) {
+          if (auto pinEnd = overlapsPin(dest, n)) {
+            dest = pinEnd;
+            continue;
+          }
+          std::byte* nextPin = nullptr;
+          std::byte* nextPinEnd = nullptr;
+          for (auto [a, b] : pins) {
+            if (b > dest) {
+              nextPin = a;
+              nextPinEnd = b;
+              break;
+            }
+          }
+          if (nextPin != nullptr && dest + n < nextPin) {
+            const std::size_t rem =
+                static_cast<std::size_t>(nextPin - (dest + n));
+            if (rem > 0 && rem < sizeof(ObjectHeader)) {
+              dest = nextPinEnd;
+              continue;
+            }
+          }
+          break;
         }
         fwd.emplace(reinterpret_cast<std::uintptr_t>(h), Oop::fromHeap(dest));
+        live.emplace_back(dest, dest + n);
         dest += n;
       }
     }
@@ -369,6 +394,24 @@ void Gc::collectOld() {
   } else {
     for (auto* p : objs) {
       moveOne(p);
+    }
+  }
+
+  std::sort(live.begin(), live.end());
+  std::byte* cursor = heap_->oldStart_;
+  for (auto [a, b] : live) {
+    if (a > cursor) {
+      const std::size_t rem = static_cast<std::size_t>(a - cursor);
+      if (rem >= sizeof(ObjectHeader)) {
+        auto* fh = reinterpret_cast<ObjectHeader*>(cursor);
+        fh->klass = Oop::nil();
+        fh->size = static_cast<std::uint32_t>(rem - sizeof(ObjectHeader));
+        fh->flags = kFlagBytes | kFlagOld;
+        fh->hash = 0;
+      }
+    }
+    if (b > cursor) {
+      cursor = b;
     }
   }
   heap_->oldBump_ = usedEnd;

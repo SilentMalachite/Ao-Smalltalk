@@ -408,3 +408,121 @@ TEST(GcOld, MovableAfterPinSlidesAndSlotsUpdate) {
   ASSERT_TRUE(movedChild.isHeap());
   EXPECT_TRUE(heap.inOld(movedChild));
 }
+
+namespace {
+
+bool oldWalkVisits(ao::Heap& heap, void* oldStart, void* needle) {
+  auto* scan = static_cast<std::byte*>(oldStart);
+  auto* const end = scan + heap.oldUsed();
+  int steps = 0;
+  while (scan < end && steps++ < 1024) {
+    auto* h = reinterpret_cast<ao::ObjectHeader*>(scan);
+    const std::size_t n = heap.objectBytes(h);
+    if (n == 0 || scan + n > end) {
+      return false;
+    }
+    if (scan == needle) {
+      return true;
+    }
+    scan += n;
+  }
+  return false;
+}
+
+}  // namespace
+
+TEST(GcOld, PartialFillBeforePinLeavesWalkableChain) {
+  ao::Heap heap(256, 2048);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+
+  auto dead = heap.allocate(ao::Oop::nil(), 2, 0);
+  roots.add(&dead);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(dead));
+  void* oldStart = dead.heapPointer();
+  roots.remove(&dead);
+
+  auto mv = heap.allocate(ao::Oop::nil(), 0, 0);
+  roots.add(&mv);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(mv));
+
+  auto pin = heap.allocate(ao::Oop::nil(), 0, ao::kFlagImmovable);
+  roots.add(&pin);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(pin));
+  void* pinAddr = pin.heapPointer();
+  ASSERT_LT(static_cast<std::byte*>(oldStart), static_cast<std::byte*>(mv.heapPointer()));
+  ASSERT_LT(static_cast<std::byte*>(mv.heapPointer()),
+            static_cast<std::byte*>(pinAddr));
+
+  gc.collectOld();
+
+  ASSERT_TRUE(pin.isHeap());
+  EXPECT_EQ(pin.heapPointer(), pinAddr);
+  EXPECT_TRUE(oldWalkVisits(heap, oldStart, pinAddr));
+  EXPECT_TRUE(heap.inOld(pin));
+
+  gc.collectOld();
+
+  ASSERT_TRUE(pin.isHeap());
+  EXPECT_EQ(pin.heapPointer(), pinAddr);
+  EXPECT_TRUE(heap.inOld(pin));
+  EXPECT_TRUE(oldWalkVisits(heap, oldStart, pinAddr));
+}
+
+TEST(GcOld, SlideUpDoesNotOverlapPin) {
+  ao::Heap heap(256, 2048);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+
+  auto pin1 = heap.allocate(ao::Oop::nil(), 0, ao::kFlagImmovable);
+  roots.add(&pin1);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(pin1));
+  void* pin1Addr = pin1.heapPointer();
+
+  auto hole = heap.allocate(ao::Oop::nil(), 0, 0);
+  roots.add(&hole);
+  gc.collectNursery();
+  roots.remove(&hole);
+
+  auto pin2 = heap.allocate(ao::Oop::nil(), 0, ao::kFlagImmovable);
+  roots.add(&pin2);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(pin2));
+  void* pin2Addr = pin2.heapPointer();
+
+  auto garbage = heap.allocate(ao::Oop::nil(), 0, 0);
+  roots.add(&garbage);
+  gc.collectNursery();
+  roots.remove(&garbage);
+
+  // 4 slots = 48 bytes; dest at pin1End overlaps pin2, so dest jumps to pin2End.
+  auto mv = heap.allocate(ao::Oop::nil(), 4, 0);
+  roots.add(&mv);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(mv));
+  void* mvBefore = mv.heapPointer();
+  ASSERT_LT(static_cast<std::byte*>(pin1Addr), static_cast<std::byte*>(pin2Addr));
+  ASSERT_LT(static_cast<std::byte*>(pin2Addr), static_cast<std::byte*>(mvBefore));
+
+  gc.collectOld();
+
+  EXPECT_EQ(pin1.heapPointer(), pin1Addr);
+  EXPECT_EQ(pin2.heapPointer(), pin2Addr);
+  ASSERT_TRUE(mv.isHeap());
+  EXPECT_TRUE(heap.inOld(mv));
+  EXPECT_TRUE(oldWalkVisits(heap, pin1Addr, pin1Addr));
+  EXPECT_TRUE(oldWalkVisits(heap, pin1Addr, pin2Addr));
+
+  auto* m = static_cast<std::byte*>(mv.heapPointer());
+  const std::size_t mn = heap.objectBytes(heap.header(mv));
+  auto* p1 = static_cast<std::byte*>(pin1Addr);
+  auto* p2 = static_cast<std::byte*>(pin2Addr);
+  const std::size_t p1n = heap.objectBytes(heap.header(pin1));
+  const std::size_t p2n = heap.objectBytes(heap.header(pin2));
+  EXPECT_FALSE(m < p1 + p1n && m + mn > p1);
+  EXPECT_FALSE(m < p2 + p2n && m + mn > p2);
+}
