@@ -244,19 +244,6 @@
       "source_location": "L17"
     },
     {
-      "id": "runtime_src_kernel_collection_root",
-      "label": "Root",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "root",
-      "source_file": "runtime/src/kernel/Collection.cpp",
-      "source_location": "L9"
-    },
-    {
       "id": "runtime_src_kernel_float_root",
       "label": "Root",
       "_callable": true,
@@ -296,26 +283,13 @@
       "source_location": "L14"
     },
     {
-      "id": "runtime_src_bootstrap_classdef",
-      "label": "ClassDef",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "classdef",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L18"
-    },
-    {
       "id": "runtime_src_wellknown_entry",
       "label": "Entry",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "entry",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -328,7 +302,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "namedclass",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -341,7 +315,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::extratable",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -354,7 +328,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::interntable",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -452,6 +426,19 @@
       "source_location": "L7"
     },
     {
+      "id": "runtime_include_ao_nativemethod_callcontext",
+      "label": "CallContext",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "ClassMethodCache",
+      "file_type": "code",
+      "norm_label": "callcontext",
+      "source_file": "runtime/include/ao/NativeMethod.hpp",
+      "source_location": "L34"
+    },
+    {
       "id": "runtime_include_ao_nativemethod_classmethodcache",
       "label": "ClassMethodCache",
       "_callable": true,
@@ -517,19 +504,6 @@
       "source_location": "L26"
     },
     {
-      "id": "runtime_src_kernel_largeinteger_root",
-      "label": "Root",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "LargeInteger.cpp",
-      "file_type": "code",
-      "norm_label": "root",
-      "source_file": "runtime/src/kernel/LargeInteger.cpp",
-      "source_location": "L17"
-    },
-    {
       "id": "runtime_include_ao_gc_gc",
       "label": "Gc",
       "_callable": true,
@@ -540,6 +514,19 @@
       "file_type": "code",
       "norm_label": "gc",
       "source_file": "runtime/include/ao/Gc.hpp",
+      "source_location": "L9"
+    },
+    {
+      "id": "runtime_src_kernel_collection_root",
+      "label": "Root",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 41,
+      "community_name": "test_support.hpp",
+      "file_type": "code",
+      "norm_label": "root",
+      "source_file": "runtime/src/kernel/Collection.cpp",
       "source_location": "L9"
     },
     {
@@ -556,17 +543,30 @@
       "source_location": "L18"
     },
     {
-      "id": "runtime_include_ao_nativemethod_callcontext",
-      "label": "CallContext",
+      "id": "runtime_src_bootstrap_classdef",
+      "label": "ClassDef",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "community": 55,
-      "community_name": "CallContext",
+      "community": 51,
+      "community_name": "ClassDef",
       "file_type": "code",
-      "norm_label": "callcontext",
-      "source_file": "runtime/include/ao/NativeMethod.hpp",
-      "source_location": "L34"
+      "norm_label": "classdef",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L18"
+    },
+    {
+      "id": "runtime_src_kernel_largeinteger_root",
+      "label": "Root",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "Root",
+      "file_type": "code",
+      "norm_label": "root",
+      "source_file": "runtime/src/kernel/LargeInteger.cpp",
+      "source_location": "L17"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_wellknown",
@@ -1013,18 +1013,6 @@
       "source_location": "L20"
     },
     {
-      "id": "runtime_src_kernel_collection_root_root",
-      "label": ".Root()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": ".root()",
-      "source_file": "runtime/src/kernel/Collection.cpp",
-      "source_location": "L12"
-    },
-    {
       "id": "runtime_src_kernel_float_root_root",
       "label": ".Root()",
       "_callable": true,
@@ -1061,186 +1049,12 @@
       "source_location": "L17"
     },
     {
-      "id": "runtime_include_ao_oop_oop_nil",
-      "label": ".nil()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": ".nil()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L24"
-    },
-    {
-      "id": "runtime_include_ao_wellknown_wellknown_nil",
-      "label": ".nil()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": ".nil()",
-      "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L23"
-    },
-    {
-      "id": "runtime_src_bootstrap_allocateskeletons",
-      "label": "allocateSkeletons()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "allocateskeletons()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L198"
-    },
-    {
-      "id": "runtime_src_bootstrap_allocclass",
-      "label": "allocClass()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "allocclass()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L144"
-    },
-    {
-      "id": "runtime_src_bootstrap_ensuremethoddict",
-      "label": "ensureMethodDict()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "create",
-            "receiver_type": "MethodDictionary",
-            "lang": "cpp",
-            "line": "L189"
-          }
-        ]
-      },
-      "norm_label": "ensuremethoddict()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L184"
-    },
-    {
-      "id": "runtime_src_bootstrap_installnatives",
-      "label": "installNatives()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "installnatives()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L225"
-    },
-    {
-      "id": "runtime_src_bootstrap_internhotselectors",
-      "label": "internHotSelectors()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "internhotselectors()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L169"
-    },
-    {
-      "id": "runtime_src_bootstrap_makename",
-      "label": "makeName()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "makename()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L146"
-    },
-    {
-      "id": "runtime_src_bootstrap_run",
-      "label": "run()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "install",
-            "receiver_type": "Globals",
-            "lang": "cpp",
-            "line": "L250"
-          }
-        ]
-      },
-      "norm_label": "run()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L246"
-    },
-    {
-      "id": "runtime_src_bootstrap_superof",
-      "label": "superOf()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "superof()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L165"
-    },
-    {
-      "id": "runtime_src_bootstrap_wireclass",
-      "label": "wireClass()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "wireclass()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L155"
-    },
-    {
-      "id": "runtime_src_bootstrap_wirecycle",
-      "label": "wireCycle()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "make",
-            "receiver_type": "Format",
-            "lang": "cpp",
-            "line": "L206"
-          }
-        ]
-      },
-      "norm_label": "wirecycle()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L205"
-    },
-    {
       "id": "runtime_src_wellknown_wellknown_addroots",
       "label": "WellKnown::addRoots()",
       "_callable": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::addroots()",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -1252,7 +1066,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::classof()",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -1264,7 +1078,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::define()",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -1276,7 +1090,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::eachclass()",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -1288,7 +1102,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::intern()",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -1300,7 +1114,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::named()",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -1312,7 +1126,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown::wellknown()",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -1341,6 +1155,18 @@
       "norm_label": "test()",
       "source_file": "runtime/tests/smallinteger_arith_test.cpp",
       "source_location": "L30"
+    },
+    {
+      "id": "runtime_tests_behavior_test_makesubclass",
+      "label": "makeSubclass()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "Boot",
+      "file_type": "code",
+      "norm_label": "makesubclass()",
+      "source_file": "runtime/tests/behavior_test.cpp",
+      "source_location": "L8"
     },
     {
       "id": "runtime_tests_object_boolean_test_formatof",
@@ -1403,100 +1229,178 @@
       "source_location": "L34"
     },
     {
-      "id": "runtime_src_abi_ao_runtime_boot",
-      "label": "ao_runtime_boot()",
+      "id": "runtime_include_ao_oop_oop_nil",
+      "label": ".nil()",
       "_callable": true,
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "ao_runtime_boot()",
-      "source_file": "runtime/src/abi.cpp",
-      "source_location": "L8"
+      "norm_label": ".nil()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L24"
     },
     {
-      "id": "runtime_src_abi_ao_runtime_shutdown",
-      "label": "ao_runtime_shutdown()",
+      "id": "runtime_include_ao_wellknown_wellknown_nil",
+      "label": ".nil()",
       "_callable": true,
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "ao_runtime_shutdown()",
-      "source_file": "runtime/src/abi.cpp",
-      "source_location": "L12"
+      "norm_label": ".nil()",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L23"
     },
     {
-      "id": "runtime_src_abi_ao_version",
-      "label": "ao_version()",
+      "id": "runtime_src_bootstrap_allocateskeletons",
+      "label": "allocateSkeletons()",
       "_callable": true,
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "ao_version()",
-      "source_file": "runtime/src/abi.cpp",
-      "source_location": "L4"
+      "norm_label": "allocateskeletons()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L198"
     },
     {
-      "id": "runtime_src_ao_main_main",
-      "label": "main()",
+      "id": "runtime_src_bootstrap_allocclass",
+      "label": "allocClass()",
       "_callable": true,
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "main()",
-      "source_file": "runtime/src/ao_main.cpp",
-      "source_location": "L6"
+      "norm_label": "allocclass()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L144"
     },
     {
-      "id": "runtime_src_runtime_boot",
-      "label": "boot()",
+      "id": "runtime_src_bootstrap_ensuremethoddict",
+      "label": "ensureMethodDict()",
       "_callable": true,
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "boot()",
-      "source_file": "runtime/src/Runtime.cpp",
-      "source_location": "L7"
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "create",
+            "receiver_type": "MethodDictionary",
+            "lang": "cpp",
+            "line": "L189"
+          }
+        ]
+      },
+      "norm_label": "ensuremethoddict()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L184"
     },
     {
-      "id": "runtime_src_runtime_shutdown",
-      "label": "shutdown()",
+      "id": "runtime_src_bootstrap_installnatives",
+      "label": "installNatives()",
       "_callable": true,
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "shutdown()",
-      "source_file": "runtime/src/Runtime.cpp",
-      "source_location": "L9"
+      "norm_label": "installnatives()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L225"
     },
     {
-      "id": "runtime_src_runtime_version_string",
-      "label": "version_string()",
+      "id": "runtime_src_bootstrap_internhotselectors",
+      "label": "internHotSelectors()",
       "_callable": true,
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "version_string()",
-      "source_file": "runtime/src/Runtime.cpp",
-      "source_location": "L11"
+      "norm_label": "internhotselectors()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L169"
     },
     {
-      "id": "runtime_tests_smoke_test_test",
-      "label": "TEST()",
+      "id": "runtime_src_bootstrap_makename",
+      "label": "makeName()",
       "_callable": true,
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "test()",
-      "source_file": "runtime/tests/smoke_test.cpp",
-      "source_location": "L7"
+      "norm_label": "makename()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L146"
+    },
+    {
+      "id": "runtime_src_bootstrap_run",
+      "label": "run()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": ".nil",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "install",
+            "receiver_type": "Globals",
+            "lang": "cpp",
+            "line": "L250"
+          }
+        ]
+      },
+      "norm_label": "run()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L246"
+    },
+    {
+      "id": "runtime_src_bootstrap_superof",
+      "label": "superOf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "superof()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L165"
+    },
+    {
+      "id": "runtime_src_bootstrap_wireclass",
+      "label": "wireClass()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "wireclass()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L155"
+    },
+    {
+      "id": "runtime_src_bootstrap_wirecycle",
+      "label": "wireCycle()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": ".nil",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "make",
+            "receiver_type": "Format",
+            "lang": "cpp",
+            "line": "L206"
+          }
+        ]
+      },
+      "norm_label": "wirecycle()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L205"
     },
     {
       "id": "runtime_tests_bootstrap_test_clsof",
@@ -1511,6 +1415,18 @@
       "source_location": "L97"
     },
     {
+      "id": "runtime_tests_bootstrap_test_superof",
+      "label": "superOf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 20,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "superof()",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L99"
+    },
+    {
       "id": "runtime_tests_bootstrap_test_test",
       "label": "TEST()",
       "_callable": true,
@@ -1521,54 +1437,6 @@
       "norm_label": "test()",
       "source_file": "runtime/tests/bootstrap_test.cpp",
       "source_location": "L17"
-    },
-    {
-      "id": "runtime_src_methoddictionary_at",
-      "label": "at()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 21,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "at()",
-      "source_file": "runtime/src/MethodDictionary.cpp",
-      "source_location": "L20"
-    },
-    {
-      "id": "runtime_src_methoddictionary_atput",
-      "label": "atPut()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 21,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "atput()",
-      "source_file": "runtime/src/MethodDictionary.cpp",
-      "source_location": "L52"
-    },
-    {
-      "id": "runtime_src_methoddictionary_create",
-      "label": "create()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 21,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "create()",
-      "source_file": "runtime/src/MethodDictionary.cpp",
-      "source_location": "L6"
-    },
-    {
-      "id": "runtime_src_methoddictionary_growinner",
-      "label": "growInner()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 21,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "growinner()",
-      "source_file": "runtime/src/MethodDictionary.cpp",
-      "source_location": "L37"
     },
     {
       "id": "compiler_src_compiler_version",
@@ -1619,6 +1487,54 @@
       "source_location": "L34"
     },
     {
+      "id": "runtime_src_abi_ao_runtime_boot",
+      "label": "ao_runtime_boot()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "ao_runtime_boot()",
+      "source_file": "runtime/src/abi.cpp",
+      "source_location": "L8"
+    },
+    {
+      "id": "runtime_src_abi_ao_runtime_shutdown",
+      "label": "ao_runtime_shutdown()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "ao_runtime_shutdown()",
+      "source_file": "runtime/src/abi.cpp",
+      "source_location": "L12"
+    },
+    {
+      "id": "runtime_src_abi_ao_version",
+      "label": "ao_version()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "ao_version()",
+      "source_file": "runtime/src/abi.cpp",
+      "source_location": "L4"
+    },
+    {
+      "id": "runtime_src_ao_main_main",
+      "label": "main()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "main()",
+      "source_file": "runtime/src/ao_main.cpp",
+      "source_location": "L6"
+    },
+    {
       "id": "runtime_src_kernel_string_allocateretry",
       "label": "allocateRetry()",
       "_callable": true,
@@ -1644,19 +1560,19 @@
             "callee": "intern",
             "receiver_type": "Symbol",
             "lang": "cpp",
-            "line": "L259"
+            "line": "L271"
           },
           {
             "callee": "toUtf8",
             "receiver_type": "Str",
             "lang": "cpp",
-            "line": "L259"
+            "line": "L271"
           }
         ]
       },
       "norm_label": "ao_string_assymbol()",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L255"
+      "source_location": "L267"
     },
     {
       "id": "runtime_src_kernel_string_ao_string_at",
@@ -1702,7 +1618,7 @@
       "file_type": "code",
       "norm_label": "ao_string_equals()",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L233"
+      "source_location": "L245"
     },
     {
       "id": "runtime_src_kernel_string_ao_string_size",
@@ -1736,7 +1652,31 @@
       "file_type": "code",
       "norm_label": "ao_symbol_asstring()",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L262"
+      "source_location": "L274"
+    },
+    {
+      "id": "runtime_src_kernel_string_ao_symbol_at_put",
+      "label": "ao_Symbol_at_put_()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "ao_symbol_at_put_()",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L289"
+    },
+    {
+      "id": "runtime_src_kernel_string_ao_symbol_basicat_put",
+      "label": "ao_Symbol_basicAt_put_()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "ao_symbol_basicat_put_()",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L296"
     },
     {
       "id": "runtime_src_kernel_string_at",
@@ -1843,6 +1783,54 @@
       "norm_label": "isstringy()",
       "source_file": "runtime/src/kernel/String.cpp",
       "source_location": "L100"
+    },
+    {
+      "id": "runtime_src_runtime_boot",
+      "label": "boot()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "boot()",
+      "source_file": "runtime/src/Runtime.cpp",
+      "source_location": "L7"
+    },
+    {
+      "id": "runtime_src_runtime_shutdown",
+      "label": "shutdown()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "shutdown()",
+      "source_file": "runtime/src/Runtime.cpp",
+      "source_location": "L9"
+    },
+    {
+      "id": "runtime_src_runtime_version_string",
+      "label": "version_string()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "version_string()",
+      "source_file": "runtime/src/Runtime.cpp",
+      "source_location": "L11"
+    },
+    {
+      "id": "runtime_tests_smoke_test_test",
+      "label": "TEST()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "test()",
+      "source_file": "runtime/tests/smoke_test.cpp",
+      "source_location": "L7"
     },
     {
       "id": "app_aotests_smoketests_smoketests_testplaceholdertypeexists",
@@ -2014,7 +2002,7 @@
       "file_type": "code",
       "norm_label": "installstring()",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L279"
+      "source_location": "L305"
     },
     {
       "id": "runtime_include_ao_format_bits",
@@ -3339,18 +3327,6 @@
       "source_location": "L18"
     },
     {
-      "id": "runtime_tests_behavior_test_makesubclass",
-      "label": "makeSubclass()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "makesubclass()",
-      "source_file": "runtime/tests/behavior_test.cpp",
-      "source_location": "L8"
-    },
-    {
       "id": "runtime_tests_behavior_test_test",
       "label": "TEST()",
       "_callable": true,
@@ -3361,6 +3337,18 @@
       "norm_label": "test()",
       "source_file": "runtime/tests/behavior_test.cpp",
       "source_location": "L17"
+    },
+    {
+      "id": "runtime_tests_test_support_send0",
+      "label": "send0()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 28,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "send0()",
+      "source_file": "runtime/tests/test_support.hpp",
+      "source_location": "L26"
     },
     {
       "id": "runtime_tests_test_support_send1",
@@ -4187,18 +4175,6 @@
       "source_location": "L655"
     },
     {
-      "id": "runtime_src_kernel_largeinteger_root_root",
-      "label": ".Root()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "LargeInteger.cpp",
-      "file_type": "code",
-      "norm_label": ".root()",
-      "source_file": "runtime/src/kernel/LargeInteger.cpp",
-      "source_location": "L20"
-    },
-    {
       "id": "runtime_src_kernel_largeinteger_strip",
       "label": "strip()",
       "_callable": true,
@@ -4401,6 +4377,54 @@
       "source_location": "L86"
     },
     {
+      "id": "runtime_src_nativemethod_add",
+      "label": "add()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "add()",
+      "source_file": "runtime/src/NativeMethod.cpp",
+      "source_location": "L16"
+    },
+    {
+      "id": "runtime_src_nativemethod_apply",
+      "label": "apply()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "apply()",
+      "source_file": "runtime/src/NativeMethod.cpp",
+      "source_location": "L50"
+    },
+    {
+      "id": "runtime_src_nativemethod_create",
+      "label": "create()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "create()",
+      "source_file": "runtime/src/NativeMethod.cpp",
+      "source_location": "L26"
+    },
+    {
+      "id": "runtime_src_nativemethod_namebytes",
+      "label": "nameBytes()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "namebytes()",
+      "source_file": "runtime/src/NativeMethod.cpp",
+      "source_location": "L77"
+    },
+    {
       "id": "runtime_src_roots_roots_add",
       "label": "Roots::add()",
       "_callable": true,
@@ -4497,18 +4521,6 @@
       "source_location": "L8"
     },
     {
-      "id": "runtime_tests_test_support_send0",
-      "label": "send0()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "send0()",
-      "source_file": "runtime/tests/test_support.hpp",
-      "source_location": "L26"
-    },
-    {
       "id": "runtime_tests_heap_alloc_test_test",
       "label": "TEST()",
       "_callable": true,
@@ -4531,6 +4543,18 @@
       "norm_label": "expectnormalizedlarge()",
       "source_file": "runtime/tests/smallinteger_arith_test.cpp",
       "source_location": "L205"
+    },
+    {
+      "id": "runtime_tests_lookup_test_install",
+      "label": "install()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "Bootstrap",
+      "file_type": "code",
+      "norm_label": "install()",
+      "source_file": "runtime/tests/lookup_test.cpp",
+      "source_location": "L21"
     },
     {
       "id": "runtime_tests_lookup_test_stuba",
@@ -4557,6 +4581,18 @@
       "source_location": "L17"
     },
     {
+      "id": "runtime_tests_lookup_test_test",
+      "label": "TEST()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "Bootstrap",
+      "file_type": "code",
+      "norm_label": "test()",
+      "source_file": "runtime/tests/lookup_test.cpp",
+      "source_location": "L36"
+    },
+    {
       "id": "runtime_tests_method_dictionary_test_test",
       "label": "TEST()",
       "_callable": true,
@@ -4567,18 +4603,6 @@
       "norm_label": "test()",
       "source_file": "runtime/tests/method_dictionary_test.cpp",
       "source_location": "L12"
-    },
-    {
-      "id": "runtime_include_ao_oop_oop_fromheap",
-      "label": ".fromHeap()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 4,
-      "community_name": ".isHeap",
-      "file_type": "code",
-      "norm_label": ".fromheap()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L27"
     },
     {
       "id": "runtime_include_ao_oop_oop_heappointer",
@@ -5057,88 +5081,16 @@
       "source_location": "L77"
     },
     {
-      "id": "runtime_src_nativemethod_add",
-      "label": "add()",
+      "id": "runtime_src_kernel_collection_root_root",
+      "label": ".Root()",
       "_callable": true,
       "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
+      "community": 41,
+      "community_name": "test_support.hpp",
       "file_type": "code",
-      "norm_label": "add()",
-      "source_file": "runtime/src/NativeMethod.cpp",
-      "source_location": "L16"
-    },
-    {
-      "id": "runtime_src_nativemethod_apply",
-      "label": "apply()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
-      "file_type": "code",
-      "norm_label": "apply()",
-      "source_file": "runtime/src/NativeMethod.cpp",
-      "source_location": "L50"
-    },
-    {
-      "id": "runtime_src_nativemethod_create",
-      "label": "create()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
-      "file_type": "code",
-      "norm_label": "create()",
-      "source_file": "runtime/src/NativeMethod.cpp",
-      "source_location": "L26"
-    },
-    {
-      "id": "runtime_src_nativemethod_namebytes",
-      "label": "nameBytes()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
-      "file_type": "code",
-      "norm_label": "namebytes()",
-      "source_file": "runtime/src/NativeMethod.cpp",
-      "source_location": "L77"
-    },
-    {
-      "id": "runtime_tests_bootstrap_test_superof",
-      "label": "superOf()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "superof()",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L99"
-    },
-    {
-      "id": "runtime_tests_lookup_test_install",
-      "label": "install()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "install()",
-      "source_file": "runtime/tests/lookup_test.cpp",
-      "source_location": "L21"
-    },
-    {
-      "id": "runtime_tests_lookup_test_test",
-      "label": "TEST()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "test()",
-      "source_file": "runtime/tests/lookup_test.cpp",
-      "source_location": "L36"
+      "norm_label": ".root()",
+      "source_file": "runtime/src/kernel/Collection.cpp",
+      "source_location": "L12"
     },
     {
       "id": "runtime_tests_native_send_test_install",
@@ -5146,11 +5098,35 @@
       "_callable": true,
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "install()",
       "source_file": "runtime/tests/native_send_test.cpp",
       "source_location": "L25"
+    },
+    {
+      "id": "runtime_tests_native_send_test_stuba",
+      "label": "stubA()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 48,
+      "community_name": "native_send_test.cpp",
+      "file_type": "code",
+      "norm_label": "stuba()",
+      "source_file": "runtime/tests/native_send_test.cpp",
+      "source_location": "L13"
+    },
+    {
+      "id": "runtime_tests_native_send_test_stubb",
+      "label": "stubB()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 48,
+      "community_name": "native_send_test.cpp",
+      "file_type": "code",
+      "norm_label": "stubb()",
+      "source_file": "runtime/tests/native_send_test.cpp",
+      "source_location": "L17"
     },
     {
       "id": "runtime_tests_native_send_test_test",
@@ -5158,11 +5134,35 @@
       "_callable": true,
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "test()",
       "source_file": "runtime/tests/native_send_test.cpp",
       "source_location": "L40"
+    },
+    {
+      "id": "runtime_tests_native_send_test_truednusentinel",
+      "label": "trueDnuSentinel()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 48,
+      "community_name": "native_send_test.cpp",
+      "file_type": "code",
+      "norm_label": "truednusentinel()",
+      "source_file": "runtime/tests/native_send_test.cpp",
+      "source_location": "L21"
+    },
+    {
+      "id": "runtime_include_ao_oop_oop_fromheap",
+      "label": ".fromHeap()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "Heap.cpp",
+      "file_type": "code",
+      "norm_label": ".fromheap()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L27"
     },
     {
       "id": "runtime_src_heap_align8",
@@ -5429,42 +5429,6 @@
       "source_location": "L80"
     },
     {
-      "id": "runtime_tests_native_send_test_stuba",
-      "label": "stubA()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 51,
-      "community_name": "native_send_test.cpp",
-      "file_type": "code",
-      "norm_label": "stuba()",
-      "source_file": "runtime/tests/native_send_test.cpp",
-      "source_location": "L13"
-    },
-    {
-      "id": "runtime_tests_native_send_test_stubb",
-      "label": "stubB()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 51,
-      "community_name": "native_send_test.cpp",
-      "file_type": "code",
-      "norm_label": "stubb()",
-      "source_file": "runtime/tests/native_send_test.cpp",
-      "source_location": "L17"
-    },
-    {
-      "id": "runtime_tests_native_send_test_truednusentinel",
-      "label": "trueDnuSentinel()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 51,
-      "community_name": "native_send_test.cpp",
-      "file_type": "code",
-      "norm_label": "truednusentinel()",
-      "source_file": "runtime/tests/native_send_test.cpp",
-      "source_location": "L21"
-    },
-    {
       "id": "runtime_src_symbol_bytes",
       "label": "bytes()",
       "_callable": true,
@@ -5489,6 +5453,54 @@
       "source_location": "L8"
     },
     {
+      "id": "runtime_src_methoddictionary_at",
+      "label": "at()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "create",
+      "file_type": "code",
+      "norm_label": "at()",
+      "source_file": "runtime/src/MethodDictionary.cpp",
+      "source_location": "L20"
+    },
+    {
+      "id": "runtime_src_methoddictionary_atput",
+      "label": "atPut()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "create",
+      "file_type": "code",
+      "norm_label": "atput()",
+      "source_file": "runtime/src/MethodDictionary.cpp",
+      "source_location": "L52"
+    },
+    {
+      "id": "runtime_src_methoddictionary_create",
+      "label": "create()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "create",
+      "file_type": "code",
+      "norm_label": "create()",
+      "source_file": "runtime/src/MethodDictionary.cpp",
+      "source_location": "L6"
+    },
+    {
+      "id": "runtime_src_methoddictionary_growinner",
+      "label": "growInner()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "create",
+      "file_type": "code",
+      "norm_label": "growinner()",
+      "source_file": "runtime/src/MethodDictionary.cpp",
+      "source_location": "L37"
+    },
+    {
       "id": "runtime_tests_symbol_test_test",
       "label": "TEST()",
       "_callable": true,
@@ -5499,6 +5511,18 @@
       "norm_label": "test()",
       "source_file": "runtime/tests/symbol_test.cpp",
       "source_location": "L9"
+    },
+    {
+      "id": "runtime_src_kernel_largeinteger_root_root",
+      "label": ".Root()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "Root",
+      "file_type": "code",
+      "norm_label": ".root()",
+      "source_file": "runtime/src/kernel/LargeInteger.cpp",
+      "source_location": "L20"
     },
     {
       "id": "runtime_include_ao_oop_oop_isnil",
@@ -6014,8 +6038,8 @@
       "_origin": "ast",
       "author": null,
       "captured_at": null,
-      "community": 2,
-      "community_name": "TEST",
+      "community": 22,
+      "community_name": "String.cpp",
       "contributor": null,
       "file_type": "code",
       "norm_label": "ao executable",
@@ -6029,8 +6053,8 @@
       "_origin": "ast",
       "author": null,
       "captured_at": null,
-      "community": 2,
-      "community_name": "TEST",
+      "community": 22,
+      "community_name": "String.cpp",
       "contributor": null,
       "file_type": "code",
       "norm_label": "ao_runtime library",
@@ -6044,8 +6068,8 @@
       "_origin": "ast",
       "author": null,
       "captured_at": null,
-      "community": 2,
-      "community_name": "TEST",
+      "community": 22,
+      "community_name": "String.cpp",
       "contributor": null,
       "file_type": "code",
       "norm_label": "ao_runtime_tests",
@@ -7667,17 +7691,6 @@
       "source_location": "L13"
     },
     {
-      "id": "runtime_include_ao_roots",
-      "label": "Roots.hpp",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "roots.hpp",
-      "source_file": "runtime/include/ao/Roots.hpp",
-      "source_location": "L1"
-    },
-    {
       "id": "runtime_include_ao_roots_hpp_stackwalker",
       "label": "StackWalker",
       "_origin": "ast",
@@ -7696,17 +7709,6 @@
       "community_name": "Roots",
       "file_type": "code",
       "norm_label": "uint32_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_include_ao_roots_hpp_vector",
-      "label": "vector",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "vector",
       "source_file": "",
       "source_location": ""
     },
@@ -7843,17 +7845,6 @@
       "source_location": "L19"
     },
     {
-      "id": "runtime_src_kernel_collection_root_slot",
-      "label": "slot",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "slot",
-      "source_file": "runtime/src/kernel/Collection.cpp",
-      "source_location": "L11"
-    },
-    {
       "id": "runtime_src_kernel_float_root_slot",
       "label": "slot",
       "_origin": "ast",
@@ -7934,113 +7925,13 @@
       "source_location": "L1"
     },
     {
-      "id": "docs_prs_p9_04",
-      "label": "P9-04.md",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p9-04.md",
-      "source_file": "docs/prs/P9-04.md",
-      "source_location": "L1"
-    },
-    {
       "id": "deque",
       "label": "deque",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "deque",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_bootstrap",
-      "label": "Bootstrap.cpp",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "bootstrap.cpp",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_bootstrap_classdef_bytes",
-      "label": "bytes",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "bytes",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L24"
-    },
-    {
-      "id": "runtime_src_bootstrap_classdef_indexable",
-      "label": "indexable",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "indexable",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L23"
-    },
-    {
-      "id": "runtime_src_bootstrap_classdef_instsize",
-      "label": "instSize",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "instsize",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L22"
-    },
-    {
-      "id": "runtime_src_bootstrap_classdef_name",
-      "label": "name",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "name",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L25"
-    },
-    {
-      "id": "runtime_src_bootstrap_classdef_wellknown",
-      "label": "WellKnown",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "wellknown",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L19"
-    },
-    {
-      "id": "runtime_src_bootstrap_cpp_int64_t",
-      "label": "int64_t",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "int64_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_bootstrap_cpp_wellknown",
-      "label": "WellKnown",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": ".nil",
-      "file_type": "code",
-      "norm_label": "wellknown",
       "source_file": "",
       "source_location": ""
     },
@@ -8049,7 +7940,7 @@
       "label": "WellKnown.cpp",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown.cpp",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -8060,7 +7951,7 @@
       "label": "size_t",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "size_t",
       "source_file": "",
@@ -8071,7 +7962,7 @@
       "label": "string",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "string",
       "source_file": "",
@@ -8082,7 +7973,7 @@
       "label": "string_view",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "string_view",
       "source_file": "",
@@ -8093,7 +7984,7 @@
       "label": "cls",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "cls",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -8104,7 +7995,7 @@
       "label": "name",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "name",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -8115,7 +8006,7 @@
       "label": "name",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "name",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -8126,7 +8017,7 @@
       "label": "WellKnown",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "wellknown",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -8137,7 +8028,7 @@
       "label": "table",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "table",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -8148,7 +8039,7 @@
       "label": "byBytes",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "bybytes",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -8159,7 +8050,7 @@
       "label": "table",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "table",
       "source_file": "runtime/src/WellKnown.cpp",
@@ -8170,7 +8061,7 @@
       "label": "unordered_map",
       "_origin": "ast",
       "community": 14,
-      "community_name": ".nil",
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
       "norm_label": "unordered_map",
       "source_file": "",
@@ -8892,112 +8783,24 @@
       "source_location": "L1"
     },
     {
-      "id": "runtime_tests_oop_tag_test",
-      "label": "oop_tag_test.cpp",
+      "id": "runtime_src_bootstrap",
+      "label": "Bootstrap.cpp",
       "_origin": "ast",
-      "community": 19,
-      "community_name": "cstdint",
+      "community": 2,
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "oop_tag_test.cpp",
-      "source_file": "runtime/tests/oop_tag_test.cpp",
+      "norm_label": "bootstrap.cpp",
+      "source_file": "runtime/src/Bootstrap.cpp",
       "source_location": "L1"
     },
     {
-      "id": "abismoke",
-      "label": "AbiSmoke",
+      "id": "runtime_src_bootstrap_cpp_wellknown",
+      "label": "WellKnown",
       "_origin": "ast",
       "community": 2,
-      "community_name": "TEST",
+      "community_name": ".nil",
       "file_type": "code",
-      "norm_label": "abismoke",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "bootandshutdownreturnzero",
-      "label": "BootAndShutdownReturnZero",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "bootandshutdownreturnzero",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "bootversionshutdown",
-      "label": "BootVersionShutdown",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "bootversionshutdown",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_abi",
-      "label": "abi.cpp",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "abi.cpp",
-      "source_file": "runtime/src/abi.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_ao_main",
-      "label": "ao_main.cpp",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "ao_main.cpp",
-      "source_file": "runtime/src/ao_main.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_runtime",
-      "label": "Runtime.cpp",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "runtime.cpp",
-      "source_file": "runtime/src/Runtime.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_tests_smoke_test",
-      "label": "runtime/tests/smoke_test.cpp",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "runtime/tests/smoke_test.cpp",
-      "source_file": "runtime/tests/smoke_test.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "smoke",
-      "label": "Smoke",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "smoke",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "versionstringisnonempty",
-      "label": "VersionStringIsNonEmpty",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "versionstringisnonempty",
+      "norm_label": "wellknown",
       "source_file": "",
       "source_location": ""
     },
@@ -9156,6 +8959,17 @@
       "source_location": "L37"
     },
     {
+      "id": "runtime_include_ao_heap_heap_slotat",
+      "label": "slotAt",
+      "_origin": "ast",
+      "community": 20,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "slotat",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L42"
+    },
+    {
       "id": "skeletonslotsstartnil",
       "label": "SkeletonSlotsStartNil",
       "_origin": "ast",
@@ -9264,6 +9078,17 @@
       "norm_label": "fromstart_",
       "source_file": "runtime/include/ao/Heap.hpp",
       "source_location": "L66"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_innursery",
+      "label": "inNursery",
+      "_origin": "ast",
+      "community": 21,
+      "community_name": "Heap",
+      "file_type": "code",
+      "norm_label": "innursery",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L48"
     },
     {
       "id": "runtime_include_ao_heap_heap_nexthash",
@@ -9431,35 +9256,35 @@
       "source_location": ""
     },
     {
-      "id": "runtime_src_methoddictionary",
-      "label": "MethodDictionary.cpp",
+      "id": "abismoke",
+      "label": "AbiSmoke",
       "_origin": "ast",
-      "community": 21,
-      "community_name": "Heap",
+      "community": 22,
+      "community_name": "String.cpp",
       "file_type": "code",
-      "norm_label": "methoddictionary.cpp",
-      "source_file": "runtime/src/MethodDictionary.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_methoddictionary_cpp_uint32_t",
-      "label": "uint32_t",
-      "_origin": "ast",
-      "community": 21,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "uint32_t",
+      "norm_label": "abismoke",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "runtime_src_methoddictionary_cpp_wellknown",
-      "label": "WellKnown",
+      "id": "bootandshutdownreturnzero",
+      "label": "BootAndShutdownReturnZero",
       "_origin": "ast",
-      "community": 21,
-      "community_name": "Heap",
+      "community": 22,
+      "community_name": "String.cpp",
       "file_type": "code",
-      "norm_label": "wellknown",
+      "norm_label": "bootandshutdownreturnzero",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "bootversionshutdown",
+      "label": "BootVersionShutdown",
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "bootversionshutdown",
       "source_file": "",
       "source_location": ""
     },
@@ -9495,6 +9320,28 @@
       "norm_label": "compilersmoke",
       "source_file": "",
       "source_location": ""
+    },
+    {
+      "id": "runtime_src_abi",
+      "label": "abi.cpp",
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "abi.cpp",
+      "source_file": "runtime/src/abi.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_ao_main",
+      "label": "ao_main.cpp",
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "ao_main.cpp",
+      "source_file": "runtime/src/ao_main.cpp",
+      "source_location": "L1"
     },
     {
       "id": "runtime_src_kernel_string",
@@ -9585,6 +9432,39 @@
       "source_location": "L25"
     },
     {
+      "id": "runtime_src_runtime",
+      "label": "Runtime.cpp",
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "runtime.cpp",
+      "source_file": "runtime/src/Runtime.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_tests_smoke_test",
+      "label": "runtime/tests/smoke_test.cpp",
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "runtime/tests/smoke_test.cpp",
+      "source_file": "runtime/tests/smoke_test.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "smoke",
+      "label": "Smoke",
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "smoke",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "versionisnonempty",
       "label": "VersionIsNonEmpty",
       "_origin": "ast",
@@ -9592,6 +9472,17 @@
       "community_name": "String.cpp",
       "file_type": "code",
       "norm_label": "versionisnonempty",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "versionstringisnonempty",
+      "label": "VersionStringIsNonEmpty",
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "String.cpp",
+      "file_type": "code",
+      "norm_label": "versionstringisnonempty",
       "source_file": "",
       "source_location": ""
     },
@@ -10117,6 +10008,50 @@
       "source_location": "L19"
     },
     {
+      "id": "hostoophook",
+      "label": "HostOopHook",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "ClassMethodCache",
+      "file_type": "code",
+      "norm_label": "hostoophook",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_nativemethod_callcontext_cache",
+      "label": "cache",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "ClassMethodCache",
+      "file_type": "code",
+      "norm_label": "cache",
+      "source_file": "runtime/include/ao/NativeMethod.hpp",
+      "source_location": "L42"
+    },
+    {
+      "id": "runtime_include_ao_nativemethod_callcontext_inspecthook",
+      "label": "inspectHook",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "ClassMethodCache",
+      "file_type": "code",
+      "norm_label": "inspecthook",
+      "source_file": "runtime/include/ao/NativeMethod.hpp",
+      "source_location": "L43"
+    },
+    {
+      "id": "runtime_include_ao_nativemethod_callcontext_transcripthook",
+      "label": "transcriptHook",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "ClassMethodCache",
+      "file_type": "code",
+      "norm_label": "transcripthook",
+      "source_file": "runtime/include/ao/NativeMethod.hpp",
+      "source_location": "L44"
+    },
+    {
       "id": "runtime_include_ao_nativemethod_classmethodcache_addroots",
       "label": "addRoots",
       "_origin": "ast",
@@ -10557,15 +10492,15 @@
       "source_location": ""
     },
     {
-      "id": "runtime_src_kernel_largeinteger_root_slot",
-      "label": "slot",
+      "id": "runtime_include_ao_roots_hpp_vector",
+      "label": "vector",
       "_origin": "ast",
-      "community": 3,
-      "community_name": "LargeInteger.cpp",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
       "file_type": "code",
-      "norm_label": "slot",
-      "source_file": "runtime/src/kernel/LargeInteger.cpp",
-      "source_location": "L19"
+      "norm_label": "vector",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "runtime_src_kernel_blockcontext",
@@ -10635,6 +10570,72 @@
     },
     {
       "id": "runtime_src_kernel_blockcontext_cpp_wellknown",
+      "label": "WellKnown",
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "wellknown",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_nativemethod",
+      "label": "NativeMethod.cpp",
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "nativemethod.cpp",
+      "source_file": "runtime/src/NativeMethod.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_nativemethod_cpp_callcontext",
+      "label": "CallContext",
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "callcontext",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_nativemethod_cpp_nativefn",
+      "label": "NativeFn",
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "nativefn",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_nativemethod_cpp_string_view",
+      "label": "string_view",
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "string_view",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_nativemethod_cpp_uint32_t",
+      "label": "uint32_t",
+      "_origin": "ast",
+      "community": 30,
+      "community_name": "BlockContext.cpp",
+      "file_type": "code",
+      "norm_label": "uint32_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_nativemethod_cpp_wellknown",
       "label": "WellKnown",
       "_origin": "ast",
       "community": 30,
@@ -10733,6 +10734,28 @@
       "source_location": ""
     },
     {
+      "id": "atputgrowsutf8withinobjectbytes",
+      "label": "AtPutGrowsUtf8WithinObjectBytes",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "atputgrowsutf8withinobjectbytes",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "atputshrinksutf8withinobjectbytes",
+      "label": "AtPutShrinksUtf8WithinObjectBytes",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "atputshrinksutf8withinobjectbytes",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "basicatonarray",
       "label": "BasicAtOnArray",
       "_origin": "ast",
@@ -10806,6 +10829,17 @@
       "community_name": "TEST",
       "file_type": "code",
       "norm_label": "stringequalscomparesbytes",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "symbolatputdoesnotmutateinternedbytes",
+      "label": "SymbolAtPutDoesNotMutateInternedBytes",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "symbolatputdoesnotmutateinternedbytes",
       "source_file": "",
       "source_location": ""
     },
@@ -10964,6 +10998,17 @@
       "source_location": ""
     },
     {
+      "id": "bootstrapinstallsobjectidentityequals",
+      "label": "BootstrapInstallsObjectIdentityEquals",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "Bootstrap",
+      "file_type": "code",
+      "norm_label": "bootstrapinstallsobjectidentityequals",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "growkeepsouteroopandentries",
       "label": "GrowKeepsOuterOopAndEntries",
       "_origin": "ast",
@@ -10971,6 +11016,17 @@
       "community_name": "Bootstrap",
       "file_type": "code",
       "norm_label": "growkeepsouteroopandentries",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "inheritsfromsuperclass",
+      "label": "InheritsFromSuperclass",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "Bootstrap",
+      "file_type": "code",
+      "norm_label": "inheritsfromsuperclass",
       "source_file": "",
       "source_location": ""
     },
@@ -10997,15 +11053,26 @@
       "source_location": ""
     },
     {
-      "id": "runtime_src_kernel_install",
-      "label": "Install.cpp",
+      "id": "missingselectorisnil",
+      "label": "MissingSelectorIsNil",
       "_origin": "ast",
       "community": 39,
       "community_name": "Bootstrap",
       "file_type": "code",
-      "norm_label": "install.cpp",
-      "source_file": "runtime/src/kernel/Install.cpp",
-      "source_location": "L1"
+      "norm_label": "missingselectorisnil",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_slotatput",
+      "label": "slotAtPut",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "Bootstrap",
+      "file_type": "code",
+      "norm_label": "slotatput",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L43"
     },
     {
       "id": "runtime_src_lookup",
@@ -11041,6 +11108,17 @@
       "source_location": ""
     },
     {
+      "id": "runtime_tests_lookup_test_cpp_nativefn",
+      "label": "NativeFn",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "Bootstrap",
+      "file_type": "code",
+      "norm_label": "nativefn",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "runtime_tests_lookup_test_cpp_uint32_t",
       "label": "uint32_t",
       "_origin": "ast",
@@ -11048,6 +11126,17 @@
       "community_name": "Bootstrap",
       "file_type": "code",
       "norm_label": "uint32_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_tests_lookup_test_cpp_wellknown",
+      "label": "WellKnown",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "Bootstrap",
+      "file_type": "code",
+      "norm_label": "wellknown",
       "source_file": "",
       "source_location": ""
     },
@@ -11063,13 +11152,24 @@
       "source_location": "L1"
     },
     {
-      "id": "symbol",
-      "label": "Symbol",
+      "id": "subclassentryshadowssuperclass",
+      "label": "SubclassEntryShadowsSuperclass",
       "_origin": "ast",
       "community": 39,
       "community_name": "Bootstrap",
       "file_type": "code",
-      "norm_label": "symbol",
+      "norm_label": "subclassentryshadowssuperclass",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "superstartsatmethodclasssuperclass",
+      "label": "SuperStartsAtMethodClassSuperclass",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "Bootstrap",
+      "file_type": "code",
+      "norm_label": "superstartsatmethodclasssuperclass",
       "source_file": "",
       "source_location": ""
     },
@@ -11356,70 +11456,15 @@
       "source_location": "L7"
     },
     {
-      "id": "runtime_src_nativemethod",
-      "label": "NativeMethod.cpp",
+      "id": "runtime_include_ao_roots",
+      "label": "Roots.hpp",
       "_origin": "ast",
       "community": 40,
-      "community_name": "create",
+      "community_name": "P1-04 old-generation mark-compact",
       "file_type": "code",
-      "norm_label": "nativemethod.cpp",
-      "source_file": "runtime/src/NativeMethod.cpp",
+      "norm_label": "roots.hpp",
+      "source_file": "runtime/include/ao/Roots.hpp",
       "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_nativemethod_cpp_callcontext",
-      "label": "CallContext",
-      "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
-      "file_type": "code",
-      "norm_label": "callcontext",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_nativemethod_cpp_nativefn",
-      "label": "NativeFn",
-      "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
-      "file_type": "code",
-      "norm_label": "nativefn",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_nativemethod_cpp_string_view",
-      "label": "string_view",
-      "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
-      "file_type": "code",
-      "norm_label": "string_view",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_nativemethod_cpp_uint32_t",
-      "label": "uint32_t",
-      "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
-      "file_type": "code",
-      "norm_label": "uint32_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_nativemethod_cpp_wellknown",
-      "label": "WellKnown",
-      "_origin": "ast",
-      "community": 40,
-      "community_name": "create",
-      "file_type": "code",
-      "norm_label": "wellknown",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "runtime_src_kernel_collection",
@@ -11430,6 +11475,28 @@
       "file_type": "code",
       "norm_label": "collection.cpp",
       "source_file": "runtime/src/kernel/Collection.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_kernel_collection_root_slot",
+      "label": "slot",
+      "_origin": "ast",
+      "community": 41,
+      "community_name": "test_support.hpp",
+      "file_type": "code",
+      "norm_label": "slot",
+      "source_file": "runtime/src/kernel/Collection.cpp",
+      "source_location": "L11"
+    },
+    {
+      "id": "runtime_src_kernel_install",
+      "label": "Install.cpp",
+      "_origin": "ast",
+      "community": 41,
+      "community_name": "test_support.hpp",
+      "file_type": "code",
+      "norm_label": "install.cpp",
+      "source_file": "runtime/src/kernel/Install.cpp",
       "source_location": "L1"
     },
     {
@@ -11452,17 +11519,6 @@
       "file_type": "code",
       "norm_label": "bootstrap_test.cpp",
       "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_tests_gc_test",
-      "label": "gc_test.cpp",
-      "_origin": "ast",
-      "community": 41,
-      "community_name": "test_support.hpp",
-      "file_type": "code",
-      "norm_label": "gc_test.cpp",
-      "source_file": "runtime/tests/gc_test.cpp",
       "source_location": "L1"
     },
     {
@@ -11507,6 +11563,29 @@
       "file_type": "code",
       "norm_label": "test_support.hpp",
       "source_file": "runtime/tests/test_support.hpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "symbol",
+      "label": "Symbol",
+      "_origin": "ast",
+      "community": 41,
+      "community_name": "test_support.hpp",
+      "file_type": "code",
+      "norm_label": "symbol",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "docs_prs_p9_04",
+      "label": "P9-04.md",
+      "_origin": "ast",
+      "community": 42,
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p9-04.md",
+      "source_file": "docs/prs/P9-04.md",
       "source_location": "L1"
     },
     {
@@ -11702,22 +11781,11 @@
       "source_location": "L7"
     },
     {
-      "id": "bootstrapinstallsobjectidentityequals",
-      "label": "BootstrapInstallsObjectIdentityEquals",
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "bootstrapinstallsobjectidentityequals",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "doesnotunderstandappliessubclassnative",
       "label": "DoesNotUnderstandAppliesSubclassNative",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "doesnotunderstandappliessubclassnative",
       "source_file": "",
@@ -11728,7 +11796,7 @@
       "label": "DoesNotUnderstandReturnsMessage",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "doesnotunderstandreturnsmessage",
       "source_file": "",
@@ -11739,31 +11807,9 @@
       "label": "IdentityEqualsAndClass",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "identityequalsandclass",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "inheritsfromsuperclass",
-      "label": "InheritsFromSuperclass",
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "inheritsfromsuperclass",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "missingselectorisnil",
-      "label": "MissingSelectorIsNil",
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "missingselectorisnil",
       "source_file": "",
       "source_location": ""
     },
@@ -11772,53 +11818,31 @@
       "label": "NativeSend",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "nativesend",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "runtime_include_ao_heap_heap_slotat",
-      "label": "slotAt",
+      "id": "runtime_tests_native_send_test",
+      "label": "native_send_test.cpp",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
-      "norm_label": "slotat",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L42"
+      "norm_label": "native_send_test.cpp",
+      "source_file": "runtime/tests/native_send_test.cpp",
+      "source_location": "L1"
     },
     {
-      "id": "runtime_include_ao_heap_heap_slotatput",
-      "label": "slotAtPut",
+      "id": "runtime_tests_native_send_test_cpp_callcontext",
+      "label": "CallContext",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
-      "norm_label": "slotatput",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L43"
-    },
-    {
-      "id": "runtime_tests_lookup_test_cpp_nativefn",
-      "label": "NativeFn",
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "nativefn",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_tests_lookup_test_cpp_wellknown",
-      "label": "WellKnown",
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "wellknown",
+      "norm_label": "callcontext",
       "source_file": "",
       "source_location": ""
     },
@@ -11827,9 +11851,20 @@
       "label": "NativeFn",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "nativefn",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_tests_native_send_test_cpp_uint32_t",
+      "label": "uint32_t",
+      "_origin": "ast",
+      "community": 48,
+      "community_name": "native_send_test.cpp",
+      "file_type": "code",
+      "norm_label": "uint32_t",
       "source_file": "",
       "source_location": ""
     },
@@ -11838,7 +11873,7 @@
       "label": "WellKnown",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "wellknown",
       "source_file": "",
@@ -11849,31 +11884,9 @@
       "label": "StubSmallIntegerAdd",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "stubsmallintegeradd",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "subclassentryshadowssuperclass",
-      "label": "SubclassEntryShadowsSuperclass",
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "subclassentryshadowssuperclass",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "superstartsatmethodclasssuperclass",
-      "label": "SuperStartsAtMethodClassSuperclass",
-      "_origin": "ast",
-      "community": 48,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "superstartsatmethodclasssuperclass",
       "source_file": "",
       "source_location": ""
     },
@@ -11882,7 +11895,7 @@
       "label": "SuperUsesDefiningClassSuperclass",
       "_origin": "ast",
       "community": 48,
-      "community_name": "TEST",
+      "community_name": "native_send_test.cpp",
       "file_type": "code",
       "norm_label": "superusesdefiningclasssuperclass",
       "source_file": "",
@@ -11909,17 +11922,6 @@
       "norm_label": "header",
       "source_file": "runtime/include/ao/Heap.hpp",
       "source_location": "L35"
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_objectbytes",
-      "label": "objectBytes",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "Heap.cpp",
-      "file_type": "code",
-      "norm_label": "objectbytes",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L46"
     },
     {
       "id": "runtime_include_ao_heap_hpp_uint16_t",
@@ -12127,35 +12129,68 @@
       "source_location": "L7"
     },
     {
-      "id": "runtime_tests_native_send_test",
-      "label": "native_send_test.cpp",
+      "id": "runtime_src_bootstrap_classdef_bytes",
+      "label": "bytes",
       "_origin": "ast",
       "community": 51,
-      "community_name": "native_send_test.cpp",
+      "community_name": "ClassDef",
       "file_type": "code",
-      "norm_label": "native_send_test.cpp",
-      "source_file": "runtime/tests/native_send_test.cpp",
-      "source_location": "L1"
+      "norm_label": "bytes",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L24"
     },
     {
-      "id": "runtime_tests_native_send_test_cpp_callcontext",
-      "label": "CallContext",
+      "id": "runtime_src_bootstrap_classdef_indexable",
+      "label": "indexable",
       "_origin": "ast",
       "community": 51,
-      "community_name": "native_send_test.cpp",
+      "community_name": "ClassDef",
       "file_type": "code",
-      "norm_label": "callcontext",
-      "source_file": "",
-      "source_location": ""
+      "norm_label": "indexable",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L23"
     },
     {
-      "id": "runtime_tests_native_send_test_cpp_uint32_t",
-      "label": "uint32_t",
+      "id": "runtime_src_bootstrap_classdef_instsize",
+      "label": "instSize",
       "_origin": "ast",
       "community": 51,
-      "community_name": "native_send_test.cpp",
+      "community_name": "ClassDef",
       "file_type": "code",
-      "norm_label": "uint32_t",
+      "norm_label": "instsize",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L22"
+    },
+    {
+      "id": "runtime_src_bootstrap_classdef_name",
+      "label": "name",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "ClassDef",
+      "file_type": "code",
+      "norm_label": "name",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L25"
+    },
+    {
+      "id": "runtime_src_bootstrap_classdef_wellknown",
+      "label": "WellKnown",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "ClassDef",
+      "file_type": "code",
+      "norm_label": "wellknown",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L19"
+    },
+    {
+      "id": "runtime_src_bootstrap_cpp_int64_t",
+      "label": "int64_t",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "ClassDef",
+      "file_type": "code",
+      "norm_label": "int64_t",
       "source_file": "",
       "source_location": ""
     },
@@ -12289,48 +12324,37 @@
       "source_location": "L7"
     },
     {
-      "id": "hostoophook",
-      "label": "HostOopHook",
+      "id": "runtime_src_methoddictionary",
+      "label": "MethodDictionary.cpp",
       "_origin": "ast",
       "community": 55,
-      "community_name": "CallContext",
+      "community_name": "create",
       "file_type": "code",
-      "norm_label": "hostoophook",
+      "norm_label": "methoddictionary.cpp",
+      "source_file": "runtime/src/MethodDictionary.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_methoddictionary_cpp_uint32_t",
+      "label": "uint32_t",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "create",
+      "file_type": "code",
+      "norm_label": "uint32_t",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "runtime_include_ao_nativemethod_callcontext_cache",
-      "label": "cache",
+      "id": "runtime_src_methoddictionary_cpp_wellknown",
+      "label": "WellKnown",
       "_origin": "ast",
       "community": 55,
-      "community_name": "CallContext",
+      "community_name": "create",
       "file_type": "code",
-      "norm_label": "cache",
-      "source_file": "runtime/include/ao/NativeMethod.hpp",
-      "source_location": "L42"
-    },
-    {
-      "id": "runtime_include_ao_nativemethod_callcontext_inspecthook",
-      "label": "inspectHook",
-      "_origin": "ast",
-      "community": 55,
-      "community_name": "CallContext",
-      "file_type": "code",
-      "norm_label": "inspecthook",
-      "source_file": "runtime/include/ao/NativeMethod.hpp",
-      "source_location": "L43"
-    },
-    {
-      "id": "runtime_include_ao_nativemethod_callcontext_transcripthook",
-      "label": "transcriptHook",
-      "_origin": "ast",
-      "community": 55,
-      "community_name": "CallContext",
-      "file_type": "code",
-      "norm_label": "transcripthook",
-      "source_file": "runtime/include/ao/NativeMethod.hpp",
-      "source_location": "L44"
+      "norm_label": "wellknown",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "docs_prs_p9_03_files",
@@ -12473,6 +12497,17 @@
       "source_location": "L12"
     },
     {
+      "id": "runtime_src_kernel_largeinteger_root_slot",
+      "label": "slot",
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "Root",
+      "file_type": "code",
+      "norm_label": "slot",
+      "source_file": "runtime/src/kernel/LargeInteger.cpp",
+      "source_location": "L19"
+    },
+    {
       "id": "runtime_include_ao_gc_gc_collectnursery",
       "label": "collectNursery",
       "_origin": "ast",
@@ -12603,6 +12638,17 @@
       "norm_label": "ooptag",
       "source_file": "",
       "source_location": ""
+    },
+    {
+      "id": "runtime_tests_oop_tag_test",
+      "label": "oop_tag_test.cpp",
+      "_origin": "ast",
+      "community": 60,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "oop_tag_test.cpp",
+      "source_file": "runtime/tests/oop_tag_test.cpp",
+      "source_location": "L1"
     },
     {
       "id": "smallintegerroundtrip",
@@ -12869,15 +12915,15 @@
       "source_location": ""
     },
     {
-      "id": "runtime_include_ao_heap_heap_innursery",
-      "label": "inNursery",
+      "id": "runtime_include_ao_heap_heap_objectbytes",
+      "label": "objectBytes",
       "_origin": "ast",
       "community": 7,
       "community_name": "TEST",
       "file_type": "code",
-      "norm_label": "innursery",
+      "norm_label": "objectbytes",
       "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L48"
+      "source_location": "L46"
     },
     {
       "id": "runtime_include_ao_heap_heap_oldused",
@@ -12889,6 +12935,17 @@
       "norm_label": "oldused",
       "source_file": "runtime/include/ao/Heap.hpp",
       "source_location": "L50"
+    },
+    {
+      "id": "runtime_tests_gc_test",
+      "label": "gc_test.cpp",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "gc_test.cpp",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L1"
     },
     {
       "id": "runtime_tests_gc_test_cpp_gcnursery",
@@ -15261,6 +15318,126 @@
       "source_url": null
     },
     {
+      "id": "docs_prs_p1_04_gc_collectold",
+      "label": "Gc::collectOld()",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 40,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc::collectold()",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_nursery_gc",
+      "label": "nursery GC",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 40,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nursery gc",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_promotion",
+      "label": "old-generation promotion",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 40,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "old-generation promotion",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_gc",
+      "label": "Gc",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 40,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_roots",
+      "label": "Roots",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 40,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "roots",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_roots_add",
+      "label": "Roots::add(Oop*)",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 40,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "roots::add(oop*)",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_pr",
+      "label": "P1-04 old-generation mark-compact",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 40,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-04 old-generation mark-compact",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_pr",
+      "label": "P1-05 GC root API",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 40,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-05 gc root api",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "docs_prs_p4_01_boolean",
       "label": "Boolean",
       "_origin": "semantic",
@@ -16782,96 +16959,6 @@
       "source_url": null
     },
     {
-      "id": "docs_prs_p1_04_gc_collectold",
-      "label": "Gc::collectOld()",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 9,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc::collectold()",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_nursery_gc",
-      "label": "nursery GC",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 9,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nursery gc",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_promotion",
-      "label": "old-generation promotion",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 9,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "old-generation promotion",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_gc",
-      "label": "Gc",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 9,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots",
-      "label": "Roots",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 9,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "roots",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots_add",
-      "label": "Roots::add(Oop*)",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 9,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "roots::add(oop*)",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_phases_p1",
       "label": "P1 \u2014 Object Memory",
       "_origin": "semantic",
@@ -16932,36 +17019,6 @@
       "source_url": null
     },
     {
-      "id": "docs_prs_p1_04_pr",
-      "label": "P1-04 old-generation mark-compact",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 9,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-04 old-generation mark-compact",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_pr",
-      "label": "P1-05 GC root API",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 9,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-05 gc root api",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "largeinteger",
       "label": "largeinteger",
       "_origin": "semantic",
@@ -16970,18 +17027,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "largeinteger",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "format",
-      "label": "format",
-      "_origin": "semantic",
-      "community": 14,
-      "community_name": ".nil",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "format",
       "source_file": "",
       "type": "external"
     },
@@ -17046,38 +17091,26 @@
       "type": "external"
     },
     {
+      "id": "format",
+      "label": "format",
+      "_origin": "semantic",
+      "community": 2,
+      "community_name": ".nil",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "format",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "ao_abi",
       "label": "ao_abi",
       "_origin": "semantic",
-      "community": 2,
-      "community_name": "TEST",
+      "community": 22,
+      "community_name": "String.cpp",
       "external": true,
       "file_type": "concept",
       "norm_label": "ao_abi",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "cstdio",
-      "label": "cstdio",
-      "_origin": "semantic",
-      "community": 2,
-      "community_name": "TEST",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "cstdio",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "runtime",
-      "label": "runtime",
-      "_origin": "semantic",
-      "community": 2,
-      "community_name": "TEST",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "runtime",
       "source_file": "",
       "type": "external"
     },
@@ -17094,6 +17127,18 @@
       "type": "external"
     },
     {
+      "id": "cstdio",
+      "label": "cstdio",
+      "_origin": "semantic",
+      "community": 22,
+      "community_name": "String.cpp",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "cstdio",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "cstring",
       "label": "cstring",
       "_origin": "semantic",
@@ -17102,6 +17147,18 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "cstring",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "runtime",
+      "label": "runtime",
+      "_origin": "semantic",
+      "community": 22,
+      "community_name": "String.cpp",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "runtime",
       "source_file": "",
       "type": "external"
     },
@@ -20824,7 +20881,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L256",
+      "source_location": "L268",
       "weight": 1.0
     },
     {
@@ -20896,7 +20953,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L238",
+      "source_location": "L250",
       "weight": 1.0
     },
     {
@@ -20908,7 +20965,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L240",
+      "source_location": "L252",
       "weight": 1.0
     },
     {
@@ -20920,7 +20977,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L240",
+      "source_location": "L252",
       "weight": 1.0
     },
     {
@@ -20932,7 +20989,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L241",
+      "source_location": "L253",
       "weight": 1.0
     },
     {
@@ -20944,7 +21001,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L250",
+      "source_location": "L262",
       "weight": 1.0
     },
     {
@@ -20968,7 +21025,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L263",
+      "source_location": "L275",
       "weight": 1.0
     },
     {
@@ -20980,7 +21037,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L267",
+      "source_location": "L279",
       "weight": 1.0
     },
     {
@@ -20992,7 +21049,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L272",
+      "source_location": "L284",
       "weight": 1.0
     },
     {
@@ -35800,7 +35857,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L255",
+      "source_location": "L267",
       "weight": 1.0
     },
     {
@@ -35812,7 +35869,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L255",
+      "source_location": "L267",
       "weight": 1.0
     },
     {
@@ -35824,7 +35881,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L255",
+      "source_location": "L267",
       "weight": 1.0
     },
     {
@@ -35908,7 +35965,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L233",
+      "source_location": "L245",
       "weight": 1.0
     },
     {
@@ -35920,7 +35977,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L233",
+      "source_location": "L245",
       "weight": 1.0
     },
     {
@@ -35932,7 +35989,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L233",
+      "source_location": "L245",
       "weight": 1.0
     },
     {
@@ -35980,7 +36037,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L262",
+      "source_location": "L274",
       "weight": 1.0
     },
     {
@@ -35992,7 +36049,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L262",
+      "source_location": "L274",
       "weight": 1.0
     },
     {
@@ -36004,7 +36061,79 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L262",
+      "source_location": "L274",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string_ao_symbol_at_put",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L289",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string_ao_symbol_at_put",
+      "target": "runtime_src_kernel_string_cpp_callcontext",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L289",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string_ao_symbol_at_put",
+      "target": "runtime_src_kernel_string_cpp_uint32_t",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L289",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string_ao_symbol_basicat_put",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L296",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string_ao_symbol_basicat_put",
+      "target": "runtime_src_kernel_string_cpp_callcontext",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L296",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string_ao_symbol_basicat_put",
+      "target": "runtime_src_kernel_string_cpp_uint32_t",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L296",
       "weight": 1.0
     },
     {
@@ -36148,7 +36277,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L279",
+      "source_location": "L305",
       "weight": 1.0
     },
     {
@@ -36160,7 +36289,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L279",
+      "source_location": "L305",
       "weight": 1.0
     },
     {
@@ -37089,18 +37218,6 @@
     },
     {
       "source": "runtime_tests_array_string_test_test",
-      "target": "arraystring",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/array_string_test.cpp",
-      "source_location": "L152",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_array_string_test_test",
       "target": "basicatonarray",
       "relation": "references",
       "_origin": "ast",
@@ -37113,6 +37230,30 @@
     },
     {
       "source": "runtime_tests_array_string_test_test",
+      "target": "atputgrowsutf8withinobjectbytes",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/array_string_test.cpp",
+      "source_location": "L159",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_array_string_test_test",
+      "target": "atputshrinksutf8withinobjectbytes",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/array_string_test.cpp",
+      "source_location": "L178",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_array_string_test_test",
       "target": "utf8atreturnscharacter",
       "relation": "references",
       "_origin": "ast",
@@ -37121,6 +37262,30 @@
       "context": "parameter_type",
       "source_file": "runtime/tests/array_string_test.cpp",
       "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_array_string_test_test",
+      "target": "arraystring",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/array_string_test.cpp",
+      "source_location": "L189",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_array_string_test_test",
+      "target": "symbolatputdoesnotmutateinternedbytes",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/array_string_test.cpp",
+      "source_location": "L189",
       "weight": 1.0
     },
     {
@@ -43750,7 +43915,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L233",
+      "source_location": "L245",
       "weight": 1.0
     },
     {
@@ -43761,7 +43926,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L255",
+      "source_location": "L267",
       "weight": 1.0
     },
     {
@@ -43772,18 +43937,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L262",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_src_kernel_string",
-      "target": "runtime_src_kernel_string_installstring",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L279",
+      "source_location": "L274",
       "weight": 1.0
     },
     {
@@ -43795,6 +43949,39 @@
       "confidence_score": 1.0,
       "source_file": "runtime/src/kernel/String.cpp",
       "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string",
+      "target": "runtime_src_kernel_string_ao_symbol_at_put",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L289",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string",
+      "target": "runtime_src_kernel_string_ao_symbol_basicat_put",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L296",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string",
+      "target": "runtime_src_kernel_string_installstring",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L305",
       "weight": 1.0
     },
     {
@@ -44311,7 +44498,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/tests/array_string_test.cpp",
-      "source_location": "L152",
+      "source_location": "L189",
       "weight": 1.0
     },
     {
@@ -46727,7 +46914,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L268",
+      "source_location": "L280",
       "weight": 1.0
     },
     {
@@ -48147,6 +48334,30 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_src_kernel_string_ao_symbol_at_put",
+      "target": "runtime_src_kernel_object_ao_object_shouldnotimplement",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "call",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L293",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_kernel_string_ao_symbol_basicat_put",
+      "target": "runtime_src_kernel_object_ao_object_shouldnotimplement",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "call",
+      "source_file": "runtime/src/kernel/String.cpp",
+      "source_location": "L300",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_src_kernel_string_fail",
       "target": "runtime_src_kernel_object_ao_object_error",
       "relation": "calls",
@@ -48167,7 +48378,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "runtime/src/kernel/String.cpp",
-      "source_location": "L281",
+      "source_location": "L307",
       "weight": 1.0
     },
     {
@@ -52739,5 +52950,5 @@
       "source_file": "runtime/src/abi.cpp"
     }
   ],
-  "built_at_commit": "c91396da4aac13c8797718f281b8d509678ddea0"
+  "built_at_commit": "3baf2aa49d7f42ad977ed853dc473d6911b720ad"
 }

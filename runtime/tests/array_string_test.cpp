@@ -155,3 +155,49 @@ TEST(ArrayString, BasicAtOnArray) {
   send2(b, a, "at:put:", ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(8));
   EXPECT_EQ(8, send1(b, a, "basicAt:", ao::Oop::fromSmallInteger(1)).smallIntegerValue());
 }
+
+TEST(ArrayString, AtPutGrowsUtf8WithinObjectBytes) {
+  Boot b;
+  auto s = ao::Str::fromUtf8(b.heap, b.wk, "A");
+  auto r = send2(b, s, "at:put:", ao::Oop::fromSmallInteger(1), ao::Oop::fromCharacter(U'あ'));
+  ASSERT_TRUE(r.isCharacter());
+  EXPECT_EQ(U'あ', r.characterValue());
+  EXPECT_EQ("あ", ao::Str::toUtf8(b.heap, s));
+  EXPECT_EQ(1, send0(b, s, "size").smallIntegerValue());
+  EXPECT_EQ(3, send0(b, s, "basicSize").smallIntegerValue());
+  EXPECT_EQ(U'あ', send1(b, s, "at:", ao::Oop::fromSmallInteger(1)).characterValue());
+
+  auto four = send2(b, s, "at:put:", ao::Oop::fromSmallInteger(1),
+                    ao::Oop::fromCharacter(U'\U0001F600'));
+  ASSERT_TRUE(four.isCharacter());
+  EXPECT_EQ(U'\U0001F600', four.characterValue());
+  EXPECT_EQ(1, send0(b, s, "size").smallIntegerValue());
+  EXPECT_EQ(4, send0(b, s, "basicSize").smallIntegerValue());
+}
+
+TEST(ArrayString, AtPutShrinksUtf8WithinObjectBytes) {
+  Boot b;
+  auto s = ao::Str::fromUtf8(b.heap, b.wk, "あ");
+  auto r = send2(b, s, "at:put:", ao::Oop::fromSmallInteger(1), ao::Oop::fromCharacter(U'A'));
+  ASSERT_TRUE(r.isCharacter());
+  EXPECT_EQ(U'A', r.characterValue());
+  EXPECT_EQ("A", ao::Str::toUtf8(b.heap, s));
+  EXPECT_EQ(1, send0(b, s, "size").smallIntegerValue());
+  EXPECT_EQ(1, send0(b, s, "basicSize").smallIntegerValue());
+}
+
+TEST(ArrayString, SymbolAtPutDoesNotMutateInternedBytes) {
+  Boot b;
+  auto sym = b.wk.intern("foo");
+  auto r = send2(b, sym, "at:put:", ao::Oop::fromSmallInteger(1), ao::Oop::fromCharacter(U'Z'));
+  ASSERT_TRUE(r.isHeap());
+  EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, r));
+  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym));
+  EXPECT_EQ(sym, b.wk.intern("foo"));
+
+  auto br = send2(b, sym, "basicAt:put:", ao::Oop::fromSmallInteger(1),
+                  ao::Oop::fromSmallInteger(static_cast<std::int64_t>('Z')));
+  ASSERT_TRUE(br.isHeap());
+  EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, br));
+  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym));
+}

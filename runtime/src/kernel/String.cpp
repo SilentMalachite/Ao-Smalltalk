@@ -218,10 +218,22 @@ Oop ao_String_at_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint
       if (encN == 0) {
         return fail(ctx, receiver, "at:put: value out of range");
       }
-      if (encN != step.nbytes) {
+      const auto newSize = n - step.nbytes + encN;
+      ObjectHeader* h = ctx.heap.header(receiver);
+      const std::size_t oldBytes = ctx.heap.objectBytes(h);
+      ObjectHeader probe = *h;
+      probe.size = newSize;
+      if (ctx.heap.objectBytes(&probe) != oldBytes) {
         return fail(ctx, receiver, "at:put: UTF-8 width mismatch");
       }
+      if (encN != step.nbytes) {
+        const auto tail = n - (i + step.nbytes);
+        if (tail != 0) {
+          std::memmove(p + i + encN, p + i + step.nbytes, tail);
+        }
+      }
       std::memcpy(p + i, enc, encN);
+      h->size = newSize;
       return args[1];
     }
     i += step.nbytes;
@@ -274,6 +286,20 @@ Oop ao_Symbol_asString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
   return s;
 }
 
+Oop ao_Symbol_at_put_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 2) {
+    return Oop{};
+  }
+  return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
+}
+
+Oop ao_Symbol_basicAt_put_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 2) {
+    return Oop{};
+  }
+  return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
+}
+
 namespace kernel {
 
 void installString(Heap& heap, WellKnown& wk) {
@@ -284,6 +310,9 @@ void installString(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, str, "=", 1, "ao_String_equals", ao_String_equals);
   putNative(heap, wk, str, "asSymbol", 0, "ao_String_asSymbol", ao_String_asSymbol);
   putNative(heap, wk, wk.symbolClass, "asString", 0, "ao_Symbol_asString", ao_Symbol_asString);
+  putNative(heap, wk, wk.symbolClass, "at:put:", 2, "ao_Symbol_at_put_", ao_Symbol_at_put_);
+  putNative(heap, wk, wk.symbolClass, "basicAt:put:", 2, "ao_Symbol_basicAt_put_",
+            ao_Symbol_basicAt_put_);
 }
 
 }  // namespace kernel

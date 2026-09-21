@@ -1,26 +1,26 @@
 # Graph Report - p4-kernel  (2026-09-21)
 
 ## Corpus Check
-- 143 files · ~34,515 words
+- 147 files · ~36,594 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 29 file(s) not represented in the graph (top: .st 18, (none) 10, .toml 1)
+- Unclassified: 36 file(s) not represented in the graph (top: .st 25, (none) 10, .toml 1)
 
 ## Summary
-- 1271 nodes · 2817 edges · 73 communities (62 shown, 11 thin omitted)
-- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 222 edges (avg confidence: 0.84)
+- 1333 nodes · 3012 edges · 73 communities (62 shown, 11 thin omitted)
+- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 250 edges (avg confidence: 0.84)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1adfed09`
+- Built from commit: `c91396da`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - WellKnown
-- P3-01 Symbol intern
-- cstring
+- P3 — Native Dispatch
+- TEST
 - LargeInteger.cpp
-- Float.cpp
+- .isHeap
 - Heap.cpp
 - Behavior.cpp
 - TEST
@@ -30,7 +30,7 @@
 - SmallInteger.cpp
 - Roots
 - docs/README.md
-- WellKnown.cpp
+- .nil
 - TEST
 - TEST
 - P6b — vendor file-in
@@ -38,14 +38,14 @@
 - cstdint
 - TEST
 - Heap
-- .nil
+- String.cpp
 - SmokeTests.swift
 - putNative
 - Oop
 - ClassMethodCache
 - P2-02 class object skeletons
 - TEST
-- Boolean.cpp
+- send
 - BlockContext.cpp
 - P4-03 Magnitude / SmallInteger / Character
 - P4-04 Array / ByteArray / String / Symbol
@@ -53,28 +53,28 @@
 - P4-07 Process / ProcessorScheduler / Semaphore
 - Ao.app skeleton
 - Roots.cpp
-- ao_abi.h
-- P3-04 lookup / super / doesNotUnderstand:
+- TEST
+- TEST
 - Bootstrap
-- Gc
-- context
-- Gc.cpp
+- create
+- test_support.hpp
+- P9-04: v1 ゴールデン受け入れ
 - P9-01: Do it / Print it / Inspect it
 - P4-01 Object / UndefinedObject / Boolean
 - Collection Kernel Classes
 - P4-08 Point / Rectangle
 - P4-09 Kernel NativeMethod scan and bench
-- native_send_test.cpp
+- TEST
 - P8 — AppKit Tools
-- P1-06: weak slot GC
-- ClassDef
+- P1-07: immovable old objects
+- native_send_test.cpp
 - intern
 - P9-02: Browser accept
 - ao image save
-- P1-04 old-generation mark-compact
+- CallContext
 - P9-03: エラー表示と VoiceOver
-- lookup_test.cpp
-- gtest
+- TEST
+- TEST
 - image/Kernel/Object.st
 - image/Kernel/Behavior.st
 - heap
@@ -88,28 +88,28 @@
 - test.sh
 
 ## God Nodes (most connected - your core abstractions)
-1. `Oop` - 297 edges
+1. `Oop` - 320 edges
 2. `WellKnown` - 144 edges
-3. `Heap` - 110 edges
-4. `Roots` - 57 edges
+3. `Heap` - 118 edges
+4. `Roots` - 61 edges
 5. `TEST()` - 49 edges
 6. `TEST()` - 34 edges
 7. `parse()` - 26 edges
 8. `box()` - 25 edges
 9. `TEST()` - 25 edges
-10. `TEST()` - 23 edges
+10. `マングル表` - 25 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `P0 phase doc` --references--> `CompilerSmoke.VersionIsNonEmpty`  [INFERRED]
   docs/phases/P0.md → compiler/tests/smoke_test.cpp
-- `手順` --references--> `Gc`  [INFERRED]
-  docs/prs/P1-06.md → runtime/include/ao/Gc.hpp
 - `手順` --references--> `Heap`  [INFERRED]
   docs/prs/P1-06.md → runtime/include/ao/Heap.hpp
 - `マングル表` --references--> `ao_Float_divide()`  [INFERRED]
   docs/native-selectors.md → runtime/src/kernel/Float.cpp
 - `マングル表` --references--> `modulo()`  [INFERRED]
   docs/native-selectors.md → runtime/src/kernel/LargeInteger.cpp
+- `Native selector mangling` --references--> `ao_Object_identityEquals()`  [INFERRED]
+  docs/native-selectors.md → runtime/src/kernel/Object.cpp
 
 ## Import Cycles
 - None detected.
@@ -135,21 +135,21 @@
 Cohesion: 0.01
 Nodes (137): ExtraTable, InternTable, unique_ptr, WellKnown, addRoots, arrayClass, arrayedCollectionClass, arrayedCollectionMetaclass (+129 more)
 
-### Community 1 - "P3-01 Symbol intern"
-Cohesion: 0.12
-Nodes (14): Native selector mangling, 規則, Heap, Oop, P3-01 Symbol intern, Symbol, Symbol::intern, MethodDictionary (+6 more)
+### Community 1 - "P3 — Native Dispatch"
+Cohesion: 0.08
+Nodes (26): P3 — Native Dispatch, doesNotUnderstand:, method lookup / send, MethodDictionary, Heap, Oop, P3-01 Symbol intern, Symbol (+18 more)
 
-### Community 2 - "cstring"
-Cohesion: 0.06
-Nodes (29): AbiSmoke, ao_abi, BootAndShutdownReturnZero, BootVersionShutdown, compiler, TEST(), CompilerSmoke, cstdio (+21 more)
+### Community 2 - "TEST"
+Cohesion: 0.12
+Nodes (15): AbiSmoke, ao_abi, BootAndShutdownReturnZero, BootVersionShutdown, cstdio, runtime, ao executable, ao_runtime library (+7 more)
 
 ### Community 3 - "LargeInteger.cpp"
-Cohesion: 0.11
-Nodes (57): Digits, __int128, int64_t, add(), addBig(), asInt64IfFits(), Big, d (+49 more)
+Cohesion: 0.10
+Nodes (62): Digits, __int128, int64_t, ao_ArrayedCollection_do_(), CallContext, uint32_t, add(), addBig() (+54 more)
 
-### Community 4 - "Float.cpp"
-Cohesion: 0.20
-Nodes (28): FlOp, allocateRetry(), ao_Float_add(), ao_Float_divide(), ao_Float_equals(), ao_Float_lessThan(), ao_Float_multiply(), ao_Float_subtract() (+20 more)
+### Community 4 - ".isHeap"
+Cohesion: 0.07
+Nodes (54): Files, Interfaces, P1-06: weak slot GC, コミット文, テスト, 手順, 目的, FlOp (+46 more)
 
 ### Community 5 - "Heap.cpp"
 Cohesion: 0.08
@@ -157,43 +157,43 @@ Nodes (36): cassert, fitsOld, header, objectBytes, uint16_t, uint32_t, ObjectHea
 
 ### Community 6 - "Behavior.cpp"
 Cohesion: 0.20
-Nodes (27): collectNursery, allocateRetry(), ao_Behavior_basicNew_(), ao_Behavior_compiledMethodAt_(), ao_Behavior_includesSelector_(), ao_Behavior_instSize(), ao_Behavior_isBytes(), ao_Behavior_isPointers() (+19 more)
+Nodes (28): collectNursery, allocateRetry(), ao_Behavior_basicNew_(), ao_Behavior_compiledMethodAt_(), ao_Behavior_includesSelector_(), ao_Behavior_inheritsFrom_(), ao_Behavior_instSize(), ao_Behavior_isBytes() (+20 more)
 
 ### Community 7 - "TEST"
 Cohesion: 0.06
 Nodes (33): ByteObjectPayloadIsNotScannedAsOops, DeadOldSlotIsNotANurseryRoot, DestJumpPastPinDoesNotOverlap, GcOld, GcRoots, GcWeak, HandleTableKeepsObject, ImmediateClassIsNotFollowed (+25 more)
 
 ### Community 8 - "SPEC.md"
-Cohesion: 0.12
-Nodes (25): Ao macOS native Smalltalk, Ao.app AppKit tools, ao CLI, ao::Oop typed pointer, .aoimage snapshot, AppKit host GUI, Blue Book compliance, Bootstrap order §3.7 (+17 more)
+Cohesion: 0.08
+Nodes (36): ao_runtime_boot, ao_runtime_shutdown, ao_version, Root CMakeLists.txt, compiler CMakeLists, ao::compiler::version, version() implementation, CompilerSmoke.VersionIsNonEmpty (+28 more)
 
 ### Community 9 - "P1 — Object Memory"
-Cohesion: 0.15
-Nodes (18): P1 — Object Memory, ao::Oop, ao::Gc, ao::Heap, nursery bump allocator, 64-bit tagged pointer, P1-01: ao::Oop tags, Oop.hpp tagged pointer API (+10 more)
+Cohesion: 0.14
+Nodes (19): P1 — Object Memory, ao::Oop, ao::Gc, ao::Heap, nursery bump allocator, 64-bit tagged pointer, P1-01: ao::Oop tags, Oop.hpp tagged pointer API (+11 more)
 
 ### Community 10 - "Bytecode interpreter"
 Cohesion: 0.13
 Nodes (22): CompiledMethod class (P4 Kernel), Scanner (字句解析), Token stream, AST, Parser and AST, Ao bytecode ISA, Opcode constants, Codegen CompiledMethod (+14 more)
 
 ### Community 11 - "SmallInteger.cpp"
-Cohesion: 0.24
-Nodes (24): natives, allocateRetry(), ao_Integer_asCharacter(), ao_Integer_bitAnd_(), ao_Integer_bitOr_(), ao_Integer_bitShift_(), ao_Integer_bitXor_(), ao_Integer_equals() (+16 more)
+Cohesion: 0.21
+Nodes (26): Native selector mangling, 規則, largeinteger, allocateRetry(), ao_Integer_asCharacter(), ao_Integer_bitAnd_(), ao_Integer_bitOr_(), ao_Integer_bitShift_() (+18 more)
 
 ### Community 12 - "Roots"
-Cohesion: 0.08
-Nodes (25): StackWalker, uint32_t, Roots, dropHandle, free_, handleAt, handles_, live_ (+17 more)
+Cohesion: 0.07
+Nodes (26): StackWalker, uint32_t, vector, Roots, dropHandle, free_, handleAt, handles_ (+18 more)
 
 ### Community 13 - "docs/README.md"
-Cohesion: 0.25
-Nodes (14): P0 phase doc, P9 — Integration, P0-01: git / LICENSE / PHASE / README, PHASE file marker, P0-02: directory skeleton, P0-03: CMake + GoogleTest + CLI, ao::boot / shutdown / version_string, P0-04: C ABI + Swift smoke (+6 more)
+Cohesion: 0.20
+Nodes (16): Phase P0 skeleton, Phase pipeline P0-P9, P0 phase doc, P9 — Integration, P0-01: git / LICENSE / PHASE / README, PHASE file marker, P0-02: directory skeleton, P0-03: CMake + GoogleTest + CLI (+8 more)
 
-### Community 14 - "WellKnown.cpp"
-Cohesion: 0.11
-Nodes (21): deque, size_t, string, string_view, Entry, cls, name, NamedClass (+13 more)
+### Community 14 - ".nil"
+Cohesion: 0.07
+Nodes (41): deque, format, allocateSkeletons(), allocClass(), ClassDef, bytes, indexable, instSize (+33 more)
 
 ### Community 15 - "TEST"
-Cohesion: 0.09
-Nodes (22): BlockContext, CallContextHooksDefaultNull, FalseIfTrueIfFalseReturnsNgBlock, format, FormatBitsForIndexableClasses, IdentityEqualsAndYourself, IdentityHashOfImmediates, InspectCallsHookAndReturnsSelf (+14 more)
+Cohesion: 0.10
+Nodes (20): BlockContext, CallContextHooksDefaultNull, FalseIfTrueIfFalseReturnsNgBlock, FormatBitsForIndexableClasses, IdentityEqualsAndYourself, IdentityHashOfImmediates, InspectCallsHookAndReturnsSelf, KernelCatalog (+12 more)
 
 ### Community 16 - "TEST"
 Cohesion: 0.07
@@ -205,51 +205,51 @@ Nodes (14): CompiledMethod, P5 — Compiler, AST via lexer/parser, bytecode code
 
 ### Community 18 - "Boot"
 Cohesion: 0.15
-Nodes (15): largeinteger, floatValue(), makeFloat(), Boot, cache, ctx, heap, roots (+7 more)
+Nodes (12): formatOf(), floatValue(), makeFloat(), Boot, cache, ctx, heap, roots (+4 more)
 
 ### Community 19 - "cstdint"
-Cohesion: 0.17
-Nodes (10): cstdint, HostOopHook, CallContext, CallContext, cache, inspectHook, transcriptHook, WellKnown (+2 more)
+Cohesion: 0.16
+Nodes (7): cstddef, cstdint, memory, CallContext, WellKnown, string, string_view
 
 ### Community 20 - "TEST"
-Cohesion: 0.09
-Nodes (25): ClassSkeletonsAreHeapAndNamed, CycleEveryClassIsInstanceOfItsMetaclass, CycleEveryMetaclassIsInstanceOfMetaclass, CycleImmediateClassOf, CycleMetaclassClassClassIsMetaclass, CycleMetaclassHierarchyParallelsClasses, CycleMetaclassInheritsFromClassDescription, CycleMethodDictIsMethodDictionary (+17 more)
+Cohesion: 0.10
+Nodes (21): ClassSkeletonsAreHeapAndNamed, CycleEveryClassIsInstanceOfItsMetaclass, CycleEveryMetaclassIsInstanceOfMetaclass, CycleImmediateClassOf, CycleMetaclassClassClassIsMetaclass, CycleMetaclassHierarchyParallelsClasses, CycleMetaclassInheritsFromClassDescription, CycleMethodDictIsMethodDictionary (+13 more)
 
 ### Community 21 - "Heap"
-Cohesion: 0.07
-Nodes (32): ByteObjectPayload, ExhaustionReturnsEmpty, HeapAlloc, PointerObjectHasClassAndSize, Heap, allocate, bytes, containsNurseryFrom (+24 more)
+Cohesion: 0.08
+Nodes (27): Heap, containsNurseryFrom, flipNursery, fromBump_, fromEnd_, fromStart_, nextHash_, nursery_ (+19 more)
 
-### Community 22 - ".nil"
-Cohesion: 0.20
-Nodes (17): allocateSkeletons(), allocClass(), WellKnown, ensureMethodDict(), installNatives(), internHotSelectors(), makeName(), run() (+9 more)
+### Community 22 - "String.cpp"
+Cohesion: 0.12
+Nodes (28): compiler, TEST(), CompilerSmoke, cstring, allocateRetry(), ao_String_asSymbol(), ao_String_at_(), ao_String_at_put_() (+20 more)
 
 ### Community 23 - "SmokeTests.swift"
-Cohesion: 0.18
-Nodes (8): Ao, AoPlaceholder, SmokeTests, Phase P0 skeleton, Phase pipeline P0-P9, PackageDescription, XCTest, XCTestCase
+Cohesion: 0.22
+Nodes (6): Ao, AoPlaceholder, SmokeTests, PackageDescription, XCTest, XCTestCase
 
 ### Community 24 - "putNative"
-Cohesion: 0.16
-Nodes (18): WellKnown, installBehavior(), WellKnown, installBoolean(), WellKnown, installCharacter(), NativeFn, string_view (+10 more)
+Cohesion: 0.13
+Nodes (23): WellKnown, installBehavior(), WellKnown, installBoolean(), WellKnown, installCharacter(), WellKnown, installCollection() (+15 more)
 
 ### Community 25 - "Oop"
 Cohesion: 0.06
-Nodes (90): bits(), int64_t, instSize(), isBytes(), isIndexable(), isPointers(), make(), uint64_t (+82 more)
+Nodes (110): マングル表, natives, bits(), int64_t, instSize(), isBytes(), isIndexable(), isPointers() (+102 more)
 
 ### Community 26 - "ClassMethodCache"
 Cohesion: 0.18
 Nodes (11): ClassMethodCache, addRoots, entries, insert, kSize, probe, Entry, klass (+3 more)
 
 ### Community 27 - "P2-02 class object skeletons"
-Cohesion: 0.08
-Nodes (27): cstddef, P2 — Bootstrap, Blue Book 6–10, Metaclass cycle, Smalltalk global dictionary, Heap, Oop, P2-01 WellKnown and immediates (+19 more)
+Cohesion: 0.09
+Nodes (25): P2 — Bootstrap, Blue Book 6–10, Metaclass cycle, Smalltalk global dictionary, Heap, Oop, P2-01 WellKnown and immediates, Roots (+17 more)
 
 ### Community 28 - "TEST"
 Cohesion: 0.14
-Nodes (14): ArrayNewIsEmptyArray, BasicNewColonAllocatesIndexableSlots, Behavior, EachClassAndGlobalsSeeExtraNamed, globals, InheritsFromWalksSuperclassChain, InstSizeAndFormatBitsArrayVsObject, MetaclassNewIsForbidden (+6 more)
+Nodes (14): ArrayNewIsEmptyArray, BasicNewColonAllocatesIndexableSlots, Behavior, EachClassAndGlobalsSeeExtraNamed, InheritsFromWalksSuperclassChain, InstSizeAndFormatBitsArrayVsObject, MetaclassNewIsForbidden, MetaclassNewReturnsShouldNotImplementString (+6 more)
 
-### Community 29 - "Boolean.cpp"
-Cohesion: 0.27
-Nodes (24): マングル表, ao_Boolean_subclassResponsibility(), ao_False_and_(), ao_False_eqv_(), ao_False_ifFalse_(), ao_False_ifFalse_ifTrue_(), ao_False_ifTrue_(), ao_False_ifTrue_ifFalse_() (+16 more)
+### Community 29 - "send"
+Cohesion: 0.20
+Nodes (19): InlineCache, cachedClass, cachedMethod, lookup(), allocateMessage(), cacheIndex(), ClassMethodCache::addRoots(), ClassMethodCache::insert() (+11 more)
 
 ### Community 30 - "BlockContext.cpp"
 Cohesion: 0.27
@@ -260,8 +260,8 @@ Cohesion: 0.33
 Nodes (6): Bootstrap, Magnitude, NativeMethod, P4-03 Magnitude / SmallInteger / Character, send, SmallInteger
 
 ### Community 32 - "P4-04 Array / ByteArray / String / Symbol"
-Cohesion: 0.25
-Nodes (8): Array, runtime/src/kernel/Array.cpp, ArrayedCollection, Bootstrap, NativeMethod, P4-04 Array / ByteArray / String / Symbol, send, runtime/src/kernel/String.cpp
+Cohesion: 0.33
+Nodes (6): Array, ArrayedCollection, Bootstrap, NativeMethod, P4-04 Array / ByteArray / String / Symbol, send
 
 ### Community 33 - "P4-06 Stream / Transcript model"
 Cohesion: 0.25
@@ -276,35 +276,35 @@ Cohesion: 0.43
 Nodes (8): ao_abi boot/shutdown, Ao.app skeleton, Bundle ID jp.ao.smalltalk, TranscriptWindow, WorkspaceWindow, System Browser 5 panes, Do it / Print it keybindings, MainMenu and keybindings
 
 ### Community 36 - "Roots.cpp"
-Cohesion: 0.20
-Nodes (11): walker_, StackWalker, uint32_t, Roots::add(), Roots::dropHandle(), Roots::handleAt(), Roots::pushHandle(), Roots::remove() (+3 more)
+Cohesion: 0.18
+Nodes (12): algorithm, walker_, StackWalker, uint32_t, Roots::add(), Roots::dropHandle(), Roots::handleAt(), Roots::pushHandle() (+4 more)
 
-### Community 37 - "ao_abi.h"
-Cohesion: 0.23
-Nodes (11): ao_runtime_boot, ao_runtime_shutdown, ao_version, Root CMakeLists.txt, compiler CMakeLists, ao::compiler::version, version() implementation, CompilerSmoke.VersionIsNonEmpty (+3 more)
+### Community 37 - "TEST"
+Cohesion: 0.14
+Nodes (14): ArrayString, AsSymbolAndAsString, AtPutAndSize, BasicAtOnArray, ByteArrayAtPutSmallInteger, FromSlotsAndDo, InvalidUtf8ByteIsCharacter, TEST() (+6 more)
 
-### Community 38 - "P3-04 lookup / super / doesNotUnderstand:"
-Cohesion: 0.17
-Nodes (10): class hierarchy, doesNotUnderstand:, lookup, MethodDictionary, NativeMethod, P3-04 lookup / super / doesNotUnderstand:, inline cache, lookup (+2 more)
+### Community 38 - "TEST"
+Cohesion: 0.18
+Nodes (11): ByteObjectPayload, ExhaustionReturnsEmpty, HeapAlloc, PointerObjectHasClassAndSize, allocate, bytes, flags, hash (+3 more)
 
 ### Community 39 - "Bootstrap"
-Cohesion: 0.19
-Nodes (11): AtPutFindsInternedKey, Bootstrap, GrowKeepsOuterOopAndEntries, InternSameBytesIsIdentical, InternSurvivesNurseryGc, MethodDictionary, inOld, add (+3 more)
+Cohesion: 0.22
+Nodes (11): AtPutFindsInternedKey, Bootstrap, GrowKeepsOuterOopAndEntries, Lookup, MethodDictionary, CallContext, uint32_t, stubA() (+3 more)
 
-### Community 40 - "Gc"
-Cohesion: 0.17
-Nodes (12): Gc, clearWeakAfterNursery, clearWeakAfterOldMark, collectOld, copy, failed_, heap_, oldCompacted_ (+4 more)
+### Community 40 - "create"
+Cohesion: 0.27
+Nodes (9): add(), apply(), CallContext, NativeFn, string_view, uint32_t, WellKnown, create() (+1 more)
 
-### Community 41 - "context"
-Cohesion: 0.36
-Nodes (9): context, install, ao_Character_asCharacter(), ao_Character_asciiValue(), ao_Character_asInteger(), ao_Character_equals(), ao_Character_lessThan(), CallContext (+1 more)
+### Community 41 - "test_support.hpp"
+Cohesion: 0.23
+Nodes (7): context, gc, globals, gtest, install, send, type_traits
 
-### Community 42 - "Gc.cpp"
+### Community 42 - "P9-04: v1 ゴールデン受け入れ"
 Cohesion: 0.25
-Nodes (6): algorithm, vector, Gc::clearWeakAfterOldMark(), Gc::Gc(), Gc::safepoint(), unordered_set
+Nodes (8): Files, Interfaces, P9-04: v1 ゴールデン受け入れ, コミット文, テスト, 完了条件, 手順, 目的
 
 ### Community 43 - "P9-01: Do it / Print it / Inspect it"
-Cohesion: 0.22
+Cohesion: 0.25
 Nodes (8): Files, Interfaces, P9-01: Do it / Print it / Inspect it, コミット文, テスト, 完了条件, 手順, 目的
 
 ### Community 44 - "P4-01 Object / UndefinedObject / Boolean"
@@ -320,56 +320,56 @@ Cohesion: 0.29
 Nodes (7): Bootstrap, runtime/src/kernel/Geometry.cpp, NativeMethod, Point, P4-08 Point / Rectangle, Rectangle, send
 
 ### Community 47 - "P4-09 Kernel NativeMethod scan and bench"
-Cohesion: 0.17
-Nodes (12): Behavior, Bootstrap, NativeMethod, P4-02 Behavior / ClassDescription / Class / Metaclass, send, docs/bench.md, Bootstrap, Kernel NativeMethod scan (+4 more)
+Cohesion: 0.29
+Nodes (7): docs/bench.md, Bootstrap, Kernel NativeMethod scan, runtime/tests/kernel_scan_test.cpp, NativeMethod, P4-09 Kernel NativeMethod scan and bench, send
 
-### Community 48 - "native_send_test.cpp"
-Cohesion: 0.17
-Nodes (15): DoesNotUnderstandAppliesSubclassNative, DoesNotUnderstandReturnsMessage, IdentityEqualsAndClass, NativeSend, CallContext, NativeFn, uint32_t, WellKnown (+7 more)
+### Community 48 - "TEST"
+Cohesion: 0.10
+Nodes (22): BootstrapInstallsObjectIdentityEquals, DoesNotUnderstandAppliesSubclassNative, DoesNotUnderstandReturnsMessage, IdentityEqualsAndClass, InheritsFromSuperclass, MissingSelectorIsNil, NativeSend, slotAt (+14 more)
 
 ### Community 49 - "P8 — AppKit Tools"
-Cohesion: 0.33
-Nodes (7): P7 — Image, .aoimage save/load, P8 — AppKit Tools, System Browser 5-pane, Transcript NSWindow, Workspace NSWindow, Do it / Print it / accept
+Cohesion: 0.24
+Nodes (10): NativeMethod, selector mangle ao_<Class>_<selectorMangled>, P7 — Image, .aoimage save/load, NativeMethod symbol rebind on load, P8 — AppKit Tools, System Browser 5-pane, Transcript NSWindow (+2 more)
 
-### Community 50 - "P1-06: weak slot GC"
-Cohesion: 0.25
-Nodes (7): Files, Interfaces, P1-06: weak slot GC, コミット文, テスト, 手順, 目的
-
-### Community 51 - "ClassDef"
+### Community 50 - "P1-07: immovable old objects"
 Cohesion: 0.29
-Nodes (7): ClassDef, bytes, indexable, instSize, name, WellKnown, int64_t
+Nodes (6): Files, Interfaces, P1-07: immovable old objects, テスト, 手順, 目的
+
+### Community 51 - "native_send_test.cpp"
+Cohesion: 0.60
+Nodes (5): CallContext, uint32_t, stubA(), stubB(), trueDnuSentinel()
 
 ### Community 52 - "intern"
 Cohesion: 0.50
 Nodes (4): bytes(), string_view, WellKnown, intern()
 
 ### Community 53 - "P9-02: Browser accept"
-Cohesion: 0.12
-Nodes (16): Files, Interfaces, P9-02: Browser accept, コミット文, テスト, 完了条件, 手順, 目的 (+8 more)
+Cohesion: 0.25
+Nodes (8): Files, Interfaces, P9-02: Browser accept, コミット文, テスト, 完了条件, 手順, 目的
 
 ### Community 54 - "ao image save"
 Cohesion: 0.50
 Nodes (5): .aoimage format (AOIM), No function-pointer fields in image, ao image save, NativeMethod as symbol-name strings on save, ao image load and NativeMethod rebind
 
-### Community 55 - "P1-04 old-generation mark-compact"
-Cohesion: 0.25
-Nodes (7): nursery GC, P1-04 old-generation mark-compact, old-generation promotion, Gc, P1-05 GC root API, Roots, Roots::add(Oop*)
+### Community 55 - "CallContext"
+Cohesion: 0.40
+Nodes (5): HostOopHook, CallContext, cache, inspectHook, transcriptHook
 
 ### Community 56 - "P9-03: エラー表示と VoiceOver"
 Cohesion: 0.25
 Nodes (8): Files, Interfaces, P9-03: エラー表示と VoiceOver, コミット文, テスト, 完了条件, 手順, 目的
 
-### Community 59 - "lookup_test.cpp"
-Cohesion: 0.17
-Nodes (15): BootstrapInstallsObjectIdentityEquals, InheritsFromSuperclass, Lookup, MissingSelectorIsNil, slotAtPut, CallContext, NativeFn, uint32_t (+7 more)
+### Community 57 - "TEST"
+Cohesion: 0.40
+Nodes (5): InternSameBytesIsIdentical, InternSurvivesNurseryGc, inOld, add, TEST()
 
-### Community 60 - "gtest"
-Cohesion: 0.20
-Nodes (8): CharacterRoundTrip, gtest, HeapAlignedPointerRoundTrip, IdentityEqualsIsBits, ImmediateThreePatterns, OopTag, TEST(), SmallIntegerRoundTrip
+### Community 60 - "TEST"
+Cohesion: 0.29
+Nodes (7): CharacterRoundTrip, HeapAlignedPointerRoundTrip, IdentityEqualsIsBits, ImmediateThreePatterns, OopTag, TEST(), SmallIntegerRoundTrip
 
 ### Community 72 - "P4 — Kernel Native Implementation"
-Cohesion: 0.24
-Nodes (10): P3 — Native Dispatch, doesNotUnderstand:, method lookup / send, MethodDictionary, NativeMethod, selector mangle ao_<Class>_<selectorMangled>, P4 — Kernel Native Implementation, Kernel scan (all NativeMethod) (+2 more)
+Cohesion: 0.25
+Nodes (8): P4 — Kernel Native Implementation, Kernel scan (all NativeMethod), SmallInteger arithmetic overflow to LargeInteger, Behavior, Bootstrap, NativeMethod, P4-02 Behavior / ClassDescription / Class / Metaclass, send
 
 ### Community 73 - "install"
 Cohesion: 0.50
@@ -380,24 +380,24 @@ Cohesion: 0.29
 Nodes (6): NameAndApply, NativeMethod, CallContext, uint32_t, stubEq(), TEST()
 
 ## Knowledge Gaps
-- **375 isolated node(s):** `AoPlaceholder`, `XCTest`, `Ao`, `PackageDescription`, `heap_` (+370 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 596 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **377 isolated node(s):** `AoPlaceholder`, `XCTest`, `Ao`, `PackageDescription`, `heap_` (+372 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 616 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **11 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Oop` connect `Oop` to `WellKnown`, `P3-01 Symbol intern`, `cstring`, `LargeInteger.cpp`, `Float.cpp`, `Heap.cpp`, `Behavior.cpp`, `TEST`, `SmallInteger.cpp`, `Roots`, `WellKnown.cpp`, `TEST`, `Boot`, `cstdint`, `TEST`, `Heap`, `.nil`, `putNative`, `ClassMethodCache`, `P2-02 class object skeletons`, `TEST`, `Boolean.cpp`, `BlockContext.cpp`, `Roots.cpp`, `P3-04 lookup / super / doesNotUnderstand:`, `Bootstrap`, `Gc`, `context`, `Gc.cpp`, `native_send_test.cpp`, `ClassDef`, `intern`, `lookup_test.cpp`, `gtest`, `install`, `NativeMethod`?**
-  _High betweenness centrality (0.434) - this node is a cross-community bridge._
-- **Why does `WellKnown` connect `WellKnown` to `Roots`, `Heap`, `.nil`, `Oop`, `P2-02 class object skeletons`?**
-  _High betweenness centrality (0.199) - this node is a cross-community bridge._
-- **Why does `Heap` connect `Heap` to `WellKnown`, `P3-01 Symbol intern`, `cstring`, `LargeInteger.cpp`, `Float.cpp`, `Heap.cpp`, `TEST`, `WellKnown.cpp`, `TEST`, `Boot`, `cstdint`, `TEST`, `.nil`, `putNative`, `Oop`, `P2-02 class object skeletons`, `BlockContext.cpp`, `P3-04 lookup / super / doesNotUnderstand:`, `Bootstrap`, `Gc`, `Gc.cpp`, `native_send_test.cpp`, `P1-06: weak slot GC`, `intern`, `lookup_test.cpp`, `gtest`, `install`, `NativeMethod`?**
-  _High betweenness centrality (0.144) - this node is a cross-community bridge._
+- **Why does `Oop` connect `Oop` to `WellKnown`, `P3 — Native Dispatch`, `LargeInteger.cpp`, `.isHeap`, `Heap.cpp`, `Behavior.cpp`, `SmallInteger.cpp`, `Roots`, `.nil`, `Boot`, `cstdint`, `TEST`, `Heap`, `String.cpp`, `putNative`, `ClassMethodCache`, `TEST`, `send`, `BlockContext.cpp`, `Roots.cpp`, `TEST`, `TEST`, `Bootstrap`, `create`, `test_support.hpp`, `TEST`, `native_send_test.cpp`, `intern`, `install`, `NativeMethod`?**
+  _High betweenness centrality (0.472) - this node is a cross-community bridge._
+- **Why does `WellKnown` connect `WellKnown` to `Roots`, `.nil`, `cstdint`, `Heap`, `Oop`?**
+  _High betweenness centrality (0.190) - this node is a cross-community bridge._
+- **Why does `Heap` connect `Heap` to `WellKnown`, `P3 — Native Dispatch`, `LargeInteger.cpp`, `.isHeap`, `Heap.cpp`, `TEST`, `.nil`, `TEST`, `Boot`, `cstdint`, `TEST`, `String.cpp`, `putNative`, `Oop`, `send`, `BlockContext.cpp`, `TEST`, `Bootstrap`, `create`, `test_support.hpp`, `TEST`, `native_send_test.cpp`, `intern`, `CallContext`, `TEST`, `install`, `NativeMethod`?**
+  _High betweenness centrality (0.133) - this node is a cross-community bridge._
 - **Are the 18 inferred relationships involving `TEST()` (e.g. with `allocate` and `bytes`) actually correct?**
   _`TEST()` has 18 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `AoPlaceholder`, `XCTest`, `Ao` to the rest of the system?**
-  _375 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _377 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `WellKnown` be split into smaller, more focused modules?**
   _Cohesion score 0.014492753623188406 - nodes in this community are weakly interconnected._
-- **Should `P3-01 Symbol intern` be split into smaller, more focused modules?**
-  _Cohesion score 0.125 - nodes in this community are weakly interconnected._
+- **Should `P3 — Native Dispatch` be split into smaller, more focused modules?**
+  _Cohesion score 0.082010582010582 - nodes in this community are weakly interconnected._
