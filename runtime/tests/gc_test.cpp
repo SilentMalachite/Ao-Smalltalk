@@ -324,3 +324,23 @@ TEST(GcWeak, KlassSlotStaysStrong) {
   ASSERT_TRUE(movedCls.isHeap());
   EXPECT_TRUE(heap.inOld(movedCls));
 }
+
+TEST(GcWeak, NurseryWeakSlotNilsUnmarkedOldReferent) {
+  ao::Heap heap(512, 8192);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  roots.add(&child);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(child));
+  roots.remove(&child);
+  auto weak = heap.allocate(ao::Oop::nil(), 1, ao::kFlagWeak);
+  ASSERT_TRUE(weak.isHeap());
+  ASSERT_TRUE(heap.inNursery(weak));
+  heap.slotAtPut(weak, 0, child);
+  roots.add(&weak);
+  gc.collectOld();
+  ASSERT_TRUE(weak.isHeap());
+  EXPECT_TRUE(heap.inNursery(weak));
+  EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
+}

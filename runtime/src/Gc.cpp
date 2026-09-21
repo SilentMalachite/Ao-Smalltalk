@@ -151,22 +151,36 @@ void Gc::clearWeakAfterNursery() {
 }
 
 void Gc::clearWeakAfterOldMark() {
+  auto clearUnmarkedOldSlots = [&](ObjectHeader* h) {
+    auto* slots = reinterpret_cast<Oop*>(h + 1);
+    for (std::uint32_t i = 0; i < h->size; ++i) {
+      Oop s = slots[i];
+      if (!s.isHeap() || !heap_->inOld(s)) {
+        continue;
+      }
+      if ((heap_->header(s)->flags & kFlagMarked) == 0) {
+        slots[i] = Oop::nil();
+      }
+    }
+  };
+
   std::byte* scan = heap_->oldStart_;
   while (scan < heap_->oldBump_) {
     auto* h = reinterpret_cast<ObjectHeader*>(scan);
     const std::size_t n = heap_->objectBytes(h);
     if ((h->flags & kFlagMarked) && (h->flags & kFlagWeak) &&
         (h->flags & kFlagBytes) == 0) {
-      auto* slots = reinterpret_cast<Oop*>(h + 1);
-      for (std::uint32_t i = 0; i < h->size; ++i) {
-        Oop s = slots[i];
-        if (!s.isHeap() || !heap_->inOld(s)) {
-          continue;
-        }
-        if ((heap_->header(s)->flags & kFlagMarked) == 0) {
-          slots[i] = Oop::nil();
-        }
-      }
+      clearUnmarkedOldSlots(h);
+    }
+    scan += n;
+  }
+
+  scan = heap_->fromStart_;
+  while (scan < heap_->fromBump_) {
+    auto* h = reinterpret_cast<ObjectHeader*>(scan);
+    const std::size_t n = heap_->objectBytes(h);
+    if ((h->flags & kFlagWeak) != 0 && (h->flags & kFlagBytes) == 0) {
+      clearUnmarkedOldSlots(h);
     }
     scan += n;
   }
