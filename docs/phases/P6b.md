@@ -16,7 +16,7 @@ P6 緑。SPEC §3.12。
 
 ## 仕様
 
-一次候補 Cuis Smalltalk（MIT、Blue Book に近い）。足りないパッケージだけ Squeak MIT。ライセンス全文を同梱。新規 C++ / Swift は MIT。混在は `NOTICE`。
+一次候補 Cuis Smalltalk（MIT、Blue Book に近い）。足りないパッケージだけ Squeak MIT。ライセンス全文を同梱。新規 C++ / Swift は Apache License 2.0。混在は `NOTICE`。
 
 NativeMethod があるセレクタは上書き禁止。
 

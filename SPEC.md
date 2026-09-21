@@ -80,7 +80,10 @@ ao-smalltalk/
   SPEC.md
   CLAUDE.md
   AGENTS.md
-  README.md
+  README.md              # GitHub 案内（英語が正本）
+  README.ja.md
+  LICENSE                # Apache License 2.0（英語）
+  NOTICE
   graphify-out/          # Graphify 成果。コミットする
   runtime/               # C++20 — オブジェクトメモリと Kernel
     include/ao/
@@ -459,7 +462,7 @@ v1 で載せない:
 
 #### ライセンス
 
-vendor のライセンスを落とさない。新規の C++ / Swift は MIT。混在する場合は `NOTICE` に origin を列挙する。
+vendor のライセンスを落とさない。新規の C++ / Swift は **Apache License 2.0**。混在する場合は `NOTICE` に origin を列挙する。ライセンス条文の正本は英語の `LICENSE`。
 
 ---
 
@@ -521,7 +524,7 @@ self assert: (Object new class) equals: Object.
 7. **C ABI 以外で Swift が C++ テンプレートに依存しない。**
 8. **例外方針:** C++ は例外を境界で使わない。エラーは Smalltalk 例外オブジェクトか `AoError` コード。
 9. **エンコーディング:** ソースと文字列は UTF-8。`Character` は Unicode スカラー。
-10. **ライセンス:** 新規コードは MIT を既定とする（変更するなら SPEC を更新）。
+10. **ライセンス:** 新規コードは Apache License 2.0 を既定とする（変更するなら SPEC を更新）。条文の正本は英語の `LICENSE`。
 11. **Graphify と Serena を使う。** 手順は `CLAUDE.md`。この制約は開発プロセスにも適用する。
 12. **日本語コメントはユーザー向け文書と `.st` コメントに限る。** C++ / Swift の識別子とコミットメッセージは英語。
 

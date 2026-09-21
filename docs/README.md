@@ -1,5 +1,7 @@
 # Ao 実装文書
 
+GitHub 向けの案内（英語が正本）: [`README.md`](../README.md) / [`README.ja.md`](../README.ja.md)。
+
 製品の正本は [`SPEC.md`](../SPEC.md)。エージェント手順の正本は [`CLAUDE.md`](../CLAUDE.md)。このディレクトリは **フェーズと PR の実行文書** である。SPEC の本文は複製しない。
 
 ## 使い方
