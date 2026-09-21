@@ -30,6 +30,8 @@
       "concept_metaclass_cycle",
       "concept_native_symbol_mangle",
       "concept_nativemethod",
+      "concept_phase_p0",
+      "concept_phase_pipeline",
       "concept_serena",
       "concept_spec_authority",
       "concept_tagged_oop",
@@ -46,6 +48,110 @@
       "spec"
     ],
     "1": [
+      "docs_prs_p3_05_inline_cache",
+      "docs_prs_p3_05_lookup",
+      "docs_prs_p3_05_native_send_test",
+      "docs_prs_p3_05_pr",
+      "docs_prs_p3_05_send",
+      "docs_prs_p3_05_send_hpp",
+      "docs_prs_p4_01_boolean",
+      "docs_prs_p4_01_bootstrap",
+      "docs_prs_p4_01_nativemethod",
+      "docs_prs_p4_01_object",
+      "docs_prs_p4_01_object_cpp",
+      "docs_prs_p4_01_pr",
+      "docs_prs_p4_01_send",
+      "docs_prs_p4_02_behavior",
+      "docs_prs_p4_02_behavior_cpp",
+      "docs_prs_p4_02_bootstrap",
+      "docs_prs_p4_02_nativemethod",
+      "docs_prs_p4_02_pr",
+      "docs_prs_p4_02_send",
+      "docs_prs_p4_03_bootstrap",
+      "docs_prs_p4_03_magnitude",
+      "docs_prs_p4_03_nativemethod",
+      "docs_prs_p4_03_pr",
+      "docs_prs_p4_03_send",
+      "docs_prs_p4_03_smallinteger",
+      "docs_prs_p4_03_smallinteger_arith_test",
+      "docs_prs_p4_03_smallinteger_cpp",
+      "docs_prs_p4_09_bench_md",
+      "docs_prs_p4_09_bootstrap",
+      "docs_prs_p4_09_kernel_scan",
+      "docs_prs_p4_09_kernel_scan_test",
+      "docs_prs_p4_09_nativemethod",
+      "docs_prs_p4_09_pr",
+      "docs_prs_p4_09_send"
+    ],
+    "2": [
+      "characterroundtrip",
+      "compiler",
+      "compiler_src_compiler",
+      "compiler_src_compiler_version",
+      "compiler_tests_smoke_test",
+      "compiler_tests_smoke_test_test",
+      "compilersmoke",
+      "cstddef",
+      "cstdint",
+      "gtest",
+      "heap",
+      "heapalignedpointerroundtrip",
+      "identityequalsisbits",
+      "immediatethreepatterns",
+      "memory",
+      "oop",
+      "ooptag",
+      "runtime_include_ao_heap",
+      "runtime_include_ao_heap_hpp_oop",
+      "runtime_include_ao_heap_hpp_uint16_t",
+      "runtime_include_ao_heap_hpp_uint32_t",
+      "runtime_include_ao_heap_objectheader",
+      "runtime_include_ao_heap_objectheader_flags",
+      "runtime_include_ao_heap_objectheader_hash",
+      "runtime_include_ao_heap_objectheader_klass",
+      "runtime_include_ao_heap_objectheader_size",
+      "runtime_include_ao_oop",
+      "runtime_src_oop",
+      "runtime_tests_heap_alloc_test",
+      "runtime_tests_oop_tag_test",
+      "runtime_tests_oop_tag_test_test",
+      "smallintegerroundtrip",
+      "versionisnonempty"
+    ],
+    "3": [
+      "byteobjectpayload",
+      "exhaustionreturnsempty",
+      "heapalloc",
+      "pointerobjecthasclassandsize",
+      "runtime_include_ao_heap_heap",
+      "runtime_include_ao_heap_heap_allocate",
+      "runtime_include_ao_heap_heap_bytes",
+      "runtime_include_ao_heap_heap_flags",
+      "runtime_include_ao_heap_heap_frombump",
+      "runtime_include_ao_heap_heap_fromend",
+      "runtime_include_ao_heap_heap_fromstart",
+      "runtime_include_ao_heap_heap_hash",
+      "runtime_include_ao_heap_heap_innursery",
+      "runtime_include_ao_heap_heap_inold",
+      "runtime_include_ao_heap_heap_klass",
+      "runtime_include_ao_heap_heap_nexthash",
+      "runtime_include_ao_heap_heap_nursery",
+      "runtime_include_ao_heap_heap_nurseryhalf",
+      "runtime_include_ao_heap_heap_old",
+      "runtime_include_ao_heap_heap_oldbump",
+      "runtime_include_ao_heap_heap_oldend",
+      "runtime_include_ao_heap_heap_oldstart",
+      "runtime_include_ao_heap_heap_size",
+      "runtime_include_ao_heap_heap_slotat",
+      "runtime_include_ao_heap_heap_slotatput",
+      "runtime_include_ao_heap_heap_toend",
+      "runtime_include_ao_heap_heap_tostart",
+      "runtime_include_ao_heap_hpp_byte",
+      "runtime_include_ao_heap_hpp_size_t",
+      "runtime_tests_heap_alloc_test_test",
+      "unique_ptr"
+    ],
+    "4": [
       "docs_phases_p3",
       "docs_phases_p3_compiledmethod",
       "docs_phases_p3_dnu",
@@ -78,39 +184,7 @@
       "docs_phases_p9",
       "docs_phases_p9_do_it"
     ],
-    "2": [
-      "abismoke",
-      "bootandshutdownreturnzero",
-      "bootversionshutdown",
-      "compiler",
-      "compiler_src_compiler",
-      "compiler_src_compiler_version",
-      "compiler_tests_smoke_test",
-      "compiler_tests_smoke_test_test",
-      "compilersmoke",
-      "cstdio",
-      "cstring",
-      "runtime",
-      "runtime_cmakelists_ao",
-      "runtime_cmakelists_ao_runtime",
-      "runtime_cmakelists_ao_runtime_tests",
-      "runtime_src_abi",
-      "runtime_src_abi_ao_runtime_boot",
-      "runtime_src_abi_ao_runtime_shutdown",
-      "runtime_src_abi_ao_version",
-      "runtime_src_ao_main",
-      "runtime_src_ao_main_main",
-      "runtime_src_runtime",
-      "runtime_src_runtime_boot",
-      "runtime_src_runtime_shutdown",
-      "runtime_src_runtime_version_string",
-      "runtime_tests_smoke_test",
-      "runtime_tests_smoke_test_test",
-      "smoke",
-      "versionisnonempty",
-      "versionstringisnonempty"
-    ],
-    "3": [
+    "5": [
       "docs_prs_p2_01_bootstrap_test",
       "docs_prs_p2_01_heap",
       "docs_prs_p2_01_oop",
@@ -140,13 +214,40 @@
       "docs_prs_p2_04_pr",
       "docs_prs_p2_04_smalltalk_dict"
     ],
-    "4": [
+    "6": [
+      "docs_prs_p3_01_heap",
+      "docs_prs_p3_01_oop",
+      "docs_prs_p3_01_pr",
+      "docs_prs_p3_01_symbol",
+      "docs_prs_p3_01_symbol_hpp",
+      "docs_prs_p3_01_symbol_intern",
+      "docs_prs_p3_01_symbol_test",
+      "docs_prs_p3_02_method_dictionary_test",
+      "docs_prs_p3_02_methoddictionary",
+      "docs_prs_p3_02_methoddictionary_hpp",
+      "docs_prs_p3_02_pr",
+      "docs_prs_p3_02_symbol",
+      "docs_prs_p3_03_methoddictionary",
+      "docs_prs_p3_03_native_selectors_md",
+      "docs_prs_p3_03_nativemethod",
+      "docs_prs_p3_03_nativemethod_hpp",
+      "docs_prs_p3_03_pr",
+      "docs_prs_p3_03_selector_mangling",
+      "docs_prs_p3_04_class_hierarchy",
+      "docs_prs_p3_04_dnu",
+      "docs_prs_p3_04_lookup",
+      "docs_prs_p3_04_lookup_hpp",
+      "docs_prs_p3_04_lookup_test",
+      "docs_prs_p3_04_methoddictionary",
+      "docs_prs_p3_04_nativemethod",
+      "docs_prs_p3_04_pr"
+    ],
+    "7": [
       "int64_t",
       "runtime_include_ao_oop_oop",
       "runtime_include_ao_oop_oop_charactervalue",
       "runtime_include_ao_oop_oop_false",
       "runtime_include_ao_oop_oop_fromcharacter",
-      "runtime_include_ao_oop_oop_fromheap",
       "runtime_include_ao_oop_oop_fromsmallinteger",
       "runtime_include_ao_oop_oop_heappointer",
       "runtime_include_ao_oop_oop_immediate",
@@ -169,7 +270,58 @@
       "runtime_include_ao_oop_oop_true",
       "uint64_t"
     ],
-    "5": [
+    "8": [
+      "cassert",
+      "runtime_include_ao_heap_heap_header",
+      "runtime_include_ao_heap_heap_objectbytes",
+      "runtime_include_ao_oop_oop_fromheap",
+      "runtime_src_heap",
+      "runtime_src_heap_align8",
+      "runtime_src_heap_cpp_byte",
+      "runtime_src_heap_cpp_oop",
+      "runtime_src_heap_cpp_size_t",
+      "runtime_src_heap_cpp_uint16_t",
+      "runtime_src_heap_cpp_uint32_t",
+      "runtime_src_heap_heap_allocate",
+      "runtime_src_heap_heap_bytes",
+      "runtime_src_heap_heap_flags",
+      "runtime_src_heap_heap_hash",
+      "runtime_src_heap_heap_header",
+      "runtime_src_heap_heap_heap",
+      "runtime_src_heap_heap_innursery",
+      "runtime_src_heap_heap_inold",
+      "runtime_src_heap_heap_klass",
+      "runtime_src_heap_heap_objectbytes",
+      "runtime_src_heap_heap_size",
+      "runtime_src_heap_heap_slotat",
+      "runtime_src_heap_heap_slotatput"
+    ],
+    "9": [
+      "abismoke",
+      "bootandshutdownreturnzero",
+      "bootversionshutdown",
+      "cstdio",
+      "cstring",
+      "runtime",
+      "runtime_cmakelists_ao",
+      "runtime_cmakelists_ao_runtime",
+      "runtime_cmakelists_ao_runtime_tests",
+      "runtime_src_abi",
+      "runtime_src_abi_ao_runtime_boot",
+      "runtime_src_abi_ao_runtime_shutdown",
+      "runtime_src_abi_ao_version",
+      "runtime_src_ao_main",
+      "runtime_src_ao_main_main",
+      "runtime_src_runtime",
+      "runtime_src_runtime_boot",
+      "runtime_src_runtime_shutdown",
+      "runtime_src_runtime_version_string",
+      "runtime_tests_smoke_test",
+      "runtime_tests_smoke_test_test",
+      "smoke",
+      "versionstringisnonempty"
+    ],
+    "10": [
       "docs_prs_p5_01_compiledmethod_class",
       "docs_prs_p5_01_scanner",
       "docs_prs_p5_01_token_stream",
@@ -194,73 +346,7 @@
       "docs_prs_p6b_03_host_patches",
       "docs_prs_p6b_04_vendor_filein"
     ],
-    "6": [
-      "docs_prs_p3_04_class_hierarchy",
-      "docs_prs_p3_04_dnu",
-      "docs_prs_p3_04_lookup",
-      "docs_prs_p3_04_lookup_hpp",
-      "docs_prs_p3_04_lookup_test",
-      "docs_prs_p3_04_methoddictionary",
-      "docs_prs_p3_04_nativemethod",
-      "docs_prs_p3_04_pr",
-      "docs_prs_p3_05_inline_cache",
-      "docs_prs_p3_05_lookup",
-      "docs_prs_p3_05_native_send_test",
-      "docs_prs_p3_05_pr",
-      "docs_prs_p3_05_send",
-      "docs_prs_p3_05_send_hpp",
-      "docs_prs_p4_03_bootstrap",
-      "docs_prs_p4_03_magnitude",
-      "docs_prs_p4_03_nativemethod",
-      "docs_prs_p4_03_pr",
-      "docs_prs_p4_03_send",
-      "docs_prs_p4_03_smallinteger",
-      "docs_prs_p4_03_smallinteger_arith_test",
-      "docs_prs_p4_03_smallinteger_cpp"
-    ],
-    "7": [
-      "docs_prs_p4_01_boolean",
-      "docs_prs_p4_01_bootstrap",
-      "docs_prs_p4_01_nativemethod",
-      "docs_prs_p4_01_object",
-      "docs_prs_p4_01_object_cpp",
-      "docs_prs_p4_01_pr",
-      "docs_prs_p4_01_send",
-      "docs_prs_p4_02_behavior",
-      "docs_prs_p4_02_behavior_cpp",
-      "docs_prs_p4_02_bootstrap",
-      "docs_prs_p4_02_nativemethod",
-      "docs_prs_p4_02_pr",
-      "docs_prs_p4_02_send",
-      "docs_prs_p4_09_bench_md",
-      "docs_prs_p4_09_bootstrap",
-      "docs_prs_p4_09_kernel_scan",
-      "docs_prs_p4_09_kernel_scan_test",
-      "docs_prs_p4_09_nativemethod",
-      "docs_prs_p4_09_pr",
-      "docs_prs_p4_09_send"
-    ],
-    "8": [
-      "docs_prs_p3_01_heap",
-      "docs_prs_p3_01_oop",
-      "docs_prs_p3_01_pr",
-      "docs_prs_p3_01_symbol",
-      "docs_prs_p3_01_symbol_hpp",
-      "docs_prs_p3_01_symbol_intern",
-      "docs_prs_p3_01_symbol_test",
-      "docs_prs_p3_02_method_dictionary_test",
-      "docs_prs_p3_02_methoddictionary",
-      "docs_prs_p3_02_methoddictionary_hpp",
-      "docs_prs_p3_02_pr",
-      "docs_prs_p3_02_symbol",
-      "docs_prs_p3_03_methoddictionary",
-      "docs_prs_p3_03_native_selectors_md",
-      "docs_prs_p3_03_nativemethod",
-      "docs_prs_p3_03_nativemethod_hpp",
-      "docs_prs_p3_03_pr",
-      "docs_prs_p3_03_selector_mangling"
-    ],
-    "9": [
+    "11": [
       "docs_phases_p1",
       "docs_phases_p1_ao_oop",
       "docs_phases_p1_gc",
@@ -278,35 +364,6 @@
       "docs_prs_p1_02_heap_allocate",
       "docs_prs_p1_03",
       "docs_prs_p1_03_collect_nursery"
-    ],
-    "10": [
-      "characterroundtrip",
-      "cstdint",
-      "gtest",
-      "heapalignedpointerroundtrip",
-      "identityequalsisbits",
-      "immediatethreepatterns",
-      "oop",
-      "ooptag",
-      "runtime_include_ao_oop",
-      "runtime_src_oop",
-      "runtime_tests_oop_tag_test",
-      "runtime_tests_oop_tag_test_test",
-      "smallintegerroundtrip"
-    ],
-    "11": [
-      "ao",
-      "app_ao_placeholder",
-      "app_ao_placeholder_aoplaceholder",
-      "app_aotests_smoketests",
-      "app_aotests_smoketests_smoketests",
-      "app_aotests_smoketests_smoketests_testplaceholdertypeexists",
-      "app_package",
-      "concept_phase_p0",
-      "concept_phase_pipeline",
-      "packagedescription",
-      "xctest",
-      "xctestcase"
     ],
     "12": [
       "docs_prs_p0_01",
@@ -350,6 +407,18 @@
       "prs_p9_04_v1_acceptance"
     ],
     "15": [
+      "ao",
+      "app_ao_placeholder",
+      "app_ao_placeholder_aoplaceholder",
+      "app_aotests_smoketests",
+      "app_aotests_smoketests_smoketests",
+      "app_aotests_smoketests_smoketests_testplaceholdertypeexists",
+      "app_package",
+      "packagedescription",
+      "xctest",
+      "xctestcase"
+    ],
+    "16": [
       "docs_prs_p4_04_array",
       "docs_prs_p4_04_array_cpp",
       "docs_prs_p4_04_arrayedcollection",
@@ -359,7 +428,7 @@
       "docs_prs_p4_04_send",
       "docs_prs_p4_04_string_cpp"
     ],
-    "16": [
+    "17": [
       "docs_prs_p4_06_bootstrap",
       "docs_prs_p4_06_nativemethod",
       "docs_prs_p4_06_pr",
@@ -369,7 +438,7 @@
       "docs_prs_p4_06_transcript",
       "docs_prs_p4_06_transcript_model_test"
     ],
-    "17": [
+    "18": [
       "docs_prs_p4_07_bootstrap",
       "docs_prs_p4_07_nativemethod",
       "docs_prs_p4_07_pr",
@@ -379,7 +448,7 @@
       "docs_prs_p4_07_semaphore",
       "docs_prs_p4_07_send"
     ],
-    "18": [
+    "19": [
       "docs_prs_p8_01_ao_abi",
       "docs_prs_p8_01_ao_app",
       "docs_prs_p8_01_bundle_id",
@@ -389,7 +458,7 @@
       "docs_prs_p8_05_do_it_print_it",
       "docs_prs_p8_05_main_menu"
     ],
-    "19": [
+    "20": [
       "docs_prs_p4_05_bootstrap",
       "docs_prs_p4_05_collection_do_test",
       "docs_prs_p4_05_dictionary",
@@ -398,7 +467,7 @@
       "docs_prs_p4_05_pr",
       "docs_prs_p4_05_send"
     ],
-    "20": [
+    "21": [
       "docs_prs_p4_08_bootstrap",
       "docs_prs_p4_08_geometry_cpp",
       "docs_prs_p4_08_nativemethod",
@@ -407,94 +476,94 @@
       "docs_prs_p4_08_rectangle",
       "docs_prs_p4_08_send"
     ],
-    "21": [
+    "22": [
       "docs_prs_p7_01_aoimage_format",
       "docs_prs_p7_01_no_function_pointers",
       "docs_prs_p7_02_image_save",
       "docs_prs_p7_02_nativemethod_symbol_names",
       "docs_prs_p7_03_image_load"
     ],
-    "22": [
+    "23": [
       "scripts_build",
       "scripts_build_sh__entry"
     ],
-    "23": [
+    "24": [
       "scripts_test",
       "scripts_test_sh__entry"
     ],
-    "24": [
+    "25": [
       "compiler_include_ao_compiler"
     ],
-    "25": [
+    "26": [
       "docs_prs_p1_04_gc_hpp"
     ],
-    "26": [
+    "27": [
       "docs_prs_p1_05_roots_cpp"
     ],
-    "27": [
+    "28": [
       "docs_prs_p2_01_wellknown_cpp"
     ],
-    "28": [
+    "29": [
       "docs_prs_p2_02_bootstrap_hpp"
     ],
-    "29": [
+    "30": [
       "docs_prs_p2_04_globals_cpp"
     ],
-    "30": [
+    "31": [
       "docs_prs_p3_01_symbol_cpp"
     ],
-    "31": [
+    "32": [
       "docs_prs_p3_02_methoddictionary_cpp"
     ],
-    "32": [
+    "33": [
       "docs_prs_p3_03_nativemethod_cpp"
     ],
-    "33": [
+    "34": [
       "docs_prs_p3_04_lookup_cpp"
     ],
-    "34": [
+    "35": [
       "docs_prs_p3_05_send_cpp"
     ],
-    "35": [
+    "36": [
       "docs_prs_p4_01_object_st"
     ],
-    "36": [
+    "37": [
       "docs_prs_p4_02_behavior_st"
     ],
-    "37": [
+    "38": [
       "runtime_cmakelists"
     ],
-    "38": [
+    "39": [
       "runtime_include_ao_runtime"
     ],
-    "39": [
+    "40": [
       "serena_memories_memory_maintenance"
     ]
   },
   "cohesion": {
-    "0": 0.08416389811738649,
-    "1": 0.08387096774193549,
-    "2": 0.08505747126436781,
-    "3": 0.07142857142857142,
-    "4": 0.09686609686609686,
-    "5": 0.1225296442687747,
-    "6": 0.09090909090909091,
-    "7": 0.1,
-    "8": 0.1111111111111111,
-    "9": 0.17647058823529413,
-    "10": 0.15384615384615385,
-    "11": 0.18181818181818182,
+    "0": 0.08080808080808081,
+    "1": 0.058823529411764705,
+    "2": 0.06439393939393939,
+    "3": 0.07956989247311828,
+    "4": 0.08387096774193549,
+    "5": 0.07142857142857142,
+    "6": 0.07692307692307693,
+    "7": 0.10153846153846154,
+    "8": 0.17028985507246377,
+    "9": 0.11857707509881422,
+    "10": 0.1225296442687747,
+    "11": 0.17647058823529413,
     "12": 0.22727272727272727,
     "13": 0.16666666666666666,
     "14": 0.2545454545454545,
-    "15": 0.25,
+    "15": 0.2222222222222222,
     "16": 0.25,
     "17": 0.25,
-    "18": 0.42857142857142855,
-    "19": 0.2857142857142857,
+    "18": 0.25,
+    "19": 0.42857142857142855,
     "20": 0.2857142857142857,
-    "21": 0.5,
-    "22": 1.0,
+    "21": 0.2857142857142857,
+    "22": 0.5,
     "23": 1.0,
     "24": 1.0,
     "25": 1.0,
@@ -511,18 +580,34 @@
     "36": 1.0,
     "37": 1.0,
     "38": 1.0,
-    "39": 1.0
+    "39": 1.0,
+    "40": 1.0
   },
   "gods": [
+    {
+      "id": "runtime_include_ao_heap_heap",
+      "label": "Heap",
+      "degree": 29
+    },
     {
       "id": "runtime_include_ao_oop_oop",
       "label": "Oop",
       "degree": 26
     },
     {
+      "id": "runtime_tests_heap_alloc_test_test",
+      "label": "TEST()",
+      "degree": 13
+    },
+    {
       "id": "docs_prs_p2_02_pr",
       "label": "P2-02 class object skeletons",
       "degree": 11
+    },
+    {
+      "id": "runtime_include_ao_heap_objectheader",
+      "label": "ObjectHeader",
+      "degree": 10
     },
     {
       "id": "runtime_tests_smoke_test_test",
@@ -532,11 +617,6 @@
     {
       "id": "docs_phases_p0",
       "label": "P0 phase doc",
-      "degree": 9
-    },
-    {
-      "id": "docs_prs_p3_04_pr",
-      "label": "P3-04 lookup / super / doesNotUnderstand:",
       "degree": 9
     },
     {
@@ -550,19 +630,9 @@
       "degree": 9
     },
     {
-      "id": "docs_phases_p1",
-      "label": "P1 — Object Memory",
-      "degree": 8
-    },
-    {
-      "id": "runtime_tests_oop_tag_test_test",
-      "label": "TEST()",
-      "degree": 7
-    },
-    {
-      "id": "docs_prs_p4_04_pr",
-      "label": "P4-04 Array / ByteArray / String / Symbol",
-      "degree": 7
+      "id": "docs_prs_p3_04_pr",
+      "label": "P3-04 lookup / super / doesNotUnderstand:",
+      "degree": 9
     }
   ],
   "surprises": [
@@ -626,37 +696,37 @@
     {
       "type": "bridge_node",
       "question": "Why does `P8 — AppKit Tools` connect `P5 — Compiler` to `SPEC.md`?",
-      "why": "High betweenness centrality (0.086) - this node is a cross-community bridge."
+      "why": "High betweenness centrality (0.095) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
       "question": "Why does `P0 phase doc` connect `SPEC.md` to `SmokeTests.swift`?",
-      "why": "High betweenness centrality (0.064) - this node is a cross-community bridge."
+      "why": "High betweenness centrality (0.067) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `Oop` connect `Oop` to `TEST`?",
-      "why": "High betweenness centrality (0.058) - this node is a cross-community bridge."
+      "question": "Why does `Oop` connect `Oop` to `Heap.cpp`, `ObjectHeader`?",
+      "why": "High betweenness centrality (0.050) - this node is a cross-community bridge."
     },
     {
       "type": "verify_inferred",
-      "question": "Are the 3 inferred relationships involving `TEST()` (e.g. with `ao_runtime_boot()` and `ao_runtime_shutdown()`) actually correct?",
-      "why": "`TEST()` has 3 INFERRED edges - model-reasoned connections that need verification."
+      "question": "Are the 8 inferred relationships involving `TEST()` (e.g. with `allocate` and `bytes`) actually correct?",
+      "why": "`TEST()` has 8 INFERRED edges - model-reasoned connections that need verification."
     },
     {
       "type": "isolated_nodes",
       "question": "What connects `AoPlaceholder`, `VoiceOver labels`, `v1 golden acceptance` to the rest of the system?",
-      "why": "173 weakly-connected nodes found - possible documentation gaps or missing edges."
+      "why": "191 weakly-connected nodes found - possible documentation gaps or missing edges."
     },
     {
       "type": "low_cohesion",
       "question": "Should `SPEC.md` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.08416389811738649 - nodes in this community are weakly interconnected."
+      "why": "Cohesion score 0.08080808080808081 - nodes in this community are weakly interconnected."
     },
     {
       "type": "low_cohesion",
-      "question": "Should `P5 — Compiler` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.08387096774193549 - nodes in this community are weakly interconnected."
+      "question": "Should `P4-03 Magnitude / SmallInteger / Character` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.058823529411764705 - nodes in this community are weakly interconnected."
     }
   ]
 }

@@ -652,5 +652,23 @@
     "seen": 1789957631.464972,
     "ast_hash": "d7173bda7f855e2ebb832bfe38c58058",
     "semantic_hash": "d7173bda7f855e2ebb832bfe38c58058"
+  },
+  "runtime/include/ao/Heap.hpp": {
+    "mtime": 1789957999.0910015,
+    "seen": 1789958028.533519,
+    "ast_hash": "8fa3a4abd10284d079ba2b68d08dfa9f",
+    "semantic_hash": "8fa3a4abd10284d079ba2b68d08dfa9f"
+  },
+  "runtime/src/Heap.cpp": {
+    "mtime": 1789957999.091016,
+    "seen": 1789958028.533592,
+    "ast_hash": "0c052a771f6f85d880e395e971dfcb35",
+    "semantic_hash": "0c052a771f6f85d880e395e971dfcb35"
+  },
+  "runtime/tests/heap_alloc_test.cpp": {
+    "mtime": 1789957952.6217868,
+    "seen": 1789958028.5337532,
+    "ast_hash": "fcce2e45135cd33a893ec24621f246ae",
+    "semantic_hash": "fcce2e45135cd33a893ec24621f246ae"
   }
 }
