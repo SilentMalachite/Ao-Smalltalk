@@ -3,6 +3,8 @@
 #include "ao/NativeMethod.hpp"
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace ao {
 
@@ -25,5 +27,10 @@ Oop ao_BlockContext_value_value_(CallContext& ctx, Oop receiver, const Oop* args
                                  std::uint32_t argc);
 Oop ao_BlockContext_valueWithArguments_(CallContext& ctx, Oop receiver, const Oop* args,
                                         std::uint32_t argc);
+
+namespace Str {
+Oop fromUtf8(Heap& heap, WellKnown& wk, std::string_view utf8);
+std::string toUtf8(Heap& heap, Oop str);
+}
 
 }  // namespace ao

@@ -25,6 +25,8 @@ add_library(ao_runtime
   src/Send.cpp
   src/kernel/Install.cpp
   src/kernel/BlockContext.cpp
+  src/kernel/Object.cpp
+  src/kernel/Boolean.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC

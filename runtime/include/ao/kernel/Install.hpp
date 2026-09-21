@@ -13,6 +13,8 @@ namespace kernel {
 
 void putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, std::uint32_t argc,
                std::string_view name, NativeFn fn);
+void installObject(Heap& heap, WellKnown& wk);
+void installBoolean(Heap& heap, WellKnown& wk);
 void installAll(Heap& heap, Roots& roots, WellKnown& wk);
 
 }  // namespace kernel

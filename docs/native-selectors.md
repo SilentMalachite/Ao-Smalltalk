@@ -22,10 +22,18 @@ ao_<Class>_<selectorMangled>
 |---|---|---|
 | `==` | `identityEquals` | `ao_Object_identityEquals` |
 | `~~` | `identityNotEquals` | `ao_Object_identityNotEquals` |
+| `=` | `equals` | `ao_Object_equals` |
 | `class` | `class` | `ao_Object_class` |
 | `+` | `add` | `ao_SmallInteger_add` |
+| `&` | `and` | `ao_True_and` |
+| `\|` | `or` | `ao_True_or` |
 | `doesNotUnderstand:` | `doesNotUnderstand_` | `ao_Object_doesNotUnderstand_` |
 | `at:put:` | `at_put_` | `ao_Array_at_put_` |
 | `ifTrue:` | `ifTrue_` | `ao_True_ifTrue_` |
+| `ifTrue:ifFalse:` | `ifTrue_ifFalse_` | `ao_True_ifTrue_ifFalse_` |
+| `and:` | `and_` | `ao_True_and_` |
+| `or:` | `or_` | `ao_True_or_` |
+| `eqv:` | `eqv_` | `ao_True_eqv_` |
+| `xor:` | `xor_` | `ao_True_xor_` |
 
 C++ の関数名はマングル名と一致させる。

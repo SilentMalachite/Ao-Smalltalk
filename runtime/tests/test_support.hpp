@@ -9,13 +9,7 @@
 #include "ao/WellKnown.hpp"
 
 #include <cstdint>
-#include <string>
 #include <string_view>
-
-namespace ao::Str {
-Oop fromUtf8(Heap& heap, WellKnown& wk, std::string_view utf8);
-std::string toUtf8(Heap& heap, Oop str);
-}
 
 struct Boot {
   ao::Heap heap;

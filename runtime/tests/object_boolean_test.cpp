@@ -137,3 +137,81 @@ TEST(BlockContext, ValueWithArgumentsAppliesNativeThunk) {
   ASSERT_TRUE(r.isSmallInteger());
   EXPECT_EQ(6, r.smallIntegerValue());
 }
+
+TEST(ObjectBoolean, NilIsNilAndObjectNewIsNot) {
+  Boot b;
+  EXPECT_TRUE(send0(b, ao::Oop::nil(), "isNil").isTrue());
+  EXPECT_TRUE(send0(b, ao::Oop::fromSmallInteger(1), "isNil").isFalse());
+}
+
+TEST(ObjectBoolean, TrueIfTrueIfFalseReturnsOkBlock) {
+  Boot b;
+  auto okFn = [](ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t) {
+    return ao::Str::fromUtf8(ctx.heap, ctx.wk, "ok");
+  };
+  auto ngFn = [](ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t) {
+    return ao::Str::fromUtf8(ctx.heap, ctx.wk, "ng");
+  };
+  auto ok = ao::makeNativeBlock(b.ctx, okFn, 0);
+  auto ng = ao::makeNativeBlock(b.ctx, ngFn, 0);
+  ao::Oop args[2] = {ok, ng};
+  auto sel = ao::Symbol::intern(b.wk, "ifTrue:ifFalse:");
+  auto r = ao::send(b.ctx, ao::Oop::true_(), sel, args, 2, nullptr);
+  ASSERT_TRUE(r.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(r));
+  EXPECT_EQ("ok", ao::Str::toUtf8(b.heap, r));
+}
+
+TEST(ObjectBoolean, IdentityEqualsAndYourself) {
+  Boot b;
+  auto one = ao::Oop::fromSmallInteger(1);
+  EXPECT_TRUE(send1(b, one, "==", one).isTrue());
+  EXPECT_EQ(one, send0(b, one, "yourself"));
+}
+
+TEST(ObjectBoolean, FalseIfTrueIfFalseReturnsNgBlock) {
+  Boot b;
+  auto okFn = [](ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t) {
+    return ao::Str::fromUtf8(ctx.heap, ctx.wk, "ok");
+  };
+  auto ngFn = [](ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t) {
+    return ao::Str::fromUtf8(ctx.heap, ctx.wk, "ng");
+  };
+  auto ok = ao::makeNativeBlock(b.ctx, okFn, 0);
+  auto ng = ao::makeNativeBlock(b.ctx, ngFn, 0);
+  ao::Oop args[2] = {ok, ng};
+  auto sel = ao::Symbol::intern(b.wk, "ifTrue:ifFalse:");
+  auto r = ao::send(b.ctx, ao::Oop::false_(), sel, args, 2, nullptr);
+  ASSERT_TRUE(r.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(r));
+  EXPECT_EQ("ng", ao::Str::toUtf8(b.heap, r));
+}
+
+TEST(ObjectBoolean, IdentityHashOfImmediates) {
+  Boot b;
+  auto h0 = send0(b, ao::Oop::nil(), "identityHash");
+  auto h1 = send0(b, ao::Oop::false_(), "identityHash");
+  auto h2 = send0(b, ao::Oop::true_(), "identityHash");
+  auto smi = ao::Oop::fromSmallInteger(7);
+  auto ch = ao::Oop::fromCharacter(U'A');
+  ASSERT_TRUE(h0.isSmallInteger());
+  ASSERT_TRUE(h1.isSmallInteger());
+  ASSERT_TRUE(h2.isSmallInteger());
+  EXPECT_EQ(0, h0.smallIntegerValue());
+  EXPECT_EQ(1, h1.smallIntegerValue());
+  EXPECT_EQ(2, h2.smallIntegerValue());
+  EXPECT_EQ(smi, send0(b, smi, "identityHash"));
+  auto chHash = send0(b, ch, "identityHash");
+  ASSERT_TRUE(chHash.isSmallInteger());
+  EXPECT_EQ(static_cast<std::int64_t>(U'A'), chHash.smallIntegerValue());
+}
+
+TEST(ObjectBoolean, InspectCallsHookAndReturnsSelf) {
+  Boot b;
+  static ao::Oop seen;
+  seen = ao::Oop{};
+  b.ctx.inspectHook = [](ao::CallContext&, ao::Oop value) { seen = value; };
+  auto one = ao::Oop::fromSmallInteger(1);
+  EXPECT_EQ(one, send0(b, one, "inspect"));
+  EXPECT_EQ(one, seen);
+}
