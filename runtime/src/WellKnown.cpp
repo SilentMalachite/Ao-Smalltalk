@@ -1,5 +1,7 @@
 #include "ao/WellKnown.hpp"
 
+#include "ao/Bootstrap.hpp"
+
 #include <cstring>
 #include <deque>
 #include <string>
@@ -92,6 +94,21 @@ constexpr NamedClass kNamedClasses[] = {
     {"Date", &WellKnown::dateClass, &WellKnown::dateMetaclass},
     {"Time", &WellKnown::timeClass, &WellKnown::timeMetaclass},
 };
+
+bool extraIsClass(const WellKnown& wk, Oop obj) {
+  if (!obj.isHeap()) {
+    return false;
+  }
+  Heap& heap = wk.heap();
+  const Oop meta = heap.klass(obj);
+  if (!meta.isHeap()) {
+    return false;
+  }
+  if (heap.klass(meta) == wk.metaclassClass) {
+    return true;
+  }
+  return heap.size(meta) > kClassSlotThisClass && heap.slotAt(meta, kClassSlotThisClass) == obj;
+}
 
 }  // namespace
 
@@ -188,6 +205,9 @@ void WellKnown::eachClass(void (*fn)(void* baton, Oop cls), void* baton) const {
     return;
   }
   for (const auto& e : extra_->table) {
+    if (!extraIsClass(*this, e.cls)) {
+      continue;
+    }
     fn(baton, e.cls);
   }
 }

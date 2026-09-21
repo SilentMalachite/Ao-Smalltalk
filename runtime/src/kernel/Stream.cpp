@@ -75,6 +75,17 @@ std::int64_t smiOr(Oop v, std::int64_t fallback) {
   return v.isSmallInteger() ? v.smallIntegerValue() : fallback;
 }
 
+void noteWrite(Heap& heap, Oop stream, std::int64_t neu) {
+  heap.slotAtPut(stream, kStreamPosition, Oop::fromSmallInteger(neu));
+  if (smiOr(heap.slotAt(stream, kStreamReadLimit), 0) < neu) {
+    heap.slotAtPut(stream, kStreamReadLimit, Oop::fromSmallInteger(neu));
+  }
+  if (hasWriteLimit(heap, stream) &&
+      smiOr(heap.slotAt(stream, kStreamWriteLimit), 0) < neu) {
+    heap.slotAtPut(stream, kStreamWriteLimit, Oop::fromSmallInteger(neu));
+  }
+}
+
 std::uint32_t encodeUtf8(char32_t cp, unsigned char out[4]) {
   if (cp <= 0x7F) {
     out[0] = static_cast<unsigned char>(cp);
@@ -325,10 +336,7 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, Oop receiver, const Oop* ar
         return fail(ctx, self.slot, "nextPut: value out of range");
       }
       ctx.heap.slotAtPut(self.slot, kStreamCollection, coll.slot);
-      ctx.heap.slotAtPut(self.slot, kStreamPosition, Oop::fromSmallInteger(neu));
-      if (smiOr(ctx.heap.slotAt(self.slot, kStreamReadLimit), 0) < neu) {
-        ctx.heap.slotAtPut(self.slot, kStreamReadLimit, Oop::fromSmallInteger(neu));
-      }
+      noteWrite(ctx.heap, self.slot, neu);
       return val.slot;
     } else {
       return fail(ctx, self.slot, "nextPut: past end");
@@ -336,10 +344,7 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, Oop receiver, const Oop* ar
   }
   Oop put[2] = {Oop::fromSmallInteger(neu), val.slot};
   send(ctx, coll.slot, ctx.wk.selAt_put_, put, 2, nullptr);
-  ctx.heap.slotAtPut(self.slot, kStreamPosition, Oop::fromSmallInteger(neu));
-  if (smiOr(ctx.heap.slotAt(self.slot, kStreamReadLimit), 0) < neu) {
-    ctx.heap.slotAtPut(self.slot, kStreamReadLimit, Oop::fromSmallInteger(neu));
-  }
+  noteWrite(ctx.heap, self.slot, neu);
   return val.slot;
 }
 

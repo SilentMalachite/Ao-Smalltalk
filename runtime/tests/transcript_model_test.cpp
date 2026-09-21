@@ -78,6 +78,23 @@ TEST(TranscriptModel, WriteStreamOnStringNextPut) {
   EXPECT_EQ(b.wk.stringClass, b.heap.klass(contents));
   EXPECT_EQ("Aあ", ao::Str::toUtf8(b.heap, contents));
   EXPECT_EQ(2, send0(b, contents, "size").smallIntegerValue());
+  EXPECT_EQ(2, send0(b, ws, "position").smallIntegerValue());
+  EXPECT_EQ(ws, send1(b, ws, "position:", ao::Oop::fromSmallInteger(1)));
+  EXPECT_EQ(1, send0(b, ws, "position").smallIntegerValue());
+}
+
+TEST(TranscriptModel, WriteStreamStringAppendUpdatesWriteLimit) {
+  Boot b;
+  auto empty = send1(b, b.wk.stringClass, "new:", ao::Oop::fromSmallInteger(0));
+  auto ws = send1(b, b.wk.writeStreamClass, "on:", empty);
+  send1(b, ws, "nextPut:", ao::Oop::fromCharacter(U'x'));
+  send1(b, ws, "nextPut:", ao::Oop::fromCharacter(U'y'));
+  send1(b, ws, "nextPut:", ao::Oop::fromCharacter(U'z'));
+  EXPECT_EQ(3, send0(b, ws, "position").smallIntegerValue());
+  EXPECT_EQ(ws, send1(b, ws, "position:", ao::Oop::fromSmallInteger(1)));
+  EXPECT_EQ(1, send0(b, ws, "position").smallIntegerValue());
+  EXPECT_EQ(ws, send1(b, ws, "position:", ao::Oop::fromSmallInteger(2)));
+  EXPECT_EQ(2, send0(b, ws, "position").smallIntegerValue());
 }
 
 TEST(TranscriptModel, ReadStreamNextPositionResetContents) {
@@ -125,4 +142,25 @@ TEST(TranscriptModel, SmalltalkImageAtAndAtPut) {
   EXPECT_EQ(extra, send1(b, img, "at:", b.wk.intern("Foo")));
   EXPECT_EQ(extra, b.wk.named("Foo"));
   EXPECT_EQ(extra, ao::Globals::at(b.wk, "Foo"));
+}
+
+TEST(TranscriptModel, EachClassSkipsSmalltalkImageNonClassExtra) {
+  Boot b;
+  auto img = send0(b, b.wk.smalltalkImageClass, "new");
+  auto extra = ao::Oop::fromSmallInteger(42);
+  send2(b, img, "at:put:", b.wk.intern("Foo"), extra);
+  struct Seen {
+    ao::Oop want;
+    bool found = false;
+  } seen{extra, false};
+  b.wk.eachClass(
+      [](void* p, ao::Oop cls) {
+        auto* s = static_cast<Seen*>(p);
+        if (cls == s->want) {
+          s->found = true;
+        }
+      },
+      &seen);
+  EXPECT_FALSE(seen.found);
+  EXPECT_EQ(extra, b.wk.named("Foo"));
 }
