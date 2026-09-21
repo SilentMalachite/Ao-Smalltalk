@@ -23,6 +23,8 @@ add_library(ao_runtime
   src/Lookup.cpp
   src/Natives.cpp
   src/Send.cpp
+  src/kernel/Install.cpp
+  src/kernel/BlockContext.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -47,6 +49,7 @@ add_executable(ao_runtime_tests
   tests/native_method_test.cpp
   tests/lookup_test.cpp
   tests/native_send_test.cpp
+  tests/object_boolean_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

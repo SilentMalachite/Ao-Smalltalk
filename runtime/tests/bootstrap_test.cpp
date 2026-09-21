@@ -56,9 +56,20 @@ TEST(Bootstrap, ClassSkeletonsAreHeapAndNamed) {
   ao::Bootstrap::allocateSkeletons(heap, roots, wk);
 
   const char* names[] = {
-      "Object",          "Behavior", "ClassDescription", "Class",          "Metaclass",
-      "UndefinedObject", "Boolean",  "True",             "False",          "SmallInteger",
-      "Character",       "Symbol",   "MethodDictionary", "NativeMethod",   "Message"};
+      "Object", "Behavior", "ClassDescription", "Class", "Metaclass",
+      "UndefinedObject", "Boolean", "True", "False",
+      "Magnitude", "Number", "Integer", "SmallInteger",
+      "LargePositiveInteger", "LargeNegativeInteger", "Float", "Fraction", "Character",
+      "Collection", "SequenceableCollection", "ArrayedCollection",
+      "Array", "ByteArray", "String", "Symbol", "Interval",
+      "Dictionary", "IdentityDictionary", "Set", "IdentitySet",
+      "OrderedCollection", "Association", "Bag", "LinkedList", "MappedCollection",
+      "CompiledMethod", "NativeMethod", "Message", "MethodDictionary",
+      "MethodContext", "BlockContext",
+      "Process", "ProcessorScheduler", "Semaphore", "SharedQueue",
+      "Point", "Rectangle",
+      "Stream", "PositionableStream", "ReadStream", "WriteStream", "ReadWriteStream",
+      "Transcript", "SmalltalkImage", "Date", "Time"};
   for (const char* n : names) {
     auto cls = wk.named(n);
     ASSERT_TRUE(cls.isHeap()) << n;
@@ -70,7 +81,7 @@ TEST(Bootstrap, ClassSkeletonsAreHeapAndNamed) {
   EXPECT_TRUE(wk.objectMetaclass.isHeap());
   EXPECT_TRUE(wk.metaclassMetaclass.isHeap());
   EXPECT_EQ(wk.objectClass, wk.named("Object"));
-  EXPECT_EQ(5u, heap.size(wk.objectMetaclass));
+  EXPECT_EQ(ao::kClassSlotCount, heap.size(wk.objectMetaclass));
 }
 
 TEST(Bootstrap, SkeletonSlotsStartNil) {
@@ -197,13 +208,13 @@ TEST(Bootstrap, CycleImmediateClassOf) {
   EXPECT_EQ(wk.booleanClass, superOf(heap, wk.trueClass));
   EXPECT_EQ(wk.booleanClass, superOf(heap, wk.falseClass));
   EXPECT_EQ(wk.objectClass, superOf(heap, wk.booleanClass));
-  EXPECT_EQ(wk.objectClass, superOf(heap, wk.smallIntegerClass));
-  EXPECT_EQ(wk.objectClass, superOf(heap, wk.characterClass));
+  EXPECT_EQ(wk.integerClass, superOf(heap, wk.smallIntegerClass));
+  EXPECT_EQ(wk.magnitudeClass, superOf(heap, wk.characterClass));
 }
 
 TEST(Bootstrap, CycleSurvivesNurseryGc) {
   // Nursery must fit all skeletons + name byte objects; allocate() does not GC.
-  ao::Heap heap(1 << 16, 1 << 18);
+  ao::Heap heap(1 << 20, 1 << 18);
   ao::Roots roots;
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
@@ -220,7 +231,7 @@ TEST(Bootstrap, SmalltalkMapsObjectNameToClass) {
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
   ASSERT_TRUE(wk.smalltalk.isHeap());
-  EXPECT_EQ(15u, heap.size(wk.smalltalk));
+  EXPECT_EQ(ao::Globals::kSmalltalkCount, heap.size(wk.smalltalk));
   EXPECT_EQ(wk.objectClass, ao::Globals::at(wk, "Object"));
   EXPECT_EQ(wk.objectClass, heap.slotAt(wk.smalltalk, 0));
   EXPECT_EQ(wk.metaclassClass, ao::Globals::at(wk, "Metaclass"));
@@ -236,9 +247,20 @@ TEST(Bootstrap, SmalltalkContainsAllNamedClasses) {
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
   const char* names[] = {
-      "Object",          "Behavior", "ClassDescription", "Class",        "Metaclass",
-      "UndefinedObject", "Boolean",  "True",             "False",        "SmallInteger",
-      "Character",       "Symbol",   "MethodDictionary", "NativeMethod", "Message"};
+      "Object", "Behavior", "ClassDescription", "Class", "Metaclass",
+      "UndefinedObject", "Boolean", "True", "False",
+      "Magnitude", "Number", "Integer", "SmallInteger",
+      "LargePositiveInteger", "LargeNegativeInteger", "Float", "Fraction", "Character",
+      "Collection", "SequenceableCollection", "ArrayedCollection",
+      "Array", "ByteArray", "String", "Symbol", "Interval",
+      "Dictionary", "IdentityDictionary", "Set", "IdentitySet",
+      "OrderedCollection", "Association", "Bag", "LinkedList", "MappedCollection",
+      "CompiledMethod", "NativeMethod", "Message", "MethodDictionary",
+      "MethodContext", "BlockContext",
+      "Process", "ProcessorScheduler", "Semaphore", "SharedQueue",
+      "Point", "Rectangle",
+      "Stream", "PositionableStream", "ReadStream", "WriteStream", "ReadWriteStream",
+      "Transcript", "SmalltalkImage", "Date", "Time"};
   for (const char* n : names) {
     EXPECT_EQ(wk.named(n), ao::Globals::at(wk, n)) << n;
     EXPECT_TRUE(ao::Globals::at(wk, n).isHeap()) << n;

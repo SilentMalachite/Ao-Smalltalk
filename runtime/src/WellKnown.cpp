@@ -12,99 +12,146 @@ struct WellKnown::InternTable {
   std::unordered_map<std::string, std::size_t> byBytes;
 };
 
+namespace {
+
+struct NamedClass {
+  const char* name;
+  Oop WellKnown::* cls;
+  Oop WellKnown::* meta;
+};
+
+constexpr NamedClass kNamedClasses[] = {
+    {"Object", &WellKnown::objectClass, &WellKnown::objectMetaclass},
+    {"Behavior", &WellKnown::behaviorClass, &WellKnown::behaviorMetaclass},
+    {"ClassDescription", &WellKnown::classDescriptionClass, &WellKnown::classDescriptionMetaclass},
+    {"Class", &WellKnown::classClass, &WellKnown::classMetaclass},
+    {"Metaclass", &WellKnown::metaclassClass, &WellKnown::metaclassMetaclass},
+    {"UndefinedObject", &WellKnown::undefinedObjectClass, &WellKnown::undefinedObjectMetaclass},
+    {"Boolean", &WellKnown::booleanClass, &WellKnown::booleanMetaclass},
+    {"True", &WellKnown::trueClass, &WellKnown::trueMetaclass},
+    {"False", &WellKnown::falseClass, &WellKnown::falseMetaclass},
+    {"Magnitude", &WellKnown::magnitudeClass, &WellKnown::magnitudeMetaclass},
+    {"Number", &WellKnown::numberClass, &WellKnown::numberMetaclass},
+    {"Integer", &WellKnown::integerClass, &WellKnown::integerMetaclass},
+    {"SmallInteger", &WellKnown::smallIntegerClass, &WellKnown::smallIntegerMetaclass},
+    {"LargePositiveInteger", &WellKnown::largePositiveIntegerClass,
+     &WellKnown::largePositiveIntegerMetaclass},
+    {"LargeNegativeInteger", &WellKnown::largeNegativeIntegerClass,
+     &WellKnown::largeNegativeIntegerMetaclass},
+    {"Float", &WellKnown::floatClass, &WellKnown::floatMetaclass},
+    {"Fraction", &WellKnown::fractionClass, &WellKnown::fractionMetaclass},
+    {"Character", &WellKnown::characterClass, &WellKnown::characterMetaclass},
+    {"Collection", &WellKnown::collectionClass, &WellKnown::collectionMetaclass},
+    {"SequenceableCollection", &WellKnown::sequenceableCollectionClass,
+     &WellKnown::sequenceableCollectionMetaclass},
+    {"ArrayedCollection", &WellKnown::arrayedCollectionClass, &WellKnown::arrayedCollectionMetaclass},
+    {"Array", &WellKnown::arrayClass, &WellKnown::arrayMetaclass},
+    {"ByteArray", &WellKnown::byteArrayClass, &WellKnown::byteArrayMetaclass},
+    {"String", &WellKnown::stringClass, &WellKnown::stringMetaclass},
+    {"Symbol", &WellKnown::symbolClass, &WellKnown::symbolMetaclass},
+    {"Interval", &WellKnown::intervalClass, &WellKnown::intervalMetaclass},
+    {"Dictionary", &WellKnown::dictionaryClass, &WellKnown::dictionaryMetaclass},
+    {"IdentityDictionary", &WellKnown::identityDictionaryClass,
+     &WellKnown::identityDictionaryMetaclass},
+    {"Set", &WellKnown::setClass, &WellKnown::setMetaclass},
+    {"IdentitySet", &WellKnown::identitySetClass, &WellKnown::identitySetMetaclass},
+    {"OrderedCollection", &WellKnown::orderedCollectionClass, &WellKnown::orderedCollectionMetaclass},
+    {"Association", &WellKnown::associationClass, &WellKnown::associationMetaclass},
+    {"Bag", &WellKnown::bagClass, &WellKnown::bagMetaclass},
+    {"LinkedList", &WellKnown::linkedListClass, &WellKnown::linkedListMetaclass},
+    {"MappedCollection", &WellKnown::mappedCollectionClass, &WellKnown::mappedCollectionMetaclass},
+    {"CompiledMethod", &WellKnown::compiledMethodClass, &WellKnown::compiledMethodMetaclass},
+    {"NativeMethod", &WellKnown::nativeMethodClass, &WellKnown::nativeMethodMetaclass},
+    {"Message", &WellKnown::messageClass, &WellKnown::messageMetaclass},
+    {"MethodDictionary", &WellKnown::methodDictionaryClass, &WellKnown::methodDictionaryMetaclass},
+    {"MethodContext", &WellKnown::methodContextClass, &WellKnown::methodContextMetaclass},
+    {"BlockContext", &WellKnown::blockContextClass, &WellKnown::blockContextMetaclass},
+    {"Process", &WellKnown::processClass, &WellKnown::processMetaclass},
+    {"ProcessorScheduler", &WellKnown::processorSchedulerClass,
+     &WellKnown::processorSchedulerMetaclass},
+    {"Semaphore", &WellKnown::semaphoreClass, &WellKnown::semaphoreMetaclass},
+    {"SharedQueue", &WellKnown::sharedQueueClass, &WellKnown::sharedQueueMetaclass},
+    {"Point", &WellKnown::pointClass, &WellKnown::pointMetaclass},
+    {"Rectangle", &WellKnown::rectangleClass, &WellKnown::rectangleMetaclass},
+    {"Stream", &WellKnown::streamClass, &WellKnown::streamMetaclass},
+    {"PositionableStream", &WellKnown::positionableStreamClass,
+     &WellKnown::positionableStreamMetaclass},
+    {"ReadStream", &WellKnown::readStreamClass, &WellKnown::readStreamMetaclass},
+    {"WriteStream", &WellKnown::writeStreamClass, &WellKnown::writeStreamMetaclass},
+    {"ReadWriteStream", &WellKnown::readWriteStreamClass, &WellKnown::readWriteStreamMetaclass},
+    {"Transcript", &WellKnown::transcriptClass, &WellKnown::transcriptMetaclass},
+    {"SmalltalkImage", &WellKnown::smalltalkImageClass, &WellKnown::smalltalkImageMetaclass},
+    {"Date", &WellKnown::dateClass, &WellKnown::dateMetaclass},
+    {"Time", &WellKnown::timeClass, &WellKnown::timeMetaclass},
+};
+
+}  // namespace
+
 WellKnown::WellKnown(Heap& heap, Roots& roots)
     : heap_(&heap), roots_(&roots), intern_(std::make_unique<InternTable>()) {
-  objectClass = Oop::nil();
-  objectMetaclass = Oop::nil();
-  behaviorClass = Oop::nil();
-  behaviorMetaclass = Oop::nil();
-  classDescriptionClass = Oop::nil();
-  classDescriptionMetaclass = Oop::nil();
-  classClass = Oop::nil();
-  classMetaclass = Oop::nil();
-  metaclassClass = Oop::nil();
-  metaclassMetaclass = Oop::nil();
-  undefinedObjectClass = Oop::nil();
-  undefinedObjectMetaclass = Oop::nil();
-  booleanClass = Oop::nil();
-  booleanMetaclass = Oop::nil();
-  trueClass = Oop::nil();
-  trueMetaclass = Oop::nil();
-  falseClass = Oop::nil();
-  falseMetaclass = Oop::nil();
-  smallIntegerClass = Oop::nil();
-  smallIntegerMetaclass = Oop::nil();
-  characterClass = Oop::nil();
-  characterMetaclass = Oop::nil();
-  symbolClass = Oop::nil();
-  symbolMetaclass = Oop::nil();
-  methodDictionaryClass = Oop::nil();
-  methodDictionaryMetaclass = Oop::nil();
-  nativeMethodClass = Oop::nil();
-  nativeMethodMetaclass = Oop::nil();
-  messageClass = Oop::nil();
-  messageMetaclass = Oop::nil();
+  for (const auto& e : kNamedClasses) {
+    this->*e.cls = Oop::nil();
+    this->*e.meta = Oop::nil();
+  }
   smalltalk = Oop::nil();
+  processor = Oop::nil();
+  selValue = Oop::nil();
+  selValue_ = Oop::nil();
+  selNew = Oop::nil();
+  selBasicNew = Oop::nil();
+  selBasicNew_ = Oop::nil();
+  selSize = Oop::nil();
+  selAt_ = Oop::nil();
+  selAt_put_ = Oop::nil();
+  selDo_ = Oop::nil();
+  selError_ = Oop::nil();
+  selClass = Oop::nil();
+  selIdentityEquals = Oop::nil();
   addRoots(roots);
 }
 
 WellKnown::~WellKnown() = default;
 
 void WellKnown::addRoots(Roots& roots) {
-  roots.add(&objectClass);
-  roots.add(&objectMetaclass);
-  roots.add(&behaviorClass);
-  roots.add(&behaviorMetaclass);
-  roots.add(&classDescriptionClass);
-  roots.add(&classDescriptionMetaclass);
-  roots.add(&classClass);
-  roots.add(&classMetaclass);
-  roots.add(&metaclassClass);
-  roots.add(&metaclassMetaclass);
-  roots.add(&undefinedObjectClass);
-  roots.add(&undefinedObjectMetaclass);
-  roots.add(&booleanClass);
-  roots.add(&booleanMetaclass);
-  roots.add(&trueClass);
-  roots.add(&trueMetaclass);
-  roots.add(&falseClass);
-  roots.add(&falseMetaclass);
-  roots.add(&smallIntegerClass);
-  roots.add(&smallIntegerMetaclass);
-  roots.add(&characterClass);
-  roots.add(&characterMetaclass);
-  roots.add(&symbolClass);
-  roots.add(&symbolMetaclass);
-  roots.add(&methodDictionaryClass);
-  roots.add(&methodDictionaryMetaclass);
-  roots.add(&nativeMethodClass);
-  roots.add(&nativeMethodMetaclass);
-  roots.add(&messageClass);
-  roots.add(&messageMetaclass);
+  for (const auto& e : kNamedClasses) {
+    roots.add(&(this->*e.cls));
+    roots.add(&(this->*e.meta));
+  }
   roots.add(&smalltalk);
+  roots.add(&processor);
+  roots.add(&selValue);
+  roots.add(&selValue_);
+  roots.add(&selNew);
+  roots.add(&selBasicNew);
+  roots.add(&selBasicNew_);
+  roots.add(&selSize);
+  roots.add(&selAt_);
+  roots.add(&selAt_put_);
+  roots.add(&selDo_);
+  roots.add(&selError_);
+  roots.add(&selClass);
+  roots.add(&selIdentityEquals);
 }
 
 Oop WellKnown::named(std::string_view name) const {
   if (name == "nil") return nil();
   if (name == "true") return true_();
   if (name == "false") return false_();
-  if (name == "Object") return objectClass;
-  if (name == "Behavior") return behaviorClass;
-  if (name == "ClassDescription") return classDescriptionClass;
-  if (name == "Class") return classClass;
-  if (name == "Metaclass") return metaclassClass;
-  if (name == "UndefinedObject") return undefinedObjectClass;
-  if (name == "Boolean") return booleanClass;
-  if (name == "True") return trueClass;
-  if (name == "False") return falseClass;
-  if (name == "SmallInteger") return smallIntegerClass;
-  if (name == "Character") return characterClass;
-  if (name == "Symbol") return symbolClass;
-  if (name == "MethodDictionary") return methodDictionaryClass;
-  if (name == "NativeMethod") return nativeMethodClass;
-  if (name == "Message") return messageClass;
   if (name == "Smalltalk") return smalltalk;
+  if (name == "Processor") return processor;
+  for (const auto& e : kNamedClasses) {
+    if (name == e.name) return this->*e.cls;
+  }
   return Oop::nil();
+}
+
+void WellKnown::eachClass(void (*fn)(void* baton, Oop cls), void* baton) const {
+  if (fn == nullptr) {
+    return;
+  }
+  for (const auto& e : kNamedClasses) {
+    fn(baton, this->*e.cls);
+  }
 }
 
 Oop WellKnown::classOf(Oop obj) const {

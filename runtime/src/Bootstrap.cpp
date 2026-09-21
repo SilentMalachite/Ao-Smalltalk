@@ -1,18 +1,147 @@
 #include "ao/Bootstrap.hpp"
+
+#include "ao/Context.hpp"
+#include "ao/Format.hpp"
 #include "ao/Globals.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/NativeMethod.hpp"
-#include "ao/Natives.hpp"
-#include "ao/Symbol.hpp"
+#include "ao/kernel/Install.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 namespace ao {
 namespace Bootstrap {
 
-static Oop allocClass(Heap& heap) {
-  return heap.allocate(Oop::nil(), kClassSlotCount, 0);
-}
+namespace {
+
+struct ClassDef {
+  Oop WellKnown::* cls;
+  Oop WellKnown::* meta;
+  Oop WellKnown::* superCls;
+  std::int64_t instSize;
+  bool indexable;
+  bool bytes;
+  const char* name;
+};
+
+constexpr std::int64_t kClassInst = static_cast<std::int64_t>(kClassSlotCount);
+
+constexpr ClassDef kDefs[] = {
+    {&WellKnown::objectClass, &WellKnown::objectMetaclass, nullptr, 0, false, false, "Object"},
+    {&WellKnown::behaviorClass, &WellKnown::behaviorMetaclass, &WellKnown::objectClass, kClassInst,
+     false, false, "Behavior"},
+    {&WellKnown::classDescriptionClass, &WellKnown::classDescriptionMetaclass,
+     &WellKnown::behaviorClass, kClassInst, false, false, "ClassDescription"},
+    {&WellKnown::classClass, &WellKnown::classMetaclass, &WellKnown::classDescriptionClass,
+     kClassInst, false, false, "Class"},
+    {&WellKnown::metaclassClass, &WellKnown::metaclassMetaclass, &WellKnown::classDescriptionClass,
+     kClassInst, false, false, "Metaclass"},
+    {&WellKnown::undefinedObjectClass, &WellKnown::undefinedObjectMetaclass, &WellKnown::objectClass,
+     0, false, false, "UndefinedObject"},
+    {&WellKnown::booleanClass, &WellKnown::booleanMetaclass, &WellKnown::objectClass, 0, false, false,
+     "Boolean"},
+    {&WellKnown::trueClass, &WellKnown::trueMetaclass, &WellKnown::booleanClass, 0, false, false,
+     "True"},
+    {&WellKnown::falseClass, &WellKnown::falseMetaclass, &WellKnown::booleanClass, 0, false, false,
+     "False"},
+    {&WellKnown::magnitudeClass, &WellKnown::magnitudeMetaclass, &WellKnown::objectClass, 0, false,
+     false, "Magnitude"},
+    {&WellKnown::numberClass, &WellKnown::numberMetaclass, &WellKnown::magnitudeClass, 0, false, false,
+     "Number"},
+    {&WellKnown::integerClass, &WellKnown::integerMetaclass, &WellKnown::numberClass, 0, false, false,
+     "Integer"},
+    {&WellKnown::smallIntegerClass, &WellKnown::smallIntegerMetaclass, &WellKnown::integerClass, 0,
+     false, false, "SmallInteger"},
+    {&WellKnown::largePositiveIntegerClass, &WellKnown::largePositiveIntegerMetaclass,
+     &WellKnown::integerClass, 0, true, true, "LargePositiveInteger"},
+    {&WellKnown::largeNegativeIntegerClass, &WellKnown::largeNegativeIntegerMetaclass,
+     &WellKnown::integerClass, 0, true, true, "LargeNegativeInteger"},
+    {&WellKnown::floatClass, &WellKnown::floatMetaclass, &WellKnown::numberClass, 0, true, true,
+     "Float"},
+    {&WellKnown::fractionClass, &WellKnown::fractionMetaclass, &WellKnown::numberClass, 2, false,
+     false, "Fraction"},
+    {&WellKnown::characterClass, &WellKnown::characterMetaclass, &WellKnown::magnitudeClass, 0, false,
+     false, "Character"},
+    {&WellKnown::collectionClass, &WellKnown::collectionMetaclass, &WellKnown::objectClass, 0, false,
+     false, "Collection"},
+    {&WellKnown::sequenceableCollectionClass, &WellKnown::sequenceableCollectionMetaclass,
+     &WellKnown::collectionClass, 0, false, false, "SequenceableCollection"},
+    {&WellKnown::arrayedCollectionClass, &WellKnown::arrayedCollectionMetaclass,
+     &WellKnown::sequenceableCollectionClass, 0, false, false, "ArrayedCollection"},
+    {&WellKnown::arrayClass, &WellKnown::arrayMetaclass, &WellKnown::arrayedCollectionClass, 0, true,
+     false, "Array"},
+    {&WellKnown::byteArrayClass, &WellKnown::byteArrayMetaclass, &WellKnown::arrayedCollectionClass, 0,
+     true, true, "ByteArray"},
+    {&WellKnown::stringClass, &WellKnown::stringMetaclass, &WellKnown::arrayedCollectionClass, 0, true,
+     true, "String"},
+    {&WellKnown::symbolClass, &WellKnown::symbolMetaclass, &WellKnown::stringClass, 0, true, true,
+     "Symbol"},
+    {&WellKnown::intervalClass, &WellKnown::intervalMetaclass, &WellKnown::sequenceableCollectionClass,
+     3, false, false, "Interval"},
+    {&WellKnown::dictionaryClass, &WellKnown::dictionaryMetaclass, &WellKnown::collectionClass, 2,
+     false, false, "Dictionary"},
+    {&WellKnown::identityDictionaryClass, &WellKnown::identityDictionaryMetaclass,
+     &WellKnown::dictionaryClass, 2, false, false, "IdentityDictionary"},
+    {&WellKnown::setClass, &WellKnown::setMetaclass, &WellKnown::collectionClass, 2, false, false,
+     "Set"},
+    {&WellKnown::identitySetClass, &WellKnown::identitySetMetaclass, &WellKnown::setClass, 2, false,
+     false, "IdentitySet"},
+    {&WellKnown::orderedCollectionClass, &WellKnown::orderedCollectionMetaclass,
+     &WellKnown::sequenceableCollectionClass, 3, false, false, "OrderedCollection"},
+    {&WellKnown::associationClass, &WellKnown::associationMetaclass, &WellKnown::objectClass, 2, false,
+     false, "Association"},
+    {&WellKnown::bagClass, &WellKnown::bagMetaclass, &WellKnown::collectionClass, 0, false, false,
+     "Bag"},
+    {&WellKnown::linkedListClass, &WellKnown::linkedListMetaclass,
+     &WellKnown::sequenceableCollectionClass, 0, false, false, "LinkedList"},
+    {&WellKnown::mappedCollectionClass, &WellKnown::mappedCollectionMetaclass,
+     &WellKnown::sequenceableCollectionClass, 0, false, false, "MappedCollection"},
+    {&WellKnown::compiledMethodClass, &WellKnown::compiledMethodMetaclass, &WellKnown::objectClass, 0,
+     false, false, "CompiledMethod"},
+    {&WellKnown::nativeMethodClass, &WellKnown::nativeMethodMetaclass, &WellKnown::objectClass,
+     static_cast<std::int64_t>(kNativeSlotCount), false, false, "NativeMethod"},
+    {&WellKnown::messageClass, &WellKnown::messageMetaclass, &WellKnown::objectClass, 2, false, false,
+     "Message"},
+    {&WellKnown::methodDictionaryClass, &WellKnown::methodDictionaryMetaclass, &WellKnown::objectClass,
+     2, false, false, "MethodDictionary"},
+    {&WellKnown::methodContextClass, &WellKnown::methodContextMetaclass, &WellKnown::objectClass,
+     static_cast<std::int64_t>(kMethodContextSlotCount), false, false, "MethodContext"},
+    {&WellKnown::blockContextClass, &WellKnown::blockContextMetaclass, &WellKnown::methodContextClass,
+     static_cast<std::int64_t>(kBlockSlotCount), false, false, "BlockContext"},
+    {&WellKnown::processClass, &WellKnown::processMetaclass, &WellKnown::objectClass, 4, false, false,
+     "Process"},
+    {&WellKnown::processorSchedulerClass, &WellKnown::processorSchedulerMetaclass,
+     &WellKnown::objectClass, 2, false, false, "ProcessorScheduler"},
+    {&WellKnown::semaphoreClass, &WellKnown::semaphoreMetaclass, &WellKnown::objectClass, 2, false,
+     false, "Semaphore"},
+    {&WellKnown::sharedQueueClass, &WellKnown::sharedQueueMetaclass, &WellKnown::objectClass, 3, false,
+     false, "SharedQueue"},
+    {&WellKnown::pointClass, &WellKnown::pointMetaclass, &WellKnown::objectClass, 2, false, false,
+     "Point"},
+    {&WellKnown::rectangleClass, &WellKnown::rectangleMetaclass, &WellKnown::objectClass, 2, false,
+     false, "Rectangle"},
+    {&WellKnown::streamClass, &WellKnown::streamMetaclass, &WellKnown::objectClass, 0, false, false,
+     "Stream"},
+    {&WellKnown::positionableStreamClass, &WellKnown::positionableStreamMetaclass,
+     &WellKnown::streamClass, 3, false, false, "PositionableStream"},
+    {&WellKnown::readStreamClass, &WellKnown::readStreamMetaclass, &WellKnown::positionableStreamClass,
+     3, false, false, "ReadStream"},
+    {&WellKnown::writeStreamClass, &WellKnown::writeStreamMetaclass,
+     &WellKnown::positionableStreamClass, 4, false, false, "WriteStream"},
+    {&WellKnown::readWriteStreamClass, &WellKnown::readWriteStreamMetaclass,
+     &WellKnown::writeStreamClass, 4, false, false, "ReadWriteStream"},
+    {&WellKnown::transcriptClass, &WellKnown::transcriptMetaclass, &WellKnown::streamClass, 0, false,
+     false, "Transcript"},
+    {&WellKnown::smalltalkImageClass, &WellKnown::smalltalkImageMetaclass, &WellKnown::objectClass, 0,
+     false, false, "SmalltalkImage"},
+    {&WellKnown::dateClass, &WellKnown::dateMetaclass, &WellKnown::magnitudeClass, 0, false, false,
+     "Date"},
+    {&WellKnown::timeClass, &WellKnown::timeMetaclass, &WellKnown::magnitudeClass, 0, false, false,
+     "Time"},
+};
+
+static Oop allocClass(Heap& heap) { return heap.allocate(Oop::nil(), kClassSlotCount, 0); }
 
 static Oop makeName(Heap& heap, const char* s) {
   const auto n = static_cast<std::uint32_t>(std::strlen(s));
@@ -23,173 +152,95 @@ static Oop makeName(Heap& heap, const char* s) {
   return bytes;
 }
 
-static void wireClass(Heap& heap, Oop cls, Oop meta, Oop superCls, Oop thisClass,
-                      std::int64_t instSize, const char* name) {
+static void wireClass(Heap& heap, Oop cls, Oop meta, Oop superCls, Oop thisClass, Oop format,
+                      const char* name) {
   heap.header(cls)->klass = meta;
   heap.slotAtPut(cls, kClassSlotSuperclass, superCls);
   heap.slotAtPut(cls, kClassSlotMethodDict, Oop::nil());
-  heap.slotAtPut(cls, kClassSlotFormat, Oop::fromSmallInteger(instSize));
+  heap.slotAtPut(cls, kClassSlotFormat, format);
   heap.slotAtPut(cls, kClassSlotName, makeName(heap, name));
   heap.slotAtPut(cls, kClassSlotThisClass, thisClass);
 }
 
+static Oop superOf(WellKnown& wk, Oop WellKnown::* superCls) {
+  return superCls == nullptr ? Oop::nil() : wk.*superCls;
+}
+
+static void internHotSelectors(WellKnown& wk) {
+  wk.selValue = wk.intern("value");
+  wk.selValue_ = wk.intern("value:");
+  wk.selNew = wk.intern("new");
+  wk.selBasicNew = wk.intern("basicNew");
+  wk.selBasicNew_ = wk.intern("basicNew:");
+  wk.selSize = wk.intern("size");
+  wk.selAt_ = wk.intern("at:");
+  wk.selAt_put_ = wk.intern("at:put:");
+  wk.selDo_ = wk.intern("do:");
+  wk.selError_ = wk.intern("error:");
+  wk.selClass = wk.intern("class");
+  wk.selIdentityEquals = wk.intern("==");
+}
+
+static void ensureMethodDict(Heap& heap, WellKnown& wk, Oop cls) {
+  if (!cls.isHeap()) {
+    return;
+  }
+  if (heap.slotAt(cls, kClassSlotMethodDict).isNil()) {
+    auto dict = MethodDictionary::create(heap, wk, 8);
+    if (dict.isHeap()) {
+      heap.slotAtPut(cls, kClassSlotMethodDict, dict);
+    }
+  }
+}
+
+}  // namespace
+
 void allocateSkeletons(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
-  wk.objectClass = allocClass(heap);
-  wk.objectMetaclass = allocClass(heap);
-  wk.behaviorClass = allocClass(heap);
-  wk.behaviorMetaclass = allocClass(heap);
-  wk.classDescriptionClass = allocClass(heap);
-  wk.classDescriptionMetaclass = allocClass(heap);
-  wk.classClass = allocClass(heap);
-  wk.classMetaclass = allocClass(heap);
-  wk.metaclassClass = allocClass(heap);
-  wk.metaclassMetaclass = allocClass(heap);
-  wk.undefinedObjectClass = allocClass(heap);
-  wk.undefinedObjectMetaclass = allocClass(heap);
-  wk.booleanClass = allocClass(heap);
-  wk.booleanMetaclass = allocClass(heap);
-  wk.trueClass = allocClass(heap);
-  wk.trueMetaclass = allocClass(heap);
-  wk.falseClass = allocClass(heap);
-  wk.falseMetaclass = allocClass(heap);
-  wk.smallIntegerClass = allocClass(heap);
-  wk.smallIntegerMetaclass = allocClass(heap);
-  wk.characterClass = allocClass(heap);
-  wk.characterMetaclass = allocClass(heap);
-  wk.symbolClass = allocClass(heap);
-  wk.symbolMetaclass = allocClass(heap);
-  wk.methodDictionaryClass = allocClass(heap);
-  wk.methodDictionaryMetaclass = allocClass(heap);
-  wk.nativeMethodClass = allocClass(heap);
-  wk.nativeMethodMetaclass = allocClass(heap);
-  wk.messageClass = allocClass(heap);
-  wk.messageMetaclass = allocClass(heap);
+  for (const auto& d : kDefs) {
+    wk.*(d.cls) = allocClass(heap);
+    wk.*(d.meta) = allocClass(heap);
+  }
 }
 
 void wireCycle(Heap& heap, WellKnown& wk) {
-  const auto five = static_cast<std::int64_t>(kClassSlotCount);
-
-  wireClass(heap, wk.objectClass, wk.objectMetaclass, Oop::nil(), Oop::nil(), 0, "Object");
-  wireClass(heap, wk.behaviorClass, wk.behaviorMetaclass, wk.objectClass, Oop::nil(), five,
-            "Behavior");
-  wireClass(heap, wk.classDescriptionClass, wk.classDescriptionMetaclass, wk.behaviorClass,
-            Oop::nil(), five, "ClassDescription");
-  wireClass(heap, wk.classClass, wk.classMetaclass, wk.classDescriptionClass, Oop::nil(), five,
-            "Class");
-  wireClass(heap, wk.metaclassClass, wk.metaclassMetaclass, wk.classDescriptionClass, Oop::nil(),
-            five, "Metaclass");
-  wireClass(heap, wk.undefinedObjectClass, wk.undefinedObjectMetaclass, wk.objectClass, Oop::nil(),
-            0, "UndefinedObject");
-  wireClass(heap, wk.booleanClass, wk.booleanMetaclass, wk.objectClass, Oop::nil(), 0, "Boolean");
-  wireClass(heap, wk.trueClass, wk.trueMetaclass, wk.booleanClass, Oop::nil(), 0, "True");
-  wireClass(heap, wk.falseClass, wk.falseMetaclass, wk.booleanClass, Oop::nil(), 0, "False");
-  wireClass(heap, wk.smallIntegerClass, wk.smallIntegerMetaclass, wk.objectClass, Oop::nil(), 0,
-            "SmallInteger");
-  wireClass(heap, wk.characterClass, wk.characterMetaclass, wk.objectClass, Oop::nil(), 0,
-            "Character");
-  wireClass(heap, wk.symbolClass, wk.symbolMetaclass, wk.objectClass, Oop::nil(), 0, "Symbol");
-  wireClass(heap, wk.methodDictionaryClass, wk.methodDictionaryMetaclass, wk.objectClass, Oop::nil(),
-            2, "MethodDictionary");
-  wireClass(heap, wk.nativeMethodClass, wk.nativeMethodMetaclass, wk.objectClass, Oop::nil(), 6,
-            "NativeMethod");
-  wireClass(heap, wk.messageClass, wk.messageMetaclass, wk.objectClass, Oop::nil(), 2, "Message");
-
-  wireClass(heap, wk.objectMetaclass, wk.metaclassClass, wk.classClass, wk.objectClass, five,
-            "Object class");
-  wireClass(heap, wk.behaviorMetaclass, wk.metaclassClass, wk.objectMetaclass, wk.behaviorClass, five,
-            "Behavior class");
-  wireClass(heap, wk.classDescriptionMetaclass, wk.metaclassClass, wk.behaviorMetaclass,
-            wk.classDescriptionClass, five, "ClassDescription class");
-  wireClass(heap, wk.classMetaclass, wk.metaclassClass, wk.classDescriptionMetaclass, wk.classClass,
-            five, "Class class");
-  wireClass(heap, wk.metaclassMetaclass, wk.metaclassClass, wk.classDescriptionMetaclass,
-            wk.metaclassClass, five, "Metaclass class");
-  wireClass(heap, wk.undefinedObjectMetaclass, wk.metaclassClass, wk.objectMetaclass,
-            wk.undefinedObjectClass, five, "UndefinedObject class");
-  wireClass(heap, wk.booleanMetaclass, wk.metaclassClass, wk.objectMetaclass, wk.booleanClass, five,
-            "Boolean class");
-  wireClass(heap, wk.trueMetaclass, wk.metaclassClass, wk.booleanMetaclass, wk.trueClass, five,
-            "True class");
-  wireClass(heap, wk.falseMetaclass, wk.metaclassClass, wk.booleanMetaclass, wk.falseClass, five,
-            "False class");
-  wireClass(heap, wk.smallIntegerMetaclass, wk.metaclassClass, wk.objectMetaclass,
-            wk.smallIntegerClass, five, "SmallInteger class");
-  wireClass(heap, wk.characterMetaclass, wk.metaclassClass, wk.objectMetaclass, wk.characterClass,
-            five, "Character class");
-  wireClass(heap, wk.symbolMetaclass, wk.metaclassClass, wk.objectMetaclass, wk.symbolClass, five,
-            "Symbol class");
-  wireClass(heap, wk.methodDictionaryMetaclass, wk.metaclassClass, wk.objectMetaclass,
-            wk.methodDictionaryClass, five, "MethodDictionary class");
-  wireClass(heap, wk.nativeMethodMetaclass, wk.metaclassClass, wk.objectMetaclass,
-            wk.nativeMethodClass, five, "NativeMethod class");
-  wireClass(heap, wk.messageMetaclass, wk.metaclassClass, wk.objectMetaclass, wk.messageClass, five,
-            "Message class");
+  const Oop classFmt = Format::make(kClassInst, false, false);
+  for (const auto& d : kDefs) {
+    const Oop cls = wk.*(d.cls);
+    const Oop meta = wk.*(d.meta);
+    const Oop super = superOf(wk, d.superCls);
+    wireClass(heap, cls, meta, super, Oop::nil(), Format::make(d.instSize, d.indexable, d.bytes),
+              d.name);
+  }
+  for (const auto& d : kDefs) {
+    const Oop cls = wk.*(d.cls);
+    const Oop meta = wk.*(d.meta);
+    const Oop super = superOf(wk, d.superCls);
+    const Oop metaSuper = super.isNil() ? wk.classClass : heap.klass(super);
+    char metaName[128];
+    std::snprintf(metaName, sizeof(metaName), "%s class", d.name);
+    wireClass(heap, meta, wk.metaclassClass, metaSuper, cls, classFmt, metaName);
+  }
 }
 
-static void putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector,
-                      std::uint32_t argc, std::string_view name, NativeFn fn) {
-  auto dict = heap.slotAt(cls, kClassSlotMethodDict);
-  if (!dict.isHeap()) {
-    return;
+void installNatives(Heap& heap, Roots& roots, WellKnown& wk) {
+  internHotSelectors(wk);
+  struct Baton {
+    Heap* heap;
+    WellKnown* wk;
+  } baton{&heap, &wk};
+  wk.eachClass(
+      [](void* p, Oop cls) {
+        auto* b = static_cast<Baton*>(p);
+        ensureMethodDict(*b->heap, *b->wk, cls);
+        if (cls.isHeap()) {
+          ensureMethodDict(*b->heap, *b->wk, b->heap->klass(cls));
+        }
+      },
+      &baton);
+  kernel::installAll(heap, roots, wk);
+  if (wk.processorSchedulerClass.isHeap()) {
+    wk.processor = heap.allocate(wk.processorSchedulerClass, 2, 0);
   }
-  auto sel = Symbol::intern(wk, selector);
-  auto idx = NativeRegistry::add(fn);
-  auto meth = NativeMethod::create(heap, wk, sel, argc, name, idx, cls);
-  if (!meth.isHeap()) {
-    return;
-  }
-  MethodDictionary::atPut(heap, dict, sel, meth);
-}
-
-void installNatives(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
-  const Oop classes[] = {
-      wk.objectClass,
-      wk.objectMetaclass,
-      wk.behaviorClass,
-      wk.behaviorMetaclass,
-      wk.classDescriptionClass,
-      wk.classDescriptionMetaclass,
-      wk.classClass,
-      wk.classMetaclass,
-      wk.metaclassClass,
-      wk.metaclassMetaclass,
-      wk.undefinedObjectClass,
-      wk.undefinedObjectMetaclass,
-      wk.booleanClass,
-      wk.booleanMetaclass,
-      wk.trueClass,
-      wk.trueMetaclass,
-      wk.falseClass,
-      wk.falseMetaclass,
-      wk.smallIntegerClass,
-      wk.smallIntegerMetaclass,
-      wk.characterClass,
-      wk.characterMetaclass,
-      wk.symbolClass,
-      wk.symbolMetaclass,
-      wk.methodDictionaryClass,
-      wk.methodDictionaryMetaclass,
-      wk.nativeMethodClass,
-      wk.nativeMethodMetaclass,
-      wk.messageClass,
-      wk.messageMetaclass,
-  };
-  for (Oop cls : classes) {
-    if (!cls.isHeap()) {
-      continue;
-    }
-    if (heap.slotAt(cls, kClassSlotMethodDict).isNil()) {
-      auto dict = MethodDictionary::create(heap, wk, 8);
-      if (dict.isHeap()) {
-        heap.slotAtPut(cls, kClassSlotMethodDict, dict);
-      }
-    }
-  }
-  putNative(heap, wk, wk.objectClass, "==", 1, "ao_Object_identityEquals", ao_Object_identityEquals);
-  putNative(heap, wk, wk.objectClass, "class", 0, "ao_Object_class", ao_Object_class);
-  putNative(heap, wk, wk.objectClass, "doesNotUnderstand:", 1, "ao_Object_doesNotUnderstand_",
-            ao_Object_doesNotUnderstand_);
-  putNative(heap, wk, wk.smallIntegerClass, "+", 1, "ao_SmallInteger_add", ao_SmallInteger_add);
 }
 
 void run(Heap& heap, Roots& roots, WellKnown& wk) {

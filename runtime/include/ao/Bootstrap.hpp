@@ -8,12 +8,15 @@
 
 namespace ao {
 
-inline constexpr std::uint32_t kClassSlotSuperclass = 0;
-inline constexpr std::uint32_t kClassSlotMethodDict = 1;
-inline constexpr std::uint32_t kClassSlotFormat     = 2;
-inline constexpr std::uint32_t kClassSlotName       = 3;
-inline constexpr std::uint32_t kClassSlotThisClass  = 4;
-inline constexpr std::uint32_t kClassSlotCount      = 5;
+inline constexpr std::uint32_t kClassSlotSuperclass    = 0;
+inline constexpr std::uint32_t kClassSlotMethodDict    = 1;
+inline constexpr std::uint32_t kClassSlotFormat        = 2;
+inline constexpr std::uint32_t kClassSlotName          = 3;
+inline constexpr std::uint32_t kClassSlotThisClass     = 4;
+inline constexpr std::uint32_t kClassSlotCategory      = 5;
+inline constexpr std::uint32_t kClassSlotClassPool     = 6;
+inline constexpr std::uint32_t kClassSlotInstVarNames  = 7;
+inline constexpr std::uint32_t kClassSlotCount         = 8;
 
 namespace Bootstrap {
 void allocateSkeletons(Heap& heap, Roots& roots, WellKnown& wk);

@@ -31,11 +31,17 @@ struct ClassMethodCache {
   void insert(Heap& heap, Oop klass, Oop selector, Oop method);
 };
 
+struct CallContext;
+
+using HostOopHook = void (*)(CallContext& ctx, Oop value);
+
 struct CallContext {
   Heap& heap;
   Roots& roots;
   WellKnown& wk;
   ClassMethodCache* cache;
+  HostOopHook inspectHook = nullptr;
+  HostOopHook transcriptHook = nullptr;
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
