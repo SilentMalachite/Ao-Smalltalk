@@ -223,3 +223,104 @@ TEST(GcRoots, StackWalkerKeepsObject) {
   ASSERT_TRUE(stackObj.isHeap());
   EXPECT_TRUE(heap.inOld(stackObj));
 }
+
+TEST(GcWeak, UnrootedReferentBecomesNil) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto weak = heap.allocate(ao::Oop::nil(), 1, ao::kFlagWeak);
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(weak.isHeap());
+  ASSERT_TRUE(child.isHeap());
+  heap.slotAtPut(weak, 0, child);
+  roots.add(&weak);
+  gc.collectNursery();
+  ASSERT_TRUE(weak.isHeap());
+  EXPECT_TRUE(heap.inOld(weak));
+  EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
+}
+
+TEST(GcWeak, RootedReferentSurvivesAndSlotUpdates) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto weak = heap.allocate(ao::Oop::nil(), 1, ao::kFlagWeak);
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  heap.slotAtPut(weak, 0, child);
+  roots.add(&weak);
+  roots.add(&child);
+  void* childBefore = child.heapPointer();
+  gc.collectNursery();
+  ASSERT_TRUE(child.isHeap());
+  EXPECT_TRUE(heap.inOld(child));
+  EXPECT_NE(child.heapPointer(), childBefore);
+  auto slot = heap.slotAt(weak, 0);
+  EXPECT_EQ(slot, child);
+  EXPECT_TRUE(heap.inOld(slot));
+}
+
+TEST(GcWeak, StrongPathKeepsReferentForWeakSlot) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto weak = heap.allocate(ao::Oop::nil(), 1, ao::kFlagWeak);
+  auto strong = heap.allocate(ao::Oop::nil(), 1, 0);
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  heap.slotAtPut(weak, 0, child);
+  heap.slotAtPut(strong, 0, child);
+  roots.add(&weak);
+  roots.add(&strong);
+  gc.collectNursery();
+  auto viaWeak = heap.slotAt(weak, 0);
+  auto viaStrong = heap.slotAt(strong, 0);
+  ASSERT_TRUE(viaStrong.isHeap());
+  EXPECT_EQ(viaWeak, viaStrong);
+  EXPECT_TRUE(heap.inOld(viaWeak));
+}
+
+TEST(GcWeak, OldToNurseryWeakChildIsCleared) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto weak = heap.allocate(ao::Oop::nil(), 1, ao::kFlagWeak);
+  roots.add(&weak);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(weak));
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(child.isHeap());
+  heap.slotAtPut(weak, 0, child);
+  gc.collectNursery();
+  EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
+}
+
+TEST(GcWeak, OldMarkDoesNotKeepWeakReferent) {
+  ao::Heap heap(512, 8192);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto weak = heap.allocate(ao::Oop::nil(), 1, ao::kFlagWeak);
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  heap.slotAtPut(weak, 0, child);
+  roots.add(&weak);
+  roots.add(&child);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(weak));
+  ASSERT_TRUE(heap.inOld(child));
+  roots.remove(&child);
+  gc.collectOld();
+  ASSERT_TRUE(weak.isHeap());
+  EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
+}
+
+TEST(GcWeak, KlassSlotStaysStrong) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto cls = heap.allocate(ao::Oop::nil(), 0, 0);
+  auto weak = heap.allocate(cls, 1, ao::kFlagWeak);
+  roots.add(&weak);
+  gc.collectNursery();
+  ASSERT_TRUE(weak.isHeap());
+  auto movedCls = heap.klass(weak);
+  ASSERT_TRUE(movedCls.isHeap());
+  EXPECT_TRUE(heap.inOld(movedCls));
+}

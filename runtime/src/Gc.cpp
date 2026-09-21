@@ -53,6 +53,7 @@ void Gc::collectNursery() {
     scavengeFromRoots();
   } while (oldCompacted_ && !failed_);
   if (!failed_) {
+    clearWeakAfterNursery();
     heap_->flipNursery();
   }
 }
@@ -103,6 +104,9 @@ void Gc::scavengeFromRoots() {
     if ((h->flags & kFlagBytes) != 0) {
       continue;
     }
+    if ((h->flags & kFlagWeak) != 0) {
+      continue;
+    }
     auto* slots = reinterpret_cast<Oop*>(h + 1);
     for (std::uint32_t i = 0; i < h->size; ++i) {
       slots[i] = copy(slots[i]);
@@ -113,6 +117,58 @@ void Gc::scavengeFromRoots() {
         stack.push_back(slots[i]);
       }
     }
+  }
+}
+
+void Gc::clearWeakAfterNursery() {
+  std::byte* scan = heap_->oldStart_;
+  while (scan < heap_->oldBump_) {
+    auto* h = reinterpret_cast<ObjectHeader*>(scan);
+    const std::size_t n = heap_->objectBytes(h);
+    if ((h->flags & kFlagWeak) != 0 && (h->flags & kFlagBytes) == 0) {
+      auto* slots = reinterpret_cast<Oop*>(h + 1);
+      for (std::uint32_t i = 0; i < h->size; ++i) {
+        Oop s = slots[i];
+        if (!s.isHeap()) {
+          continue;
+        }
+        if (heap_->inOld(s)) {
+          continue;
+        }
+        if (!heap_->containsNurseryFrom(s.heapPointer())) {
+          continue;
+        }
+        ObjectHeader* ch = heap_->header(s);
+        if (ch->flags & kFlagForwarded) {
+          slots[i] = ch->klass;
+        } else {
+          slots[i] = Oop::nil();
+        }
+      }
+    }
+    scan += n;
+  }
+}
+
+void Gc::clearWeakAfterOldMark() {
+  std::byte* scan = heap_->oldStart_;
+  while (scan < heap_->oldBump_) {
+    auto* h = reinterpret_cast<ObjectHeader*>(scan);
+    const std::size_t n = heap_->objectBytes(h);
+    if ((h->flags & kFlagMarked) && (h->flags & kFlagWeak) &&
+        (h->flags & kFlagBytes) == 0) {
+      auto* slots = reinterpret_cast<Oop*>(h + 1);
+      for (std::uint32_t i = 0; i < h->size; ++i) {
+        Oop s = slots[i];
+        if (!s.isHeap() || !heap_->inOld(s)) {
+          continue;
+        }
+        if ((heap_->header(s)->flags & kFlagMarked) == 0) {
+          slots[i] = Oop::nil();
+        }
+      }
+    }
+    scan += n;
   }
 }
 
@@ -142,7 +198,7 @@ void Gc::collectOld() {
       }
       h->flags = static_cast<std::uint16_t>(h->flags | kFlagMarked);
       stack.push_back(h->klass);
-      if ((h->flags & kFlagBytes) == 0) {
+      if ((h->flags & kFlagBytes) == 0 && (h->flags & kFlagWeak) == 0) {
         auto* slots = reinterpret_cast<Oop*>(h + 1);
         for (std::uint32_t i = 0; i < h->size; ++i) {
           stack.push_back(slots[i]);
@@ -159,13 +215,15 @@ void Gc::collectOld() {
     }
     ObjectHeader* h = heap_->header(obj);
     stack.push_back(h->klass);
-    if ((h->flags & kFlagBytes) == 0) {
+    if ((h->flags & kFlagBytes) == 0 && (h->flags & kFlagWeak) == 0) {
       auto* slots = reinterpret_cast<Oop*>(h + 1);
       for (std::uint32_t i = 0; i < h->size; ++i) {
         stack.push_back(slots[i]);
       }
     }
   }
+
+  clearWeakAfterOldMark();
 
   std::unordered_map<std::uintptr_t, Oop> fwd;
   std::byte* dest = heap_->oldStart_;

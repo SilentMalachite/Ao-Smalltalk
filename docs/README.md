@@ -16,7 +16,7 @@
 | フェーズ | 文書 | 状態 |
 |---|---|---|
 | P0 骨格 | [phases/P0.md](phases/P0.md) | done |
-| P1 オブジェクトメモリ | [phases/P1.md](phases/P1.md) | done |
+| P1 オブジェクトメモリ | [phases/P1.md](phases/P1.md) | in-progress |
 | P2 ブートストラップ | [phases/P2.md](phases/P2.md) | planned |
 | P3 ネイティブディスパッチ | [phases/P3.md](phases/P3.md) | planned |
 | P4 Kernel ネイティブ | [phases/P4.md](phases/P4.md) | planned |
@@ -45,6 +45,7 @@
 | [P1-03](prs/P1-03.md) | nursery GC | P1 |
 | [P1-04](prs/P1-04.md) | old 世代 mark-compact と昇格 | P1 |
 | [P1-05](prs/P1-05.md) | GC ルート API | P1 |
+| [P1-06](prs/P1-06.md) | weak slot GC | P1 |
 | [P2-01](prs/P2-01.md) | WellKnown と即値クラス | P2 |
 | [P2-02](prs/P2-02.md) | クラス骨格の割り当て | P2 |
 | [P2-03](prs/P2-03.md) | メタクラス循環（Blue Book 6–10） | P2 |

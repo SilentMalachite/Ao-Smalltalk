@@ -15,6 +15,8 @@ class Gc {
  private:
   Oop copy(Oop obj);
   void scavengeFromRoots();
+  void clearWeakAfterNursery();
+  void clearWeakAfterOldMark();
   Heap* heap_;
   Roots* roots_;
   bool oldCompacted_ = false;
