@@ -1,5 +1,6 @@
 #include "test_support.hpp"
 #include "ao/CompiledMethod.hpp"
+#include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include <gtest/gtest.h>
 
@@ -19,4 +20,15 @@ TEST(CompiledMethod, LayoutNativeCodeNil) {
   EXPECT_TRUE(n.isNil());
   auto ba = send0(b, cm, "bytecodes");
   EXPECT_EQ(bytes, ba);
+}
+
+TEST(CompiledMethod, BoxFromImageNativeCodeNil) {
+  Boot b;
+  auto img = ao::compiler::compileMethod("foo\n  ^1 + 2");
+  ASSERT_TRUE(img.ok);
+  auto cm = ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass);
+  ASSERT_TRUE(cm.isHeap());
+  EXPECT_EQ(b.wk.compiledMethodClass, b.heap.klass(cm));
+  EXPECT_TRUE(send0(b, cm, "nativeCode").isNil());
+  EXPECT_EQ(0, send0(b, cm, "numArgs").smallIntegerValue());
 }

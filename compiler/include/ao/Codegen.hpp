@@ -1,14 +1,13 @@
 #pragma once
 
+#include "ao/Ast.hpp"
 #include "ao/MethodImage.hpp"
 
 #include <string>
-#include <string_view>
 
 namespace ao::compiler {
 
-const char* version();
-CompileResult compileMethod(std::string_view source, const CompileEnv& env = {});
+void codegen(const Ast& method, const CompileEnv& env, CompileResult& out);
 std::string disassemble(const MethodImage& image);
 
 }  // namespace ao::compiler

@@ -1,0 +1,58 @@
+#include "ao/Compiler.hpp"
+#include <gtest/gtest.h>
+#include <string>
+
+using ao::compiler::compileMethod;
+using ao::compiler::disassemble;
+
+TEST(Codegen, ReturnOnePlusTwo) {
+  auto r = compileMethod("foo\n  ^1 + 2");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  EXPECT_EQ("foo", r.image.selector);
+  EXPECT_EQ(0, r.image.numArgs);
+  EXPECT_EQ(0, r.image.primitive);
+  const std::string d = disassemble(r.image);
+  EXPECT_EQ(
+      "method foo args=0 temps=0 prim=0\n"
+      "literals:\n"
+      "  PushOne\n"
+      "  PushTwo\n"
+      "  SendSpecial 0 1\n"
+      "  ReturnTop\n",
+      d);
+}
+
+TEST(Codegen, TempAndAssign) {
+  auto r = compileMethod("bar: x\n  | t |\n  t := x.\n  ^t");
+  ASSERT_TRUE(r.ok);
+  EXPECT_EQ(1, r.image.numArgs);
+  EXPECT_EQ(2, r.image.numTemps);
+  const std::string d = disassemble(r.image);
+  EXPECT_TRUE(d.find("PushTemp 0") != std::string::npos);
+  EXPECT_TRUE(d.find("PopStoreTemp 1") != std::string::npos);
+  EXPECT_TRUE(d.find("PushTemp 1") != std::string::npos);
+}
+
+TEST(Codegen, CascadeAndBlock) {
+  auto r = compileMethod("baz\n  ^self foo; bar: 1");
+  ASSERT_TRUE(r.ok);
+  EXPECT_TRUE(disassemble(r.image).find("Dup") != std::string::npos);
+  auto b = compileMethod("qux\n  ^[:a | a + 1]");
+  ASSERT_TRUE(b.ok);
+  EXPECT_TRUE(disassemble(b.image).find("CreateBlock") != std::string::npos);
+}
+
+TEST(Codegen, SuperSendAndGlobal) {
+  auto r = compileMethod("hash\n  ^super hash");
+  ASSERT_TRUE(r.ok);
+  EXPECT_TRUE(disassemble(r.image).find("SendSuper") != std::string::npos);
+  auto g = compileMethod("x\n  ^Object");
+  ASSERT_TRUE(g.ok);
+  EXPECT_TRUE(disassemble(g.image).find("PushGlobal") != std::string::npos);
+}
+
+TEST(Codegen, ErrorSpanOnDanglingBinary) {
+  auto r = compileMethod("foo\n  ^1 +");
+  EXPECT_FALSE(r.ok);
+  EXPECT_GT(r.error.span.end, r.error.span.start);
+}
