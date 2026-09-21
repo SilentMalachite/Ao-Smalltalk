@@ -11,6 +11,12 @@ namespace ao {
 
 Gc::Gc(Heap& heap, Roots& roots) : heap_(&heap), roots_(&roots) {}
 
+void Gc::safepoint() {
+  if (heap_->nurseryRemaining() < heap_->nurseryCapacity() / 8) {
+    collectNursery();
+  }
+}
+
 Oop Gc::copy(Oop obj) {
   if (!obj.isHeap()) {
     return obj;

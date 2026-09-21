@@ -11,6 +11,7 @@ class Gc {
   Gc(Heap& heap, Roots& roots);
   void collectNursery();
   void collectOld();
+  void safepoint();
 
  private:
   Oop copy(Oop obj);

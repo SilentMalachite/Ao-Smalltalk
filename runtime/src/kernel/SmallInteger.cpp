@@ -1,0 +1,232 @@
+#include "ao/kernel/Install.hpp"
+
+#include "ao/Context.hpp"
+#include "ao/Gc.hpp"
+#include "ao/LargeInteger.hpp"
+#include "ao/Natives.hpp"
+#include "ao/Send.hpp"
+
+namespace ao {
+namespace {
+
+struct Root {
+  Roots& roots;
+  Oop slot;
+  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
+  ~Root() { roots.remove(&slot); }
+  Root(const Root&) = delete;
+  Root& operator=(const Root&) = delete;
+};
+
+Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags) {
+  Oop obj = ctx.heap.allocate(cls, size, flags);
+  if (obj.isHeap()) {
+    return obj;
+  }
+  Root held(ctx.roots, cls);
+  Gc gc(ctx.heap, ctx.roots);
+  gc.collectNursery();
+  return ctx.heap.allocate(held.slot, size, flags);
+}
+
+Oop div0(CallContext& ctx, Oop receiver) {
+  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, "division by zero");
+  return ao_Object_error_(ctx, receiver, &s, 1);
+}
+
+Oop asBool(bool v) { return v ? Oop::true_() : Oop::false_(); }
+
+bool bothInts(const WellKnown& wk, Oop a, Oop b) {
+  return LargeInteger::isInteger(wk, a) && LargeInteger::isInteger(wk, b);
+}
+
+}  // namespace
+
+Oop ao_SmallInteger_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  return LargeInteger::add(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_subtract(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  return LargeInteger::sub(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_multiply(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  return LargeInteger::mul(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_intDivide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  if (LargeInteger::isZero(ctx.heap, ctx.wk, args[0])) {
+    return div0(ctx, receiver);
+  }
+  return LargeInteger::floorDiv(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_modulo(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  if (LargeInteger::isZero(ctx.heap, ctx.wk, args[0])) {
+    return div0(ctx, receiver);
+  }
+  return LargeInteger::modulo(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_quo_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  if (LargeInteger::isZero(ctx.heap, ctx.wk, args[0])) {
+    return div0(ctx, receiver);
+  }
+  return LargeInteger::truncDiv(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_rem_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  if (LargeInteger::isZero(ctx.heap, ctx.wk, args[0])) {
+    return div0(ctx, receiver);
+  }
+  return LargeInteger::remainder(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_bitAnd_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  return LargeInteger::bitAnd(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_bitOr_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  return LargeInteger::bitOr(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_bitXor_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  return LargeInteger::bitXor(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_bitShift_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !LargeInteger::isInteger(ctx.wk, receiver) ||
+      !LargeInteger::isInteger(ctx.wk, args[0])) {
+    return Oop{};
+  }
+  return LargeInteger::bitShift(ctx, receiver, args[0]);
+}
+
+Oop ao_Integer_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  if (!bothInts(ctx.wk, receiver, args[0])) {
+    return Oop::false_();
+  }
+  return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) == 0);
+}
+
+Oop ao_Integer_lessThan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+    return Oop{};
+  }
+  return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) < 0);
+}
+
+Oop ao_Integer_to_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  Root start(ctx.roots, receiver);
+  Root stop(ctx.roots, args[0]);
+  Oop iv = allocateRetry(ctx, ctx.wk.intervalClass, 3, 0);
+  if (!iv.isHeap()) {
+    return Oop{};
+  }
+  ctx.heap.slotAtPut(iv, 0, start.slot);
+  ctx.heap.slotAtPut(iv, 1, stop.slot);
+  ctx.heap.slotAtPut(iv, 2, Oop::fromSmallInteger(1));
+  return iv;
+}
+
+Oop ao_Integer_to_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 2 || !receiver.isSmallInteger() || !args[0].isSmallInteger()) {
+    return Oop{};
+  }
+  const auto start = receiver.smallIntegerValue();
+  const auto stop = args[0].smallIntegerValue();
+  Root blk(ctx.roots, args[1]);
+  Gc gc(ctx.heap, ctx.roots);
+  for (std::int64_t i = start; i <= stop; ++i) {
+    Oop n = Oop::fromSmallInteger(i);
+    send(ctx, blk.slot, ctx.wk.selValue_, &n, 1, nullptr);
+    if ((i & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
+  }
+  return receiver;
+}
+
+Oop ao_Integer_asCharacter(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0 || !receiver.isSmallInteger()) {
+    return Oop{};
+  }
+  const auto v = receiver.smallIntegerValue();
+  if (v < 0 || v > 0x10FFFF) {
+    return Oop{};
+  }
+  return Oop::fromCharacter(static_cast<char32_t>(v));
+}
+
+namespace kernel {
+
+void installInteger(Heap& heap, WellKnown& wk) {
+  struct Spec {
+    const char* selector;
+    std::uint32_t argc;
+    const char* name;
+    NativeFn fn;
+  };
+  const Spec specs[] = {
+      {"+", 1, "ao_SmallInteger_add", ao_SmallInteger_add},
+      {"-", 1, "ao_Integer_subtract", ao_Integer_subtract},
+      {"*", 1, "ao_Integer_multiply", ao_Integer_multiply},
+      {"//", 1, "ao_Integer_intDivide", ao_Integer_intDivide},
+      {"\\\\", 1, "ao_Integer_modulo", ao_Integer_modulo},
+      {"quo:", 1, "ao_Integer_quo_", ao_Integer_quo_},
+      {"rem:", 1, "ao_Integer_rem_", ao_Integer_rem_},
+      {"bitAnd:", 1, "ao_Integer_bitAnd_", ao_Integer_bitAnd_},
+      {"bitOr:", 1, "ao_Integer_bitOr_", ao_Integer_bitOr_},
+      {"bitXor:", 1, "ao_Integer_bitXor_", ao_Integer_bitXor_},
+      {"bitShift:", 1, "ao_Integer_bitShift_", ao_Integer_bitShift_},
+      {"=", 1, "ao_Integer_equals", ao_Integer_equals},
+      {"<", 1, "ao_Integer_lessThan", ao_Integer_lessThan},
+      {"to:", 1, "ao_Integer_to_", ao_Integer_to_},
+      {"to:do:", 2, "ao_Integer_to_do_", ao_Integer_to_do_},
+      {"/", 1, "ao_Integer_divide", ao_Integer_divide},
+      {"asCharacter", 0, "ao_Integer_asCharacter", ao_Integer_asCharacter},
+  };
+  for (const auto& s : specs) {
+    putNative(heap, wk, wk.integerClass, s.selector, s.argc, s.name, s.fn);
+  }
+  putNative(heap, wk, wk.smallIntegerClass, "+", 1, "ao_SmallInteger_add", ao_SmallInteger_add);
+}
+
+}  // namespace kernel
+}  // namespace ao

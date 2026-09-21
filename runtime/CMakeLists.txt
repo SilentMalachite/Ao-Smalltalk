@@ -21,13 +21,17 @@ add_library(ao_runtime
   src/MethodDictionary.cpp
   src/NativeMethod.cpp
   src/Lookup.cpp
-  src/Natives.cpp
   src/Send.cpp
   src/kernel/Install.cpp
   src/kernel/BlockContext.cpp
   src/kernel/Object.cpp
   src/kernel/Boolean.cpp
   src/kernel/Behavior.cpp
+  src/kernel/Magnitude.cpp
+  src/kernel/SmallInteger.cpp
+  src/kernel/LargeInteger.cpp
+  src/kernel/Float.cpp
+  src/kernel/Character.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -54,6 +58,7 @@ add_executable(ao_runtime_tests
   tests/native_send_test.cpp
   tests/object_boolean_test.cpp
   tests/behavior_test.cpp
+  tests/smallinteger_arith_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

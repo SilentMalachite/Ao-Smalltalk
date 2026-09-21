@@ -110,6 +110,12 @@ std::size_t Heap::oldUsed() const {
   return static_cast<std::size_t>(oldBump_ - oldStart_);
 }
 
+std::size_t Heap::nurseryRemaining() const {
+  return static_cast<std::size_t>(fromEnd_ - fromBump_);
+}
+
+std::size_t Heap::nurseryCapacity() const { return nurseryHalf_; }
+
 void Heap::flipNursery() {
   std::swap(fromStart_, toStart_);
   std::swap(fromEnd_, toEnd_);

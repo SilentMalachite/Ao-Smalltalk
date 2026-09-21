@@ -50,5 +50,6 @@ Oop ao_UndefinedObject_ifNotNil_(CallContext& ctx, Oop receiver, const Oop* args
                                  std::uint32_t argc);
 
 Oop ao_SmallInteger_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
+Oop ao_Integer_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
 
 }  // namespace ao

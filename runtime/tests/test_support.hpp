@@ -31,3 +31,8 @@ inline ao::Oop send1(Boot& b, ao::Oop rcvr, const char* sel, ao::Oop a0) {
   auto s = ao::Symbol::intern(b.wk, sel);
   return ao::send(b.ctx, rcvr, s, &a0, 1, nullptr);
 }
+inline ao::Oop send2(Boot& b, ao::Oop rcvr, const char* sel, ao::Oop a0, ao::Oop a1) {
+  auto s = ao::Symbol::intern(b.wk, sel);
+  ao::Oop args[2] = {a0, a1};
+  return ao::send(b.ctx, rcvr, s, args, 2, nullptr);
+}

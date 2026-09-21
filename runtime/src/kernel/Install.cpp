@@ -3,7 +3,6 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
 #include "ao/MethodDictionary.hpp"
-#include "ao/Natives.hpp"
 #include "ao/Symbol.hpp"
 
 namespace ao {
@@ -28,7 +27,10 @@ void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   installObject(heap, wk);
   installBoolean(heap, wk);
   installBehavior(heap, wk);
-  putNative(heap, wk, wk.smallIntegerClass, "+", 1, "ao_SmallInteger_add", ao_SmallInteger_add);
+  installMagnitude(heap, wk);
+  installInteger(heap, wk);
+  installCharacter(heap, wk);
+  installFloat(heap, wk);
   putNative(heap, wk, wk.blockContextClass, "value", 0, "ao_BlockContext_value",
             ao_BlockContext_value);
   putNative(heap, wk, wk.blockContextClass, "value:", 1, "ao_BlockContext_value_",

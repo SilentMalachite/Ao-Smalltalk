@@ -25,6 +25,15 @@ ao_<Class>_<selectorMangled>
 | `=` | `equals` | `ao_Object_equals` |
 | `class` | `class` | `ao_Object_class` |
 | `+` | `add` | `ao_SmallInteger_add` |
+| `-` | `subtract` | `ao_Integer_subtract` |
+| `*` | `multiply` | `ao_Integer_multiply` |
+| `//` | `intDivide` | `ao_Integer_intDivide` |
+| `\\` | `modulo` | `ao_Integer_modulo` |
+| `/` | `divide` | `ao_Float_divide` |
+| `<` | `lessThan` | `ao_Integer_lessThan` |
+| `>` | `greaterThan` | `ao_Magnitude_greaterThan` |
+| `<=` | `lessOrEqual` | `ao_Magnitude_lessOrEqual` |
+| `>=` | `greaterOrEqual` | `ao_Magnitude_greaterOrEqual` |
 | `&` | `and` | `ao_True_and` |
 | `\|` | `or` | `ao_True_or` |
 | `doesNotUnderstand:` | `doesNotUnderstand_` | `ao_Object_doesNotUnderstand_` |
