@@ -654,15 +654,15 @@
     "semantic_hash": "d7173bda7f855e2ebb832bfe38c58058"
   },
   "runtime/include/ao/Heap.hpp": {
-    "mtime": 1789959499.4347916,
-    "seen": 1789959585.064745,
-    "ast_hash": "d8b1af0c8faa4e58fa495174c4a53c92",
+    "mtime": 1789962310.094553,
+    "seen": 1789962388.264606,
+    "ast_hash": "a34c6af423a1e719a4cafb2ee130ded9",
     "semantic_hash": ""
   },
   "runtime/src/Heap.cpp": {
-    "mtime": 1789959499.4350822,
-    "seen": 1789959585.064748,
-    "ast_hash": "3aae0a61d533cc59075b40b679bcf96b",
+    "mtime": 1789962315.4085498,
+    "seen": 1789962388.26461,
+    "ast_hash": "650a75d64441920a2345b205b9b1c7b2",
     "semantic_hash": ""
   },
   "runtime/tests/heap_alloc_test.cpp": {
@@ -672,21 +672,21 @@
     "semantic_hash": "fcce2e45135cd33a893ec24621f246ae"
   },
   "runtime/include/ao/Gc.hpp": {
-    "mtime": 1789960811.0772817,
-    "seen": 1789960847.241503,
-    "ast_hash": "0aba2fde0d278b15381c012532729289",
+    "mtime": 1789962347.4955842,
+    "seen": 1789962388.264606,
+    "ast_hash": "1ffcc135bf78ebc17d9e67e187811bd8",
     "semantic_hash": ""
   },
   "runtime/src/Gc.cpp": {
-    "mtime": 1789960822.6440845,
-    "seen": 1789960847.241508,
-    "ast_hash": "47813742a8c1a8758078e16ecddb5669",
+    "mtime": 1789962351.8063617,
+    "seen": 1789962388.264609,
+    "ast_hash": "009ba3ce16ae0115f5017a50f641b8ec",
     "semantic_hash": ""
   },
   "runtime/tests/gc_test.cpp": {
-    "mtime": 1789960747.0361106,
-    "seen": 1789960847.241513,
-    "ast_hash": "4539fd1ddef74b91b471db5bf66c001a",
+    "mtime": 1789962310.1082027,
+    "seen": 1789962388.2646139,
+    "ast_hash": "b2826a760484c7cb24936a27fb0d39f1",
     "semantic_hash": ""
   },
   ".serena/memories/abi_boundary.md": {
