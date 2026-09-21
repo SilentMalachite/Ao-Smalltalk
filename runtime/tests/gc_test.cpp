@@ -11,19 +11,13 @@ TEST(GcNursery, UnrootedObjectIsReclaimed) {
   ao::Gc gc(heap, roots);
   auto keep = heap.allocate(ao::Oop::nil(), 1, 0);
   ASSERT_TRUE(keep.isHeap());
+  const auto keepBytes = heap.objectBytes(heap.header(keep));
   roots.add(&keep);
   (void)heap.allocate(ao::Oop::nil(), 1, 0);  // unrooted garbage
   gc.collectNursery();
   ASSERT_TRUE(keep.isHeap());
   EXPECT_TRUE(heap.inOld(keep));
-  // fill nursery; must succeed because garbage was reclaimed
-  int allocated = 0;
-  for (int i = 0; i < 20; ++i) {
-    auto o = heap.allocate(ao::Oop::nil(), 1, 0);
-    if (!o.isHeap()) break;
-    ++allocated;
-  }
-  EXPECT_GT(allocated, 0);
+  EXPECT_EQ(keepBytes, heap.oldUsed());
 }
 
 TEST(GcNursery, RootedObjectSurvivesAndSlotsUpdate) {
@@ -50,6 +44,70 @@ TEST(GcNursery, ImmediateClassIsNotFollowed) {
   roots.add(&obj);
   gc.collectNursery();
   EXPECT_TRUE(heap.klass(obj).isNil());
+}
+
+TEST(GcNursery, OldToNurseryChildSurvives) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto obj = heap.allocate(ao::Oop::nil(), 1, 0);
+  roots.add(&obj);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(obj));
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(child.isHeap());
+  void* childBefore = child.heapPointer();
+  heap.slotAtPut(obj, 0, child);
+  gc.collectNursery();
+  auto moved = heap.slotAt(obj, 0);
+  ASSERT_TRUE(moved.isHeap());
+  EXPECT_TRUE(heap.inOld(moved));
+  EXPECT_NE(moved.heapPointer(), childBefore);
+}
+
+TEST(GcNursery, DeadOldSlotIsNotANurseryRoot) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto dead = heap.allocate(ao::Oop::nil(), 1, 0);
+  roots.add(&dead);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(dead));
+  const auto deadBytes = heap.oldUsed();
+  roots.remove(&dead);
+
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(child.isHeap());
+  heap.slotAtPut(dead, 0, child);
+
+  auto keep = heap.allocate(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(keep.isHeap());
+  const auto keepBytes = heap.objectBytes(heap.header(keep));
+  roots.add(&keep);
+  gc.collectNursery();
+  ASSERT_TRUE(keep.isHeap());
+  EXPECT_TRUE(heap.inOld(keep));
+  EXPECT_EQ(deadBytes + keepBytes, heap.oldUsed());
+}
+
+TEST(GcNursery, OldOomDoesNotClobberRoot) {
+  ao::Heap heap(512, 24);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto first = heap.allocate(ao::Oop::nil(), 1, 0);
+  ASSERT_TRUE(first.isHeap());
+  roots.add(&first);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(first));
+
+  auto second = heap.allocate(ao::Oop::nil(), 1, 0);
+  ASSERT_TRUE(second.isHeap());
+  void* secondBefore = second.heapPointer();
+  roots.add(&second);
+  gc.collectNursery();
+  EXPECT_TRUE(second.isHeap());
+  EXPECT_EQ(secondBefore, second.heapPointer());
+  EXPECT_TRUE(heap.inOld(first));
 }
 
 TEST(GcNursery, SharedChildCopiedOnce) {
@@ -163,4 +221,5 @@ TEST(GcRoots, StackWalkerKeepsObject) {
       &stackObj);
   gc.collectNursery();
   ASSERT_TRUE(stackObj.isHeap());
+  EXPECT_TRUE(heap.inOld(stackObj));
 }

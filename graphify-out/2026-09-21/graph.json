@@ -211,10 +211,23 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "gc",
       "source_file": "runtime/include/ao/Gc.hpp",
+      "source_location": "L9"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots",
+      "label": "Roots",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "roots",
+      "source_file": "runtime/include/ao/Roots.hpp",
       "source_location": "L10"
     },
     {
@@ -244,19 +257,6 @@
       "source_location": "L4"
     },
     {
-      "id": "runtime_include_ao_heap_objectheader",
-      "label": "ObjectHeader",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 20,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "objectheader",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L18"
-    },
-    {
       "id": "runtime_include_ao_heap_heap",
       "label": "Heap",
       "_callable": true,
@@ -268,6 +268,19 @@
       "norm_label": "heap",
       "source_file": "runtime/include/ao/Heap.hpp",
       "source_location": "L26"
+    },
+    {
+      "id": "runtime_include_ao_heap_objectheader",
+      "label": "ObjectHeader",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "objectheader",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L18"
     },
     {
       "id": "runtime_include_ao_oop_oop",
@@ -283,88 +296,16 @@
       "source_location": "L7"
     },
     {
-      "id": "runtime_include_ao_oop_oop_fromheap",
-      "label": ".fromHeap()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": ".fromheap()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L27"
-    },
-    {
-      "id": "runtime_include_ao_oop_oop_heappointer",
-      "label": ".heapPointer()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": ".heappointer()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L46"
-    },
-    {
-      "id": "runtime_include_ao_oop_oop_isheap",
-      "label": ".isHeap()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": ".isheap()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L40"
-    },
-    {
-      "id": "runtime_src_gc_gc_addroot",
-      "label": "Gc::addRoot()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": "gc::addroot()",
-      "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L13"
-    },
-    {
       "id": "runtime_src_gc_gc_collectnursery",
       "label": "Gc::collectNursery()",
       "_callable": true,
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "gc::collectnursery()",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L53"
-    },
-    {
-      "id": "runtime_src_gc_gc_collectold",
-      "label": "Gc::collectOld()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": "gc::collectold()",
-      "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L98"
-    },
-    {
-      "id": "runtime_src_gc_gc_copy",
-      "label": "Gc::copy()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": "gc::copy()",
-      "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L19"
+      "source_location": "L46"
     },
     {
       "id": "runtime_src_gc_gc_gc",
@@ -372,119 +313,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "gc::gc()",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L11"
-    },
-    {
-      "id": "runtime_src_gc_gc_removeroot",
-      "label": "Gc::removeRoot()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": "gc::removeroot()",
-      "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L15"
-    },
-    {
-      "id": "runtime_include_ao_oop_oop_nil",
-      "label": ".nil()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": ".nil()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L24"
-    },
-    {
-      "id": "runtime_src_heap_heap_allocate",
-      "label": "Heap::allocate()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "heap::allocate()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L32"
-    },
-    {
-      "id": "runtime_src_heap_heap_flags",
-      "label": "Heap::flags()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "heap::flags()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L68"
-    },
-    {
-      "id": "runtime_src_heap_heap_hash",
-      "label": "Heap::hash()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "heap::hash()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L70"
-    },
-    {
-      "id": "runtime_src_heap_heap_klass",
-      "label": "Heap::klass()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "heap::klass()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L64"
-    },
-    {
-      "id": "runtime_src_heap_heap_size",
-      "label": "Heap::size()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "heap::size()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L66"
-    },
-    {
-      "id": "runtime_src_heap_heap_slotat",
-      "label": "Heap::slotAt()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "heap::slotat()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L72"
-    },
-    {
-      "id": "runtime_src_heap_heap_slotatput",
-      "label": "Heap::slotAtPut()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "heap::slotatput()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L80"
+      "source_location": "L10"
     },
     {
       "id": "app_aotests_smoketests_smoketests_testplaceholdertypeexists",
@@ -511,18 +344,6 @@
       "source_location": "L6"
     },
     {
-      "id": "runtime_src_heap_heap_header",
-      "label": "Heap::header()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 20,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "heap::header()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L56"
-    },
-    {
       "id": "runtime_tests_gc_test_test",
       "label": "TEST()",
       "_callable": true,
@@ -532,7 +353,7 @@
       "file_type": "code",
       "norm_label": "test()",
       "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L7"
+      "source_location": "L8"
     },
     {
       "id": "runtime_tests_heap_alloc_test_test",
@@ -545,30 +366,6 @@
       "norm_label": "test()",
       "source_file": "runtime/tests/heap_alloc_test.cpp",
       "source_location": "L6"
-    },
-    {
-      "id": "runtime_include_ao_oop_oop_fromsmallinteger",
-      "label": ".fromSmallInteger()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 41,
-      "community_name": "int64_t",
-      "file_type": "code",
-      "norm_label": ".fromsmallinteger()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L14"
-    },
-    {
-      "id": "runtime_include_ao_oop_oop_smallintegervalue",
-      "label": ".smallIntegerValue()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 41,
-      "community_name": "int64_t",
-      "file_type": "code",
-      "norm_label": ".smallintegervalue()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L42"
     },
     {
       "id": "runtime_include_ao_oop_oop_charactervalue",
@@ -605,6 +402,42 @@
       "norm_label": ".fromcharacter()",
       "source_file": "runtime/include/ao/Oop.hpp",
       "source_location": "L19"
+    },
+    {
+      "id": "runtime_include_ao_oop_oop_fromheap",
+      "label": ".fromHeap()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": ".fromheap()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L27"
+    },
+    {
+      "id": "runtime_include_ao_oop_oop_fromsmallinteger",
+      "label": ".fromSmallInteger()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": ".fromsmallinteger()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L14"
+    },
+    {
+      "id": "runtime_include_ao_oop_oop_heappointer",
+      "label": ".heapPointer()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": ".heappointer()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L46"
     },
     {
       "id": "runtime_include_ao_oop_oop_immediate",
@@ -655,6 +488,18 @@
       "source_location": "L38"
     },
     {
+      "id": "runtime_include_ao_oop_oop_isheap",
+      "label": ".isHeap()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": ".isheap()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L40"
+    },
+    {
       "id": "runtime_include_ao_oop_oop_isimmediate",
       "label": ".isImmediate()",
       "_callable": true,
@@ -703,6 +548,18 @@
       "source_location": "L37"
     },
     {
+      "id": "runtime_include_ao_oop_oop_nil",
+      "label": ".nil()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": ".nil()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L24"
+    },
+    {
       "id": "runtime_include_ao_oop_oop_operator",
       "label": ".operator==()",
       "_callable": true,
@@ -715,6 +572,18 @@
       "source_location": "L48"
     },
     {
+      "id": "runtime_include_ao_oop_oop_smallintegervalue",
+      "label": ".smallIntegerValue()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": ".smallintegervalue()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L42"
+    },
+    {
       "id": "runtime_include_ao_oop_oop_true",
       "label": ".true_()",
       "_callable": true,
@@ -725,6 +594,150 @@
       "norm_label": ".true_()",
       "source_file": "runtime/include/ao/Oop.hpp",
       "source_location": "L26"
+    },
+    {
+      "id": "runtime_src_gc_gc_collectold",
+      "label": "Gc::collectOld()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "gc::collectold()",
+      "source_file": "runtime/src/Gc.cpp",
+      "source_location": "L93"
+    },
+    {
+      "id": "runtime_src_gc_gc_copy",
+      "label": "Gc::copy()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "gc::copy()",
+      "source_file": "runtime/src/Gc.cpp",
+      "source_location": "L12"
+    },
+    {
+      "id": "runtime_src_heap_align8",
+      "label": "align8()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "align8()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L9"
+    },
+    {
+      "id": "runtime_src_heap_heap_allocate",
+      "label": "Heap::allocate()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::allocate()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L32"
+    },
+    {
+      "id": "runtime_src_heap_heap_bytes",
+      "label": "Heap::bytes()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::bytes()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L88"
+    },
+    {
+      "id": "runtime_src_heap_heap_containsnurseryfrom",
+      "label": "Heap::containsNurseryFrom()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::containsnurseryfrom()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L125"
+    },
+    {
+      "id": "runtime_src_heap_heap_fitsold",
+      "label": "Heap::fitsOld()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::fitsold()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L130"
+    },
+    {
+      "id": "runtime_src_heap_heap_flags",
+      "label": "Heap::flags()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::flags()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L68"
+    },
+    {
+      "id": "runtime_src_heap_heap_flipnursery",
+      "label": "Heap::flipNursery()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::flipnursery()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L109"
+    },
+    {
+      "id": "runtime_src_heap_heap_hash",
+      "label": "Heap::hash()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::hash()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L70"
+    },
+    {
+      "id": "runtime_src_heap_heap_header",
+      "label": "Heap::header()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::header()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L56"
+    },
+    {
+      "id": "runtime_src_heap_heap_heap",
+      "label": "Heap::Heap()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::heap()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L11"
     },
     {
       "id": "runtime_src_heap_heap_innursery",
@@ -751,84 +764,24 @@
       "source_location": "L101"
     },
     {
-      "id": "runtime_src_heap_align8",
-      "label": "align8()",
+      "id": "runtime_src_heap_heap_klass",
+      "label": "Heap::klass()",
       "_callable": true,
       "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
+      "community": 7,
+      "community_name": "Oop",
       "file_type": "code",
-      "norm_label": "align8()",
+      "norm_label": "heap::klass()",
       "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L9"
-    },
-    {
-      "id": "runtime_src_heap_heap_bytes",
-      "label": "Heap::bytes()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
-      "file_type": "code",
-      "norm_label": "heap::bytes()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L88"
-    },
-    {
-      "id": "runtime_src_heap_heap_containsnurseryfrom",
-      "label": "Heap::containsNurseryFrom()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
-      "file_type": "code",
-      "norm_label": "heap::containsnurseryfrom()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L125"
-    },
-    {
-      "id": "runtime_src_heap_heap_fitsold",
-      "label": "Heap::fitsOld()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
-      "file_type": "code",
-      "norm_label": "heap::fitsold()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L130"
-    },
-    {
-      "id": "runtime_src_heap_heap_flipnursery",
-      "label": "Heap::flipNursery()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
-      "file_type": "code",
-      "norm_label": "heap::flipnursery()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L109"
-    },
-    {
-      "id": "runtime_src_heap_heap_heap",
-      "label": "Heap::Heap()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
-      "file_type": "code",
-      "norm_label": "heap::heap()",
-      "source_file": "runtime/src/Heap.cpp",
-      "source_location": "L11"
+      "source_location": "L64"
     },
     {
       "id": "runtime_src_heap_heap_objectbytes",
       "label": "Heap::objectBytes()",
       "_callable": true,
       "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
+      "community": 7,
+      "community_name": "Oop",
       "file_type": "code",
       "norm_label": "heap::objectbytes()",
       "source_file": "runtime/src/Heap.cpp",
@@ -839,8 +792,8 @@
       "label": "Heap::reserveOld()",
       "_callable": true,
       "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
+      "community": 7,
+      "community_name": "Oop",
       "file_type": "code",
       "norm_label": "heap::reserveold()",
       "source_file": "runtime/src/Heap.cpp",
@@ -851,12 +804,132 @@
       "label": "Heap::reserveToSpace()",
       "_callable": true,
       "_origin": "ast",
-      "community": 8,
-      "community_name": "Heap.cpp",
+      "community": 7,
+      "community_name": "Oop",
       "file_type": "code",
       "norm_label": "heap::reservetospace()",
       "source_file": "runtime/src/Heap.cpp",
       "source_location": "L116"
+    },
+    {
+      "id": "runtime_src_heap_heap_size",
+      "label": "Heap::size()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::size()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L66"
+    },
+    {
+      "id": "runtime_src_heap_heap_slotat",
+      "label": "Heap::slotAt()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::slotat()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L72"
+    },
+    {
+      "id": "runtime_src_heap_heap_slotatput",
+      "label": "Heap::slotAtPut()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap::slotatput()",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L80"
+    },
+    {
+      "id": "runtime_src_roots_roots_add",
+      "label": "Roots::add()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::add()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L7"
+    },
+    {
+      "id": "runtime_src_roots_roots_drophandle",
+      "label": "Roots::dropHandle()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::drophandle()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L32"
+    },
+    {
+      "id": "runtime_src_roots_roots_handleat",
+      "label": "Roots::handleAt()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::handleat()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L41"
+    },
+    {
+      "id": "runtime_src_roots_roots_pushhandle",
+      "label": "Roots::pushHandle()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::pushhandle()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L18"
+    },
+    {
+      "id": "runtime_src_roots_roots_remove",
+      "label": "Roots::remove()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::remove()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L14"
+    },
+    {
+      "id": "runtime_src_roots_roots_setstackwalker",
+      "label": "Roots::setStackWalker()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::setstackwalker()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L48"
+    },
+    {
+      "id": "runtime_src_roots_roots_visitall",
+      "label": "Roots::visitAll()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "roots::visitall()",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L53"
     },
     {
       "id": "compiler_src_compiler_version",
@@ -1054,163 +1127,273 @@
       "label": "Gc.hpp",
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "gc.hpp",
       "source_file": "runtime/include/ao/Gc.hpp",
       "source_location": "L1"
     },
     {
-      "id": "runtime_include_ao_gc_gc_addroot",
-      "label": "addRoot",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": "addroot",
-      "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L13"
-    },
-    {
       "id": "runtime_include_ao_gc_gc_collectnursery",
       "label": "collectNursery",
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "collectnursery",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L15"
-    },
-    {
-      "id": "runtime_include_ao_gc_gc_collectold",
-      "label": "collectOld",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": "collectold",
-      "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L16"
+      "source_location": "L12"
     },
     {
       "id": "runtime_include_ao_gc_gc_copy",
       "label": "copy",
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "copy",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L19"
+      "source_location": "L16"
     },
     {
       "id": "runtime_include_ao_gc_gc_heap",
       "label": "heap_",
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "heap_",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L20"
+      "source_location": "L17"
     },
     {
       "id": "runtime_include_ao_gc_gc_oldcompacted",
       "label": "oldCompacted_",
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "oldcompacted_",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L22"
-    },
-    {
-      "id": "runtime_include_ao_gc_gc_removeroot",
-      "label": "removeRoot",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "file_type": "code",
-      "norm_label": "removeroot",
-      "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L14"
+      "source_location": "L19"
     },
     {
       "id": "runtime_include_ao_gc_gc_roots",
       "label": "roots_",
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "roots_",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L21"
+      "source_location": "L18"
+    },
+    {
+      "id": "runtime_include_ao_roots",
+      "label": "Roots.hpp",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "roots.hpp",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_include_ao_roots_hpp_stackwalker",
+      "label": "StackWalker",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "stackwalker",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_roots_hpp_uint32_t",
+      "label": "uint32_t",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "uint32_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_add",
+      "label": "add",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "add",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L12"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_drophandle",
+      "label": "dropHandle",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "drophandle",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L17"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_free",
+      "label": "free_",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "free_",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L30"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_handleat",
+      "label": "handleAt",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "handleat",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L18"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_handles",
+      "label": "handles_",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "handles_",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L28"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_live",
+      "label": "live_",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "live_",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L29"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_pushhandle",
+      "label": "pushHandle",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "pushhandle",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L16"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_remove",
+      "label": "remove",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "remove",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L13"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_setstackwalker",
+      "label": "setStackWalker",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "setstackwalker",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L22"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_slots",
+      "label": "slots_",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "slots_",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L27"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_visitall",
+      "label": "visitAll",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "visitall",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L24"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_walkerctx",
+      "label": "walkerCtx_",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "walkerctx_",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L32"
     },
     {
       "id": "runtime_src_gc",
       "label": "Gc.cpp",
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "gc.cpp",
       "source_file": "runtime/src/Gc.cpp",
       "source_location": "L1"
     },
     {
+      "id": "runtime_tests_gc_test",
+      "label": "gc_test.cpp",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "gc_test.cpp",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "uint8_t",
+      "label": "uint8_t",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "Roots",
+      "file_type": "code",
+      "norm_label": "uint8_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "vector",
       "label": "vector",
       "_origin": "ast",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "file_type": "code",
       "norm_label": "vector",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_header",
-      "label": "header",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "header",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L35"
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_objectbytes",
-      "label": "objectBytes",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "objectbytes",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L46"
-    },
-    {
-      "id": "runtime_src_heap_cpp_uint16_t",
-      "label": "uint16_t",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "uint16_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_heap_cpp_uint32_t",
-      "label": "uint32_t",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": "uint32_t",
       "source_file": "",
       "source_location": ""
     },
@@ -1638,6 +1821,39 @@
       "source_location": ""
     },
     {
+      "id": "runtime_include_ao_heap",
+      "label": "Heap.hpp",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "heap.hpp",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_include_ao_oop",
+      "label": "Oop.hpp",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "oop.hpp",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_tests_oop_tag_test",
+      "label": "oop_tag_test.cpp",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "oop_tag_test.cpp",
+      "source_file": "runtime/tests/oop_tag_test.cpp",
+      "source_location": "L1"
+    },
+    {
       "id": "smallintegerroundtrip",
       "label": "SmallIntegerRoundTrip",
       "_origin": "ast",
@@ -1647,72 +1863,6 @@
       "norm_label": "smallintegerroundtrip",
       "source_file": "",
       "source_location": ""
-    },
-    {
-      "id": "runtime_include_ao_heap_hpp_uint16_t",
-      "label": "uint16_t",
-      "_origin": "ast",
-      "community": 20,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "uint16_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_include_ao_heap_hpp_uint32_t",
-      "label": "uint32_t",
-      "_origin": "ast",
-      "community": 20,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "uint32_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_include_ao_heap_objectheader_flags",
-      "label": "flags",
-      "_origin": "ast",
-      "community": 20,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "flags",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L21"
-    },
-    {
-      "id": "runtime_include_ao_heap_objectheader_hash",
-      "label": "hash",
-      "_origin": "ast",
-      "community": 20,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "hash",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L22"
-    },
-    {
-      "id": "runtime_include_ao_heap_objectheader_klass",
-      "label": "klass",
-      "_origin": "ast",
-      "community": 20,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "klass",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L19"
-    },
-    {
-      "id": "runtime_include_ao_heap_objectheader_size",
-      "label": "size",
-      "_origin": "ast",
-      "community": 20,
-      "community_name": "ObjectHeader",
-      "file_type": "code",
-      "norm_label": "size",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L20"
     },
     {
       "id": "docs_prs_p9_03_files",
@@ -1882,39 +2032,6 @@
       "source_location": "L1"
     },
     {
-      "id": "runtime_include_ao_heap",
-      "label": "Heap.hpp",
-      "_origin": "ast",
-      "community": 26,
-      "community_name": "Heap.hpp",
-      "file_type": "code",
-      "norm_label": "heap.hpp",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_include_ao_oop",
-      "label": "Oop.hpp",
-      "_origin": "ast",
-      "community": 26,
-      "community_name": "Heap.hpp",
-      "file_type": "code",
-      "norm_label": "oop.hpp",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_tests_oop_tag_test",
-      "label": "oop_tag_test.cpp",
-      "_origin": "ast",
-      "community": 26,
-      "community_name": "Heap.hpp",
-      "file_type": "code",
-      "norm_label": "oop_tag_test.cpp",
-      "source_file": "runtime/tests/oop_tag_test.cpp",
-      "source_location": "L1"
-    },
-    {
       "id": "byteobjectpayload",
       "label": "ByteObjectPayload",
       "_origin": "ast",
@@ -1966,6 +2083,28 @@
       "community_name": "Heap",
       "file_type": "code",
       "norm_label": "gcold",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "gcroots",
+      "label": "GcRoots",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "Heap",
+      "file_type": "code",
+      "norm_label": "gcroots",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "handletablekeepsobject",
+      "label": "HandleTableKeepsObject",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "Heap",
+      "file_type": "code",
+      "norm_label": "handletablekeepsobject",
       "source_file": "",
       "source_location": ""
     },
@@ -2355,17 +2494,6 @@
       "source_location": ""
     },
     {
-      "id": "runtime_tests_gc_test",
-      "label": "gc_test.cpp",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "Heap",
-      "file_type": "code",
-      "norm_label": "gc_test.cpp",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L1"
-    },
-    {
       "id": "runtime_tests_heap_alloc_test",
       "label": "heap_alloc_test.cpp",
       "_origin": "ast",
@@ -2384,6 +2512,17 @@
       "community_name": "Heap",
       "file_type": "code",
       "norm_label": "sharedchildcopiedonce",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "stackwalkerkeepsobject",
+      "label": "StackWalkerKeepsObject",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "Heap",
+      "file_type": "code",
+      "norm_label": "stackwalkerkeepsobject",
       "source_file": "",
       "source_location": ""
     },
@@ -2472,12 +2611,122 @@
       "id": "int64_t",
       "label": "int64_t",
       "_origin": "ast",
-      "community": 41,
-      "community_name": "int64_t",
+      "community": 7,
+      "community_name": "Oop",
       "file_type": "code",
       "norm_label": "int64_t",
       "source_file": "",
       "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_gc_gc_collectold",
+      "label": "collectOld",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "collectold",
+      "source_file": "runtime/include/ao/Gc.hpp",
+      "source_location": "L13"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_fitsold",
+      "label": "fitsOld",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "fitsold",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L57"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_header",
+      "label": "header",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "header",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L35"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_objectbytes",
+      "label": "objectBytes",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "objectbytes",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L46"
+    },
+    {
+      "id": "runtime_include_ao_heap_hpp_uint16_t",
+      "label": "uint16_t",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "uint16_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_heap_hpp_uint32_t",
+      "label": "uint32_t",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "uint32_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_heap_objectheader_flags",
+      "label": "flags",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "flags",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L21"
+    },
+    {
+      "id": "runtime_include_ao_heap_objectheader_hash",
+      "label": "hash",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "hash",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L22"
+    },
+    {
+      "id": "runtime_include_ao_heap_objectheader_klass",
+      "label": "klass",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "klass",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L19"
+    },
+    {
+      "id": "runtime_include_ao_heap_objectheader_size",
+      "label": "size",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "size",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L20"
     },
     {
       "id": "runtime_include_ao_oop_oop_kchartag",
@@ -2535,6 +2784,61 @@
       "source_location": "L57"
     },
     {
+      "id": "runtime_src_heap",
+      "label": "Heap.cpp",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "heap.cpp",
+      "source_file": "runtime/src/Heap.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_heap_cpp_byte",
+      "label": "byte",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "byte",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_heap_cpp_size_t",
+      "label": "size_t",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "size_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_heap_cpp_uint16_t",
+      "label": "uint16_t",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "uint16_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_heap_cpp_uint32_t",
+      "label": "uint32_t",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Oop",
+      "file_type": "code",
+      "norm_label": "uint32_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "runtime_src_oop",
       "label": "Oop.cpp",
       "_origin": "ast",
@@ -2557,46 +2861,57 @@
       "source_location": ""
     },
     {
-      "id": "runtime_include_ao_heap_heap_fitsold",
-      "label": "fitsOld",
+      "id": "runtime_include_ao_roots_roots_walker",
+      "label": "walker_",
       "_origin": "ast",
       "community": 8,
-      "community_name": "Heap.cpp",
+      "community_name": "Roots.cpp",
       "file_type": "code",
-      "norm_label": "fitsold",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L57"
+      "norm_label": "walker_",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L31"
     },
     {
-      "id": "runtime_src_heap",
-      "label": "Heap.cpp",
+      "id": "runtime_src_roots",
+      "label": "Roots.cpp",
       "_origin": "ast",
       "community": 8,
-      "community_name": "Heap.cpp",
+      "community_name": "Roots.cpp",
       "file_type": "code",
-      "norm_label": "heap.cpp",
-      "source_file": "runtime/src/Heap.cpp",
+      "norm_label": "roots.cpp",
+      "source_file": "runtime/src/Roots.cpp",
       "source_location": "L1"
     },
     {
-      "id": "runtime_src_heap_cpp_byte",
-      "label": "byte",
+      "id": "runtime_src_roots_cpp_stackwalker",
+      "label": "StackWalker",
       "_origin": "ast",
       "community": 8,
-      "community_name": "Heap.cpp",
+      "community_name": "Roots.cpp",
       "file_type": "code",
-      "norm_label": "byte",
+      "norm_label": "stackwalker",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "runtime_src_heap_cpp_size_t",
-      "label": "size_t",
+      "id": "runtime_src_roots_cpp_uint32_t",
+      "label": "uint32_t",
       "_origin": "ast",
       "community": 8,
-      "community_name": "Heap.cpp",
+      "community_name": "Roots.cpp",
       "file_type": "code",
-      "norm_label": "size_t",
+      "norm_label": "uint32_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "visitfn",
+      "label": "VisitFn",
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "file_type": "code",
+      "norm_label": "visitfn",
       "source_file": "",
       "source_location": ""
     },
@@ -4100,21 +4415,6 @@
       "source_url": null
     },
     {
-      "id": "docs_prs_p1_05_roots_hpp",
-      "label": "runtime/include/ao/Roots.hpp",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "runtime/include/ao/roots.hpp",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_phases_p1_ao_oop",
       "label": "ao::Oop",
       "_origin": "semantic",
@@ -4235,96 +4535,6 @@
       "source_url": null
     },
     {
-      "id": "docs_prs_p1_04_gc_collectold",
-      "label": "Gc::collectOld()",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc::collectold()",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_nursery_gc",
-      "label": "nursery GC",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nursery gc",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_promotion",
-      "label": "old-generation promotion",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "old-generation promotion",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_gc",
-      "label": "Gc",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots",
-      "label": "Roots",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "roots",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots_add",
-      "label": "Roots::add(Oop*)",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "roots::add(oop*)",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_phases_p1",
       "label": "P1 \u2014 Object Memory",
       "_origin": "semantic",
@@ -4385,13 +4595,103 @@
       "source_url": null
     },
     {
+      "id": "docs_prs_p1_04_gc_collectold",
+      "label": "Gc::collectOld()",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 12,
+      "community_name": "Roots",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc::collectold()",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_nursery_gc",
+      "label": "nursery GC",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 12,
+      "community_name": "Roots",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nursery gc",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_promotion",
+      "label": "old-generation promotion",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 12,
+      "community_name": "Roots",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "old-generation promotion",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_gc",
+      "label": "Gc",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 12,
+      "community_name": "Roots",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_roots",
+      "label": "Roots",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 12,
+      "community_name": "Roots",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "roots",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_roots_add",
+      "label": "Roots::add(Oop*)",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 12,
+      "community_name": "Roots",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "roots::add(oop*)",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "docs_prs_p1_04_pr",
       "label": "P1-04 old-generation mark-compact",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
+      "community": 12,
+      "community_name": "Roots",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p1-04 old-generation mark-compact",
@@ -4405,8 +4705,8 @@
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
-      "community": 11,
-      "community_name": "P1 \u2014 Object Memory",
+      "community": 12,
+      "community_name": "Roots",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p1-05 gc root api",
@@ -5221,21 +5521,6 @@
       "file_type": "rationale",
       "norm_label": "no function-pointer fields in image",
       "source_file": "docs/prs/P7-01.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots_cpp",
-      "label": "runtime/src/Roots.cpp",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 27,
-      "community_name": "runtime/src/Roots.cpp",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "runtime/src/roots.cpp",
-      "source_file": "docs/prs/P1-05.md",
       "source_location": null,
       "source_url": null
     },
@@ -7055,14 +7340,38 @@
       "source_url": null
     },
     {
-      "id": "algorithm",
-      "label": "algorithm",
+      "id": "gc",
+      "label": "gc",
       "_origin": "semantic",
       "community": 12,
-      "community_name": "Gc.cpp",
+      "community_name": "Roots",
       "external": true,
       "file_type": "concept",
-      "norm_label": "algorithm",
+      "norm_label": "gc",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "unordered_map",
+      "label": "unordered_map",
+      "_origin": "semantic",
+      "community": 12,
+      "community_name": "Roots",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "unordered_map",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "unordered_set",
+      "label": "unordered_set",
+      "_origin": "semantic",
+      "community": 12,
+      "community_name": "Roots",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "unordered_set",
       "source_file": "",
       "type": "external"
     },
@@ -7070,8 +7379,8 @@
       "id": "cstddef",
       "label": "cstddef",
       "_origin": "semantic",
-      "community": 26,
-      "community_name": "Heap.hpp",
+      "community": 2,
+      "community_name": "TEST",
       "external": true,
       "file_type": "concept",
       "norm_label": "cstddef",
@@ -7082,8 +7391,8 @@
       "id": "cstdint",
       "label": "cstdint",
       "_origin": "semantic",
-      "community": 26,
-      "community_name": "Heap.hpp",
+      "community": 2,
+      "community_name": "TEST",
       "external": true,
       "file_type": "concept",
       "norm_label": "cstdint",
@@ -7094,23 +7403,11 @@
       "id": "memory",
       "label": "memory",
       "_origin": "semantic",
-      "community": 26,
-      "community_name": "Heap.hpp",
+      "community": 2,
+      "community_name": "TEST",
       "external": true,
       "file_type": "concept",
       "norm_label": "memory",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "gc",
-      "label": "gc",
-      "_origin": "semantic",
-      "community": 3,
-      "community_name": "Heap",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "gc",
       "source_file": "",
       "type": "external"
     },
@@ -7154,8 +7451,8 @@
       "id": "cassert",
       "label": "cassert",
       "_origin": "semantic",
-      "community": 8,
-      "community_name": "Heap.cpp",
+      "community": 7,
+      "community_name": "Oop",
       "external": true,
       "file_type": "concept",
       "norm_label": "cassert",
@@ -7166,11 +7463,23 @@
       "id": "utility",
       "label": "utility",
       "_origin": "semantic",
-      "community": 8,
-      "community_name": "Heap.cpp",
+      "community": 7,
+      "community_name": "Oop",
       "external": true,
       "file_type": "concept",
       "norm_label": "utility",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "algorithm",
+      "label": "algorithm",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "Roots.cpp",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "algorithm",
       "source_file": "",
       "type": "external"
     },
@@ -7219,28 +7528,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "runtime",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "unordered_map",
-      "label": "unordered_map",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "unordered_map",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "unordered_set",
-      "label": "unordered_set",
-      "community": 12,
-      "community_name": "Gc.cpp",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "unordered_set",
       "source_file": "",
       "type": "external"
     }
@@ -7327,7 +7614,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L154",
+      "source_location": "L151",
       "weight": 1.0
     },
     {
@@ -7339,7 +7626,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L47",
+      "source_location": "L40",
       "weight": 1.0
     },
     {
@@ -7380,30 +7667,6 @@
     },
     {
       "source": "runtime_include_ao_gc_gc",
-      "target": "runtime_include_ao_gc_gc_addroot",
-      "relation": "defines",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "field",
-      "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L13",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_include_ao_gc_gc",
-      "target": "runtime_include_ao_gc_gc_removeroot",
-      "relation": "defines",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "field",
-      "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L14",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_include_ao_gc_gc",
       "target": "runtime_include_ao_gc_gc_collectnursery",
       "relation": "defines",
       "_origin": "ast",
@@ -7411,7 +7674,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L15",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -7423,7 +7686,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L16",
+      "source_location": "L13",
       "weight": 1.0
     },
     {
@@ -7435,7 +7698,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L19",
+      "source_location": "L16",
       "weight": 1.0
     },
     {
@@ -7447,7 +7710,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L20",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
@@ -7459,7 +7722,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L21",
+      "source_location": "L18",
       "weight": 1.0
     },
     {
@@ -7471,7 +7734,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L22",
+      "source_location": "L19",
       "weight": 1.0
     },
     {
@@ -7943,6 +8206,162 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_add",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_remove",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_pushhandle",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_drophandle",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_handleat",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_setstackwalker",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_visitall",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_slots",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_handles",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_live",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_free",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_walker",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_roots_walkerctx",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_include_ao_gc_gc",
       "target": "runtime_include_ao_heap_heap",
       "relation": "references",
@@ -7951,19 +8370,19 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L20",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
       "source": "runtime_include_ao_gc_gc",
-      "target": "vector",
+      "target": "runtime_include_ao_roots_roots",
       "relation": "references",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L21",
+      "source_location": "L18",
       "weight": 1.0
     },
     {
@@ -8063,15 +8482,63 @@
       "weight": 1.0
     },
     {
-      "source": "runtime_include_ao_gc_gc",
+      "source": "runtime_include_ao_roots_roots",
+      "target": "vector",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_hpp_stackwalker",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
       "target": "runtime_include_ao_oop_oop",
       "relation": "references",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "generic_arg",
-      "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L21",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "uint8_t",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots_roots",
+      "target": "runtime_include_ao_roots_hpp_uint32_t",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L30",
       "weight": 1.0
     },
     {
@@ -8184,14 +8651,14 @@
     },
     {
       "source": "runtime_include_ao_gc",
-      "target": "vector",
+      "target": "runtime_include_ao_roots_roots",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L6",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -8252,6 +8719,42 @@
       "context": "import",
       "source_file": "runtime/include/ao/Oop.hpp",
       "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots",
+      "target": "cstdint",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots",
+      "target": "vector",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L6",
       "weight": 1.0
     },
     {
@@ -8328,7 +8831,7 @@
     },
     {
       "source": "runtime_src_gc",
-      "target": "algorithm",
+      "target": "cstring",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -8340,7 +8843,7 @@
     },
     {
       "source": "runtime_src_gc",
-      "target": "cstring",
+      "target": "unordered_map",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -8352,7 +8855,7 @@
     },
     {
       "source": "runtime_src_gc",
-      "target": "unordered_map",
+      "target": "unordered_set",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -8364,18 +8867,6 @@
     },
     {
       "source": "runtime_src_gc",
-      "target": "unordered_set",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L6",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_src_gc",
       "target": "vector",
       "relation": "imports",
       "_origin": "ast",
@@ -8383,7 +8874,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L7",
+      "source_location": "L6",
       "weight": 1.0
     },
     {
@@ -8444,6 +8935,30 @@
       "context": "import",
       "source_file": "runtime/src/Oop.cpp",
       "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots",
+      "target": "runtime_include_ao_roots_roots",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots",
+      "target": "algorithm",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L3",
       "weight": 1.0
     },
     {
@@ -8508,6 +9023,18 @@
     },
     {
       "source": "runtime_tests_gc_test",
+      "target": "runtime_include_ao_roots_roots",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test",
       "target": "gtest",
       "relation": "imports",
       "_origin": "ast",
@@ -8515,7 +9042,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L5",
+      "source_location": "L6",
       "weight": 1.0
     },
     {
@@ -8687,18 +9214,6 @@
       "weight": 1.0
     },
     {
-      "source": "runtime_src_gc_gc_addroot",
-      "target": "runtime_include_ao_oop_oop",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L13",
-      "weight": 1.0
-    },
-    {
       "source": "runtime_src_gc_gc_copy",
       "target": "runtime_include_ao_oop_oop",
       "relation": "references",
@@ -8707,7 +9222,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L19",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -8719,19 +9234,19 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L11",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
-      "source": "runtime_src_gc_gc_removeroot",
-      "target": "runtime_include_ao_oop_oop",
+      "source": "runtime_src_gc_gc_gc",
+      "target": "runtime_include_ao_roots_roots",
       "relation": "references",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L15",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
@@ -8987,87 +9502,87 @@
       "weight": 1.0
     },
     {
-      "source": "runtime_tests_gc_test_test",
-      "target": "rootedobjectsurvivesandslotsupdate",
+      "source": "runtime_src_roots_roots_add",
+      "target": "runtime_include_ao_oop_oop",
       "relation": "references",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "parameter_type",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L27",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "immediateclassisnotfollowed",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L42",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "sharedchildcopiedonce",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L51",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "byteobjectpayloadisnotscannedasoops",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L68",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "gcnursery",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L68",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "unrootedobjectisreclaimed",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "parameter_type",
-      "source_file": "runtime/tests/gc_test.cpp",
+      "source_file": "runtime/src/Roots.cpp",
       "source_location": "L7",
       "weight": 1.0
     },
     {
-      "source": "runtime_tests_gc_test_test",
-      "target": "nurserysurvivorispromoted",
+      "source": "runtime_src_roots_roots_drophandle",
+      "target": "runtime_src_roots_cpp_uint32_t",
       "relation": "references",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "parameter_type",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L86",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots_roots_handleat",
+      "target": "runtime_src_roots_cpp_uint32_t",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots_roots_pushhandle",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots_roots_remove",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots_roots_setstackwalker",
+      "target": "runtime_src_roots_cpp_stackwalker",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L48",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots_roots_visitall",
+      "target": "visitfn",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L53",
       "weight": 1.0
     },
     {
@@ -9079,7 +9594,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L99",
+      "source_location": "L106",
       "weight": 1.0
     },
     {
@@ -9091,7 +9606,127 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L99",
+      "source_location": "L106",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "handletablekeepsobject",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L142",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "gcroots",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L154",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "stackwalkerkeepsobject",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L154",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "rootedobjectsurvivesandslotsupdate",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "immediateclassisnotfollowed",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L45",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "sharedchildcopiedonce",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L55",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "byteobjectpayloadisnotscannedasoops",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L73",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "gcnursery",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L73",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "unrootedobjectisreclaimed",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "nurserysurvivorispromoted",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L92",
       "weight": 1.0
     },
     {
@@ -9380,6 +10015,30 @@
       "context": "return_type",
       "source_file": "runtime/src/Heap.cpp",
       "source_location": "L66",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots_roots_handleat",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "return_type",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots_roots_pushhandle",
+      "target": "runtime_src_roots_cpp_uint32_t",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "return_type",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L18",
       "weight": 1.0
     },
     {
@@ -9786,7 +10445,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/Gc.hpp",
-      "source_location": "L10",
+      "source_location": "L9",
       "weight": 1.0
     },
     {
@@ -9820,6 +10479,17 @@
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/Oop.hpp",
       "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_roots",
+      "target": "runtime_include_ao_roots_roots",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
@@ -9874,29 +10544,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L11",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_src_gc",
-      "target": "runtime_src_gc_gc_addroot",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L13",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_src_gc",
-      "target": "runtime_src_gc_gc_removeroot",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L15",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
@@ -9907,7 +10555,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L19",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -9918,7 +10566,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L53",
+      "source_location": "L46",
       "weight": 1.0
     },
     {
@@ -9929,7 +10577,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L98",
+      "source_location": "L93",
       "weight": 1.0
     },
     {
@@ -10142,6 +10790,83 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_src_roots",
+      "target": "runtime_src_roots_roots_remove",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots",
+      "target": "runtime_src_roots_roots_pushhandle",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots",
+      "target": "runtime_src_roots_roots_drophandle",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots",
+      "target": "runtime_src_roots_roots_handleat",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots",
+      "target": "runtime_src_roots_roots_setstackwalker",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L48",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots",
+      "target": "runtime_src_roots_roots_visitall",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L53",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots",
+      "target": "runtime_src_roots_roots_add",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_src_runtime",
       "target": "runtime_src_runtime_version_string",
       "relation": "contains",
@@ -10182,7 +10907,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L99",
+      "source_location": "L154",
       "weight": 1.0
     },
     {
@@ -11327,7 +12052,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L112",
+      "source_location": "L109",
       "weight": 1.0
     },
     {
@@ -11339,7 +12064,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L133",
+      "source_location": "L130",
       "weight": 1.0
     },
     {
@@ -11351,7 +12076,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L20",
+      "source_location": "L13",
       "weight": 1.0
     },
     {
@@ -11363,91 +12088,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L26",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "runtime_include_ao_heap_heap_allocate",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "context": "call",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L10",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "runtime_include_ao_heap_heap_inold",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "context": "call",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L16",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "runtime_include_ao_heap_heap_slotatput",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "context": "call",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L32",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "runtime_include_ao_heap_heap_slotat",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "context": "call",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L36",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "runtime_include_ao_heap_heap_klass",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "context": "call",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L48",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "runtime_include_ao_heap_heap_bytes",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "context": "call",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L73",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_tests_gc_test_test",
-      "target": "runtime_include_ao_heap_heap_size",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "context": "call",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L81",
+      "source_location": "L19",
       "weight": 1.0
     },
     {
@@ -11459,7 +12100,163 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L95",
+      "source_location": "L102",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_roots_roots_remove",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L115",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_heap_heap_allocate",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_roots_roots_add",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_roots_roots_pushhandle",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L147",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_roots_roots_handleat",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L149",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_roots_roots_setstackwalker",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L159",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_oop_oop_isheap",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L165",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_heap_heap_inold",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_heap_heap_slotatput",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_heap_heap_slotat",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L39",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_heap_heap_klass",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L52",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_heap_heap_bytes",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L79",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_gc_test_test",
+      "target": "runtime_include_ao_heap_heap_size",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L87",
       "weight": 1.0
     },
     {
@@ -11567,7 +12364,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L58",
+      "source_location": "L70",
       "weight": 1.0
     },
     {
@@ -11579,7 +12376,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "runtime/src/Gc.cpp",
-      "source_location": "L35",
+      "source_location": "L28",
       "weight": 1.0
     },
     {
@@ -11688,6 +12485,18 @@
       "context": "call",
       "source_file": "runtime/src/Heap.cpp",
       "source_location": "L81",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_roots_roots_visitall",
+      "target": "runtime_include_ao_roots_roots_walker",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "call",
+      "source_file": "runtime/src/Roots.cpp",
+      "source_location": "L68",
       "weight": 1.0
     },
     {
@@ -14137,7 +14946,7 @@
     },
     {
       "source": "docs_prs_p1_05_pr",
-      "target": "docs_prs_p1_05_roots_hpp",
+      "target": "runtime_include_ao_roots",
       "relation": "references",
       "_origin": "semantic",
       "confidence": "EXTRACTED",
@@ -15755,5 +16564,5 @@
       "source_file": "runtime/src/abi.cpp"
     }
   ],
-  "built_at_commit": "a0fe71b7b1031abf98407c8708c12d64b33571f8"
+  "built_at_commit": "46e22720fcd4b5cde62583118876738ff7b195b9"
 }

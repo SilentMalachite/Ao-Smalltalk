@@ -47,6 +47,7 @@ class Heap {
 
   bool inNursery(Oop obj) const;
   bool inOld(Oop obj) const;
+  std::size_t oldUsed() const;
 
   friend class Gc;
 

@@ -1,5 +1,6 @@
 #include "ao/Gc.hpp"
 
+#include <cstdint>
 #include <cstring>
 #include <unordered_map>
 #include <unordered_set>
@@ -27,12 +28,14 @@ Oop Gc::copy(Oop obj) {
   if (!heap_->fitsOld(n)) {
     collectOld();
     if (!heap_->fitsOld(n)) {
-      return Oop{};
+      failed_ = true;
+      return obj;
     }
   }
   std::byte* dest = heap_->reserveOld(n);
   if (dest == nullptr) {
-    return Oop{};
+    failed_ = true;
+    return obj;
   }
   std::memcpy(dest, h, n);
   auto* nh = reinterpret_cast<ObjectHeader*>(dest);
@@ -44,50 +47,73 @@ Oop Gc::copy(Oop obj) {
 }
 
 void Gc::collectNursery() {
-  oldCompacted_ = false;
-  std::byte* scan = heap_->oldBump_;
+  failed_ = false;
+  do {
+    oldCompacted_ = false;
+    scavengeFromRoots();
+  } while (oldCompacted_ && !failed_);
+  if (!failed_) {
+    heap_->flipNursery();
+  }
+}
+
+void Gc::scavengeFromRoots() {
+  std::vector<Oop> stack;
+  std::unordered_set<std::uintptr_t> visited;
+
+  struct Ctx {
+    Gc* gc;
+    std::vector<Oop>* stack;
+  } ctx{this, &stack};
+
   roots_->visitAll(
-      [](void* ctx, Oop* slot) {
-        if (slot != nullptr) {
-          *slot = static_cast<Gc*>(ctx)->copy(*slot);
+      [](void* v, Oop* slot) {
+        auto* c = static_cast<Ctx*>(v);
+        if (slot == nullptr || c->gc->failed_) {
+          return;
+        }
+        *slot = c->gc->copy(*slot);
+        if (c->gc->failed_ || c->gc->oldCompacted_) {
+          return;
+        }
+        if (slot->isHeap()) {
+          c->stack->push_back(*slot);
         }
       },
-      this);
-  auto restartIfCompacted = [&]() {
-    if (!oldCompacted_) {
-      return false;
-    }
-    oldCompacted_ = false;
-    scan = heap_->oldStart_;
-    return true;
-  };
-  restartIfCompacted();
-  while (scan < heap_->oldBump_) {
-    auto* h = reinterpret_cast<ObjectHeader*>(scan);
-    const std::size_t n = heap_->objectBytes(h);
-    const bool bytes = (h->flags & kFlagBytes) != 0;
-    const std::uint32_t sz = h->size;
-    h->klass = copy(h->klass);
-    if (restartIfCompacted()) {
+      &ctx);
+
+  while (!stack.empty() && !failed_ && !oldCompacted_) {
+    Oop obj = stack.back();
+    stack.pop_back();
+    if (!obj.isHeap() || !heap_->inOld(obj)) {
       continue;
     }
-    if (!bytes) {
-      auto* slots = reinterpret_cast<Oop*>(h + 1);
-      bool restarted = false;
-      for (std::uint32_t i = 0; i < sz; ++i) {
-        slots[i] = copy(slots[i]);
-        if (restartIfCompacted()) {
-          restarted = true;
-          break;
-        }
+    auto key = reinterpret_cast<std::uintptr_t>(obj.heapPointer());
+    if (!visited.insert(key).second) {
+      continue;
+    }
+    ObjectHeader* h = heap_->header(obj);
+    h->klass = copy(h->klass);
+    if (failed_ || oldCompacted_) {
+      return;
+    }
+    if (h->klass.isHeap()) {
+      stack.push_back(h->klass);
+    }
+    if ((h->flags & kFlagBytes) != 0) {
+      continue;
+    }
+    auto* slots = reinterpret_cast<Oop*>(h + 1);
+    for (std::uint32_t i = 0; i < h->size; ++i) {
+      slots[i] = copy(slots[i]);
+      if (failed_ || oldCompacted_) {
+        return;
       }
-      if (restarted) {
-        continue;
+      if (slots[i].isHeap()) {
+        stack.push_back(slots[i]);
       }
     }
-    scan += n;
   }
-  heap_->flipNursery();
 }
 
 void Gc::collectOld() {

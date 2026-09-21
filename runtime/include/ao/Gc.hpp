@@ -14,9 +14,11 @@ class Gc {
 
  private:
   Oop copy(Oop obj);
+  void scavengeFromRoots();
   Heap* heap_;
   Roots* roots_;
   bool oldCompacted_ = false;
+  bool failed_ = false;
 };
 
 }  // namespace ao

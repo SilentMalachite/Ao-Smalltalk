@@ -106,6 +106,10 @@ bool Heap::inOld(Oop obj) const {
   return p >= oldStart_ && p < oldEnd_;
 }
 
+std::size_t Heap::oldUsed() const {
+  return static_cast<std::size_t>(oldBump_ - oldStart_);
+}
+
 void Heap::flipNursery() {
   std::swap(fromStart_, toStart_);
   std::swap(fromEnd_, toEnd_);
