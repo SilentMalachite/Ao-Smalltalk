@@ -1,4 +1,5 @@
 #include "ao/Bootstrap.hpp"
+#include "ao/Gc.hpp"
 #include "ao/Heap.hpp"
 #include "ao/Roots.hpp"
 #include "ao/WellKnown.hpp"
@@ -72,4 +73,133 @@ TEST(Bootstrap, SkeletonSlotsStartNil) {
   EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotMethodDict).isNil());
   EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotFormat).isNil());
   EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotThisClass).isNil());
+}
+
+static ao::Oop clsOf(ao::Heap& heap, ao::Oop o) { return heap.klass(o); }
+
+static ao::Oop superOf(ao::Heap& heap, ao::Oop cls) {
+  return heap.slotAt(cls, ao::kClassSlotSuperclass);
+}
+
+TEST(Bootstrap, CycleObjectClassClassIsMetaclass) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_EQ(wk.metaclassClass, clsOf(heap, clsOf(heap, wk.objectClass)));
+}
+
+TEST(Bootstrap, CycleMetaclassClassClassIsMetaclass) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_EQ(wk.metaclassClass, clsOf(heap, clsOf(heap, wk.metaclassClass)));
+}
+
+TEST(Bootstrap, CycleObjectSuperclassIsNil) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_TRUE(superOf(heap, wk.objectClass).isNil());
+}
+
+TEST(Bootstrap, CycleObjectClassSuperclassIsClass) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_EQ(wk.classClass, superOf(heap, wk.objectMetaclass));
+}
+
+TEST(Bootstrap, CycleEveryClassIsInstanceOfItsMetaclass) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_EQ(wk.objectMetaclass, clsOf(heap, wk.objectClass));
+  EXPECT_EQ(wk.behaviorMetaclass, clsOf(heap, wk.behaviorClass));
+  EXPECT_EQ(wk.classDescriptionMetaclass, clsOf(heap, wk.classDescriptionClass));
+  EXPECT_EQ(wk.classMetaclass, clsOf(heap, wk.classClass));
+  EXPECT_EQ(wk.metaclassMetaclass, clsOf(heap, wk.metaclassClass));
+}
+
+TEST(Bootstrap, CycleEveryMetaclassIsInstanceOfMetaclass) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_EQ(wk.metaclassClass, clsOf(heap, wk.objectMetaclass));
+  EXPECT_EQ(wk.metaclassClass, clsOf(heap, wk.behaviorMetaclass));
+  EXPECT_EQ(wk.metaclassClass, clsOf(heap, wk.classDescriptionMetaclass));
+  EXPECT_EQ(wk.metaclassClass, clsOf(heap, wk.classMetaclass));
+  EXPECT_EQ(wk.metaclassClass, clsOf(heap, wk.metaclassMetaclass));
+}
+
+TEST(Bootstrap, CycleMetaclassHierarchyParallelsClasses) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_EQ(wk.objectClass, superOf(heap, wk.behaviorClass));
+  EXPECT_EQ(wk.behaviorClass, superOf(heap, wk.classDescriptionClass));
+  EXPECT_EQ(wk.classDescriptionClass, superOf(heap, wk.classClass));
+  EXPECT_EQ(wk.objectMetaclass, superOf(heap, wk.behaviorMetaclass));
+  EXPECT_EQ(wk.behaviorMetaclass, superOf(heap, wk.classDescriptionMetaclass));
+  EXPECT_EQ(wk.classDescriptionMetaclass, superOf(heap, wk.classMetaclass));
+}
+
+TEST(Bootstrap, CycleMetaclassInheritsFromClassDescription) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_EQ(wk.classDescriptionClass, superOf(heap, wk.metaclassClass));
+  EXPECT_EQ(wk.classDescriptionMetaclass, superOf(heap, wk.metaclassMetaclass));
+}
+
+TEST(Bootstrap, CycleMethodDictIsNilAndFormatIsSmi) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotMethodDict).isNil());
+  EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotFormat).isSmallInteger());
+  EXPECT_EQ(0, heap.slotAt(wk.objectClass, ao::kClassSlotFormat).smallIntegerValue());
+  EXPECT_EQ(static_cast<std::int64_t>(ao::kClassSlotCount),
+            heap.slotAt(wk.classClass, ao::kClassSlotFormat).smallIntegerValue());
+  EXPECT_EQ(wk.objectClass, heap.slotAt(wk.objectMetaclass, ao::kClassSlotThisClass));
+  EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotThisClass).isNil());
+}
+
+TEST(Bootstrap, CycleImmediateClassOf) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  EXPECT_EQ(wk.undefinedObjectClass, wk.classOf(ao::Oop::nil()));
+  EXPECT_EQ(wk.trueClass, wk.classOf(ao::Oop::true_()));
+  EXPECT_EQ(wk.falseClass, wk.classOf(ao::Oop::false_()));
+  EXPECT_EQ(wk.smallIntegerClass, wk.classOf(ao::Oop::fromSmallInteger(3)));
+  EXPECT_EQ(wk.characterClass, wk.classOf(ao::Oop::fromCharacter(U'A')));
+  EXPECT_EQ(wk.objectClass, superOf(heap, wk.undefinedObjectClass));
+  EXPECT_EQ(wk.booleanClass, superOf(heap, wk.trueClass));
+  EXPECT_EQ(wk.booleanClass, superOf(heap, wk.falseClass));
+  EXPECT_EQ(wk.objectClass, superOf(heap, wk.booleanClass));
+  EXPECT_EQ(wk.objectClass, superOf(heap, wk.smallIntegerClass));
+  EXPECT_EQ(wk.objectClass, superOf(heap, wk.characterClass));
+}
+
+TEST(Bootstrap, CycleSurvivesNurseryGc) {
+  // Nursery must fit all skeletons + name byte objects; allocate() does not GC.
+  ao::Heap heap(1 << 16, 1 << 18);
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  ao::Gc gc(heap, roots);
+  gc.collectNursery();
+  EXPECT_EQ(wk.metaclassClass, clsOf(heap, clsOf(heap, wk.objectClass)));
+  EXPECT_TRUE(superOf(heap, wk.objectClass).isNil());
+  EXPECT_TRUE(wk.objectClass.isHeap());
 }
