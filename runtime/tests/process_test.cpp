@@ -86,6 +86,35 @@ TEST(Process, WaitSuspendsThenSignalResumes) {
   EXPECT_EQ(p1, send0(b, b.wk.processor, "activeProcess"));
 }
 
+TEST(Process, WaitKeepsMyListAndResumeDoesNotDoubleEnqueue) {
+  Boot b;
+  auto p1 = send0(b, b.wk.processor, "activeProcess");
+  auto p2 = send0(b, b.wk.processClass, "new");
+  ASSERT_TRUE(p2.isHeap());
+  EXPECT_EQ(p2, send0(b, p2, "resume"));
+  auto sem = send0(b, b.wk.semaphoreClass, "new");
+  ASSERT_TRUE(sem.isHeap());
+  EXPECT_EQ(sem, send0(b, sem, "wait"));
+  EXPECT_EQ(p2, send0(b, b.wk.processor, "activeProcess"));
+  auto waitList = send1(b, p1, "instVarAt:", ao::Oop::fromSmallInteger(4));
+  ASSERT_TRUE(waitList.isHeap());
+  EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(waitList));
+  EXPECT_EQ(1, send0(b, waitList, "size").smallIntegerValue());
+  EXPECT_EQ(p1, send1(b, waitList, "at:", ao::Oop::fromSmallInteger(1)));
+  EXPECT_EQ(p1, send0(b, p1, "resume"));
+  EXPECT_EQ(waitList, send1(b, p1, "instVarAt:", ao::Oop::fromSmallInteger(4)));
+  EXPECT_EQ(1, send0(b, waitList, "size").smallIntegerValue());
+  auto quiescent = send1(b, b.wk.processor, "instVarAt:", ao::Oop::fromSmallInteger(1));
+  ASSERT_TRUE(quiescent.isHeap());
+  EXPECT_EQ(0, send0(b, quiescent, "size").smallIntegerValue());
+  EXPECT_EQ(p2, send0(b, b.wk.processor, "activeProcess"));
+  EXPECT_EQ(sem, send0(b, sem, "signal"));
+  EXPECT_EQ(1, send0(b, quiescent, "size").smallIntegerValue());
+  EXPECT_EQ(p1, send1(b, quiescent, "at:", ao::Oop::fromSmallInteger(1)));
+  EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+  EXPECT_EQ(p1, send0(b, b.wk.processor, "activeProcess"));
+}
+
 TEST(Process, SharedQueueNextPutThenNext) {
   Boot b;
   auto q = send0(b, b.wk.sharedQueueClass, "new");

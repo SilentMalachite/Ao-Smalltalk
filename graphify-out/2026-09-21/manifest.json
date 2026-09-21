@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "runtime/CMakeLists.txt": {
-    "mtime": 1789994790.1700666,
-    "seen": 1789994846.2267,
-    "ast_hash": "b85b351f0e33fea84b330f39a8ad4e72",
+    "mtime": 1789996725.100803,
+    "seen": 1789996766.8894908,
+    "ast_hash": "cf4b11209f44d31cff6149248d59664b",
     "semantic_hash": ""
   },
   "runtime/include/ao/Roots.hpp": {
@@ -1206,21 +1206,21 @@
     "semantic_hash": "095be71aeca32d7320c74158a97a314f"
   },
   "runtime/src/Bootstrap.cpp": {
-    "mtime": 1789994790.1695628,
-    "seen": 1789994846.226607,
-    "ast_hash": "8800449b2e80f9f6168cf6b7fdb02b64",
+    "mtime": 1789996725.1141458,
+    "seen": 1789996766.889389,
+    "ast_hash": "7a76ab910f9ab2bce855d0277ff21644",
     "semantic_hash": ""
   },
   "runtime/include/ao/Globals.hpp": {
-    "mtime": 1789983183.740137,
-    "seen": 1789983397.604324,
-    "ast_hash": "968b5f8aa8ecb700bb0d5406d775524b",
-    "semantic_hash": "968b5f8aa8ecb700bb0d5406d775524b"
+    "mtime": 1789996725.1010113,
+    "seen": 1789996766.889378,
+    "ast_hash": "0b7c1610043998eba4e4452e12d8ef14",
+    "semantic_hash": ""
   },
   "runtime/src/Globals.cpp": {
-    "mtime": 1789986954.018399,
-    "seen": 1789986993.724077,
-    "ast_hash": "f0b3975e71e2ad5bfe22e8cd91562a12",
+    "mtime": 1789996725.1000865,
+    "seen": 1789996766.8893912,
+    "ast_hash": "26743481fe9e8120202d0a891586f458",
     "semantic_hash": ""
   },
   "runtime/include/ao/Symbol.hpp": {
@@ -1338,9 +1338,9 @@
     "semantic_hash": "031ffb666b3dbaf3ce80371a46867733"
   },
   "runtime/include/ao/kernel/Install.hpp": {
-    "mtime": 1789994790.1693172,
-    "seen": 1789994846.2266061,
-    "ast_hash": "d514e9db387e2e074cedd34bee83ec77",
+    "mtime": 1789996725.1007504,
+    "seen": 1789996766.889389,
+    "ast_hash": "4d39989c6a008cb970ba3d8fa7059b76",
     "semantic_hash": ""
   },
   "runtime/src/kernel/BlockContext.cpp": {
@@ -1350,9 +1350,9 @@
     "semantic_hash": "84eb343ab1c29f9fd37cc82bd6a0c8bf"
   },
   "runtime/src/kernel/Install.cpp": {
-    "mtime": 1789994790.170033,
-    "seen": 1789994846.226623,
-    "ast_hash": "8712541498b92c971dcbd1e1347555b4",
+    "mtime": 1789996725.100152,
+    "seen": 1789996766.889408,
+    "ast_hash": "c3d48d4da98ecbda17356f43d3e2dd95",
     "semantic_hash": ""
   },
   "runtime/tests/object_boolean_test.cpp": {
@@ -1479,6 +1479,18 @@
     "mtime": 1789995518.690407,
     "seen": 1789995604.215938,
     "ast_hash": "74f3b5e2f74c476278bcee1809086747",
+    "semantic_hash": ""
+  },
+  "runtime/src/kernel/Process.cpp": {
+    "mtime": 1789996725.113544,
+    "seen": 1789996766.889411,
+    "ast_hash": "06603490998a32607619d7775c465c6f",
+    "semantic_hash": ""
+  },
+  "runtime/tests/process_test.cpp": {
+    "mtime": 1789996535.0454354,
+    "seen": 1789996766.8894231,
+    "ast_hash": "19d17c7f519fab4d5fff849e11484a1e",
     "semantic_hash": ""
   }
 }

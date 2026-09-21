@@ -215,20 +215,20 @@ Oop ao_Process_resume(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t 
   if (proc.slot == active) {
     return proc.slot;
   }
+  if (ctx.heap.slotAt(proc.slot, kProcMyList).isHeap()) {
+    return proc.slot;
+  }
   if (!active.isHeap()) {
     ctx.heap.slotAtPut(sched.slot, kSchedActive, proc.slot);
     ctx.heap.slotAtPut(proc.slot, kProcMyList, Oop::nil());
     return proc.slot;
   }
-  Oop q = ensureOc(ctx, sched, kSchedQuiescent);
-  if (!q.isHeap()) {
+  Root q(ctx.roots, ensureOc(ctx, sched, kSchedQuiescent));
+  if (!q.slot.isHeap()) {
     return proc.slot;
   }
-  if (ctx.heap.slotAt(proc.slot, kProcMyList) == q) {
-    return proc.slot;
-  }
-  ocAdd(ctx, q, proc.slot);
-  ctx.heap.slotAtPut(proc.slot, kProcMyList, q);
+  ocAdd(ctx, q.slot, proc.slot);
+  ctx.heap.slotAtPut(proc.slot, kProcMyList, q.slot);
   return proc.slot;
 }
 
@@ -249,10 +249,13 @@ Oop ao_Process_suspend(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
     if (hasSlots(ctx.heap, next, kProcMyList)) {
       ctx.heap.slotAtPut(next, kProcMyList, Oop::nil());
     }
-    ctx.heap.slotAtPut(proc.slot, kProcMyList, Oop::nil());
     return proc.slot;
   }
   Oop q = ctx.heap.slotAt(sched.slot, kSchedQuiescent);
+  const Oop myList = ctx.heap.slotAt(proc.slot, kProcMyList);
+  if (myList.isHeap() && myList != q) {
+    return proc.slot;
+  }
   ocRemoveIdentity(ctx.heap, q, proc.slot);
   ctx.heap.slotAtPut(proc.slot, kProcMyList, Oop::nil());
   return proc.slot;
@@ -263,18 +266,18 @@ Oop ao_ProcessorScheduler_yield(CallContext& ctx, Oop receiver, const Oop*, std:
     return Oop{};
   }
   Root sched(ctx.roots, receiver);
-  Oop q = ensureOc(ctx, sched, kSchedQuiescent);
-  if (ocSize(ctx.heap, q) == 0) {
+  Root q(ctx.roots, ensureOc(ctx, sched, kSchedQuiescent));
+  if (ocSize(ctx.heap, q.slot) == 0) {
     return sched.slot;
   }
   Root active(ctx.roots, ctx.heap.slotAt(sched.slot, kSchedActive));
   if (active.slot.isHeap()) {
-    ocAdd(ctx, q, active.slot);
+    ocAdd(ctx, q.slot, active.slot);
     if (hasSlots(ctx.heap, active.slot, kProcMyList)) {
-      ctx.heap.slotAtPut(active.slot, kProcMyList, q);
+      ctx.heap.slotAtPut(active.slot, kProcMyList, q.slot);
     }
   }
-  Oop next = ocRemoveFirst(ctx.heap, q);
+  Oop next = ocRemoveFirst(ctx.heap, q.slot);
   ctx.heap.slotAtPut(sched.slot, kSchedActive, next);
   if (hasSlots(ctx.heap, next, kProcMyList)) {
     ctx.heap.slotAtPut(next, kProcMyList, Oop::nil());
@@ -329,17 +332,17 @@ Oop ao_Semaphore_wait(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t 
     ctx.heap.slotAtPut(sem.slot, kSemExcess, Oop::fromSmallInteger(n - 1));
     return sem.slot;
   }
-  Oop list = ensureOc(ctx, sem, kSemList);
+  Root list(ctx.roots, ensureOc(ctx, sem, kSemList));
   Root sched(ctx.roots, ctx.wk.processor);
-  Oop active = hasSlots(ctx.heap, sched.slot, kSchedActive)
-                   ? ctx.heap.slotAt(sched.slot, kSchedActive)
-                   : Oop{};
-  if (active.isHeap()) {
-    ocAdd(ctx, list, active);
-    if (hasSlots(ctx.heap, active, kProcMyList)) {
-      ctx.heap.slotAtPut(active, kProcMyList, list);
+  Root active(ctx.roots, hasSlots(ctx.heap, sched.slot, kSchedActive)
+                             ? ctx.heap.slotAt(sched.slot, kSchedActive)
+                             : Oop{});
+  if (active.slot.isHeap()) {
+    ocAdd(ctx, list.slot, active.slot);
+    ao_Process_suspend(ctx, active.slot, nullptr, 0);
+    if (hasSlots(ctx.heap, active.slot, kProcMyList)) {
+      ctx.heap.slotAtPut(active.slot, kProcMyList, list.slot);
     }
-    ao_Process_suspend(ctx, active, nullptr, 0);
   }
   return sem.slot;
 }
