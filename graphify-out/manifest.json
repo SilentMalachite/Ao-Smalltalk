@@ -684,9 +684,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/gc_test.cpp": {
-    "mtime": 1789966780.4751632,
-    "seen": 1789967982.00353,
-    "ast_hash": "f686d926358d38c3b108bebd5d79015f",
+    "mtime": 1789968869.6134365,
+    "seen": 1789968884.735081,
+    "ast_hash": "78eeb97a82b6145f0c609337ec243200",
     "semantic_hash": ""
   },
   ".serena/memories/abi_boundary.md": {
@@ -756,9 +756,9 @@
     "semantic_hash": ""
   },
   "docs/README.md": {
-    "mtime": 1789967975.6826112,
-    "seen": 1789967982.003542,
-    "ast_hash": "5d24fc28275f5ad4c320aa31297ecd81",
+    "mtime": 1789968869.6038554,
+    "seen": 1789968884.735094,
+    "ast_hash": "e89dbecbeb20b8a0c8361269f279f48c",
     "semantic_hash": ""
   },
   "docs/phases/P0.md": {

@@ -46,6 +46,7 @@
 | [P1-04](prs/P1-04.md) | old 世代 mark-compact と昇格 | P1 |
 | [P1-05](prs/P1-05.md) | GC ルート API | P1 |
 | [P1-06](prs/P1-06.md) | weak slot GC | P1 |
+| [P1-07](prs/P1-07.md) | immovable old objects | P1 |
 | [P2-01](prs/P2-01.md) | WellKnown と即値クラス | P2 |
 | [P2-02](prs/P2-02.md) | クラス骨格の割り当て | P2 |
 | [P2-03](prs/P2-03.md) | メタクラス循環（Blue Book 6–10） | P2 |

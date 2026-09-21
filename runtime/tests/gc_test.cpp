@@ -345,6 +345,39 @@ TEST(GcWeak, NurseryWeakSlotNilsUnmarkedOldReferent) {
   EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
 }
 
+TEST(GcWeak, LiveOldReferentRewrittenAcrossCompact) {
+  ao::Heap heap(512, 8192);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+
+  auto garbage = heap.allocate(ao::Oop::nil(), 2, 0);
+  roots.add(&garbage);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(garbage));
+  roots.remove(&garbage);
+
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
+  roots.add(&child);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(child));
+
+  auto weak = heap.allocate(ao::Oop::nil(), 1, ao::kFlagWeak);
+  heap.slotAtPut(weak, 0, child);
+  roots.add(&weak);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(weak));
+  void* childBefore = child.heapPointer();
+  ASSERT_LT(static_cast<std::byte*>(garbage.heapPointer()),
+            static_cast<std::byte*>(childBefore));
+
+  gc.collectOld();
+
+  ASSERT_TRUE(child.isHeap());
+  EXPECT_NE(child.heapPointer(), childBefore);
+  EXPECT_EQ(heap.slotAt(weak, 0), child);
+  EXPECT_TRUE(heap.inOld(child));
+}
+
 TEST(GcOld, ImmovableKeepsAddressAcrossCompact) {
   ao::Heap heap(256, 2048);
   ao::Roots roots;
@@ -472,7 +505,7 @@ TEST(GcOld, PartialFillBeforePinLeavesWalkableChain) {
   EXPECT_TRUE(oldWalkVisits(heap, oldStart, pinAddr));
 }
 
-TEST(GcOld, SlideUpDoesNotOverlapPin) {
+TEST(GcOld, DestJumpPastPinDoesNotOverlap) {
   ao::Heap heap(256, 2048);
   ao::Roots roots;
   ao::Gc gc(heap, roots);
