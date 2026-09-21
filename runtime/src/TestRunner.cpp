@@ -147,6 +147,10 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     if (!instance.slot.isHeap()) {
       return 1;
     }
+    // installMethod replaces the dictionary slot and leaves the global cache.
+    if (ctx.cache != nullptr) {
+      ctx.cache->forget(ctx.heap, ctx.wk.classOf(instance.slot), doIt.slot);
+    }
     const Oop result = send(ctx, instance.slot, doIt.slot, nullptr, 0, nullptr);
     if (result.isEmpty() || ctx.testFailures > 0) {
       return 1;

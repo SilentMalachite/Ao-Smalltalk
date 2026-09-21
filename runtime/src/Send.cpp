@@ -122,6 +122,13 @@ void ClassMethodCache::insert(Heap& heap, Oop klass, Oop selector, Oop method) {
   e.method = method;
 }
 
+void ClassMethodCache::forget(Heap& heap, Oop klass, Oop selector) {
+  auto& e = entries[cacheIndex(heap, klass, selector)];
+  if (e.klass == klass && e.selector == selector) {
+    e.method = Oop{};
+  }
+}
+
 Oop send(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uint32_t argc,
          InlineCache* ic) {
   IcGuard guard(ctx.roots, ic);

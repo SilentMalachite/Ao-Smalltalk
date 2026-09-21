@@ -29,6 +29,7 @@ struct ClassMethodCache {
   void addRoots(Roots& roots);
   Oop probe(Heap& heap, Oop klass, Oop selector) const;
   void insert(Heap& heap, Oop klass, Oop selector, Oop method);
+  void forget(Heap& heap, Oop klass, Oop selector);
 };
 
 struct CallContext;

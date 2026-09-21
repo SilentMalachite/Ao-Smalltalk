@@ -5,7 +5,10 @@
 #include "ao/Interpreter.hpp"
 #include "ao/TestRunner.hpp"
 
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
+#include <system_error>
 
 TEST(BlockEval, ArgumentAndOuterTemp) {
   Boot b;
@@ -53,4 +56,30 @@ TEST(AoTestRunner, ExampleFilePasses) {
   const int code = ao::runSmalltalkTests(b.ctx, AO_SOURCE_DIR "/image/tests");
   EXPECT_EQ(0, code);
   EXPECT_EQ(0, b.ctx.testFailures);
+}
+
+TEST(AoTestRunner, SecondFileIsNotFirstDoIt) {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ao-test-runner-second-doit";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir);
+  struct Cleanup {
+    fs::path path;
+    ~Cleanup() {
+      std::error_code ignore;
+      fs::remove_all(path, ignore);
+    }
+  } cleanup{dir};
+  {
+    std::ofstream pass(dir / "a_pass.st");
+    pass << "self assert: 1 equals: 1.\n";
+    std::ofstream fail(dir / "b_fail.st");
+    fail << "self assert: 1 equals: 2.\n";
+    ASSERT_TRUE(pass && fail);
+  }
+  Boot b;
+  const int code = ao::runSmalltalkTests(b.ctx, dir.string());
+  EXPECT_EQ(1, code);
+  EXPECT_GT(b.ctx.testFailures, 0);
 }
