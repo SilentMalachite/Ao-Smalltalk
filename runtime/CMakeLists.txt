@@ -23,6 +23,7 @@ add_library(ao_runtime
   src/CompiledMethod.cpp
   src/Context.cpp
   src/Interpreter.cpp
+  src/TestRunner.cpp
   src/Compile.cpp
   src/Lookup.cpp
   src/Send.cpp
@@ -81,7 +82,9 @@ add_executable(ao_runtime_tests
   tests/chunk_filein_test.cpp
   tests/context_test.cpp
   tests/compiler_roundtrip_test.cpp
+  tests/block_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
+target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 include(GoogleTest)
 gtest_discover_tests(ao_runtime_tests)
