@@ -1,3 +1,4 @@
+#include "ao/Bootstrap.hpp"
 #include "ao/Heap.hpp"
 #include "ao/Roots.hpp"
 #include "ao/WellKnown.hpp"
@@ -37,4 +38,38 @@ TEST(Bootstrap, ImmediateClassSlotsReserved) {
   EXPECT_TRUE(wk.smallIntegerClass.isNil());
   EXPECT_TRUE(wk.characterClass.isNil());
   EXPECT_TRUE(wk.classOf(ao::Oop::nil()).isNil());
+}
+
+TEST(Bootstrap, ClassSkeletonsAreHeapAndNamed) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::allocateSkeletons(heap, roots, wk);
+
+  const char* names[] = {
+      "Object",         "Behavior", "ClassDescription", "Class",        "Metaclass",
+      "UndefinedObject","Boolean",  "True",             "False",        "SmallInteger",
+      "Character"};
+  for (const char* n : names) {
+    auto cls = wk.named(n);
+    ASSERT_TRUE(cls.isHeap()) << n;
+    EXPECT_EQ(ao::kClassSlotCount, heap.size(cls)) << n;
+    EXPECT_TRUE(heap.klass(cls).isNil()) << n;
+    EXPECT_TRUE(heap.slotAt(cls, ao::kClassSlotSuperclass).isNil()) << n;
+  }
+
+  EXPECT_TRUE(wk.objectMetaclass.isHeap());
+  EXPECT_TRUE(wk.metaclassMetaclass.isHeap());
+  EXPECT_EQ(wk.objectClass, wk.named("Object"));
+  EXPECT_EQ(5u, heap.size(wk.objectMetaclass));
+}
+
+TEST(Bootstrap, SkeletonSlotsStartNil) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::allocateSkeletons(heap, roots, wk);
+  EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotMethodDict).isNil());
+  EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotFormat).isNil());
+  EXPECT_TRUE(heap.slotAt(wk.objectClass, ao::kClassSlotThisClass).isNil());
 }

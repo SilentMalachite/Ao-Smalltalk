@@ -15,6 +15,7 @@ add_library(ao_runtime
   src/Gc.cpp
   src/Roots.cpp
   src/WellKnown.cpp
+  src/Bootstrap.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
