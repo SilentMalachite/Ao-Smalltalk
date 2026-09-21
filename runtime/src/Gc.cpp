@@ -360,16 +360,6 @@ void Gc::collectOld() {
     scan += n;
   }
 
-  bool slideUp = false;
-  for (auto& [from, toOop] : fwd) {
-    auto* fromp = reinterpret_cast<std::byte*>(from);
-    auto* top = static_cast<std::byte*>(toOop.heapPointer());
-    if (top > fromp) {
-      slideUp = true;
-      break;
-    }
-  }
-
   std::byte* usedEnd = heap_->oldStart_;
   auto moveOne = [&](std::byte* p) {
     auto* h = reinterpret_cast<ObjectHeader*>(p);
@@ -387,14 +377,8 @@ void Gc::collectOld() {
     }
   };
 
-  if (slideUp) {
-    for (auto it = objs.rbegin(); it != objs.rend(); ++it) {
-      moveOne(*it);
-    }
-  } else {
-    for (auto* p : objs) {
-      moveOne(p);
-    }
+  for (auto* p : objs) {
+    moveOne(p);
   }
 
   std::sort(live.begin(), live.end());
