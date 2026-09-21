@@ -189,6 +189,7 @@ void installNatives(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   putNative(heap, wk, wk.objectClass, "class", 0, "ao_Object_class", ao_Object_class);
   putNative(heap, wk, wk.objectClass, "doesNotUnderstand:", 1, "ao_Object_doesNotUnderstand_",
             ao_Object_doesNotUnderstand_);
+  putNative(heap, wk, wk.smallIntegerClass, "+", 1, "ao_SmallInteger_add", ao_SmallInteger_add);
 }
 
 void run(Heap& heap, Roots& roots, WellKnown& wk) {

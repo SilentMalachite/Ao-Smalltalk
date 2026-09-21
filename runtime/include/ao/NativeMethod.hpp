@@ -18,7 +18,18 @@ inline constexpr std::uint32_t kNativeSlotMethodClass   = 4;
 inline constexpr std::uint32_t kNativeSlotRegistryIndex = 5;
 inline constexpr std::uint32_t kNativeSlotCount         = 6;
 
-struct ClassMethodCache;
+struct ClassMethodCache {
+  static constexpr std::uint32_t kSize = 256;
+  struct Entry {
+    Oop klass{};
+    Oop selector{};
+    Oop method{};
+  };
+  Entry entries[kSize]{};
+  void addRoots(Roots& roots);
+  Oop probe(Heap& heap, Oop klass, Oop selector) const;
+  void insert(Heap& heap, Oop klass, Oop selector, Oop method);
+};
 
 struct CallContext {
   Heap& heap;
