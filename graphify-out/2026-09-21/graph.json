@@ -283,6 +283,19 @@
       "source_location": "L18"
     },
     {
+      "id": "runtime_src_wellknown_wellknown_interntable",
+      "label": "WellKnown::InternTable",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "wellknown::interntable",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L10"
+    },
+    {
       "id": "runtime_include_ao_wellknown_wellknown",
       "label": "WellKnown",
       "_callable": true,
@@ -293,7 +306,7 @@
       "file_type": "code",
       "norm_label": "wellknown",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L11"
+      "source_location": "L12"
     },
     {
       "id": "runtime_include_ao_oop_oop",
@@ -549,18 +562,6 @@
       "source_location": "L53"
     },
     {
-      "id": "runtime_include_ao_oop_oop_fromheap",
-      "label": ".fromHeap()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 16,
-      "community_name": "header",
-      "file_type": "code",
-      "norm_label": ".fromheap()",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L27"
-    },
-    {
       "id": "runtime_src_heap_heap_allocate",
       "label": "Heap::allocate()",
       "_callable": true,
@@ -645,6 +646,30 @@
       "source_location": "L80"
     },
     {
+      "id": "runtime_tests_bootstrap_test_clsof",
+      "label": "clsOf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 17,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "clsof()",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L86"
+    },
+    {
+      "id": "runtime_tests_bootstrap_test_superof",
+      "label": "superOf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 17,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "superof()",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L88"
+    },
+    {
       "id": "runtime_tests_bootstrap_test_test",
       "label": "TEST()",
       "_callable": true,
@@ -693,16 +718,16 @@
       "source_location": "L6"
     },
     {
-      "id": "runtime_tests_bootstrap_test_superof",
-      "label": "superOf()",
+      "id": "runtime_include_ao_oop_oop_fromheap",
+      "label": ".fromHeap()",
       "_callable": true,
       "_origin": "ast",
-      "community": 21,
-      "community_name": "bootstrap_test.cpp",
+      "community": 27,
+      "community_name": "Gc.cpp",
       "file_type": "code",
-      "norm_label": "superof()",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L88"
+      "norm_label": ".fromheap()",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L27"
     },
     {
       "id": "runtime_include_ao_oop_oop_heappointer",
@@ -813,6 +838,18 @@
       "source_location": "L62"
     },
     {
+      "id": "runtime_tests_gc_test_oldwalkvisits",
+      "label": "oldWalkVisits()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "Heap",
+      "file_type": "code",
+      "norm_label": "oldwalkvisits()",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L447"
+    },
+    {
       "id": "runtime_src_heap_heap_header",
       "label": "Heap::header()",
       "_callable": true,
@@ -825,36 +862,84 @@
       "source_location": "L56"
     },
     {
-      "id": "runtime_tests_gc_test_oldwalkvisits",
-      "label": "oldWalkVisits()",
+      "id": "runtime_src_wellknown_wellknown_addroots",
+      "label": "WellKnown::addRoots()",
       "_callable": true,
       "_origin": "ast",
-      "community": 49,
-      "community_name": "gc_test.cpp",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
-      "norm_label": "oldwalkvisits()",
-      "source_file": "runtime/tests/gc_test.cpp",
-      "source_location": "L447"
+      "norm_label": "wellknown::addroots()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L53"
     },
     {
-      "id": "runtime_tests_bootstrap_test_clsof",
-      "label": "clsOf()",
+      "id": "runtime_src_wellknown_wellknown_intern",
+      "label": "WellKnown::intern()",
       "_callable": true,
       "_origin": "ast",
-      "community": 50,
-      "community_name": "klass",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
-      "norm_label": "clsof()",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
-      "source_location": "L86"
+      "norm_label": "wellknown::intern()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L120"
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_named",
+      "label": "WellKnown::named()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "wellknown::named()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L87"
+    },
+    {
+      "id": "runtime_src_symbol_bytes",
+      "label": "bytes()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "bytes()",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L10"
+    },
+    {
+      "id": "runtime_src_symbol_intern",
+      "label": "intern()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "intern()",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L8"
+    },
+    {
+      "id": "runtime_tests_symbol_test_test",
+      "label": "TEST()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "test()",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L9"
     },
     {
       "id": "runtime_include_ao_oop_oop_nil",
       "label": ".nil()",
       "_callable": true,
       "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
+      "community": 55,
+      "community_name": ".nil",
       "file_type": "code",
       "norm_label": ".nil()",
       "source_file": "runtime/include/ao/Oop.hpp",
@@ -865,12 +950,142 @@
       "label": ".nil()",
       "_callable": true,
       "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
+      "community": 55,
+      "community_name": ".nil",
       "file_type": "code",
       "norm_label": ".nil()",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L21"
+      "source_location": "L23"
+    },
+    {
+      "id": "runtime_src_bootstrap_allocateskeletons",
+      "label": "allocateSkeletons()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "allocateskeletons()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L32"
+    },
+    {
+      "id": "runtime_src_bootstrap_allocclass",
+      "label": "allocClass()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "allocclass()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L9"
+    },
+    {
+      "id": "runtime_src_bootstrap_makename",
+      "label": "makeName()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "makename()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L13"
+    },
+    {
+      "id": "runtime_src_bootstrap_run",
+      "label": "run()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "install",
+            "receiver_type": "Globals",
+            "lang": "cpp",
+            "line": "L128"
+          }
+        ]
+      },
+      "norm_label": "run()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L125"
+    },
+    {
+      "id": "runtime_src_bootstrap_wireclass",
+      "label": "wireClass()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "wireclass()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L22"
+    },
+    {
+      "id": "runtime_src_bootstrap_wirecycle",
+      "label": "wireCycle()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "wirecycle()",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L65"
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_classof",
+      "label": "WellKnown::classOf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "wellknown::classof()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L110"
+    },
+    {
+      "id": "runtime_src_globals_at",
+      "label": "at()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "at",
+      "file_type": "code",
+      "norm_label": "at()",
+      "source_file": "runtime/src/Globals.cpp",
+      "source_location": "L23"
+    },
+    {
+      "id": "runtime_src_globals_install",
+      "label": "install()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "at",
+      "file_type": "code",
+      "norm_label": "install()",
+      "source_file": "runtime/src/Globals.cpp",
+      "source_location": "L11"
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_wellknown",
+      "label": "WellKnown::WellKnown()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 59,
+      "community_name": "WellKnown::WellKnown",
+      "file_type": "code",
+      "norm_label": "wellknown::wellknown()",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L15"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_wellknown",
@@ -882,161 +1097,7 @@
       "file_type": "code",
       "norm_label": ".wellknown()",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L14"
-    },
-    {
-      "id": "runtime_src_bootstrap_allocateskeletons",
-      "label": "allocateSkeletons()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "allocateskeletons()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L32"
-    },
-    {
-      "id": "runtime_src_bootstrap_allocclass",
-      "label": "allocClass()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "allocclass()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L9"
-    },
-    {
-      "id": "runtime_src_bootstrap_makename",
-      "label": "makeName()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "makename()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L13"
-    },
-    {
-      "id": "runtime_src_bootstrap_run",
-      "label": "run()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "install",
-            "receiver_type": "Globals",
-            "lang": "cpp",
-            "line": "L106"
-          }
-        ]
-      },
-      "norm_label": "run()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L103"
-    },
-    {
-      "id": "runtime_src_bootstrap_wireclass",
-      "label": "wireClass()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "wireclass()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L22"
-    },
-    {
-      "id": "runtime_src_bootstrap_wirecycle",
-      "label": "wireCycle()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "wirecycle()",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L57"
-    },
-    {
-      "id": "runtime_src_globals_at",
-      "label": "at()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "at()",
-      "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L22"
-    },
-    {
-      "id": "runtime_src_globals_install",
-      "label": "install()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "install()",
-      "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L10"
-    },
-    {
-      "id": "runtime_src_wellknown_wellknown_addroots",
-      "label": "WellKnown::addRoots()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "wellknown::addroots()",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L32"
-    },
-    {
-      "id": "runtime_src_wellknown_wellknown_classof",
-      "label": "WellKnown::classOf()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "wellknown::classof()",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L77"
-    },
-    {
-      "id": "runtime_src_wellknown_wellknown_named",
-      "label": "WellKnown::named()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "wellknown::named()",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L58"
-    },
-    {
-      "id": "runtime_src_wellknown_wellknown_wellknown",
-      "label": "WellKnown::WellKnown()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "wellknown::wellknown()",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L5"
+      "source_location": "L16"
     },
     {
       "id": "runtime_include_ao_oop_oop_charactervalue",
@@ -1228,7 +1289,7 @@
       "file_type": "code",
       "norm_label": ".false_()",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L23"
+      "source_location": "L25"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_true",
@@ -1240,7 +1301,7 @@
       "file_type": "code",
       "norm_label": ".true_()",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L22"
+      "source_location": "L24"
     },
     {
       "id": "compiler_src_compiler_version",
@@ -1687,28 +1748,6 @@
       "source_location": ""
     },
     {
-      "id": "runtime_include_ao_heap_heap_innursery",
-      "label": "inNursery",
-      "_origin": "ast",
-      "community": 11,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "innursery",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L48"
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_inold",
-      "label": "inOld",
-      "_origin": "ast",
-      "community": 11,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "inold",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L49"
-    },
-    {
       "id": "sharedchildcopiedonce",
       "label": "SharedChildCopiedOnce",
       "_origin": "ast",
@@ -1795,17 +1834,6 @@
       "norm_label": "uint32_t",
       "source_file": "",
       "source_location": ""
-    },
-    {
-      "id": "runtime_include_ao_roots_roots_add",
-      "label": "add",
-      "_origin": "ast",
-      "community": 12,
-      "community_name": "Roots",
-      "file_type": "code",
-      "norm_label": "add",
-      "source_file": "runtime/include/ao/Roots.hpp",
-      "source_location": "L12"
     },
     {
       "id": "runtime_include_ao_roots_roots_drophandle",
@@ -2061,6 +2089,17 @@
       "source_location": "L35"
     },
     {
+      "id": "runtime_include_ao_heap_heap_objectbytes",
+      "label": "objectBytes",
+      "_origin": "ast",
+      "community": 16,
+      "community_name": "header",
+      "file_type": "code",
+      "norm_label": "objectbytes",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L46"
+    },
+    {
       "id": "runtime_src_heap_cpp_uint16_t",
       "label": "uint16_t",
       "_origin": "ast",
@@ -2079,6 +2118,17 @@
       "community_name": "header",
       "file_type": "code",
       "norm_label": "uint32_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "bootstrap",
+      "label": "Bootstrap",
+      "_origin": "ast",
+      "community": 17,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "bootstrap",
       "source_file": "",
       "source_location": ""
     },
@@ -2226,6 +2276,39 @@
       "source_location": ""
     },
     {
+      "id": "runtime_include_ao_heap_heap_klass",
+      "label": "klass",
+      "_origin": "ast",
+      "community": 17,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "klass",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L37"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_slotat",
+      "label": "slotAt",
+      "_origin": "ast",
+      "community": 17,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "slotat",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L42"
+    },
+    {
+      "id": "runtime_tests_bootstrap_test",
+      "label": "bootstrap_test.cpp",
+      "_origin": "ast",
+      "community": 17,
+      "community_name": "TEST",
+      "file_type": "code",
+      "norm_label": "bootstrap_test.cpp",
+      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "source_location": "L1"
+    },
+    {
       "id": "skeletonslotsstartnil",
       "label": "SkeletonSlotsStartNil",
       "_origin": "ast",
@@ -2237,13 +2320,13 @@
       "source_location": ""
     },
     {
-      "id": "smalltalkcontainsallelevenclasses",
-      "label": "SmalltalkContainsAllElevenClasses",
+      "id": "smalltalkcontainsallnamedclasses",
+      "label": "SmalltalkContainsAllNamedClasses",
       "_origin": "ast",
       "community": 17,
       "community_name": "TEST",
       "file_type": "code",
-      "norm_label": "smalltalkcontainsallelevenclasses",
+      "norm_label": "smalltalkcontainsallnamedclasses",
       "source_file": "",
       "source_location": ""
     },
@@ -2416,39 +2499,6 @@
       "source_location": ""
     },
     {
-      "id": "runtime_include_ao_heap",
-      "label": "Heap.hpp",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "heap.hpp",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_include_ao_oop",
-      "label": "Oop.hpp",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "oop.hpp",
-      "source_file": "runtime/include/ao/Oop.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_tests_oop_tag_test",
-      "label": "oop_tag_test.cpp",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "TEST",
-      "file_type": "code",
-      "norm_label": "oop_tag_test.cpp",
-      "source_file": "runtime/tests/oop_tag_test.cpp",
-      "source_location": "L1"
-    },
-    {
       "id": "smallintegerroundtrip",
       "label": "SmallIntegerRoundTrip",
       "_origin": "ast",
@@ -2570,36 +2620,69 @@
       "source_location": "L43"
     },
     {
-      "id": "bootstrap",
-      "label": "Bootstrap",
+      "id": "runtime_include_ao_bootstrap",
+      "label": "Bootstrap.hpp",
       "_origin": "ast",
       "community": 21,
-      "community_name": "bootstrap_test.cpp",
+      "community_name": "WellKnown.hpp",
       "file_type": "code",
-      "norm_label": "bootstrap",
-      "source_file": "",
-      "source_location": ""
+      "norm_label": "bootstrap.hpp",
+      "source_file": "runtime/include/ao/Bootstrap.hpp",
+      "source_location": "L1"
     },
     {
-      "id": "runtime_include_ao_heap_heap_slotat",
-      "label": "slotAt",
+      "id": "runtime_include_ao_globals",
+      "label": "Globals.hpp",
       "_origin": "ast",
       "community": 21,
-      "community_name": "bootstrap_test.cpp",
+      "community_name": "WellKnown.hpp",
       "file_type": "code",
-      "norm_label": "slotat",
+      "norm_label": "globals.hpp",
+      "source_file": "runtime/include/ao/Globals.hpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_include_ao_heap",
+      "label": "Heap.hpp",
+      "_origin": "ast",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
+      "file_type": "code",
+      "norm_label": "heap.hpp",
       "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L42"
+      "source_location": "L1"
     },
     {
-      "id": "runtime_tests_bootstrap_test",
-      "label": "bootstrap_test.cpp",
+      "id": "runtime_include_ao_oop",
+      "label": "Oop.hpp",
       "_origin": "ast",
       "community": 21,
-      "community_name": "bootstrap_test.cpp",
+      "community_name": "WellKnown.hpp",
       "file_type": "code",
-      "norm_label": "bootstrap_test.cpp",
-      "source_file": "runtime/tests/bootstrap_test.cpp",
+      "norm_label": "oop.hpp",
+      "source_file": "runtime/include/ao/Oop.hpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_include_ao_symbol",
+      "label": "Symbol.hpp",
+      "_origin": "ast",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
+      "file_type": "code",
+      "norm_label": "symbol.hpp",
+      "source_file": "runtime/include/ao/Symbol.hpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_include_ao_wellknown",
+      "label": "WellKnown.hpp",
+      "_origin": "ast",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
+      "file_type": "code",
+      "norm_label": "wellknown.hpp",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
       "source_location": "L1"
     },
     {
@@ -2607,10 +2690,21 @@
       "label": "heap_alloc_test.cpp",
       "_origin": "ast",
       "community": 21,
-      "community_name": "bootstrap_test.cpp",
+      "community_name": "WellKnown.hpp",
       "file_type": "code",
       "norm_label": "heap_alloc_test.cpp",
       "source_file": "runtime/tests/heap_alloc_test.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_tests_oop_tag_test",
+      "label": "oop_tag_test.cpp",
+      "_origin": "ast",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
+      "file_type": "code",
+      "norm_label": "oop_tag_test.cpp",
+      "source_file": "runtime/tests/oop_tag_test.cpp",
       "source_location": "L1"
     },
     {
@@ -2685,11 +2779,107 @@
       "source_location": "L1"
     },
     {
+      "id": "docs_prs_p9_01_files",
+      "label": "Files",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "files",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L11"
+    },
+    {
+      "id": "docs_prs_p9_01_interfaces",
+      "label": "Interfaces",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "interfaces",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L16"
+    },
+    {
+      "id": "docs_prs_p9_01_p9_01_do_it_print_it_inspect_it",
+      "label": "P9-01: Do it / Print it / Inspect it",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "p9-01: do it / print it / inspect it",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_01_\u30b3\u30df\u30c3\u30c8\u6587",
+      "label": "\u30b3\u30df\u30c3\u30c8\u6587",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L31"
+    },
+    {
+      "id": "docs_prs_p9_01_\u30c6\u30b9\u30c8",
+      "label": "\u30c6\u30b9\u30c8",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u30c6\u30b9\u30c8",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L21"
+    },
+    {
+      "id": "docs_prs_p9_01_\u5b8c\u4e86\u6761\u4ef6",
+      "label": "\u5b8c\u4e86\u6761\u4ef6",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L40"
+    },
+    {
+      "id": "docs_prs_p9_01_\u624b\u9806",
+      "label": "\u624b\u9806",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u624b\u9806",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L25"
+    },
+    {
+      "id": "docs_prs_p9_01_\u76ee\u7684",
+      "label": "\u76ee\u7684",
+      "_origin": "ast",
+      "community": 26,
+      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u76ee\u7684",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L7"
+    },
+    {
       "id": "docs_prs_p9_03",
       "label": "P9-03.md",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "page",
       "norm_label": "p9-03.md",
@@ -2701,7 +2891,7 @@
       "label": "Files",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "files",
@@ -2713,7 +2903,7 @@
       "label": "Interfaces",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "interfaces",
@@ -2725,7 +2915,7 @@
       "label": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "p9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 voiceover",
@@ -2737,7 +2927,7 @@
       "label": "\u30b3\u30df\u30c3\u30c8\u6587",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
@@ -2749,7 +2939,7 @@
       "label": "\u30c6\u30b9\u30c8",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u30c6\u30b9\u30c8",
@@ -2761,7 +2951,7 @@
       "label": "\u5b8c\u4e86\u6761\u4ef6",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
@@ -2773,7 +2963,7 @@
       "label": "\u624b\u9806",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u624b\u9806",
@@ -2785,7 +2975,7 @@
       "label": "\u76ee\u7684",
       "_origin": "ast",
       "community": 26,
-      "community_name": "P9-03: \u30a8\u30e9\u30fc\u8868\u793a\u3068 VoiceOver",
+      "community_name": "P9-01: Do it / Print it / Inspect it",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u76ee\u7684",
@@ -2925,18 +3115,6 @@
       "source_location": "L1"
     },
     {
-      "id": "docs_prs_p1_06",
-      "label": "P1-06.md",
-      "_origin": "ast",
-      "community": 27,
-      "community_name": "Gc.cpp",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p1-06.md",
-      "source_file": "docs/prs/P1-06.md",
-      "source_location": "L1"
-    },
-    {
       "id": "docs_prs_p1_06_files",
       "label": "Files",
       "_origin": "ast",
@@ -3021,107 +3199,11 @@
       "source_location": "L7"
     },
     {
-      "id": "docs_prs_p9_01_files",
-      "label": "Files",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "files",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L11"
-    },
-    {
-      "id": "docs_prs_p9_01_interfaces",
-      "label": "Interfaces",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "interfaces",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L16"
-    },
-    {
-      "id": "docs_prs_p9_01_p9_01_do_it_print_it_inspect_it",
-      "label": "P9-01: Do it / Print it / Inspect it",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "p9-01: do it / print it / inspect it",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p9_01_\u30b3\u30df\u30c3\u30c8\u6587",
-      "label": "\u30b3\u30df\u30c3\u30c8\u6587",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L31"
-    },
-    {
-      "id": "docs_prs_p9_01_\u30c6\u30b9\u30c8",
-      "label": "\u30c6\u30b9\u30c8",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u30c6\u30b9\u30c8",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L21"
-    },
-    {
-      "id": "docs_prs_p9_01_\u5b8c\u4e86\u6761\u4ef6",
-      "label": "\u5b8c\u4e86\u6761\u4ef6",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L40"
-    },
-    {
-      "id": "docs_prs_p9_01_\u624b\u9806",
-      "label": "\u624b\u9806",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u624b\u9806",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L25"
-    },
-    {
-      "id": "docs_prs_p9_01_\u76ee\u7684",
-      "label": "\u76ee\u7684",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u76ee\u7684",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L7"
-    },
-    {
       "id": "docs_prs_p9_04_files",
       "label": "Files",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "files",
@@ -3133,7 +3215,7 @@
       "label": "Interfaces",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "interfaces",
@@ -3145,7 +3227,7 @@
       "label": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "p9-04: v1 \u30b3\u30fc\u30eb\u30c6\u30f3\u53d7\u3051\u5165\u308c",
@@ -3157,7 +3239,7 @@
       "label": "\u30b3\u30df\u30c3\u30c8\u6587",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u30b3\u30df\u30c3\u30c8\u6587",
@@ -3169,7 +3251,7 @@
       "label": "\u30c6\u30b9\u30c8",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u30c6\u30b9\u30c8",
@@ -3181,7 +3263,7 @@
       "label": "\u5b8c\u4e86\u6761\u4ef6",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u5b8c\u4e86\u6761\u4ef6",
@@ -3193,7 +3275,7 @@
       "label": "\u624b\u9806",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u624b\u9806",
@@ -3205,7 +3287,7 @@
       "label": "\u76ee\u7684",
       "_origin": "ast",
       "community": 28,
-      "community_name": "P9-01: Do it / Print it / Inspect it",
+      "community_name": "P9-04: v1 \u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "\u76ee\u7684",
@@ -3266,6 +3348,17 @@
       "norm_label": "fromstart_",
       "source_file": "runtime/include/ao/Heap.hpp",
       "source_location": "L64"
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_innursery",
+      "label": "inNursery",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "Heap",
+      "file_type": "code",
+      "norm_label": "innursery",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L48"
     },
     {
       "id": "runtime_include_ao_heap_heap_nexthash",
@@ -3345,6 +3438,17 @@
       "source_location": "L70"
     },
     {
+      "id": "runtime_include_ao_heap_heap_oldused",
+      "label": "oldUsed",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "Heap",
+      "file_type": "code",
+      "norm_label": "oldused",
+      "source_file": "runtime/include/ao/Heap.hpp",
+      "source_location": "L50"
+    },
+    {
       "id": "runtime_include_ao_heap_heap_reserveold",
       "label": "reserveOld",
       "_origin": "ast",
@@ -3422,7 +3526,7 @@
       "source_location": ""
     },
     {
-      "id": "unique_ptr",
+      "id": "runtime_include_ao_heap_hpp_unique_ptr",
       "label": "unique_ptr",
       "_origin": "ast",
       "community": 3,
@@ -3433,6 +3537,17 @@
       "source_location": ""
     },
     {
+      "id": "runtime_tests_gc_test",
+      "label": "gc_test.cpp",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "Heap",
+      "file_type": "code",
+      "norm_label": "gc_test.cpp",
+      "source_file": "runtime/tests/gc_test.cpp",
+      "source_location": "L1"
+    },
+    {
       "id": "runtime_include_ao_runtime",
       "label": "Runtime.hpp",
       "_origin": "ast",
@@ -3441,126 +3556,6 @@
       "file_type": "code",
       "norm_label": "runtime.hpp",
       "source_file": "runtime/include/ao/Runtime.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p1_07",
-      "label": "P1-07.md",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p1-07.md",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p1_07_files",
-      "label": "Files",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "files",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L11"
-    },
-    {
-      "id": "docs_prs_p1_07_interfaces",
-      "label": "Interfaces",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "interfaces",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L15"
-    },
-    {
-      "id": "docs_prs_p1_07_p1_07_immovable_old_objects",
-      "label": "P1-07: immovable old objects",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "p1-07: immovable old objects",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p1_07_\u30c6\u30b9\u30c8",
-      "label": "\u30c6\u30b9\u30c8",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u30c6\u30b9\u30c8",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L20"
-    },
-    {
-      "id": "docs_prs_p1_07_\u624b\u9806",
-      "label": "\u624b\u9806",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u624b\u9806",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L24"
-    },
-    {
-      "id": "docs_prs_p1_07_\u76ee\u7684",
-      "label": "\u76ee\u7684",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "\u76ee\u7684",
-      "source_file": "docs/prs/P1-07.md",
-      "source_location": "L7"
-    },
-    {
-      "id": "docs_prs_p9_01",
-      "label": "P9-01.md",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p9-01.md",
-      "source_file": "docs/prs/P9-01.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p9_02",
-      "label": "P9-02.md",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p9-02.md",
-      "source_file": "docs/prs/P9-02.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "docs_prs_p9_04",
-      "label": "P9-04.md",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "docs/README.md",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "p9-04.md",
-      "source_file": "docs/prs/P9-04.md",
       "source_location": "L1"
     },
     {
@@ -3726,92 +3721,389 @@
       "source_location": "L7"
     },
     {
-      "id": "runtime_include_ao_heap_heap_objectbytes",
-      "label": "objectBytes",
+      "id": "docs_prs_p1_06",
+      "label": "P1-06.md",
       "_origin": "ast",
       "community": 49,
-      "community_name": "gc_test.cpp",
-      "file_type": "code",
-      "norm_label": "objectbytes",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L46"
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_oldused",
-      "label": "oldUsed",
-      "_origin": "ast",
-      "community": 49,
-      "community_name": "gc_test.cpp",
-      "file_type": "code",
-      "norm_label": "oldused",
-      "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L50"
-    },
-    {
-      "id": "runtime_tests_gc_test",
-      "label": "gc_test.cpp",
-      "_origin": "ast",
-      "community": 49,
-      "community_name": "gc_test.cpp",
-      "file_type": "code",
-      "norm_label": "gc_test.cpp",
-      "source_file": "runtime/tests/gc_test.cpp",
+      "community_name": "P1 \u2014 Object Memory",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p1-06.md",
+      "source_file": "docs/prs/P1-06.md",
       "source_location": "L1"
     },
     {
-      "id": "runtime_include_ao_bootstrap",
-      "label": "Bootstrap.hpp",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "file_type": "code",
-      "norm_label": "bootstrap.hpp",
-      "source_file": "runtime/include/ao/Bootstrap.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_include_ao_globals",
-      "label": "Globals.hpp",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "file_type": "code",
-      "norm_label": "globals.hpp",
-      "source_file": "runtime/include/ao/Globals.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_include_ao_wellknown",
-      "label": "WellKnown.hpp",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "file_type": "code",
-      "norm_label": "wellknown.hpp",
-      "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_include_ao_heap_heap_klass",
-      "label": "klass",
+      "id": "docs_prs_p9_01",
+      "label": "P9-01.md",
       "_origin": "ast",
       "community": 50,
-      "community_name": "klass",
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p9-01.md",
+      "source_file": "docs/prs/P9-01.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_02",
+      "label": "P9-02.md",
+      "_origin": "ast",
+      "community": 50,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p9-02.md",
+      "source_file": "docs/prs/P9-02.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p9_04",
+      "label": "P9-04.md",
+      "_origin": "ast",
+      "community": 50,
+      "community_name": "docs/README.md",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p9-04.md",
+      "source_file": "docs/prs/P9-04.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "deque",
+      "label": "deque",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
       "file_type": "code",
-      "norm_label": "klass",
+      "norm_label": "deque",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_wellknown",
+      "label": "WellKnown.cpp",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "wellknown.cpp",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_wellknown_cpp_size_t",
+      "label": "size_t",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "size_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_wellknown_cpp_string_view",
+      "label": "string_view",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "string_view",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_interntable_bybytes",
+      "label": "byBytes",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "bybytes",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L12"
+    },
+    {
+      "id": "runtime_src_wellknown_wellknown_interntable_table",
+      "label": "table",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "table",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L11"
+    },
+    {
+      "id": "string",
+      "label": "string",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "string",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "unordered_map",
+      "label": "unordered_map",
+      "_origin": "ast",
+      "community": 51,
+      "community_name": "WellKnown.cpp",
+      "file_type": "code",
+      "norm_label": "unordered_map",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "internsamebytesisidentical",
+      "label": "InternSameBytesIsIdentical",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "internsamebytesisidentical",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "internsurvivesnurserygc",
+      "label": "InternSurvivesNurseryGc",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "internsurvivesnurserygc",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_heap_heap_inold",
+      "label": "inOld",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "inold",
       "source_file": "runtime/include/ao/Heap.hpp",
-      "source_location": "L37"
+      "source_location": "L49"
+    },
+    {
+      "id": "runtime_include_ao_roots_roots_add",
+      "label": "add",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "add",
+      "source_file": "runtime/include/ao/Roots.hpp",
+      "source_location": "L12"
+    },
+    {
+      "id": "runtime_src_symbol",
+      "label": "Symbol.cpp",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "symbol.cpp",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_symbol_cpp_string_view",
+      "label": "string_view",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "string_view",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_tests_symbol_test",
+      "label": "symbol_test.cpp",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "symbol_test.cpp",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "symbol",
+      "label": "Symbol",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "symbol_test.cpp",
+      "file_type": "code",
+      "norm_label": "symbol",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_src_bootstrap",
+      "label": "Bootstrap.cpp",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "bootstrap.cpp",
+      "source_file": "runtime/src/Bootstrap.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_bootstrap_cpp_int64_t",
+      "label": "int64_t",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": ".nil",
+      "file_type": "code",
+      "norm_label": "int64_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "docs_prs_p1_07",
+      "label": "P1-07.md",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "P1-07: immovable old objects",
+      "file_type": "document",
+      "node_kind": "page",
+      "norm_label": "p1-07.md",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p1_07_files",
+      "label": "Files",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "P1-07: immovable old objects",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "files",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L11"
+    },
+    {
+      "id": "docs_prs_p1_07_interfaces",
+      "label": "Interfaces",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "P1-07: immovable old objects",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "interfaces",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L15"
+    },
+    {
+      "id": "docs_prs_p1_07_p1_07_immovable_old_objects",
+      "label": "P1-07: immovable old objects",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "P1-07: immovable old objects",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "p1-07: immovable old objects",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_prs_p1_07_\u30c6\u30b9\u30c8",
+      "label": "\u30c6\u30b9\u30c8",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "P1-07: immovable old objects",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u30c6\u30b9\u30c8",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L20"
+    },
+    {
+      "id": "docs_prs_p1_07_\u624b\u9806",
+      "label": "\u624b\u9806",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "P1-07: immovable old objects",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u624b\u9806",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L24"
+    },
+    {
+      "id": "docs_prs_p1_07_\u76ee\u7684",
+      "label": "\u76ee\u7684",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "P1-07: immovable old objects",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "\u76ee\u7684",
+      "source_file": "docs/prs/P1-07.md",
+      "source_location": "L7"
+    },
+    {
+      "id": "runtime_src_globals",
+      "label": "Globals.cpp",
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "at",
+      "file_type": "code",
+      "norm_label": "globals.cpp",
+      "source_file": "runtime/src/Globals.cpp",
+      "source_location": "L1"
+    },
+    {
+      "id": "runtime_src_globals_cpp_string_view",
+      "label": "string_view",
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "at",
+      "file_type": "code",
+      "norm_label": "string_view",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_addroots",
       "label": "addRoots",
       "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
+      "community": 59,
+      "community_name": "WellKnown::WellKnown",
       "file_type": "code",
       "norm_label": "addroots",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L53"
+      "source_location": "L64"
+    },
+    {
+      "id": "interntable",
+      "label": "InternTable",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "interntable",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "runtime_include_ao_wellknown_hpp_unique_ptr",
+      "label": "unique_ptr",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "unique_ptr",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_behaviorclass",
@@ -3822,7 +4114,7 @@
       "file_type": "code",
       "norm_label": "behaviorclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L30"
+      "source_location": "L33"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_behaviormetaclass",
@@ -3833,7 +4125,7 @@
       "file_type": "code",
       "norm_label": "behaviormetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L31"
+      "source_location": "L34"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_booleanclass",
@@ -3844,7 +4136,7 @@
       "file_type": "code",
       "norm_label": "booleanclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L40"
+      "source_location": "L43"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_booleanmetaclass",
@@ -3855,7 +4147,7 @@
       "file_type": "code",
       "norm_label": "booleanmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L41"
+      "source_location": "L44"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_characterclass",
@@ -3866,7 +4158,7 @@
       "file_type": "code",
       "norm_label": "characterclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L48"
+      "source_location": "L51"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_charactermetaclass",
@@ -3877,7 +4169,7 @@
       "file_type": "code",
       "norm_label": "charactermetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L49"
+      "source_location": "L52"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classclass",
@@ -3888,7 +4180,7 @@
       "file_type": "code",
       "norm_label": "classclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L34"
+      "source_location": "L37"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classdescriptionclass",
@@ -3899,7 +4191,7 @@
       "file_type": "code",
       "norm_label": "classdescriptionclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L32"
+      "source_location": "L35"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classdescriptionmetaclass",
@@ -3910,7 +4202,7 @@
       "file_type": "code",
       "norm_label": "classdescriptionmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L33"
+      "source_location": "L36"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classmetaclass",
@@ -3921,7 +4213,7 @@
       "file_type": "code",
       "norm_label": "classmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L35"
+      "source_location": "L38"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_classof",
@@ -3932,7 +4224,7 @@
       "file_type": "code",
       "norm_label": "classof",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L26"
+      "source_location": "L28"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_falseclass",
@@ -3943,7 +4235,7 @@
       "file_type": "code",
       "norm_label": "falseclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L44"
+      "source_location": "L47"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_falsemetaclass",
@@ -3954,7 +4246,7 @@
       "file_type": "code",
       "norm_label": "falsemetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L45"
+      "source_location": "L48"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_heap",
@@ -3965,7 +4257,40 @@
       "file_type": "code",
       "norm_label": "heap_",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L54"
+      "source_location": "L66"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_intern",
+      "label": "intern",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "intern",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L29"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_messageclass",
+      "label": "messageClass",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "messageclass",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L59"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_messagemetaclass",
+      "label": "messageMetaclass",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "messagemetaclass",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L60"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_metaclassclass",
@@ -3976,7 +4301,7 @@
       "file_type": "code",
       "norm_label": "metaclassclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L36"
+      "source_location": "L39"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_metaclassmetaclass",
@@ -3987,7 +4312,29 @@
       "file_type": "code",
       "norm_label": "metaclassmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L37"
+      "source_location": "L40"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_methoddictionaryclass",
+      "label": "methodDictionaryClass",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "methoddictionaryclass",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L55"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_methoddictionarymetaclass",
+      "label": "methodDictionaryMetaclass",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "methoddictionarymetaclass",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L56"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_named",
@@ -3998,7 +4345,29 @@
       "file_type": "code",
       "norm_label": "named",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L25"
+      "source_location": "L27"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_nativemethodclass",
+      "label": "nativeMethodClass",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "nativemethodclass",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L57"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_nativemethodmetaclass",
+      "label": "nativeMethodMetaclass",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "nativemethodmetaclass",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L58"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_objectclass",
@@ -4009,7 +4378,7 @@
       "file_type": "code",
       "norm_label": "objectclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L28"
+      "source_location": "L31"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_objectmetaclass",
@@ -4020,7 +4389,18 @@
       "file_type": "code",
       "norm_label": "objectmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L29"
+      "source_location": "L32"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_roots",
+      "label": "roots_",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "roots_",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L67"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_smallintegerclass",
@@ -4031,7 +4411,7 @@
       "file_type": "code",
       "norm_label": "smallintegerclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L46"
+      "source_location": "L49"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_smallintegermetaclass",
@@ -4042,7 +4422,7 @@
       "file_type": "code",
       "norm_label": "smallintegermetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L47"
+      "source_location": "L50"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_smalltalk",
@@ -4053,7 +4433,29 @@
       "file_type": "code",
       "norm_label": "smalltalk",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L50"
+      "source_location": "L61"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_symbolclass",
+      "label": "symbolClass",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "symbolclass",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L53"
+    },
+    {
+      "id": "runtime_include_ao_wellknown_wellknown_symbolmetaclass",
+      "label": "symbolMetaclass",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "WellKnown",
+      "file_type": "code",
+      "norm_label": "symbolmetaclass",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L54"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_trueclass",
@@ -4064,7 +4466,7 @@
       "file_type": "code",
       "norm_label": "trueclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L42"
+      "source_location": "L45"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_truemetaclass",
@@ -4075,7 +4477,7 @@
       "file_type": "code",
       "norm_label": "truemetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L43"
+      "source_location": "L46"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_undefinedobjectclass",
@@ -4086,7 +4488,7 @@
       "file_type": "code",
       "norm_label": "undefinedobjectclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L38"
+      "source_location": "L41"
     },
     {
       "id": "runtime_include_ao_wellknown_wellknown_undefinedobjectmetaclass",
@@ -4097,73 +4499,7 @@
       "file_type": "code",
       "norm_label": "undefinedobjectmetaclass",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L39"
-    },
-    {
-      "id": "runtime_src_bootstrap",
-      "label": "Bootstrap.cpp",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "bootstrap.cpp",
-      "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_bootstrap_cpp_int64_t",
-      "label": "int64_t",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "int64_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_globals",
-      "label": "Globals.cpp",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "globals.cpp",
-      "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_globals_cpp_string_view",
-      "label": "string_view",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "string_view",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "runtime_src_wellknown",
-      "label": "WellKnown.cpp",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "wellknown.cpp",
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L1"
-    },
-    {
-      "id": "runtime_src_wellknown_cpp_string_view",
-      "label": "string_view",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "WellKnown",
-      "file_type": "code",
-      "norm_label": "string_view",
-      "source_file": "",
-      "source_location": ""
+      "source_location": "L42"
     },
     {
       "id": "runtime_include_ao_oop_hpp_int64_t",
@@ -4517,6 +4853,21 @@
       "source_url": null
     },
     {
+      "id": "serena_project",
+      "label": "Serena project.yml",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "serena project.yml",
+      "source_file": ".serena/project.yml",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "concept_ao",
       "label": "Ao macOS native Smalltalk",
       "_origin": "semantic",
@@ -4655,6 +5006,21 @@
       "source_url": null
     },
     {
+      "id": "concept_claude_authority",
+      "label": "CLAUDE.md process authority",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "claude.md process authority",
+      "source_file": "AGENTS.md",
+      "source_location": "5:8",
+      "source_url": null
+    },
+    {
       "id": "concept_compiledmethod",
       "label": "CompiledMethod",
       "_origin": "semantic",
@@ -4682,6 +5048,21 @@
       "norm_label": "smalltalk compiler .st to bytecode",
       "source_file": "SPEC.md",
       "source_location": "324:340",
+      "source_url": null
+    },
+    {
+      "id": "concept_graphify",
+      "label": "Graphify knowledge graph tool",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "graphify knowledge graph tool",
+      "source_file": "CLAUDE.md",
+      "source_location": "30:39",
       "source_url": null
     },
     {
@@ -4761,6 +5142,36 @@
       "source_url": null
     },
     {
+      "id": "concept_serena",
+      "label": "Serena LSP symbol tool",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "serena lsp symbol tool",
+      "source_file": "CLAUDE.md",
+      "source_location": "30:39",
+      "source_url": null
+    },
+    {
+      "id": "concept_spec_authority",
+      "label": "SPEC.md product authority",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "spec.md product authority",
+      "source_file": "AGENTS.md",
+      "source_location": "5:8",
+      "source_url": null
+    },
+    {
       "id": "concept_tagged_oop",
       "label": "64-bit tagged OOP",
       "_origin": "semantic",
@@ -4790,6 +5201,36 @@
       "rationale": "Do not invent class libraries; import Cuis/Squeak .st with minimal patches",
       "source_file": "SPEC.md",
       "source_location": "415:444",
+      "source_url": null
+    },
+    {
+      "id": "agents",
+      "label": "AGENTS.md",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "agents.md",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "claude",
+      "label": "CLAUDE.md",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 0,
+      "community_name": "SPEC.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "claude.md",
+      "source_file": "CLAUDE.md",
+      "source_location": null,
       "source_url": null
     },
     {
@@ -4895,36 +5336,6 @@
       "norm_label": "thin native kernel, tools on host",
       "source_file": "CLAUDE.md",
       "source_location": "204",
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p3_01_symbol_hpp",
-      "label": "runtime/include/ao/Symbol.hpp",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "runtime/include/ao/symbol.hpp",
-      "source_file": "docs/prs/P3-01.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p3_01_symbol_test",
-      "label": "runtime/tests/symbol_test.cpp",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "runtime/tests/symbol_test.cpp",
-      "source_file": "docs/prs/P3-01.md",
-      "source_location": null,
       "source_url": null
     },
     {
@@ -5059,96 +5470,6 @@
       "file_type": "code",
       "norm_label": "runtime/src/kernel/smallinteger.cpp",
       "source_file": "docs/prs/P4-03.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p3_dnu",
-      "label": "doesNotUnderstand:",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "doesnotunderstand:",
-      "source_file": "docs/phases/P3.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p3_lookup",
-      "label": "method lookup / send",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "method lookup / send",
-      "source_file": "docs/phases/P3.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p3_methoddictionary",
-      "label": "MethodDictionary",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "methoddictionary",
-      "source_file": "docs/phases/P3.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p3_nativemethod",
-      "label": "NativeMethod",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nativemethod",
-      "source_file": "docs/phases/P3.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p3_selector_mangle",
-      "label": "selector mangle ao_<Class>_<selectorMangled>",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "selector mangle ao_<class>_<selectormangled>",
-      "source_file": "docs/phases/P3.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p7_native_rebind",
-      "label": "NativeMethod symbol rebind on load",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nativemethod symbol rebind on load",
-      "source_file": "docs/phases/P7.md",
       "source_location": null,
       "source_url": null
     },
@@ -5479,21 +5800,6 @@
       "file_type": "concept",
       "norm_label": "smallinteger",
       "source_file": "docs/prs/P4-03.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p3",
-      "label": "P3 \u2014 Native Dispatch",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 1,
-      "community_name": "P3-04 lookup / super / doesNotUnderstand:",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p3 \u2014 native dispatch",
-      "source_file": "docs/phases/P3.md",
       "source_location": null,
       "source_url": null
     },
@@ -6473,17 +6779,227 @@
       "source_url": null
     },
     {
-      "id": "docs_prs_p3_01_symbol_cpp",
-      "label": "runtime/src/Symbol.cpp",
+      "id": "docs_phases_p2_blue_book",
+      "label": "Blue Book 6\u201310",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
       "community": 31,
-      "community_name": "runtime/src/Symbol.cpp",
+      "community_name": "P2 \u2014 Bootstrap",
       "contributor": null,
-      "file_type": "code",
-      "norm_label": "runtime/src/symbol.cpp",
-      "source_file": "docs/prs/P3-01.md",
+      "file_type": "concept",
+      "norm_label": "blue book 6\u201310",
+      "source_file": "docs/phases/P2.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p2_metaclass",
+      "label": "Metaclass cycle",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "metaclass cycle",
+      "source_file": "docs/phases/P2.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p2_smalltalk_globals",
+      "label": "Smalltalk global dictionary",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "smalltalk global dictionary",
+      "source_file": "docs/phases/P2.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p3_dnu",
+      "label": "doesNotUnderstand:",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "doesnotunderstand:",
+      "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p3_lookup",
+      "label": "method lookup / send",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "method lookup / send",
+      "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p3_methoddictionary",
+      "label": "MethodDictionary",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "methoddictionary",
+      "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p2_03_class_skeleton",
+      "label": "class skeleton",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "class skeleton",
+      "source_file": "docs/prs/P2-03.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p2_03_metaclass_cycle",
+      "label": "metaclass cycle",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "metaclass cycle",
+      "source_file": "docs/prs/P2-03.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p2_04_bootstrap",
+      "label": "Bootstrap",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "bootstrap",
+      "source_file": "docs/prs/P2-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p2_04_globals",
+      "label": "Globals",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "globals",
+      "source_file": "docs/prs/P2-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p2_04_smalltalk_dict",
+      "label": "Smalltalk global dictionary",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "smalltalk global dictionary",
+      "source_file": "docs/prs/P2-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p2",
+      "label": "P2 \u2014 Bootstrap",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p2 \u2014 bootstrap",
+      "source_file": "docs/phases/P2.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p3",
+      "label": "P3 \u2014 Native Dispatch",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p3 \u2014 native dispatch",
+      "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p2_03_pr",
+      "label": "P2-03 metaclass cycle",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p2-03 metaclass cycle",
+      "source_file": "docs/prs/P2-03.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p2_04_pr",
+      "label": "P2-04 Smalltalk global dictionary",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 31,
+      "community_name": "P2 \u2014 Bootstrap",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p2-04 smalltalk global dictionary",
+      "source_file": "docs/prs/P2-04.md",
       "source_location": null,
       "source_url": null
     },
@@ -6578,268 +7094,13 @@
       "source_url": null
     },
     {
-      "id": "serena_project",
-      "label": "Serena project.yml",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "code",
-      "norm_label": "serena project.yml",
-      "source_file": ".serena/project.yml",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "concept_claude_authority",
-      "label": "CLAUDE.md process authority",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "claude.md process authority",
-      "source_file": "AGENTS.md",
-      "source_location": "5:8",
-      "source_url": null
-    },
-    {
-      "id": "concept_graphify",
-      "label": "Graphify knowledge graph tool",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "graphify knowledge graph tool",
-      "source_file": "CLAUDE.md",
-      "source_location": "30:39",
-      "source_url": null
-    },
-    {
-      "id": "concept_phase_p0",
-      "label": "Phase P0 skeleton",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "phase p0 skeleton",
-      "source_file": "SPEC.md",
-      "source_location": "110",
-      "source_url": null
-    },
-    {
-      "id": "concept_phase_pipeline",
-      "label": "Phase pipeline P0-P9",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "phase pipeline p0-p9",
-      "source_file": "SPEC.md",
-      "source_location": "106:122",
-      "source_url": null
-    },
-    {
-      "id": "concept_serena",
-      "label": "Serena LSP symbol tool",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "serena lsp symbol tool",
-      "source_file": "CLAUDE.md",
-      "source_location": "30:39",
-      "source_url": null
-    },
-    {
-      "id": "concept_spec_authority",
-      "label": "SPEC.md product authority",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "spec.md product authority",
-      "source_file": "AGENTS.md",
-      "source_location": "5:8",
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p1_ao_oop",
-      "label": "ao::Oop",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "ao::oop",
-      "source_file": "docs/phases/P1.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p1_gc",
-      "label": "ao::Gc",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "ao::gc",
-      "source_file": "docs/phases/P1.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p1_heap",
-      "label": "ao::Heap",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "ao::heap",
-      "source_file": "docs/phases/P1.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p1_nursery",
-      "label": "nursery bump allocator",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nursery bump allocator",
-      "source_file": "docs/phases/P1.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p1_tagged_pointer",
-      "label": "64-bit tagged pointer",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "64-bit tagged pointer",
-      "source_file": "docs/phases/P1.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p7_aoimage",
-      "label": ".aoimage save/load",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": ".aoimage save/load",
-      "source_file": "docs/phases/P7.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p8_browser",
-      "label": "System Browser 5-pane",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "system browser 5-pane",
-      "source_file": "docs/phases/P8.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p8_transcript",
-      "label": "Transcript NSWindow",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "transcript nswindow",
-      "source_file": "docs/phases/P8.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p8_workspace",
-      "label": "Workspace NSWindow",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "workspace nswindow",
-      "source_file": "docs/phases/P8.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p9_do_it",
-      "label": "Do it / Print it / accept",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "do it / print it / accept",
-      "source_file": "docs/phases/P9.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_prs_p0_01_phase_marker",
       "label": "PHASE file marker",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "concept",
       "norm_label": "phase file marker",
@@ -6854,7 +7115,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "concept",
       "norm_label": "ao::boot / shutdown / version_string",
@@ -6869,7 +7130,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "concept",
       "norm_label": "ao_abi.h c abi stub",
@@ -6884,7 +7145,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "concept",
       "norm_label": "serena project.yml",
@@ -6899,176 +7160,11 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "concept",
       "norm_label": "graphify-out artifacts",
       "source_file": "docs/prs/P0-07.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_01_oop",
-      "label": "Oop.hpp tagged pointer API",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "oop.hpp tagged pointer api",
-      "source_file": "docs/prs/P1-01.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_02_heap_allocate",
-      "label": "Heap::allocate",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "heap::allocate",
-      "source_file": "docs/prs/P1-02.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_03_collect_nursery",
-      "label": "Gc::collectNursery",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc::collectnursery",
-      "source_file": "docs/prs/P1-03.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_gc_collectold",
-      "label": "Gc::collectOld()",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc::collectold()",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_nursery_gc",
-      "label": "nursery GC",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "nursery gc",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_promotion",
-      "label": "old-generation promotion",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "old-generation promotion",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_gc",
-      "label": "Gc",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "gc",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots",
-      "label": "Roots",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "roots",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_roots_add",
-      "label": "Roots::add(Oop*)",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "roots::add(oop*)",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "agents",
-      "label": "AGENTS.md",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "agents.md",
-      "source_file": "AGENTS.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "claude",
-      "label": "CLAUDE.md",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "claude.md",
-      "source_file": "CLAUDE.md",
       "source_location": null,
       "source_url": null
     },
@@ -7079,71 +7175,11 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p0 phase doc",
       "source_file": "docs/phases/P0.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p1",
-      "label": "P1 \u2014 Object Memory",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1 \u2014 object memory",
-      "source_file": "docs/phases/P1.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p7",
-      "label": "P7 \u2014 Image",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p7 \u2014 image",
-      "source_file": "docs/phases/P7.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p8",
-      "label": "P8 \u2014 AppKit Tools",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p8 \u2014 appkit tools",
-      "source_file": "docs/phases/P8.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p9",
-      "label": "P9 \u2014 Integration",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p9 \u2014 integration",
-      "source_file": "docs/phases/P9.md",
       "source_location": null,
       "source_url": null
     },
@@ -7154,7 +7190,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p0-01: git / license / phase / readme",
@@ -7169,7 +7205,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p0-02: directory skeleton",
@@ -7184,7 +7220,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p0-03: cmake + googletest + cli",
@@ -7199,7 +7235,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p0-04: c abi + swift smoke",
@@ -7214,7 +7250,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p0-05: docs/phases and docs/prs",
@@ -7229,7 +7265,7 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p0-06: serena project",
@@ -7244,101 +7280,11 @@
       "author": null,
       "captured_at": null,
       "community": 4,
-      "community_name": "docs/README.md",
+      "community_name": "P0 phase doc",
       "contributor": null,
       "file_type": "document",
       "norm_label": "p0-07: graphify initial graph",
       "source_file": "docs/prs/P0-07.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_01",
-      "label": "P1-01: ao::Oop tags",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-01: ao::oop tags",
-      "source_file": "docs/prs/P1-01.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_02",
-      "label": "P1-02: object header and bump alloc",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-02: object header and bump alloc",
-      "source_file": "docs/prs/P1-02.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_03",
-      "label": "P1-03: nursery GC",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-03: nursery gc",
-      "source_file": "docs/prs/P1-03.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_04_pr",
-      "label": "P1-04 old-generation mark-compact",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-04 old-generation mark-compact",
-      "source_file": "docs/prs/P1-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p1_05_pr",
-      "label": "P1-05 GC root API",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p1-05 gc root api",
-      "source_file": "docs/prs/P1-05.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_readme",
-      "label": "docs/README.md",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "docs/README.md",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "docs/readme.md",
-      "source_file": "docs/README.md",
       "source_location": null,
       "source_url": null
     },
@@ -7793,47 +7739,182 @@
       "source_url": null
     },
     {
-      "id": "docs_phases_p2_blue_book",
-      "label": "Blue Book 6\u201310",
+      "id": "docs_phases_p1_ao_oop",
+      "label": "ao::Oop",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
       "contributor": null,
       "file_type": "concept",
-      "norm_label": "blue book 6\u201310",
-      "source_file": "docs/phases/P2.md",
+      "norm_label": "ao::oop",
+      "source_file": "docs/phases/P1.md",
       "source_location": null,
       "source_url": null
     },
     {
-      "id": "docs_phases_p2_metaclass",
-      "label": "Metaclass cycle",
+      "id": "docs_phases_p1_gc",
+      "label": "ao::Gc",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
       "contributor": null,
       "file_type": "concept",
-      "norm_label": "metaclass cycle",
-      "source_file": "docs/phases/P2.md",
+      "norm_label": "ao::gc",
+      "source_file": "docs/phases/P1.md",
       "source_location": null,
       "source_url": null
     },
     {
-      "id": "docs_phases_p2_smalltalk_globals",
-      "label": "Smalltalk global dictionary",
+      "id": "docs_phases_p1_heap",
+      "label": "ao::Heap",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
       "contributor": null,
       "file_type": "concept",
-      "norm_label": "smalltalk global dictionary",
-      "source_file": "docs/phases/P2.md",
+      "norm_label": "ao::heap",
+      "source_file": "docs/phases/P1.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p1_nursery",
+      "label": "nursery bump allocator",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nursery bump allocator",
+      "source_file": "docs/phases/P1.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p1_tagged_pointer",
+      "label": "64-bit tagged pointer",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "64-bit tagged pointer",
+      "source_file": "docs/phases/P1.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_01_oop",
+      "label": "Oop.hpp tagged pointer API",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "oop.hpp tagged pointer api",
+      "source_file": "docs/prs/P1-01.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_02_heap_allocate",
+      "label": "Heap::allocate",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "heap::allocate",
+      "source_file": "docs/prs/P1-02.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_03_collect_nursery",
+      "label": "Gc::collectNursery",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc::collectnursery",
+      "source_file": "docs/prs/P1-03.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p1",
+      "label": "P1 \u2014 Object Memory",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1 \u2014 object memory",
+      "source_file": "docs/phases/P1.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_01",
+      "label": "P1-01: ao::Oop tags",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-01: ao::oop tags",
+      "source_file": "docs/prs/P1-01.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_02",
+      "label": "P1-02: object header and bump alloc",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-02: object header and bump alloc",
+      "source_file": "docs/prs/P1-02.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_03",
+      "label": "P1-03: nursery GC",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 49,
+      "community_name": "P1 \u2014 Object Memory",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-03: nursery gc",
+      "source_file": "docs/prs/P1-03.md",
       "source_location": null,
       "source_url": null
     },
@@ -8018,96 +8099,6 @@
       "source_url": null
     },
     {
-      "id": "docs_prs_p2_03_class_skeleton",
-      "label": "class skeleton",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "class skeleton",
-      "source_file": "docs/prs/P2-03.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p2_03_metaclass_cycle",
-      "label": "metaclass cycle",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "metaclass cycle",
-      "source_file": "docs/prs/P2-03.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p2_04_bootstrap",
-      "label": "Bootstrap",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "bootstrap",
-      "source_file": "docs/prs/P2-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p2_04_globals",
-      "label": "Globals",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "globals",
-      "source_file": "docs/prs/P2-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_prs_p2_04_smalltalk_dict",
-      "label": "Smalltalk global dictionary",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "smalltalk global dictionary",
-      "source_file": "docs/prs/P2-04.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "docs_phases_p2",
-      "label": "P2 \u2014 Bootstrap",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "p2 \u2014 bootstrap",
-      "source_file": "docs/phases/P2.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "docs_prs_p2_01_pr",
       "label": "P2-01 WellKnown and immediates",
       "_origin": "semantic",
@@ -8138,32 +8129,137 @@
       "source_url": null
     },
     {
-      "id": "docs_prs_p2_03_pr",
-      "label": "P2-03 metaclass cycle",
+      "id": "concept_phase_p0",
+      "label": "Phase P0 skeleton",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
+      "community": 50,
+      "community_name": "docs/README.md",
       "contributor": null,
-      "file_type": "document",
-      "norm_label": "p2-03 metaclass cycle",
-      "source_file": "docs/prs/P2-03.md",
+      "file_type": "concept",
+      "norm_label": "phase p0 skeleton",
+      "source_file": "SPEC.md",
+      "source_location": "110",
+      "source_url": null
+    },
+    {
+      "id": "concept_phase_pipeline",
+      "label": "Phase pipeline P0-P9",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 50,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "phase pipeline p0-p9",
+      "source_file": "SPEC.md",
+      "source_location": "106:122",
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p8_browser",
+      "label": "System Browser 5-pane",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 50,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "system browser 5-pane",
+      "source_file": "docs/phases/P8.md",
       "source_location": null,
       "source_url": null
     },
     {
-      "id": "docs_prs_p2_04_pr",
-      "label": "P2-04 Smalltalk global dictionary",
+      "id": "docs_phases_p8_transcript",
+      "label": "Transcript NSWindow",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
+      "community": 50,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "transcript nswindow",
+      "source_file": "docs/phases/P8.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p8_workspace",
+      "label": "Workspace NSWindow",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 50,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "workspace nswindow",
+      "source_file": "docs/phases/P8.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p9_do_it",
+      "label": "Do it / Print it / accept",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 50,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "do it / print it / accept",
+      "source_file": "docs/phases/P9.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p8",
+      "label": "P8 \u2014 AppKit Tools",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 50,
+      "community_name": "docs/README.md",
       "contributor": null,
       "file_type": "document",
-      "norm_label": "p2-04 smalltalk global dictionary",
-      "source_file": "docs/prs/P2-04.md",
+      "norm_label": "p8 \u2014 appkit tools",
+      "source_file": "docs/phases/P8.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p9",
+      "label": "P9 \u2014 Integration",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 50,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p9 \u2014 integration",
+      "source_file": "docs/phases/P9.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_readme",
+      "label": "docs/README.md",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 50,
+      "community_name": "docs/README.md",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "docs/readme.md",
+      "source_file": "docs/README.md",
       "source_location": null,
       "source_url": null
     },
@@ -8303,6 +8399,126 @@
       "source_url": null
     },
     {
+      "id": "docs_prs_p1_04_gc_collectold",
+      "label": "Gc::collectOld()",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 56,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc::collectold()",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_nursery_gc",
+      "label": "nursery GC",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 56,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nursery gc",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_promotion",
+      "label": "old-generation promotion",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 56,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "old-generation promotion",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_gc",
+      "label": "Gc",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 56,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "gc",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_roots",
+      "label": "Roots",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 56,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "roots",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_roots_add",
+      "label": "Roots::add(Oop*)",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 56,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "roots::add(oop*)",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_04_pr",
+      "label": "P1-04 old-generation mark-compact",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 56,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-04 old-generation mark-compact",
+      "source_file": "docs/prs/P1-04.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_prs_p1_05_pr",
+      "label": "P1-05 GC root API",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 56,
+      "community_name": "P1-04 old-generation mark-compact",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p1-05 gc root api",
+      "source_file": "docs/prs/P1-05.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "docs_phases_p3_compiledmethod",
       "label": "CompiledMethod",
       "_origin": "semantic",
@@ -8313,6 +8529,36 @@
       "contributor": null,
       "file_type": "concept",
       "norm_label": "compiledmethod",
+      "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p3_nativemethod",
+      "label": "NativeMethod",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 8,
+      "community_name": "P6b \u2014 vendor file-in",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nativemethod",
+      "source_file": "docs/phases/P3.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p3_selector_mangle",
+      "label": "selector mangle ao_<Class>_<selectorMangled>",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 8,
+      "community_name": "P6b \u2014 vendor file-in",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "selector mangle ao_<class>_<selectormangled>",
       "source_file": "docs/phases/P3.md",
       "source_location": null,
       "source_url": null
@@ -8453,6 +8699,36 @@
       "source_url": null
     },
     {
+      "id": "docs_phases_p7_aoimage",
+      "label": ".aoimage save/load",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 8,
+      "community_name": "P6b \u2014 vendor file-in",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": ".aoimage save/load",
+      "source_file": "docs/phases/P7.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p7_native_rebind",
+      "label": "NativeMethod symbol rebind on load",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 8,
+      "community_name": "P6b \u2014 vendor file-in",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "nativemethod symbol rebind on load",
+      "source_file": "docs/phases/P7.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "docs_phases_p5",
       "label": "P5 \u2014 Compiler",
       "_origin": "semantic",
@@ -8494,6 +8770,21 @@
       "file_type": "document",
       "norm_label": "p6b \u2014 vendor file-in",
       "source_file": "docs/phases/P6b.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "docs_phases_p7",
+      "label": "P7 \u2014 Image",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 8,
+      "community_name": "P6b \u2014 vendor file-in",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "p7 \u2014 image",
+      "source_file": "docs/phases/P7.md",
       "source_location": null,
       "source_url": null
     },
@@ -8549,11 +8840,23 @@
       "type": "external"
     },
     {
+      "id": "type_traits",
+      "label": "type_traits",
+      "_origin": "semantic",
+      "community": 17,
+      "community_name": "TEST",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "type_traits",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "cstddef",
       "label": "cstddef",
       "_origin": "semantic",
-      "community": 2,
-      "community_name": "TEST",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
       "external": true,
       "file_type": "concept",
       "norm_label": "cstddef",
@@ -8564,23 +8867,11 @@
       "id": "cstdint",
       "label": "cstdint",
       "_origin": "semantic",
-      "community": 2,
-      "community_name": "TEST",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
       "external": true,
       "file_type": "concept",
       "norm_label": "cstdint",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "memory",
-      "label": "memory",
-      "_origin": "semantic",
-      "community": 2,
-      "community_name": "TEST",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "memory",
       "source_file": "",
       "type": "external"
     },
@@ -8589,7 +8880,7 @@
       "label": "gtest",
       "_origin": "semantic",
       "community": 21,
-      "community_name": "bootstrap_test.cpp",
+      "community_name": "WellKnown.hpp",
       "external": true,
       "file_type": "concept",
       "norm_label": "gtest",
@@ -8597,14 +8888,38 @@
       "type": "external"
     },
     {
-      "id": "unordered_map",
-      "label": "unordered_map",
+      "id": "memory",
+      "label": "memory",
       "_origin": "semantic",
-      "community": 27,
-      "community_name": "Gc.cpp",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
       "external": true,
       "file_type": "concept",
-      "norm_label": "unordered_map",
+      "norm_label": "memory",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "string_view",
+      "label": "string_view",
+      "_origin": "semantic",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "string_view",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "wellknown",
+      "label": "wellknown",
+      "_origin": "semantic",
+      "community": 21,
+      "community_name": "WellKnown.hpp",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "wellknown",
       "source_file": "",
       "type": "external"
     },
@@ -8617,6 +8932,18 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "unordered_set",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "gc",
+      "label": "gc",
+      "_origin": "semantic",
+      "community": 3,
+      "community_name": "Heap",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "gc",
       "source_file": "",
       "type": "external"
     },
@@ -8645,47 +8972,11 @@
       "type": "external"
     },
     {
-      "id": "gc",
-      "label": "gc",
-      "_origin": "semantic",
-      "community": 49,
-      "community_name": "gc_test.cpp",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "gc",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "string_view",
-      "label": "string_view",
-      "_origin": "semantic",
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "string_view",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "wellknown",
-      "label": "wellknown",
-      "_origin": "semantic",
-      "community": 5,
-      "community_name": "P2-02 class object skeletons",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "wellknown",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "globals",
       "label": "globals",
       "_origin": "semantic",
-      "community": 6,
-      "community_name": "WellKnown",
+      "community": 58,
+      "community_name": "at",
       "external": true,
       "file_type": "concept",
       "norm_label": "globals",
@@ -8737,17 +9028,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "runtime",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "type_traits",
-      "label": "type_traits",
-      "community": 21,
-      "community_name": "bootstrap_test.cpp",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "type_traits",
       "source_file": "",
       "type": "external"
     }
@@ -8834,7 +9114,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L23",
+      "source_location": "L25",
       "weight": 1.0
     },
     {
@@ -8846,7 +9126,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L21",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -8858,7 +9138,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L22",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -8906,7 +9186,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L104",
+      "source_location": "L126",
       "weight": 1.0
     },
     {
@@ -8918,7 +9198,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L105",
+      "source_location": "L127",
       "weight": 1.0
     },
     {
@@ -8966,7 +9246,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L60",
+      "source_location": "L68",
       "weight": 1.0
     },
     {
@@ -8978,7 +9258,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L60",
+      "source_location": "L68",
       "weight": 1.0
     },
     {
@@ -9050,7 +9330,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L23",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -9062,7 +9342,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L11",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -9102,6 +9382,18 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_src_symbol_intern",
+      "target": "runtime_src_symbol_intern",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_src_wellknown_wellknown_classof",
       "target": "runtime_include_ao_oop_oop_nil",
       "relation": "calls",
@@ -9110,7 +9402,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L84",
+      "source_location": "L117",
       "weight": 1.0
     },
     {
@@ -9122,7 +9414,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L74",
+      "source_location": "L107",
       "weight": 1.0
     },
     {
@@ -9134,7 +9426,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L6",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
@@ -9938,7 +10230,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L25",
+      "source_location": "L27",
       "weight": 1.0
     },
     {
@@ -9950,7 +10242,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L26",
+      "source_location": "L28",
       "weight": 1.0
     },
     {
@@ -9962,7 +10254,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L28",
+      "source_location": "L31",
       "weight": 1.0
     },
     {
@@ -9974,7 +10266,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L29",
+      "source_location": "L32",
       "weight": 1.0
     },
     {
@@ -9986,7 +10278,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L30",
+      "source_location": "L33",
       "weight": 1.0
     },
     {
@@ -9998,7 +10290,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L31",
+      "source_location": "L34",
       "weight": 1.0
     },
     {
@@ -10010,7 +10302,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L32",
+      "source_location": "L35",
       "weight": 1.0
     },
     {
@@ -10022,7 +10314,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L33",
+      "source_location": "L36",
       "weight": 1.0
     },
     {
@@ -10034,7 +10326,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L34",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
@@ -10046,7 +10338,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L35",
+      "source_location": "L38",
       "weight": 1.0
     },
     {
@@ -10058,7 +10350,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L36",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -10070,7 +10362,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L37",
+      "source_location": "L40",
       "weight": 1.0
     },
     {
@@ -10082,7 +10374,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L38",
+      "source_location": "L41",
       "weight": 1.0
     },
     {
@@ -10094,7 +10386,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L39",
+      "source_location": "L42",
       "weight": 1.0
     },
     {
@@ -10106,7 +10398,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L40",
+      "source_location": "L43",
       "weight": 1.0
     },
     {
@@ -10118,7 +10410,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L41",
+      "source_location": "L44",
       "weight": 1.0
     },
     {
@@ -10130,7 +10422,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L42",
+      "source_location": "L45",
       "weight": 1.0
     },
     {
@@ -10142,7 +10434,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L43",
+      "source_location": "L46",
       "weight": 1.0
     },
     {
@@ -10154,7 +10446,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L44",
+      "source_location": "L47",
       "weight": 1.0
     },
     {
@@ -10166,7 +10458,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L45",
+      "source_location": "L48",
       "weight": 1.0
     },
     {
@@ -10178,7 +10470,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L46",
+      "source_location": "L49",
       "weight": 1.0
     },
     {
@@ -10190,7 +10482,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L47",
+      "source_location": "L50",
       "weight": 1.0
     },
     {
@@ -10202,7 +10494,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L48",
+      "source_location": "L51",
       "weight": 1.0
     },
     {
@@ -10214,24 +10506,12 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L49",
+      "source_location": "L52",
       "weight": 1.0
     },
     {
       "source": "runtime_include_ao_wellknown_wellknown",
-      "target": "runtime_include_ao_wellknown_wellknown_smalltalk",
-      "relation": "defines",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "field",
-      "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L50",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_include_ao_wellknown_wellknown",
-      "target": "runtime_include_ao_wellknown_wellknown_addroots",
+      "target": "runtime_include_ao_wellknown_wellknown_symbolclass",
       "relation": "defines",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -10243,7 +10523,7 @@
     },
     {
       "source": "runtime_include_ao_wellknown_wellknown",
-      "target": "runtime_include_ao_wellknown_wellknown_heap",
+      "target": "runtime_include_ao_wellknown_wellknown_symbolmetaclass",
       "relation": "defines",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -10251,6 +10531,162 @@
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
       "source_location": "L54",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_methoddictionaryclass",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L55",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_methoddictionarymetaclass",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L56",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_nativemethodclass",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L57",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_nativemethodmetaclass",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L58",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_messageclass",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L59",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_messagemetaclass",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L60",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_smalltalk",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L61",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_addroots",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L64",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_heap",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L66",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_roots",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L67",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_wellknown_intern",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L68",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_interntable",
+      "target": "runtime_src_wellknown_wellknown_interntable_table",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_interntable",
+      "target": "runtime_src_wellknown_wellknown_interntable_bybytes",
+      "relation": "defines",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -10279,7 +10715,7 @@
     },
     {
       "source": "runtime_include_ao_heap_heap",
-      "target": "unique_ptr",
+      "target": "runtime_include_ao_heap_hpp_unique_ptr",
       "relation": "references",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -10406,7 +10842,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L50",
+      "source_location": "L61",
       "weight": 1.0
     },
     {
@@ -10418,7 +10854,55 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L54",
+      "source_location": "L66",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_roots_roots",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L67",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "runtime_include_ao_wellknown_hpp_unique_ptr",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L68",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_interntable",
+      "target": "deque",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_interntable",
+      "target": "unordered_map",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -10455,6 +10939,54 @@
       "context": "generic_arg",
       "source_file": "runtime/include/ao/Roots.hpp",
       "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown_wellknown",
+      "target": "interntable",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L68",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_interntable",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_interntable",
+      "target": "runtime_src_wellknown_cpp_size_t",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_interntable",
+      "target": "string",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -10782,6 +11314,42 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_include_ao_symbol",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/include/ao/Symbol.hpp",
+      "source_location": "L2",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_symbol",
+      "target": "wellknown",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/include/ao/Symbol.hpp",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_symbol",
+      "target": "string_view",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/include/ao/Symbol.hpp",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_include_ao_wellknown",
       "target": "runtime_include_ao_heap_heap",
       "relation": "imports",
@@ -10819,7 +11387,7 @@
     },
     {
       "source": "runtime_include_ao_wellknown",
-      "target": "string_view",
+      "target": "memory",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -10827,6 +11395,18 @@
       "context": "import",
       "source_file": "runtime/include/ao/WellKnown.hpp",
       "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_include_ao_wellknown",
+      "target": "string_view",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/include/ao/WellKnown.hpp",
+      "source_location": "L8",
       "weight": 1.0
     },
     {
@@ -11130,6 +11710,30 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_src_symbol",
+      "target": "symbol",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_symbol",
+      "target": "runtime_include_ao_heap_heap",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_src_wellknown",
       "target": "wellknown",
       "relation": "imports",
@@ -11139,6 +11743,54 @@
       "context": "import",
       "source_file": "runtime/src/WellKnown.cpp",
       "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown",
+      "target": "cstring",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown",
+      "target": "deque",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown",
+      "target": "string",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown",
+      "target": "unordered_map",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L6",
       "weight": 1.0
     },
     {
@@ -11418,6 +12070,90 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_tests_symbol_test",
+      "target": "bootstrap",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test",
+      "target": "gc",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L2",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test",
+      "target": "runtime_include_ao_heap_heap",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test",
+      "target": "runtime_include_ao_roots_roots",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test",
+      "target": "symbol",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test",
+      "target": "wellknown",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test",
+      "target": "gtest",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
       "source": "compiler_tests_smoke_test_test",
       "target": "compilersmoke",
       "relation": "references",
@@ -11534,7 +12270,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L103",
+      "source_location": "L125",
       "weight": 1.0
     },
     {
@@ -11546,7 +12282,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L103",
+      "source_location": "L125",
       "weight": 1.0
     },
     {
@@ -11558,7 +12294,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L103",
+      "source_location": "L125",
       "weight": 1.0
     },
     {
@@ -11606,7 +12342,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L57",
+      "source_location": "L65",
       "weight": 1.0
     },
     {
@@ -11618,7 +12354,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L57",
+      "source_location": "L65",
       "weight": 1.0
     },
     {
@@ -11666,7 +12402,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L22",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -11678,7 +12414,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L22",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -11690,7 +12426,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L10",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -11702,7 +12438,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L10",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -11714,7 +12450,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L10",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -12054,6 +12790,54 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_src_symbol_bytes",
+      "target": "runtime_include_ao_heap_heap",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_symbol_bytes",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_symbol_intern",
+      "target": "runtime_include_ao_wellknown_wellknown",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_symbol_intern",
+      "target": "runtime_src_symbol_cpp_string_view",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_src_wellknown_wellknown_addroots",
       "target": "runtime_include_ao_roots_roots",
       "relation": "references",
@@ -12062,7 +12846,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L32",
+      "source_location": "L53",
       "weight": 1.0
     },
     {
@@ -12074,7 +12858,19 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L77",
+      "source_location": "L110",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_intern",
+      "target": "runtime_src_wellknown_cpp_string_view",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L120",
       "weight": 1.0
     },
     {
@@ -12086,7 +12882,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L58",
+      "source_location": "L87",
       "weight": 1.0
     },
     {
@@ -12098,7 +12894,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L5",
+      "source_location": "L15",
       "weight": 1.0
     },
     {
@@ -12110,7 +12906,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L5",
+      "source_location": "L15",
       "weight": 1.0
     },
     {
@@ -12319,7 +13115,7 @@
     },
     {
       "source": "runtime_tests_bootstrap_test_test",
-      "target": "smalltalkcontainsallelevenclasses",
+      "target": "smalltalkcontainsallnamedclasses",
       "relation": "references",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -12918,6 +13714,42 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_tests_symbol_test_test",
+      "target": "internsurvivesnurserygc",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test_test",
+      "target": "symbol",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test_test",
+      "target": "internsamebytesisidentical",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "parameter_type",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_include_ao_oop_oop_smallintegervalue",
       "target": "runtime_include_ao_oop_hpp_int64_t",
       "relation": "references",
@@ -12938,7 +13770,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L23",
+      "source_location": "L25",
       "weight": 1.0
     },
     {
@@ -12950,7 +13782,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L21",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -12962,7 +13794,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L22",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -12998,7 +13830,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L22",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -13134,6 +13966,42 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_src_symbol_bytes",
+      "target": "runtime_src_symbol_cpp_string_view",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "return_type",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_symbol_intern",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "return_type",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown_wellknown_intern",
+      "target": "runtime_include_ao_oop_oop",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "return_type",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_src_wellknown_wellknown_named",
       "target": "runtime_include_ao_oop_oop",
       "relation": "references",
@@ -13142,7 +14010,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L58",
+      "source_location": "L87",
       "weight": 1.0
     },
     {
@@ -13747,7 +14615,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L11",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -13802,7 +14670,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L103",
+      "source_location": "L125",
       "weight": 1.0
     },
     {
@@ -13846,7 +14714,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/Bootstrap.cpp",
-      "source_location": "L57",
+      "source_location": "L65",
       "weight": 1.0
     },
     {
@@ -13945,7 +14813,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L10",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -13956,7 +14824,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/Globals.cpp",
-      "source_location": "L22",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -14290,36 +15158,36 @@
       "weight": 1.0
     },
     {
-      "source": "runtime_src_wellknown",
-      "target": "runtime_src_wellknown_wellknown_addroots",
+      "source": "runtime_src_symbol",
+      "target": "runtime_src_symbol_bytes",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L32",
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_symbol",
+      "target": "runtime_src_symbol_intern",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/Symbol.cpp",
+      "source_location": "L8",
       "weight": 1.0
     },
     {
       "source": "runtime_src_wellknown",
-      "target": "runtime_src_wellknown_wellknown_wellknown",
+      "target": "runtime_src_wellknown_wellknown_interntable",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L5",
-      "weight": 1.0
-    },
-    {
-      "source": "runtime_src_wellknown",
-      "target": "runtime_src_wellknown_wellknown_named",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L58",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
@@ -14330,7 +15198,51 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L77",
+      "source_location": "L110",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown",
+      "target": "runtime_src_wellknown_wellknown_intern",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown",
+      "target": "runtime_src_wellknown_wellknown_wellknown",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L51",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown",
+      "target": "runtime_src_wellknown_wellknown_addroots",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L53",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_src_wellknown",
+      "target": "runtime_src_wellknown_wellknown_named",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L87",
       "weight": 1.0
     },
     {
@@ -14419,6 +15331,17 @@
       "confidence_score": 1.0,
       "source_file": "runtime/tests/smoke_test.cpp",
       "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test",
+      "target": "runtime_tests_symbol_test_test",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -14682,7 +15605,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L16",
+      "source_location": "L18",
       "weight": 1.0
     },
     {
@@ -14693,7 +15616,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L21",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -14704,7 +15627,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L22",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -14715,7 +15638,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "runtime/include/ao/WellKnown.hpp",
-      "source_location": "L23",
+      "source_location": "L25",
       "weight": 1.0
     },
     {
@@ -15718,6 +16641,18 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_src_wellknown_wellknown_intern",
+      "target": "runtime_include_ao_oop_oop_isheap",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/src/WellKnown.cpp",
+      "source_location": "L128",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_tests_bootstrap_test_clsof",
       "target": "runtime_include_ao_heap_heap_klass",
       "relation": "calls",
@@ -16102,6 +17037,42 @@
       "weight": 1.0
     },
     {
+      "source": "runtime_tests_symbol_test_test",
+      "target": "runtime_include_ao_heap_heap_klass",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test_test",
+      "target": "runtime_include_ao_roots_roots_add",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "runtime_tests_symbol_test_test",
+      "target": "runtime_include_ao_heap_heap_inold",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "context": "call",
+      "source_file": "runtime/tests/symbol_test.cpp",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
       "source": "runtime_src_gc_gc_collectnursery",
       "target": "runtime_include_ao_gc_gc_scavengefromroots",
       "relation": "calls",
@@ -16290,7 +17261,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "runtime/src/WellKnown.cpp",
-      "source_location": "L29",
+      "source_location": "L48",
       "weight": 1.0
     },
     {
@@ -18863,7 +19834,7 @@
     },
     {
       "source": "docs_prs_p3_01_pr",
-      "target": "docs_prs_p3_01_symbol_hpp",
+      "target": "runtime_include_ao_symbol",
       "relation": "references",
       "_origin": "semantic",
       "confidence": "EXTRACTED",
@@ -18874,7 +19845,7 @@
     },
     {
       "source": "docs_prs_p3_01_pr",
-      "target": "docs_prs_p3_01_symbol_test",
+      "target": "runtime_tests_symbol_test",
       "relation": "references",
       "_origin": "semantic",
       "confidence": "EXTRACTED",
@@ -20382,5 +21353,5 @@
       "source_file": "runtime/src/abi.cpp"
     }
   ],
-  "built_at_commit": "d90d54bbf1d937ab37d437176ed0b6a671553a02"
+  "built_at_commit": "ae6c878d65a19b51dd10949f15805a4a8acf0d7c"
 }

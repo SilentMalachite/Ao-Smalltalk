@@ -18,6 +18,7 @@ add_library(ao_runtime
   src/Bootstrap.cpp
   src/Globals.cpp
   src/Symbol.cpp
+  src/MethodDictionary.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -38,6 +39,7 @@ add_executable(ao_runtime_tests
   tests/gc_test.cpp
   tests/bootstrap_test.cpp
   tests/symbol_test.cpp
+  tests/method_dictionary_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

@@ -930,9 +930,9 @@
     "semantic_hash": ""
   },
   "docs/prs/P3-02.md": {
-    "mtime": 1789974376.5820162,
-    "seen": 1789974424.988225,
-    "ast_hash": "f4b7db4836d75f3996cd36b226098253",
+    "mtime": 1789975916.6992369,
+    "seen": 1789975918.6495318,
+    "ast_hash": "49dc12b46b88ff6dbcda273c96047d18",
     "semantic_hash": ""
   },
   "docs/prs/P3-03.md": {
@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "runtime/CMakeLists.txt": {
-    "mtime": 1789974957.290517,
-    "seen": 1789975049.133132,
-    "ast_hash": "3cc60426a880b12169af88d4ab2d4b10",
+    "mtime": 1789975812.8238773,
+    "seen": 1789975918.6495612,
+    "ast_hash": "77e466b3f0777dcc64891a43db7d778c",
     "semantic_hash": ""
   },
   "runtime/include/ao/Roots.hpp": {
@@ -1239,6 +1239,24 @@
     "mtime": 1789974972.9438546,
     "seen": 1789975049.133064,
     "ast_hash": "c03a6192275543f13cb5012d96a41cba",
+    "semantic_hash": ""
+  },
+  "runtime/include/ao/MethodDictionary.hpp": {
+    "mtime": 1789975812.8239994,
+    "seen": 1789975918.649431,
+    "ast_hash": "260a0c19abca83866aa1b75541c18d8f",
+    "semantic_hash": ""
+  },
+  "runtime/src/MethodDictionary.cpp": {
+    "mtime": 1789975812.8239799,
+    "seen": 1789975918.649485,
+    "ast_hash": "46b1fd00e4b6604414252dabdb70fcb4",
+    "semantic_hash": ""
+  },
+  "runtime/tests/method_dictionary_test.cpp": {
+    "mtime": 1789975734.039598,
+    "seen": 1789975918.6494951,
+    "ast_hash": "96dc6d2fb6472ea463888e3219b23c07",
     "semantic_hash": ""
   }
 }
