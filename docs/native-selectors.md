@@ -48,3 +48,16 @@ ao_<Class>_<selectorMangled>
 | `xor:` | `xor_` | `ao_True_xor_` |
 
 C++ の関数名はマングル名と一致させる。
+
+## CompiledMethod accessors (P5)
+
+`compiledMethodClass` に NativeMethod として入れる。CompiledMethod インスタンスは Kernel メソッド辞書に置かない。unary はそのまま。
+
+| セレクタ | selectorMangled | 例 |
+|---|---|---|
+| `numArgs` | `numArgs` | `ao_CompiledMethod_numArgs` |
+| `numTemps` | `numTemps` | `ao_CompiledMethod_numTemps` |
+| `primitive` | `primitive` | `ao_CompiledMethod_primitive` |
+| `literals` | `literals` | `ao_CompiledMethod_literals` |
+| `bytecodes` | `bytecodes` | `ao_CompiledMethod_bytecodes` |
+| `nativeCode` | `nativeCode` | `ao_CompiledMethod_nativeCode` |

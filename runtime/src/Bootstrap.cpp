@@ -4,6 +4,7 @@
 #include "ao/Format.hpp"
 #include "ao/Globals.hpp"
 #include "ao/MethodDictionary.hpp"
+#include "ao/CompiledMethod.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
@@ -98,8 +99,9 @@ constexpr ClassDef kDefs[] = {
      &WellKnown::sequenceableCollectionClass, 0, false, false, "LinkedList"},
     {&WellKnown::mappedCollectionClass, &WellKnown::mappedCollectionMetaclass,
      &WellKnown::sequenceableCollectionClass, 0, false, false, "MappedCollection"},
-    {&WellKnown::compiledMethodClass, &WellKnown::compiledMethodMetaclass, &WellKnown::objectClass, 0,
-     false, false, "CompiledMethod"},
+    {&WellKnown::compiledMethodClass, &WellKnown::compiledMethodMetaclass,
+     &WellKnown::objectClass, static_cast<std::int64_t>(kCmSlotCount), false, false,
+     "CompiledMethod"},
     {&WellKnown::nativeMethodClass, &WellKnown::nativeMethodMetaclass, &WellKnown::objectClass,
      static_cast<std::int64_t>(kNativeSlotCount), false, false, "NativeMethod"},
     {&WellKnown::messageClass, &WellKnown::messageMetaclass, &WellKnown::objectClass, 2, false, false,

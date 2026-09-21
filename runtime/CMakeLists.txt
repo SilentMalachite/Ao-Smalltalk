@@ -20,6 +20,7 @@ add_library(ao_runtime
   src/Symbol.cpp
   src/MethodDictionary.cpp
   src/NativeMethod.cpp
+  src/CompiledMethod.cpp
   src/Lookup.cpp
   src/Send.cpp
   src/kernel/Install.cpp
@@ -39,6 +40,7 @@ add_library(ao_runtime
   src/kernel/Stream.cpp
   src/kernel/Process.cpp
   src/kernel/Geometry.cpp
+  src/kernel/CompiledMethodNatives.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -72,6 +74,7 @@ add_executable(ao_runtime_tests
   tests/process_test.cpp
   tests/geometry_test.cpp
   tests/kernel_scan_test.cpp
+  tests/compiled_method_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

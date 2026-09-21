@@ -27,6 +27,7 @@ void installDictionary(Heap& heap, WellKnown& wk);
 void installStream(Heap& heap, WellKnown& wk);
 void installProcess(Heap& heap, WellKnown& wk);
 void installGeometry(Heap& heap, WellKnown& wk);
+void installCompiledMethod(Heap& heap, WellKnown& wk);
 void installAll(Heap& heap, Roots& roots, WellKnown& wk);
 
 }  // namespace kernel

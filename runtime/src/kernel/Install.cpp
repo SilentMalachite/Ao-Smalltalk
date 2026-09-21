@@ -46,6 +46,7 @@ void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
             "ao_BlockContext_valueWithArguments_", ao_BlockContext_valueWithArguments_);
   installProcess(heap, wk);
   installGeometry(heap, wk);
+  installCompiledMethod(heap, wk);
 }
 
 }  // namespace kernel
