@@ -1,0 +1,90 @@
+#include "ao/NativeMethod.hpp"
+
+#include <cstring>
+#include <vector>
+
+namespace ao {
+
+namespace {
+
+std::vector<NativeFn> gNativeFns;
+
+}
+
+namespace NativeRegistry {
+
+std::uint32_t add(NativeFn fn) {
+  const auto i = static_cast<std::uint32_t>(gNativeFns.size());
+  gNativeFns.push_back(fn);
+  return i;
+}
+
+}  // namespace NativeRegistry
+
+namespace NativeMethod {
+
+Oop create(Heap& heap, WellKnown& wk, Oop selector, std::uint32_t argc, std::string_view name,
+           std::uint32_t registryIndex, Oop methodClass) {
+  auto meth = heap.allocate(wk.nativeMethodClass, kNativeSlotCount, 0);
+  if (!meth.isHeap()) {
+    return Oop{};
+  }
+  const auto n = static_cast<std::uint32_t>(name.size());
+  auto nameObj = heap.allocate(Oop::nil(), n, kFlagBytes);
+  if (!nameObj.isHeap()) {
+    return Oop{};
+  }
+  if (n != 0) {
+    std::memcpy(heap.bytes(nameObj), name.data(), n);
+  }
+  heap.slotAtPut(meth, kNativeSlotSelector, selector);
+  heap.slotAtPut(meth, kNativeSlotArgc, Oop::fromSmallInteger(static_cast<std::int64_t>(argc)));
+  heap.slotAtPut(meth, kNativeSlotPrimitive, Oop::fromSmallInteger(0));
+  heap.slotAtPut(meth, kNativeSlotName, nameObj);
+  heap.slotAtPut(meth, kNativeSlotMethodClass, methodClass);
+  heap.slotAtPut(meth, kNativeSlotRegistryIndex,
+                 Oop::fromSmallInteger(static_cast<std::int64_t>(registryIndex)));
+  return meth;
+}
+
+Oop apply(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (!method.isHeap()) {
+    return Oop{};
+  }
+  if (ctx.heap.klass(method) != ctx.wk.nativeMethodClass) {
+    return Oop{};
+  }
+  const auto storedArgc = ctx.heap.slotAt(method, kNativeSlotArgc);
+  if (!storedArgc.isSmallInteger() ||
+      storedArgc.smallIntegerValue() != static_cast<std::int64_t>(argc)) {
+    return Oop{};
+  }
+  const auto idxOop = ctx.heap.slotAt(method, kNativeSlotRegistryIndex);
+  if (!idxOop.isSmallInteger()) {
+    return Oop{};
+  }
+  const auto idx = idxOop.smallIntegerValue();
+  if (idx < 0 || static_cast<std::size_t>(idx) >= gNativeFns.size()) {
+    return Oop{};
+  }
+  NativeFn fn = gNativeFns[static_cast<std::size_t>(idx)];
+  if (fn == nullptr) {
+    return Oop{};
+  }
+  return fn(ctx, receiver, args, argc);
+}
+
+std::string_view nameBytes(Heap& heap, Oop method) {
+  if (!method.isHeap()) {
+    return {};
+  }
+  const auto name = heap.slotAt(method, kNativeSlotName);
+  if (!name.isHeap()) {
+    return {};
+  }
+  const ObjectHeader* h = heap.header(name);
+  return std::string_view(reinterpret_cast<const char*>(h + 1), h->size);
+}
+
+}  // namespace NativeMethod
+}  // namespace ao
