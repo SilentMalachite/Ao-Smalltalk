@@ -1,4 +1,5 @@
 #include "ao/Bootstrap.hpp"
+#include "ao/Globals.hpp"
 
 #include <cstring>
 
@@ -102,6 +103,7 @@ void wireCycle(Heap& heap, WellKnown& wk) {
 void run(Heap& heap, Roots& roots, WellKnown& wk) {
   allocateSkeletons(heap, roots, wk);
   wireCycle(heap, wk);
+  Globals::install(heap, roots, wk);
 }
 
 }  // namespace Bootstrap

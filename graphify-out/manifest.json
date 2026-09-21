@@ -918,9 +918,9 @@
     "semantic_hash": ""
   },
   "docs/prs/P2-04.md": {
-    "mtime": 1789970292.485568,
-    "seen": 1789970513.443566,
-    "ast_hash": "507911497bb5efec52ac8bd6303cdac5",
+    "mtime": 1789971795.3753684,
+    "seen": 1789971896.897602,
+    "ast_hash": "63f867db063ceecb53632e2065d7a04b",
     "semantic_hash": ""
   },
   "docs/prs/P3-01.md": {
@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "runtime/CMakeLists.txt": {
-    "mtime": 1789970861.88948,
-    "seen": 1789970874.123549,
-    "ast_hash": "28fe8435f9aae7d9a43345c83ab759fc",
+    "mtime": 1789971795.3755834,
+    "seen": 1789971896.89763,
+    "ast_hash": "07ae21a7017deeca6341b20d76966217",
     "semantic_hash": ""
   },
   "runtime/include/ao/Roots.hpp": {
@@ -1194,9 +1194,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/bootstrap_test.cpp": {
-    "mtime": 1789971280.6738555,
-    "seen": 1789971374.3334699,
-    "ast_hash": "9b393a031db4a7d0fa0039e3823a0c30",
+    "mtime": 1789971765.5175123,
+    "seen": 1789971896.897565,
+    "ast_hash": "b2c0b2659b954c5953194b10fd7b37c6",
     "semantic_hash": ""
   },
   "runtime/include/ao/Bootstrap.hpp": {
@@ -1206,9 +1206,21 @@
     "semantic_hash": ""
   },
   "runtime/src/Bootstrap.cpp": {
-    "mtime": 1789971332.6558943,
-    "seen": 1789971374.333389,
-    "ast_hash": "5f531fa1376f50f5f91fd7b9a374448f",
+    "mtime": 1789971795.3856058,
+    "seen": 1789971896.897557,
+    "ast_hash": "849874221e7166343bd2af34801268dd",
+    "semantic_hash": ""
+  },
+  "runtime/include/ao/Globals.hpp": {
+    "mtime": 1789971795.3752797,
+    "seen": 1789971896.897551,
+    "ast_hash": "a6995926a54d96c324449192a424a27d",
+    "semantic_hash": ""
+  },
+  "runtime/src/Globals.cpp": {
+    "mtime": 1789971795.3752518,
+    "seen": 1789971896.897558,
+    "ast_hash": "593c198335f29dc77ad00a55bb1fd57b",
     "semantic_hash": ""
   }
 }

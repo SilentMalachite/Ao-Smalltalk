@@ -1,5 +1,6 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Gc.hpp"
+#include "ao/Globals.hpp"
 #include "ao/Heap.hpp"
 #include "ao/Roots.hpp"
 #include "ao/WellKnown.hpp"
@@ -202,4 +203,34 @@ TEST(Bootstrap, CycleSurvivesNurseryGc) {
   EXPECT_EQ(wk.metaclassClass, clsOf(heap, clsOf(heap, wk.objectClass)));
   EXPECT_TRUE(superOf(heap, wk.objectClass).isNil());
   EXPECT_TRUE(wk.objectClass.isHeap());
+}
+
+TEST(Bootstrap, SmalltalkMapsObjectNameToClass) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  ASSERT_TRUE(wk.smalltalk.isHeap());
+  EXPECT_EQ(11u, heap.size(wk.smalltalk));
+  EXPECT_EQ(wk.objectClass, ao::Globals::at(wk, "Object"));
+  EXPECT_EQ(wk.objectClass, heap.slotAt(wk.smalltalk, 0));
+  EXPECT_EQ(wk.metaclassClass, ao::Globals::at(wk, "Metaclass"));
+  EXPECT_EQ(wk.undefinedObjectClass, ao::Globals::at(wk, "UndefinedObject"));
+  EXPECT_EQ(wk.smallIntegerClass, ao::Globals::at(wk, "SmallInteger"));
+  EXPECT_EQ(wk.smalltalk, wk.named("Smalltalk"));
+  EXPECT_TRUE(ao::Globals::at(wk, "nope").isNil());
+}
+
+TEST(Bootstrap, SmalltalkContainsAllElevenClasses) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  const char* names[] = {
+      "Object", "Behavior", "ClassDescription", "Class", "Metaclass",
+      "UndefinedObject", "Boolean", "True", "False", "SmallInteger", "Character"};
+  for (const char* n : names) {
+    EXPECT_EQ(wk.named(n), ao::Globals::at(wk, n)) << n;
+    EXPECT_TRUE(ao::Globals::at(wk, n).isHeap()) << n;
+  }
 }
