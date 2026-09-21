@@ -1,17 +1,17 @@
 # Graph Report - p2-bootstrap  (2026-09-21)
 
 ## Corpus Check
-- 108 files · ~18,203 words
+- 108 files · ~18,222 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 11 file(s) not represented in the graph (top: (none) 10, .toml 1)
 
 ## Summary
-- 655 nodes · 998 edges · 54 communities (39 shown, 15 thin omitted)
-- Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 85 edges (avg confidence: 0.84)
+- 657 nodes · 1000 edges · 53 communities (37 shown, 16 thin omitted)
+- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 85 edges (avg confidence: 0.84)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `5770a507`
+- Built from commit: `d90d54bb`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -31,7 +31,7 @@
 - Roots
 - Heap.cpp
 - P4-04 Array / ByteArray / String / Symbol
-- P0 phase doc
+- Roots.cpp
 - header
 - TEST
 - SmokeTests.swift
@@ -41,9 +41,9 @@
 - ao image save
 - build.sh
 - test.sh
-- P0-03: CMake + GoogleTest + CLI
+- P9-03: エラー表示と VoiceOver
 - Gc.cpp
-- P9 — Integration
+- P9-01: Do it / Print it / Inspect it
 - P4-01 Object / UndefinedObject / Boolean
 - P4-06 Stream / Transcript model
 - runtime/src/Symbol.cpp
@@ -59,12 +59,11 @@
 - oop
 - ObjectHeader
 - P4-05 Dictionary / Set / OrderedCollection
-- P1-04 old-generation mark-compact
+- P9-02: Browser accept
 - P4-08 Point / Rectangle
 - P4-09 Kernel NativeMethod scan and bench
-- ao_abi.h
-- ao::compiler::version
-- P1-07: immovable old objects
+- gc_test.cpp
+- klass
 - P4-02 Behavior / ClassDescription / Class / Metaclass
 - P4 — Kernel Native Implementation
 
@@ -72,7 +71,7 @@
 1. `Oop` - 65 edges
 2. `Heap` - 59 edges
 3. `TEST()` - 47 edges
-4. `WellKnown` - 38 edges
+4. `WellKnown` - 39 edges
 5. `Roots` - 33 edges
 6. `TEST()` - 25 edges
 7. `P0 phase doc` - 16 edges
@@ -87,9 +86,9 @@
   docs/prs/P1-06.md → runtime/include/ao/Heap.hpp
 - `手順` --references--> `Gc`  [INFERRED]
   docs/prs/P1-06.md → runtime/include/ao/Gc.hpp
+- `ao::Oop typed pointer` --semantically_similar_to--> `64-bit tagged OOP`  [INFERRED] [semantically similar]
+  CLAUDE.md → SPEC.md
 - `ABI boundary memory` --references--> `ao_runtime_boot`  [EXTRACTED]
-  .serena/memories/abi_boundary.md → bridge/ao_abi.h
-- `ABI boundary memory` --references--> `ao_runtime_shutdown`  [EXTRACTED]
   .serena/memories/abi_boundary.md → bridge/ao_abi.h
 
 ## Import Cycles
@@ -110,43 +109,43 @@
 - **AppKit tool windows and menu** — docs_prs_p8_01_ao_app, docs_prs_p8_02_transcript_window, docs_prs_p8_03_workspace_window, docs_prs_p8_04_browser_window, docs_prs_p8_05_main_menu [EXTRACTED 1.00]
 - **C ABI wrappers over ao::Runtime** — runtime_src_abi_ao_version, runtime_src_abi_ao_runtime_boot, runtime_src_abi_ao_runtime_shutdown [EXTRACTED 1.00]
 
-## Communities (54 total, 15 thin omitted)
+## Communities (53 total, 16 thin omitted)
 
 ### Community 0 - "SPEC.md"
-Cohesion: 0.16
-Nodes (18): Ao macOS native Smalltalk, Ao.app AppKit tools, ao CLI, .aoimage snapshot, AppKit host GUI, Blue Book compliance, Bootstrap order §3.7, CompiledMethod (+10 more)
+Cohesion: 0.09
+Nodes (31): ao_runtime_boot, ao_runtime_shutdown, ao_version, Root CMakeLists.txt, compiler CMakeLists, ao::compiler::version, version() implementation, CompilerSmoke.VersionIsNonEmpty (+23 more)
 
 ### Community 1 - "P3-04 lookup / super / doesNotUnderstand:"
 Cohesion: 0.05
-Nodes (44): P3 — Native Dispatch, doesNotUnderstand:, method lookup / send, MethodDictionary, Heap, Oop, P3-01 Symbol intern, Symbol (+36 more)
+Nodes (47): P3 — Native Dispatch, doesNotUnderstand:, method lookup / send, MethodDictionary, NativeMethod, selector mangle ao_<Class>_<selectorMangled>, NativeMethod symbol rebind on load, Heap (+39 more)
 
 ### Community 2 - "TEST"
-Cohesion: 0.20
-Nodes (8): CharacterRoundTrip, cstdint, HeapAlignedPointerRoundTrip, IdentityEqualsIsBits, ImmediateThreePatterns, OopTag, TEST(), SmallIntegerRoundTrip
+Cohesion: 0.15
+Nodes (10): CharacterRoundTrip, cstddef, cstdint, HeapAlignedPointerRoundTrip, IdentityEqualsIsBits, ImmediateThreePatterns, memory, OopTag (+2 more)
 
 ### Community 3 - "Heap"
-Cohesion: 0.08
-Nodes (26): Heap, containsNurseryFrom, flipNursery, fromBump_, fromEnd_, fromStart_, inNursery, inOld (+18 more)
+Cohesion: 0.10
+Nodes (21): Heap, containsNurseryFrom, flipNursery, fromBump_, fromEnd_, fromStart_, nextHash_, nursery_ (+13 more)
 
 ### Community 4 - "docs/README.md"
-Cohesion: 0.21
-Nodes (16): P1 — Object Memory, ao::Oop, ao::Gc, ao::Heap, nursery bump allocator, 64-bit tagged pointer, P0-01: git / LICENSE / PHASE / README, PHASE file marker (+8 more)
+Cohesion: 0.06
+Nodes (53): CLAUDE.md process authority, Graphify knowledge graph tool, Phase P0 skeleton, Phase pipeline P0-P9, Serena LSP symbol tool, SPEC.md product authority, P0 phase doc, P1 — Object Memory (+45 more)
 
 ### Community 5 - "P2-02 class object skeletons"
-Cohesion: 0.09
-Nodes (26): P2 — Bootstrap, Blue Book 6–10, Metaclass cycle, Smalltalk global dictionary, Heap, Oop, P2-01 WellKnown and immediates, Roots (+18 more)
+Cohesion: 0.08
+Nodes (27): P2 — Bootstrap, Blue Book 6–10, Metaclass cycle, Smalltalk global dictionary, Heap, Oop, P2-01 WellKnown and immediates, Roots (+19 more)
 
 ### Community 6 - "WellKnown"
-Cohesion: 0.07
-Nodes (38): globals, WellKnown, behaviorClass, behaviorMetaclass, booleanClass, booleanMetaclass, characterClass, characterMetaclass (+30 more)
+Cohesion: 0.05
+Nodes (44): globals, WellKnown, addRoots, behaviorClass, behaviorMetaclass, booleanClass, booleanMetaclass, characterClass (+36 more)
 
 ### Community 7 - "Oop"
 Cohesion: 0.10
 Nodes (8): int64_t, Oop, kCharTag, kImmTag, kLow3, kSmiTag, raw_, uint64_t
 
 ### Community 8 - "P6b — vendor file-in"
-Cohesion: 0.13
-Nodes (19): CompiledMethod, NativeMethod, selector mangle ao_<Class>_<selectorMangled>, P5 — Compiler, AST via lexer/parser, bytecode code generation, chunk file-in parser, P6 — Interpreter (+11 more)
+Cohesion: 0.18
+Nodes (14): CompiledMethod, P5 — Compiler, AST via lexer/parser, bytecode code generation, chunk file-in parser, P6 — Interpreter, ao --test runner, bytecode interpreter loop (+6 more)
 
 ### Community 9 - "TEST"
 Cohesion: 0.09
@@ -157,12 +156,12 @@ Cohesion: 0.13
 Nodes (22): CompiledMethod class (P4 Kernel), Scanner (字句解析), Token stream, AST, Parser and AST, Ao bytecode ISA, Opcode constants, Codegen CompiledMethod (+14 more)
 
 ### Community 11 - "TEST"
-Cohesion: 0.07
-Nodes (29): ByteObjectPayloadIsNotScannedAsOops, DeadOldSlotIsNotANurseryRoot, DestJumpPastPinDoesNotOverlap, GcNursery, GcOld, GcRoots, GcWeak, HandleTableKeepsObject (+21 more)
+Cohesion: 0.06
+Nodes (31): ByteObjectPayloadIsNotScannedAsOops, DeadOldSlotIsNotANurseryRoot, DestJumpPastPinDoesNotOverlap, GcNursery, GcOld, GcRoots, GcWeak, HandleTableKeepsObject (+23 more)
 
 ### Community 12 - "Roots"
-Cohesion: 0.06
-Nodes (36): algorithm, StackWalker, uint32_t, Roots, add, dropHandle, free_, handleAt (+28 more)
+Cohesion: 0.12
+Nodes (17): StackWalker, uint32_t, Roots, add, dropHandle, free_, handleAt, handles_ (+9 more)
 
 ### Community 13 - "Heap.cpp"
 Cohesion: 0.17
@@ -172,17 +171,17 @@ Nodes (15): cassert, fitsOld, align8(), byte, size_t, Heap::bytes(), Heap::fitsO
 Cohesion: 0.25
 Nodes (8): Array, runtime/src/kernel/Array.cpp, ArrayedCollection, Bootstrap, NativeMethod, P4-04 Array / ByteArray / String / Symbol, send, runtime/src/kernel/String.cpp
 
-### Community 15 - "P0 phase doc"
-Cohesion: 0.24
-Nodes (10): ao::Oop typed pointer, CLAUDE.md process authority, Graphify knowledge graph tool, Phase P0 skeleton, Phase pipeline P0-P9, Serena LSP symbol tool, SPEC.md product authority, 64-bit tagged OOP (+2 more)
+### Community 15 - "Roots.cpp"
+Cohesion: 0.18
+Nodes (12): algorithm, walker_, StackWalker, uint32_t, Roots::add(), Roots::dropHandle(), Roots::handleAt(), Roots::pushHandle() (+4 more)
 
 ### Community 16 - "header"
 Cohesion: 0.25
 Nodes (10): header, uint16_t, uint32_t, Heap::allocate(), Heap::flags(), Heap::hash(), Heap::klass(), Heap::size() (+2 more)
 
 ### Community 17 - "TEST"
-Cohesion: 0.10
-Nodes (21): ClassSkeletonsAreHeapAndNamed, CycleEveryClassIsInstanceOfItsMetaclass, CycleEveryMetaclassIsInstanceOfMetaclass, CycleImmediateClassOf, CycleMetaclassClassClassIsMetaclass, CycleMetaclassHierarchyParallelsClasses, CycleMetaclassInheritsFromClassDescription, CycleMethodDictIsNilAndFormatIsSmi (+13 more)
+Cohesion: 0.11
+Nodes (19): ClassSkeletonsAreHeapAndNamed, CycleEveryClassIsInstanceOfItsMetaclass, CycleEveryMetaclassIsInstanceOfMetaclass, CycleImmediateClassOf, CycleMetaclassClassClassIsMetaclass, CycleMetaclassHierarchyParallelsClasses, CycleMetaclassInheritsFromClassDescription, CycleMethodDictIsNilAndFormatIsSmi (+11 more)
 
 ### Community 18 - "SmokeTests.swift"
 Cohesion: 0.22
@@ -198,23 +197,23 @@ Nodes (11): ByteObjectPayload, ExhaustionReturnsEmpty, HeapAlloc, PointerObjectH
 
 ### Community 21 - "bootstrap_test.cpp"
 Cohesion: 0.29
-Nodes (5): Bootstrap, gc, gtest, slotAt, superOf()
+Nodes (5): Bootstrap, gtest, slotAt, superOf(), type_traits
 
 ### Community 22 - "ao image save"
 Cohesion: 0.50
 Nodes (5): .aoimage format (AOIM), No function-pointer fields in image, ao image save, NativeMethod as symbol-name strings on save, ao image load and NativeMethod rebind
 
-### Community 26 - "P0-03: CMake + GoogleTest + CLI"
-Cohesion: 0.36
-Nodes (8): P0-03: CMake + GoogleTest + CLI, ao::boot / shutdown / version_string, P0-04: C ABI + Swift smoke, ao_abi.h C ABI stub, P0-06: Serena project, Serena project.yml, P0-07: Graphify initial graph, graphify-out artifacts
+### Community 26 - "P9-03: エラー表示と VoiceOver"
+Cohesion: 0.22
+Nodes (8): Files, Interfaces, P9-03: エラー表示と VoiceOver, コミット文, テスト, 完了条件, 手順, 目的
 
 ### Community 27 - "Gc.cpp"
 Cohesion: 0.08
 Nodes (27): Files, Interfaces, P1-06: weak slot GC, コミット文, テスト, 手順, 目的, Gc (+19 more)
 
-### Community 28 - "P9 — Integration"
-Cohesion: 0.05
-Nodes (38): P8 — AppKit Tools, System Browser 5-pane, Transcript NSWindow, Workspace NSWindow, P9 — Integration, Do it / Print it / accept, Files, Interfaces (+30 more)
+### Community 28 - "P9-01: Do it / Print it / Inspect it"
+Cohesion: 0.12
+Nodes (16): Files, Interfaces, P9-01: Do it / Print it / Inspect it, コミット文, テスト, 完了条件, 手順, 目的 (+8 more)
 
 ### Community 29 - "P4-01 Object / UndefinedObject / Boolean"
 Cohesion: 0.29
@@ -229,16 +228,16 @@ Cohesion: 0.25
 Nodes (8): Bootstrap, NativeMethod, P4-07 Process / ProcessorScheduler / Semaphore, Process, runtime/src/kernel/Process.cpp, ProcessorScheduler, Semaphore, send
 
 ### Community 44 - "ObjectHeader"
-Cohesion: 0.18
-Nodes (10): cstddef, memory, uint16_t, uint32_t, ObjectHeader, flags, hash, klass (+2 more)
+Cohesion: 0.25
+Nodes (8): uint16_t, uint32_t, ObjectHeader, flags, hash, klass, size, Heap::header()
 
 ### Community 45 - "P4-05 Dictionary / Set / OrderedCollection"
 Cohesion: 0.29
 Nodes (7): Bootstrap, runtime/tests/collection_do_test.cpp, Dictionary, runtime/src/kernel/Dictionary.cpp, NativeMethod, P4-05 Dictionary / Set / OrderedCollection, send
 
-### Community 46 - "P1-04 old-generation mark-compact"
+### Community 46 - "P9-02: Browser accept"
 Cohesion: 0.25
-Nodes (7): nursery GC, P1-04 old-generation mark-compact, old-generation promotion, Gc, P1-05 GC root API, Roots, Roots::add(Oop*)
+Nodes (8): Files, Interfaces, P9-02: Browser accept, コミット文, テスト, 完了条件, 手順, 目的
 
 ### Community 47 - "P4-08 Point / Rectangle"
 Cohesion: 0.29
@@ -248,17 +247,9 @@ Nodes (7): Bootstrap, runtime/src/kernel/Geometry.cpp, NativeMethod, Point, P4-0
 Cohesion: 0.29
 Nodes (7): docs/bench.md, Bootstrap, Kernel NativeMethod scan, runtime/tests/kernel_scan_test.cpp, NativeMethod, P4-09 Kernel NativeMethod scan and bench, send
 
-### Community 49 - "ao_abi.h"
-Cohesion: 0.60
-Nodes (5): ao_runtime_boot, ao_runtime_shutdown, ao_version, C ABI runtime-app boundary, ABI boundary memory
-
-### Community 50 - "ao::compiler::version"
-Cohesion: 0.33
-Nodes (6): Root CMakeLists.txt, compiler CMakeLists, ao::compiler::version, version() implementation, CompilerSmoke.VersionIsNonEmpty, libao_runtime
-
-### Community 51 - "P1-07: immovable old objects"
-Cohesion: 0.33
-Nodes (6): Files, Interfaces, P1-07: immovable old objects, テスト, 手順, 目的
+### Community 49 - "gc_test.cpp"
+Cohesion: 0.40
+Nodes (4): gc, objectBytes, oldUsed, oldWalkVisits()
 
 ### Community 52 - "P4-02 Behavior / ClassDescription / Class / Metaclass"
 Cohesion: 0.33
@@ -270,23 +261,23 @@ Nodes (3): P4 — Kernel Native Implementation, Kernel scan (all NativeMethod), 
 
 ## Knowledge Gaps
 - **250 isolated node(s):** `AoPlaceholder`, `XCTest`, `Ao`, `PackageDescription`, `collectNursery` (+245 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 357 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 359 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **16 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Oop` connect `Oop` to `TEST`, `P2-02 class object skeletons`, `WellKnown`, `Roots`, `ObjectHeader`, `Heap.cpp`, `header`, `TEST`, `bootstrap_test.cpp`, `Gc.cpp`?**
+- **Why does `Oop` connect `Oop` to `TEST`, `P2-02 class object skeletons`, `WellKnown`, `ObjectHeader`, `Roots`, `Heap.cpp`, `Roots.cpp`, `header`, `gc_test.cpp`, `klass`, `bootstrap_test.cpp`, `Gc.cpp`?**
   _High betweenness centrality (0.172) - this node is a cross-community bridge._
-- **Why does `Heap` connect `Heap` to `P2-02 class object skeletons`, `WellKnown`, `Roots`, `Heap.cpp`, `ObjectHeader`, `header`, `TEST`, `TEST`, `bootstrap_test.cpp`, `Gc.cpp`?**
-  _High betweenness centrality (0.153) - this node is a cross-community bridge._
-- **Why does `TEST()` connect `TEST` to `Heap`, `Roots`, `header`, `TEST`, `TEST`, `bootstrap_test.cpp`, `Gc.cpp`?**
-  _High betweenness centrality (0.089) - this node is a cross-community bridge._
+- **Why does `Heap` connect `Heap` to `TEST`, `P2-02 class object skeletons`, `WellKnown`, `TEST`, `ObjectHeader`, `Heap.cpp`, `header`, `gc_test.cpp`, `klass`, `TEST`, `bootstrap_test.cpp`, `Gc.cpp`?**
+  _High betweenness centrality (0.154) - this node is a cross-community bridge._
+- **Why does `TEST()` connect `TEST` to `Roots`, `header`, `gc_test.cpp`, `klass`, `TEST`, `bootstrap_test.cpp`, `Gc.cpp`?**
+  _High betweenness centrality (0.088) - this node is a cross-community bridge._
 - **Are the 17 inferred relationships involving `TEST()` (e.g. with `allocate` and `bytes`) actually correct?**
   _`TEST()` has 17 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `AoPlaceholder`, `XCTest`, `Ao` to the rest of the system?**
   _250 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `SPEC.md` be split into smaller, more focused modules?**
+  _Cohesion score 0.08912655971479501 - nodes in this community are weakly interconnected._
 - **Should `P3-04 lookup / super / doesNotUnderstand:` be split into smaller, more focused modules?**
-  _Cohesion score 0.048625792811839326 - nodes in this community are weakly interconnected._
-- **Should `Heap` be split into smaller, more focused modules?**
-  _Cohesion score 0.08307692307692308 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.04625346901017576 - nodes in this community are weakly interconnected._

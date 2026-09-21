@@ -11,6 +11,10 @@ namespace ao {
 class WellKnown {
  public:
   WellKnown(Heap& heap, Roots& roots);
+  WellKnown(const WellKnown&) = delete;
+  WellKnown& operator=(const WellKnown&) = delete;
+  WellKnown(WellKnown&&) = delete;
+  WellKnown& operator=(WellKnown&&) = delete;
 
   Heap& heap() const { return *heap_; }
 

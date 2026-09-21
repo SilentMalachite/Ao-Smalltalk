@@ -7,6 +7,13 @@
 
 #include <gtest/gtest.h>
 
+#include <type_traits>
+
+static_assert(!std::is_copy_constructible_v<ao::WellKnown>);
+static_assert(!std::is_copy_assignable_v<ao::WellKnown>);
+static_assert(!std::is_move_constructible_v<ao::WellKnown>);
+static_assert(!std::is_move_assignable_v<ao::WellKnown>);
+
 TEST(Bootstrap, WellKnownImmediatesMatchOopTags) {
   ao::Heap heap;
   ao::Roots roots;
