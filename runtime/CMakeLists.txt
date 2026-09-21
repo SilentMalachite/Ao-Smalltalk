@@ -10,6 +10,7 @@ FetchContent_MakeAvailable(googletest)
 add_library(ao_runtime
   src/Runtime.cpp
   src/abi.cpp
+  src/Oop.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -23,7 +24,10 @@ target_link_libraries(ao PRIVATE ao_runtime)
 target_compile_options(ao PRIVATE -Wall -Wextra -Werror)
 set_target_properties(ao PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
-add_executable(ao_runtime_tests tests/smoke_test.cpp)
+add_executable(ao_runtime_tests
+  tests/smoke_test.cpp
+  tests/oop_tag_test.cpp
+)
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(ao_runtime_tests)

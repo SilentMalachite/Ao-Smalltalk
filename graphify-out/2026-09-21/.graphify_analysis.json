@@ -1,0 +1,629 @@
+{
+  "communities": {
+    "0": [
+      "agents",
+      "bridge_ao_abi",
+      "bridge_ao_abi_ao_runtime_boot",
+      "bridge_ao_abi_ao_runtime_shutdown",
+      "bridge_ao_abi_ao_version",
+      "claude",
+      "cmakelists",
+      "compiler_cmakelists",
+      "compiler_include_ao_compiler_version",
+      "compiler_src_compiler_version_impl",
+      "compiler_tests_smoke_test_compiler",
+      "concept_ao",
+      "concept_ao_app",
+      "concept_ao_cli",
+      "concept_ao_oop_type",
+      "concept_aoimage",
+      "concept_appkit_gui",
+      "concept_blue_book",
+      "concept_bootstrap_order",
+      "concept_c_abi_boundary",
+      "concept_claude_authority",
+      "concept_compiledmethod",
+      "concept_compiler",
+      "concept_graphify",
+      "concept_kernel_native",
+      "concept_libao_runtime",
+      "concept_metaclass_cycle",
+      "concept_native_symbol_mangle",
+      "concept_nativemethod",
+      "concept_serena",
+      "concept_spec_authority",
+      "concept_tagged_oop",
+      "concept_vendor_import",
+      "docs_phases_p0",
+      "docs_readme",
+      "rationale_no_vm_copy",
+      "rationale_tools_on_host",
+      "readme",
+      "serena_memories_abi_boundary",
+      "serena_memories_bootstrap_order",
+      "serena_memories_kernel_is_native",
+      "serena_project",
+      "spec"
+    ],
+    "1": [
+      "docs_phases_p3",
+      "docs_phases_p3_compiledmethod",
+      "docs_phases_p3_dnu",
+      "docs_phases_p3_lookup",
+      "docs_phases_p3_methoddictionary",
+      "docs_phases_p3_nativemethod",
+      "docs_phases_p3_selector_mangle",
+      "docs_phases_p4",
+      "docs_phases_p4_kernel_scan",
+      "docs_phases_p4_smallinteger_arith",
+      "docs_phases_p5",
+      "docs_phases_p5_ast",
+      "docs_phases_p5_bytecode",
+      "docs_phases_p5_chunk_filein",
+      "docs_phases_p6",
+      "docs_phases_p6_ao_test",
+      "docs_phases_p6_interpreter",
+      "docs_phases_p6_methodcontext",
+      "docs_phases_p6b",
+      "docs_phases_p6b_cuis",
+      "docs_phases_p6b_load_order",
+      "docs_phases_p6b_origin",
+      "docs_phases_p7",
+      "docs_phases_p7_aoimage",
+      "docs_phases_p7_native_rebind",
+      "docs_phases_p8",
+      "docs_phases_p8_browser",
+      "docs_phases_p8_transcript",
+      "docs_phases_p8_workspace",
+      "docs_phases_p9",
+      "docs_phases_p9_do_it"
+    ],
+    "2": [
+      "abismoke",
+      "bootandshutdownreturnzero",
+      "bootversionshutdown",
+      "compiler",
+      "compiler_src_compiler",
+      "compiler_src_compiler_version",
+      "compiler_tests_smoke_test",
+      "compiler_tests_smoke_test_test",
+      "compilersmoke",
+      "cstdio",
+      "cstring",
+      "runtime",
+      "runtime_cmakelists_ao",
+      "runtime_cmakelists_ao_runtime",
+      "runtime_cmakelists_ao_runtime_tests",
+      "runtime_src_abi",
+      "runtime_src_abi_ao_runtime_boot",
+      "runtime_src_abi_ao_runtime_shutdown",
+      "runtime_src_abi_ao_version",
+      "runtime_src_ao_main",
+      "runtime_src_ao_main_main",
+      "runtime_src_runtime",
+      "runtime_src_runtime_boot",
+      "runtime_src_runtime_shutdown",
+      "runtime_src_runtime_version_string",
+      "runtime_tests_smoke_test",
+      "runtime_tests_smoke_test_test",
+      "smoke",
+      "versionisnonempty",
+      "versionstringisnonempty"
+    ],
+    "3": [
+      "docs_prs_p2_01_bootstrap_test",
+      "docs_prs_p2_01_heap",
+      "docs_prs_p2_01_oop",
+      "docs_prs_p2_01_pr",
+      "docs_prs_p2_01_roots",
+      "docs_prs_p2_01_wellknown",
+      "docs_prs_p2_01_wellknown_hpp",
+      "docs_prs_p2_02_behavior",
+      "docs_prs_p2_02_bootstrap",
+      "docs_prs_p2_02_bootstrap_cpp",
+      "docs_prs_p2_02_class",
+      "docs_prs_p2_02_classdescription",
+      "docs_prs_p2_02_heap",
+      "docs_prs_p2_02_metaclass",
+      "docs_prs_p2_02_object",
+      "docs_prs_p2_02_pr",
+      "docs_prs_p2_02_wellknown",
+      "docs_prs_p2_03_bootstrap_cpp",
+      "docs_prs_p2_03_bootstrap_test",
+      "docs_prs_p2_03_class_skeleton",
+      "docs_prs_p2_03_metaclass_cycle",
+      "docs_prs_p2_03_pr",
+      "docs_prs_p2_04_bootstrap",
+      "docs_prs_p2_04_bootstrap_test",
+      "docs_prs_p2_04_globals",
+      "docs_prs_p2_04_globals_hpp",
+      "docs_prs_p2_04_pr",
+      "docs_prs_p2_04_smalltalk_dict"
+    ],
+    "4": [
+      "int64_t",
+      "runtime_include_ao_oop_oop",
+      "runtime_include_ao_oop_oop_charactervalue",
+      "runtime_include_ao_oop_oop_false",
+      "runtime_include_ao_oop_oop_fromcharacter",
+      "runtime_include_ao_oop_oop_fromheap",
+      "runtime_include_ao_oop_oop_fromsmallinteger",
+      "runtime_include_ao_oop_oop_heappointer",
+      "runtime_include_ao_oop_oop_immediate",
+      "runtime_include_ao_oop_oop_ischaracter",
+      "runtime_include_ao_oop_oop_isempty",
+      "runtime_include_ao_oop_oop_isfalse",
+      "runtime_include_ao_oop_oop_isheap",
+      "runtime_include_ao_oop_oop_isimmediate",
+      "runtime_include_ao_oop_oop_isnil",
+      "runtime_include_ao_oop_oop_issmallinteger",
+      "runtime_include_ao_oop_oop_istrue",
+      "runtime_include_ao_oop_oop_kchartag",
+      "runtime_include_ao_oop_oop_kimmtag",
+      "runtime_include_ao_oop_oop_klow3",
+      "runtime_include_ao_oop_oop_ksmitag",
+      "runtime_include_ao_oop_oop_nil",
+      "runtime_include_ao_oop_oop_operator",
+      "runtime_include_ao_oop_oop_raw",
+      "runtime_include_ao_oop_oop_smallintegervalue",
+      "runtime_include_ao_oop_oop_true",
+      "uint64_t"
+    ],
+    "5": [
+      "docs_prs_p5_01_compiledmethod_class",
+      "docs_prs_p5_01_scanner",
+      "docs_prs_p5_01_token_stream",
+      "docs_prs_p5_02_ast",
+      "docs_prs_p5_02_parser",
+      "docs_prs_p5_03_bytecode_isa",
+      "docs_prs_p5_03_opcode_constants",
+      "docs_prs_p5_04_codegen",
+      "docs_prs_p5_04_compiledmethod_oop",
+      "docs_prs_p5_05_chunk_parser",
+      "docs_prs_p6_01_gc_roots",
+      "docs_prs_p6_01_methodcontext",
+      "docs_prs_p6_02_compiler_roundtrip",
+      "docs_prs_p6_02_interpreter",
+      "docs_prs_p6_02_interpreter_run",
+      "docs_prs_p6_03_ao_test",
+      "docs_prs_p6_03_blocks",
+      "docs_prs_p6b_01_cuis_origin",
+      "docs_prs_p6b_01_notice",
+      "docs_prs_p6b_02_load_order",
+      "docs_prs_p6b_02_nativemethod_overwrite_guard",
+      "docs_prs_p6b_03_host_patches",
+      "docs_prs_p6b_04_vendor_filein"
+    ],
+    "6": [
+      "docs_prs_p3_04_class_hierarchy",
+      "docs_prs_p3_04_dnu",
+      "docs_prs_p3_04_lookup",
+      "docs_prs_p3_04_lookup_hpp",
+      "docs_prs_p3_04_lookup_test",
+      "docs_prs_p3_04_methoddictionary",
+      "docs_prs_p3_04_nativemethod",
+      "docs_prs_p3_04_pr",
+      "docs_prs_p3_05_inline_cache",
+      "docs_prs_p3_05_lookup",
+      "docs_prs_p3_05_native_send_test",
+      "docs_prs_p3_05_pr",
+      "docs_prs_p3_05_send",
+      "docs_prs_p3_05_send_hpp",
+      "docs_prs_p4_03_bootstrap",
+      "docs_prs_p4_03_magnitude",
+      "docs_prs_p4_03_nativemethod",
+      "docs_prs_p4_03_pr",
+      "docs_prs_p4_03_send",
+      "docs_prs_p4_03_smallinteger",
+      "docs_prs_p4_03_smallinteger_arith_test",
+      "docs_prs_p4_03_smallinteger_cpp"
+    ],
+    "7": [
+      "docs_prs_p4_01_boolean",
+      "docs_prs_p4_01_bootstrap",
+      "docs_prs_p4_01_nativemethod",
+      "docs_prs_p4_01_object",
+      "docs_prs_p4_01_object_cpp",
+      "docs_prs_p4_01_pr",
+      "docs_prs_p4_01_send",
+      "docs_prs_p4_02_behavior",
+      "docs_prs_p4_02_behavior_cpp",
+      "docs_prs_p4_02_bootstrap",
+      "docs_prs_p4_02_nativemethod",
+      "docs_prs_p4_02_pr",
+      "docs_prs_p4_02_send",
+      "docs_prs_p4_09_bench_md",
+      "docs_prs_p4_09_bootstrap",
+      "docs_prs_p4_09_kernel_scan",
+      "docs_prs_p4_09_kernel_scan_test",
+      "docs_prs_p4_09_nativemethod",
+      "docs_prs_p4_09_pr",
+      "docs_prs_p4_09_send"
+    ],
+    "8": [
+      "docs_prs_p3_01_heap",
+      "docs_prs_p3_01_oop",
+      "docs_prs_p3_01_pr",
+      "docs_prs_p3_01_symbol",
+      "docs_prs_p3_01_symbol_hpp",
+      "docs_prs_p3_01_symbol_intern",
+      "docs_prs_p3_01_symbol_test",
+      "docs_prs_p3_02_method_dictionary_test",
+      "docs_prs_p3_02_methoddictionary",
+      "docs_prs_p3_02_methoddictionary_hpp",
+      "docs_prs_p3_02_pr",
+      "docs_prs_p3_02_symbol",
+      "docs_prs_p3_03_methoddictionary",
+      "docs_prs_p3_03_native_selectors_md",
+      "docs_prs_p3_03_nativemethod",
+      "docs_prs_p3_03_nativemethod_hpp",
+      "docs_prs_p3_03_pr",
+      "docs_prs_p3_03_selector_mangling"
+    ],
+    "9": [
+      "docs_phases_p1",
+      "docs_phases_p1_ao_oop",
+      "docs_phases_p1_gc",
+      "docs_phases_p1_heap",
+      "docs_phases_p1_nursery",
+      "docs_phases_p1_tagged_pointer",
+      "docs_phases_p2",
+      "docs_phases_p2_blue_book",
+      "docs_phases_p2_metaclass",
+      "docs_phases_p2_smalltalk_globals",
+      "docs_phases_p2_wellknown",
+      "docs_prs_p1_01",
+      "docs_prs_p1_01_oop",
+      "docs_prs_p1_02",
+      "docs_prs_p1_02_heap_allocate",
+      "docs_prs_p1_03",
+      "docs_prs_p1_03_collect_nursery"
+    ],
+    "10": [
+      "characterroundtrip",
+      "cstdint",
+      "gtest",
+      "heapalignedpointerroundtrip",
+      "identityequalsisbits",
+      "immediatethreepatterns",
+      "oop",
+      "ooptag",
+      "runtime_include_ao_oop",
+      "runtime_src_oop",
+      "runtime_tests_oop_tag_test",
+      "runtime_tests_oop_tag_test_test",
+      "smallintegerroundtrip"
+    ],
+    "11": [
+      "ao",
+      "app_ao_placeholder",
+      "app_ao_placeholder_aoplaceholder",
+      "app_aotests_smoketests",
+      "app_aotests_smoketests_smoketests",
+      "app_aotests_smoketests_smoketests_testplaceholdertypeexists",
+      "app_package",
+      "concept_phase_p0",
+      "concept_phase_pipeline",
+      "packagedescription",
+      "xctest",
+      "xctestcase"
+    ],
+    "12": [
+      "docs_prs_p0_01",
+      "docs_prs_p0_01_phase_marker",
+      "docs_prs_p0_02",
+      "docs_prs_p0_03",
+      "docs_prs_p0_03_ao_boot",
+      "docs_prs_p0_04",
+      "docs_prs_p0_04_ao_abi",
+      "docs_prs_p0_05",
+      "docs_prs_p0_06",
+      "docs_prs_p0_06_serena",
+      "docs_prs_p0_07",
+      "docs_prs_p0_07_graphify_out"
+    ],
+    "13": [
+      "docs_prs_p1_04_gc_collectold",
+      "docs_prs_p1_04_gc_cpp",
+      "docs_prs_p1_04_gc_test",
+      "docs_prs_p1_04_nursery_gc",
+      "docs_prs_p1_04_pr",
+      "docs_prs_p1_04_promotion",
+      "docs_prs_p1_05_gc",
+      "docs_prs_p1_05_gc_test",
+      "docs_prs_p1_05_pr",
+      "docs_prs_p1_05_roots",
+      "docs_prs_p1_05_roots_add",
+      "docs_prs_p1_05_roots_hpp"
+    ],
+    "14": [
+      "prs_p9_01",
+      "prs_p9_01_do_it",
+      "prs_p9_01_inspect_it",
+      "prs_p9_01_print_it",
+      "prs_p9_02",
+      "prs_p9_02_browser_accept",
+      "prs_p9_03",
+      "prs_p9_03_error_display",
+      "prs_p9_03_voiceover",
+      "prs_p9_04",
+      "prs_p9_04_v1_acceptance"
+    ],
+    "15": [
+      "docs_prs_p4_04_array",
+      "docs_prs_p4_04_array_cpp",
+      "docs_prs_p4_04_arrayedcollection",
+      "docs_prs_p4_04_bootstrap",
+      "docs_prs_p4_04_nativemethod",
+      "docs_prs_p4_04_pr",
+      "docs_prs_p4_04_send",
+      "docs_prs_p4_04_string_cpp"
+    ],
+    "16": [
+      "docs_prs_p4_06_bootstrap",
+      "docs_prs_p4_06_nativemethod",
+      "docs_prs_p4_06_pr",
+      "docs_prs_p4_06_send",
+      "docs_prs_p4_06_stream",
+      "docs_prs_p4_06_stream_cpp",
+      "docs_prs_p4_06_transcript",
+      "docs_prs_p4_06_transcript_model_test"
+    ],
+    "17": [
+      "docs_prs_p4_07_bootstrap",
+      "docs_prs_p4_07_nativemethod",
+      "docs_prs_p4_07_pr",
+      "docs_prs_p4_07_process",
+      "docs_prs_p4_07_process_cpp",
+      "docs_prs_p4_07_processorscheduler",
+      "docs_prs_p4_07_semaphore",
+      "docs_prs_p4_07_send"
+    ],
+    "18": [
+      "docs_prs_p8_01_ao_abi",
+      "docs_prs_p8_01_ao_app",
+      "docs_prs_p8_01_bundle_id",
+      "docs_prs_p8_02_transcript_window",
+      "docs_prs_p8_03_workspace_window",
+      "docs_prs_p8_04_browser_window",
+      "docs_prs_p8_05_do_it_print_it",
+      "docs_prs_p8_05_main_menu"
+    ],
+    "19": [
+      "docs_prs_p4_05_bootstrap",
+      "docs_prs_p4_05_collection_do_test",
+      "docs_prs_p4_05_dictionary",
+      "docs_prs_p4_05_dictionary_cpp",
+      "docs_prs_p4_05_nativemethod",
+      "docs_prs_p4_05_pr",
+      "docs_prs_p4_05_send"
+    ],
+    "20": [
+      "docs_prs_p4_08_bootstrap",
+      "docs_prs_p4_08_geometry_cpp",
+      "docs_prs_p4_08_nativemethod",
+      "docs_prs_p4_08_point",
+      "docs_prs_p4_08_pr",
+      "docs_prs_p4_08_rectangle",
+      "docs_prs_p4_08_send"
+    ],
+    "21": [
+      "docs_prs_p7_01_aoimage_format",
+      "docs_prs_p7_01_no_function_pointers",
+      "docs_prs_p7_02_image_save",
+      "docs_prs_p7_02_nativemethod_symbol_names",
+      "docs_prs_p7_03_image_load"
+    ],
+    "22": [
+      "scripts_build",
+      "scripts_build_sh__entry"
+    ],
+    "23": [
+      "scripts_test",
+      "scripts_test_sh__entry"
+    ],
+    "24": [
+      "compiler_include_ao_compiler"
+    ],
+    "25": [
+      "docs_prs_p1_04_gc_hpp"
+    ],
+    "26": [
+      "docs_prs_p1_05_roots_cpp"
+    ],
+    "27": [
+      "docs_prs_p2_01_wellknown_cpp"
+    ],
+    "28": [
+      "docs_prs_p2_02_bootstrap_hpp"
+    ],
+    "29": [
+      "docs_prs_p2_04_globals_cpp"
+    ],
+    "30": [
+      "docs_prs_p3_01_symbol_cpp"
+    ],
+    "31": [
+      "docs_prs_p3_02_methoddictionary_cpp"
+    ],
+    "32": [
+      "docs_prs_p3_03_nativemethod_cpp"
+    ],
+    "33": [
+      "docs_prs_p3_04_lookup_cpp"
+    ],
+    "34": [
+      "docs_prs_p3_05_send_cpp"
+    ],
+    "35": [
+      "docs_prs_p4_01_object_st"
+    ],
+    "36": [
+      "docs_prs_p4_02_behavior_st"
+    ],
+    "37": [
+      "runtime_cmakelists"
+    ],
+    "38": [
+      "runtime_include_ao_runtime"
+    ],
+    "39": [
+      "serena_memories_memory_maintenance"
+    ]
+  },
+  "cohesion": {
+    "0": 0.08416389811738649,
+    "1": 0.08387096774193549,
+    "2": 0.08505747126436781,
+    "3": 0.07142857142857142,
+    "4": 0.09686609686609686,
+    "5": 0.1225296442687747,
+    "6": 0.09090909090909091,
+    "7": 0.1,
+    "8": 0.1111111111111111,
+    "9": 0.17647058823529413,
+    "10": 0.15384615384615385,
+    "11": 0.18181818181818182,
+    "12": 0.22727272727272727,
+    "13": 0.16666666666666666,
+    "14": 0.2545454545454545,
+    "15": 0.25,
+    "16": 0.25,
+    "17": 0.25,
+    "18": 0.42857142857142855,
+    "19": 0.2857142857142857,
+    "20": 0.2857142857142857,
+    "21": 0.5,
+    "22": 1.0,
+    "23": 1.0,
+    "24": 1.0,
+    "25": 1.0,
+    "26": 1.0,
+    "27": 1.0,
+    "28": 1.0,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0,
+    "32": 1.0,
+    "33": 1.0,
+    "34": 1.0,
+    "35": 1.0,
+    "36": 1.0,
+    "37": 1.0,
+    "38": 1.0,
+    "39": 1.0
+  },
+  "gods": [
+    {
+      "id": "runtime_include_ao_oop_oop",
+      "label": "Oop",
+      "degree": 26
+    },
+    {
+      "id": "docs_prs_p2_02_pr",
+      "label": "P2-02 class object skeletons",
+      "degree": 11
+    },
+    {
+      "id": "docs_phases_p0",
+      "label": "P0 phase doc",
+      "degree": 9
+    },
+    {
+      "id": "docs_prs_p3_04_pr",
+      "label": "P3-04 lookup / super / doesNotUnderstand:",
+      "degree": 9
+    },
+    {
+      "id": "docs_prs_p4_03_pr",
+      "label": "P4-03 Magnitude / SmallInteger / Character",
+      "degree": 9
+    },
+    {
+      "id": "docs_prs_p4_09_pr",
+      "label": "P4-09 Kernel NativeMethod scan and bench",
+      "degree": 9
+    },
+    {
+      "id": "runtime_tests_smoke_test_test",
+      "label": "TEST()",
+      "degree": 9
+    },
+    {
+      "id": "docs_phases_p1",
+      "label": "P1 \u2014 Object Memory",
+      "degree": 8
+    },
+    {
+      "id": "docs_prs_p4_04_pr",
+      "label": "P4-04 Array / ByteArray / String / Symbol",
+      "degree": 7
+    },
+    {
+      "id": "docs_prs_p4_06_pr",
+      "label": "P4-06 Stream / Transcript model",
+      "degree": 7
+    }
+  ],
+  "surprises": [
+    {
+      "source": "P0 phase doc",
+      "target": "CompilerSmoke.VersionIsNonEmpty",
+      "source_files": [
+        "docs/phases/P0.md",
+        "compiler/tests/smoke_test.cpp"
+      ],
+      "confidence": "INFERRED",
+      "relation": "references",
+      "why": "inferred connection - not explicitly stated in source; crosses file types (code \u2194 doc); connects across different repos/directories; peripheral node `CompilerSmoke.VersionIsNonEmpty` unexpectedly reaches hub `P0 phase doc`"
+    },
+    {
+      "source": "ABI boundary memory",
+      "target": "ao_runtime_boot",
+      "source_files": [
+        ".serena/memories/abi_boundary.md",
+        "bridge/ao_abi.h"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "crosses file types (code \u2194 doc); connects across different repos/directories; peripheral node `ao_runtime_boot` unexpectedly reaches hub `ABI boundary memory`"
+    },
+    {
+      "source": "ABI boundary memory",
+      "target": "ao_runtime_shutdown",
+      "source_files": [
+        ".serena/memories/abi_boundary.md",
+        "bridge/ao_abi.h"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "crosses file types (code \u2194 doc); connects across different repos/directories; peripheral node `ao_runtime_shutdown` unexpectedly reaches hub `ABI boundary memory`"
+    },
+    {
+      "source": "ABI boundary memory",
+      "target": "ao_version",
+      "source_files": [
+        ".serena/memories/abi_boundary.md",
+        "bridge/ao_abi.h"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "crosses file types (code \u2194 doc); connects across different repos/directories; peripheral node `ao_version` unexpectedly reaches hub `ABI boundary memory`"
+    },
+    {
+      "source": "ao::Oop typed pointer",
+      "target": "64-bit tagged OOP",
+      "source_files": [
+        "CLAUDE.md",
+        "SPEC.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "semantically_similar_to",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; semantically similar concepts with no structural link"
+    }
+  ],
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}
