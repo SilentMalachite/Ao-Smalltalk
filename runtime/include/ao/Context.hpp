@@ -19,6 +19,12 @@ inline constexpr std::uint32_t kBlockCopied = 7;
 inline constexpr std::uint32_t kBlockSlotCount = 8;
 inline constexpr std::uint32_t kMethodContextSlotCount = 6;
 
+namespace Context {
+Oop createMethod(CallContext& ctx, Oop method, Oop receiver, Oop sender, std::uint8_t argc);
+Oop createBlock(CallContext& ctx, Oop method, Oop receiver, Oop home, Oop copied, Oop sender,
+                std::uint8_t argc);
+}
+
 Oop makeNativeBlock(CallContext& ctx, NativeFn fn, std::uint32_t argc);
 
 Oop ao_BlockContext_value(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
