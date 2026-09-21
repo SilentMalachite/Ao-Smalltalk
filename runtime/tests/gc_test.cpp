@@ -1,15 +1,17 @@
 #include "ao/Gc.hpp"
 #include "ao/Heap.hpp"
 #include "ao/Oop.hpp"
+#include "ao/Roots.hpp"
 
 #include <gtest/gtest.h>
 
 TEST(GcNursery, UnrootedObjectIsReclaimed) {
   ao::Heap heap(512, 4096);
-  ao::Gc gc(heap);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
   auto keep = heap.allocate(ao::Oop::nil(), 1, 0);
   ASSERT_TRUE(keep.isHeap());
-  gc.addRoot(&keep);
+  roots.add(&keep);
   (void)heap.allocate(ao::Oop::nil(), 1, 0);  // unrooted garbage
   gc.collectNursery();
   ASSERT_TRUE(keep.isHeap());
@@ -26,11 +28,12 @@ TEST(GcNursery, UnrootedObjectIsReclaimed) {
 
 TEST(GcNursery, RootedObjectSurvivesAndSlotsUpdate) {
   ao::Heap heap(512, 4096);
-  ao::Gc gc(heap);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
   auto parent = heap.allocate(ao::Oop::nil(), 1, 0);
   auto child = heap.allocate(ao::Oop::nil(), 0, 0);
   heap.slotAtPut(parent, 0, child);
-  gc.addRoot(&parent);
+  roots.add(&parent);
   gc.collectNursery();
   ASSERT_TRUE(parent.isHeap());
   auto movedChild = heap.slotAt(parent, 0);
@@ -41,21 +44,23 @@ TEST(GcNursery, RootedObjectSurvivesAndSlotsUpdate) {
 
 TEST(GcNursery, ImmediateClassIsNotFollowed) {
   ao::Heap heap(512, 4096);
-  ao::Gc gc(heap);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
   auto obj = heap.allocate(ao::Oop::nil(), 0, 0);
-  gc.addRoot(&obj);
+  roots.add(&obj);
   gc.collectNursery();
   EXPECT_TRUE(heap.klass(obj).isNil());
 }
 
 TEST(GcNursery, SharedChildCopiedOnce) {
   ao::Heap heap(512, 4096);
-  ao::Gc gc(heap);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
   auto parent = heap.allocate(ao::Oop::nil(), 2, 0);
   auto child = heap.allocate(ao::Oop::nil(), 0, 0);
   heap.slotAtPut(parent, 0, child);
   heap.slotAtPut(parent, 1, child);
-  gc.addRoot(&parent);
+  roots.add(&parent);
   gc.collectNursery();
   ASSERT_TRUE(parent.isHeap());
   auto a = heap.slotAt(parent, 0);
@@ -67,14 +72,15 @@ TEST(GcNursery, SharedChildCopiedOnce) {
 
 TEST(GcNursery, ByteObjectPayloadIsNotScannedAsOops) {
   ao::Heap heap(512, 4096);
-  ao::Gc gc(heap);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
   auto obj = heap.allocate(ao::Oop::nil(), 8, ao::kFlagBytes);
   ASSERT_TRUE(obj.isHeap());
   auto* b = heap.bytes(obj);
   for (int i = 0; i < 8; ++i) {
     b[i] = std::byte{0xFF};
   }
-  gc.addRoot(&obj);
+  roots.add(&obj);
   gc.collectNursery();
   ASSERT_TRUE(obj.isHeap());
   EXPECT_TRUE(heap.inOld(obj));
@@ -85,10 +91,11 @@ TEST(GcNursery, ByteObjectPayloadIsNotScannedAsOops) {
 
 TEST(GcOld, NurserySurvivorIsPromoted) {
   ao::Heap heap(512, 8192);
-  ao::Gc gc(heap);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
   auto obj = heap.allocate(ao::Oop::nil(), 1, 0);
   heap.slotAtPut(obj, 0, ao::Oop::fromSmallInteger(9));
-  gc.addRoot(&obj);
+  roots.add(&obj);
   gc.collectNursery();
   ASSERT_TRUE(obj.isHeap());
   EXPECT_TRUE(heap.inOld(obj));
@@ -98,18 +105,19 @@ TEST(GcOld, NurserySurvivorIsPromoted) {
 
 TEST(GcOld, InternalPointersUpdatedAfterCompact) {
   ao::Heap heap(256, 1024);
-  ao::Gc gc(heap);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
   // Dead old object must sit at a lower address than live a/b so compact slides them.
   auto garbage = heap.allocate(ao::Oop::nil(), 2, 0);
-  gc.addRoot(&garbage);
+  roots.add(&garbage);
   gc.collectNursery();
   ASSERT_TRUE(heap.inOld(garbage));
-  gc.removeRoot(&garbage);
+  roots.remove(&garbage);
 
   auto a = heap.allocate(ao::Oop::nil(), 1, 0);
   auto b = heap.allocate(ao::Oop::nil(), 0, 0);
   heap.slotAtPut(a, 0, b);
-  gc.addRoot(&a);
+  roots.add(&a);
   gc.collectNursery();  // promote a and b above garbage
   ASSERT_TRUE(heap.inOld(a));
   auto childBefore = heap.slotAt(a, 0);
@@ -129,4 +137,30 @@ TEST(GcOld, InternalPointersUpdatedAfterCompact) {
   ASSERT_TRUE(child.isHeap());
   EXPECT_TRUE(heap.inOld(child));
   EXPECT_NE(child.heapPointer(), bBefore);
+}
+
+TEST(GcRoots, HandleTableKeepsObject) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto obj = heap.allocate(ao::Oop::nil(), 0, 0);
+  auto h = roots.pushHandle(obj);
+  gc.collectNursery();
+  auto kept = roots.handleAt(h);
+  ASSERT_TRUE(kept.isHeap());
+  EXPECT_TRUE(heap.inOld(kept));
+}
+
+TEST(GcRoots, StackWalkerKeepsObject) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  ao::Oop stackObj = heap.allocate(ao::Oop::nil(), 0, 0);
+  roots.setStackWalker(
+      [](void* ctx, ao::Roots::VisitFn visit, void* visitCtx) {
+        visit(visitCtx, static_cast<ao::Oop*>(ctx));
+      },
+      &stackObj);
+  gc.collectNursery();
+  ASSERT_TRUE(stackObj.isHeap());
 }

@@ -13,6 +13,7 @@ add_library(ao_runtime
   src/Oop.cpp
   src/Heap.cpp
   src/Gc.cpp
+  src/Roots.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC

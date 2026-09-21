@@ -2,23 +2,20 @@
 
 #include "ao/Heap.hpp"
 #include "ao/Oop.hpp"
-
-#include <vector>
+#include "ao/Roots.hpp"
 
 namespace ao {
 
 class Gc {
  public:
-  explicit Gc(Heap& heap);
-  void addRoot(Oop* slot);
-  void removeRoot(Oop* slot);
+  Gc(Heap& heap, Roots& roots);
   void collectNursery();
   void collectOld();
 
  private:
   Oop copy(Oop obj);
   Heap* heap_;
-  std::vector<Oop*> roots_;
+  Roots* roots_;
   bool oldCompacted_ = false;
 };
 

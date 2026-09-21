@@ -672,21 +672,21 @@
     "semantic_hash": "fcce2e45135cd33a893ec24621f246ae"
   },
   "runtime/include/ao/Gc.hpp": {
-    "mtime": 1789959499.4347286,
-    "seen": 1789959585.064744,
-    "ast_hash": "5027c635dcb0742371a9c993d2f71a1c",
+    "mtime": 1789960811.0772817,
+    "seen": 1789960847.241503,
+    "ast_hash": "0aba2fde0d278b15381c012532729289",
     "semantic_hash": ""
   },
   "runtime/src/Gc.cpp": {
-    "mtime": 1789960512.3460813,
-    "seen": 1789960520.768624,
-    "ast_hash": "981e91247d8fb254140a72b99303932c",
+    "mtime": 1789960822.6440845,
+    "seen": 1789960847.241508,
+    "ast_hash": "47813742a8c1a8758078e16ecddb5669",
     "semantic_hash": ""
   },
   "runtime/tests/gc_test.cpp": {
-    "mtime": 1789960477.70039,
-    "seen": 1789960520.768629,
-    "ast_hash": "62c7e5ecc71c8c9a68fe6bb8fc1215b9",
+    "mtime": 1789960747.0361106,
+    "seen": 1789960847.241513,
+    "ast_hash": "4539fd1ddef74b91b471db5bf66c001a",
     "semantic_hash": ""
   },
   ".serena/memories/abi_boundary.md": {
@@ -714,9 +714,9 @@
     "semantic_hash": ""
   },
   ".serena/project.yml": {
-    "mtime": 1789957622.507647,
-    "seen": 1789958659.668326,
-    "ast_hash": "e08fb77262f040da19e6216d09b83781",
+    "mtime": 1789960628.2505355,
+    "seen": 1789960847.2415218,
+    "ast_hash": "af32bafd8f6aa5b107238a7802bc08dc",
     "semantic_hash": ""
   },
   "AGENTS.md": {
@@ -1152,9 +1152,21 @@
     "semantic_hash": ""
   },
   "runtime/CMakeLists.txt": {
-    "mtime": 1789958591.1524372,
-    "seen": 1789958659.66837,
-    "ast_hash": "736989fa7d48d9cf34c302072b5b2fb3",
+    "mtime": 1789960811.0773013,
+    "seen": 1789960847.241577,
+    "ast_hash": "f211a9a2ef5fa601a50798fd7ce6ba6e",
+    "semantic_hash": ""
+  },
+  "runtime/include/ao/Roots.hpp": {
+    "mtime": 1789960811.0766296,
+    "seen": 1789960847.241506,
+    "ast_hash": "3a0286f93f73dc09d2ccb9d9352694ca",
+    "semantic_hash": ""
+  },
+  "runtime/src/Roots.cpp": {
+    "mtime": 1789960811.0771828,
+    "seen": 1789960847.24151,
+    "ast_hash": "ea31b795eea28369a14e39e2b6808a82",
     "semantic_hash": ""
   }
 }

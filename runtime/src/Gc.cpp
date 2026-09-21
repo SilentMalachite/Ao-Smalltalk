@@ -1,6 +1,5 @@
 #include "ao/Gc.hpp"
 
-#include <algorithm>
 #include <cstring>
 #include <unordered_map>
 #include <unordered_set>
@@ -8,13 +7,7 @@
 
 namespace ao {
 
-Gc::Gc(Heap& heap) : heap_(&heap) {}
-
-void Gc::addRoot(Oop* slot) { roots_.push_back(slot); }
-
-void Gc::removeRoot(Oop* slot) {
-  roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
-}
+Gc::Gc(Heap& heap, Roots& roots) : heap_(&heap), roots_(&roots) {}
 
 Oop Gc::copy(Oop obj) {
   if (!obj.isHeap()) {
@@ -53,11 +46,13 @@ Oop Gc::copy(Oop obj) {
 void Gc::collectNursery() {
   oldCompacted_ = false;
   std::byte* scan = heap_->oldBump_;
-  for (Oop* slot : roots_) {
-    if (slot != nullptr) {
-      *slot = copy(*slot);
-    }
-  }
+  roots_->visitAll(
+      [](void* ctx, Oop* slot) {
+        if (slot != nullptr) {
+          *slot = static_cast<Gc*>(ctx)->copy(*slot);
+        }
+      },
+      this);
   auto restartIfCompacted = [&]() {
     if (!oldCompacted_) {
       return false;
@@ -99,11 +94,13 @@ void Gc::collectOld() {
   oldCompacted_ = true;
 
   std::vector<Oop> stack;
-  for (Oop* slot : roots_) {
-    if (slot != nullptr) {
-      stack.push_back(*slot);
-    }
-  }
+  roots_->visitAll(
+      [](void* ctx, Oop* slot) {
+        if (slot != nullptr) {
+          static_cast<std::vector<Oop>*>(ctx)->push_back(*slot);
+        }
+      },
+      &stack);
 
   std::unordered_set<std::uintptr_t> nurserySeen;
   while (!stack.empty()) {
@@ -168,11 +165,16 @@ void Gc::collectOld() {
     return it->second;
   };
 
-  for (Oop* slot : roots_) {
-    if (slot != nullptr) {
-      *slot = update(*slot);
-    }
-  }
+  struct UpdateCtx {
+    decltype(update)* fn;
+  } upd{&update};
+  roots_->visitAll(
+      [](void* ctx, Oop* slot) {
+        if (slot != nullptr) {
+          *slot = (*static_cast<UpdateCtx*>(ctx)->fn)(*slot);
+        }
+      },
+      &upd);
 
   auto updateObject = [&](ObjectHeader* h) {
     h->klass = update(h->klass);
