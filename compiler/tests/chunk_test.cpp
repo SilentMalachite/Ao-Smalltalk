@@ -39,3 +39,31 @@ TEST(Chunk, ClassDefinitionShape) {
   EXPECT_EQ("Object", acts[0].superName);
   EXPECT_EQ("a b", acts[0].instVars);
 }
+
+TEST(Chunk, BangInCharacterDoesNotSplit) {
+  const char* src =
+      "!Foo methodsFor: 't'!\n"
+      "bang\n"
+      "  ^$!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(1u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("$!"));
+}
+
+TEST(Chunk, SubclassSendInMethodStaysMethodsFor) {
+  const char* src =
+      "!Foo methodsFor: 't'!\n"
+      "uses\n"
+      "  self subclass: #Bar!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(1u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("subclass:"));
+}

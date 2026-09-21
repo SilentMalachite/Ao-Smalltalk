@@ -23,9 +23,48 @@ bool isBlank(std::string_view s) {
 }
 
 struct RawChunk {
-  std::string_view text;
+  std::string text;
   SourceSpan span;
 };
+
+bool isBinaryChar(char c) {
+  switch (c) {
+    case '+':
+    case '-':
+    case '*':
+    case '/':
+    case '\\':
+    case '~':
+    case '<':
+    case '>':
+    case '=':
+    case '@':
+    case '%':
+    case '|':
+    case '&':
+    case '?':
+    case '!':
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool atLineEnd(std::string_view src, std::uint32_t p) {
+  while (p < src.size() && (src[p] == ' ' || src[p] == '\t')) {
+    p++;
+  }
+  return p >= src.size() || src[p] == '\n' || src[p] == '\r';
+}
+
+bool isCharacterBang(std::string_view src, std::uint32_t i) {
+  std::uint32_t dollars = 0;
+  while (i > 0 && src[i - 1] == '$') {
+    dollars++;
+    i--;
+  }
+  return dollars % 2 == 1;
+}
 
 std::vector<RawChunk> splitChunks(std::string_view src) {
   std::vector<RawChunk> out;
@@ -42,49 +81,84 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
       i++;
     }
     const std::uint32_t start = i;
+    std::string text;
     bool inStr = false;
     bool inCmt = false;
     while (i < n) {
       const char c = src[i];
       if (!inStr && !inCmt && c == '!') {
-        break;
+        if (isCharacterBang(src, i)) {
+          text.push_back(c);
+          i++;
+          continue;
+        }
+        if (i + 1 < n && src[i + 1] == '!') {
+          text.push_back('!');
+          i += 2;
+          continue;
+        }
+        if ((i + 1 < n && isBinaryChar(src[i + 1])) ||
+            (i > start && isBinaryChar(src[i - 1]))) {
+          text.push_back(c);
+          i++;
+          continue;
+        }
+        if (atLineEnd(src, i + 1)) {
+          break;
+        }
+        text.push_back(c);
+        i++;
+        continue;
       }
       if (!inStr && c == '"') {
         inCmt = !inCmt;
+        text.push_back(c);
         i++;
         continue;
       }
       if (!inCmt && c == '\'') {
         if (inStr && i + 1 < n && src[i + 1] == '\'') {
+          text.push_back('\'');
+          text.push_back('\'');
           i += 2;
           continue;
         }
         inStr = !inStr;
+        text.push_back(c);
         i++;
         continue;
       }
+      text.push_back(c);
       i++;
     }
     const std::uint32_t end = i;
     if (i < n && src[i] == '!') {
       i++;
     }
-    RawChunk raw;
-    raw.text = src.substr(start, end - start);
-    raw.span.start = start;
-    raw.span.end = end;
-    if (isBlank(raw.text)) {
+    if (isBlank(text)) {
       continue;
     }
-    out.push_back(raw);
+    RawChunk raw;
+    raw.text = std::move(text);
+    raw.span.start = start;
+    raw.span.end = end;
+    out.push_back(std::move(raw));
   }
   return out;
 }
 
 enum class HeadKind { MethodsFor, ClassDef, Other };
 
+std::string_view firstLine(std::string_view text) {
+  std::size_t n = 0;
+  while (n < text.size() && text[n] != '\n' && text[n] != '\r') {
+    n++;
+  }
+  return text.substr(0, n);
+}
+
 HeadKind classify(std::string_view text) {
-  Scanner s(text);
+  Scanner s(firstLine(text));
   for (;;) {
     const Token t = s.next();
     if (t.kind == Tok::Eof || t.kind == Tok::Error) {
