@@ -553,15 +553,10 @@ class Parser {
       return lit;
     }
     if (check(Tok::Keyword)) {
-      SourceSpan start = cur_.span;
-      std::string text;
-      while (check(Tok::Keyword)) {
-        text += cur_.text;
-        advance();
-      }
-      Ast lit = make(Ast::Kind::Literal, join(start, prev_.span));
+      Ast lit = make(Ast::Kind::Literal, cur_.span);
       lit.name = "#";
-      lit.text = std::move(text);
+      lit.text = cur_.text;
+      advance();
       return lit;
     }
     if (checkBinary("-")) {

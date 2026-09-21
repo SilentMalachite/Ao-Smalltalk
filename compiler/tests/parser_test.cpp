@@ -75,3 +75,25 @@ TEST(Parser, PrimitivePragma) {
   EXPECT_EQ(Ast::Kind::Primitive, r.method.kids.at(0).kind);
   EXPECT_EQ(60, r.method.kids.at(0).intValue);
 }
+
+TEST(Parser, LiteralArrayKeepsSeparateKeywords) {
+  auto r = parseMethod("foo\n  ^#(at: put:)");
+  ASSERT_TRUE(r.ok);
+  auto& arr = r.method.kids.at(0).kids.at(0);
+  ASSERT_EQ(2u, arr.kids.size());
+  EXPECT_EQ("at:", arr.kids[0].text);
+  EXPECT_EQ("put:", arr.kids[1].text);
+
+  auto rPacked = parseMethod("foo\n  ^#(at:put:)");
+  ASSERT_TRUE(rPacked.ok);
+  auto& packed = rPacked.method.kids.at(0).kids.at(0);
+  ASSERT_EQ(2u, packed.kids.size());
+  EXPECT_EQ("at:", packed.kids[0].text);
+  EXPECT_EQ("put:", packed.kids[1].text);
+
+  auto r2 = parseMethod("foo\n  ^#(#at:put:)");
+  ASSERT_TRUE(r2.ok);
+  auto& arr2 = r2.method.kids.at(0).kids.at(0);
+  ASSERT_EQ(1u, arr2.kids.size());
+  EXPECT_EQ("at:put:", arr2.kids[0].text);
+}
