@@ -25,6 +25,7 @@ void installArray(Heap& heap, WellKnown& wk);
 void installString(Heap& heap, WellKnown& wk);
 void installDictionary(Heap& heap, WellKnown& wk);
 void installStream(Heap& heap, WellKnown& wk);
+void installProcess(Heap& heap, WellKnown& wk);
 void installAll(Heap& heap, Roots& roots, WellKnown& wk);
 
 }  // namespace kernel

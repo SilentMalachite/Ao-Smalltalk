@@ -47,6 +47,7 @@ static constexpr const char* kNames[kSmalltalkCount] = {
     "BlockContext",
     "Process",
     "ProcessorScheduler",
+    "Processor",
     "Semaphore",
     "SharedQueue",
     "Point",

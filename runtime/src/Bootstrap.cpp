@@ -5,6 +5,7 @@
 #include "ao/Globals.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/NativeMethod.hpp"
+#include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
 
 #include <cstdio>
@@ -239,7 +240,15 @@ void installNatives(Heap& heap, Roots& roots, WellKnown& wk) {
       &baton);
   kernel::installAll(heap, roots, wk);
   if (wk.processorSchedulerClass.isHeap()) {
-    wk.processor = heap.allocate(wk.processorSchedulerClass, 2, 0);
+    const auto n = Format::instSize(heap.slotAt(wk.processorSchedulerClass, kClassSlotFormat));
+    wk.processor = heap.allocate(wk.processorSchedulerClass, static_cast<std::uint32_t>(n), 0);
+    if (wk.processor.isHeap()) {
+      CallContext ctx{heap, roots, wk, nullptr};
+      auto q = send(ctx, wk.orderedCollectionClass, wk.selNew, nullptr, 0, nullptr);
+      heap.slotAtPut(wk.processor, 0, q);
+      auto proc = send(ctx, wk.processClass, wk.selNew, nullptr, 0, nullptr);
+      heap.slotAtPut(wk.processor, 1, proc);
+    }
   }
   if (wk.transcriptClass.isHeap()) {
     const auto n = Format::instSize(heap.slotAt(wk.transcriptClass, kClassSlotFormat));
