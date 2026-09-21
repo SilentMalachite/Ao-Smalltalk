@@ -18,6 +18,10 @@ static ao::Oop stubB(ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
   return ao::Oop::fromSmallInteger(2);
 }
 
+static ao::Oop trueDnuSentinel(ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
+  return ao::Oop::fromSmallInteger(99);
+}
+
 static ao::Oop install(ao::WellKnown& wk, ao::Oop cls, const char* selector, ao::NativeFn fn,
                        std::uint32_t argc, const char* cName) {
   ao::Heap& heap = wk.heap();
@@ -80,6 +84,23 @@ TEST(NativeSend, DoesNotUnderstandReturnsMessage) {
   ASSERT_TRUE(r.isHeap());
   EXPECT_EQ(wk.messageClass, heap.klass(r));
   EXPECT_EQ(sel, heap.slotAt(r, 0));
+}
+
+TEST(NativeSend, DoesNotUnderstandAppliesSubclassNative) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  ao::ClassMethodCache cache;
+  cache.addRoots(roots);
+  ao::CallContext ctx{heap, roots, wk, &cache};
+  ao::InlineCache ic;
+  install(wk, wk.trueClass, "doesNotUnderstand:", trueDnuSentinel, 1,
+          "ao_True_doesNotUnderstand_");
+  auto sel = ao::Symbol::intern(wk, "noSuchSelector");
+  auto r = ao::send(ctx, ao::Oop::true_(), sel, nullptr, 0, &ic);
+  ASSERT_TRUE(r.isSmallInteger());
+  EXPECT_EQ(99, r.smallIntegerValue());
 }
 
 TEST(NativeSend, SuperUsesDefiningClassSuperclass) {

@@ -209,6 +209,29 @@ TEST(GcRoots, HandleTableKeepsObject) {
   EXPECT_TRUE(heap.inOld(kept));
 }
 
+TEST(GcRoots, RemoveDropsOneMatchingRegistration) {
+  ao::Roots roots;
+  ao::Oop slot = ao::Oop::fromSmallInteger(1);
+  roots.add(&slot);
+  roots.add(&slot);
+  roots.remove(&slot);
+  int seen = 0;
+  ao::Oop* remaining = nullptr;
+  struct Visit {
+    int* seen;
+    ao::Oop** remaining;
+  } rec{&seen, &remaining};
+  roots.visitAll(
+      [](void* ctx, ao::Oop* p) {
+        auto* v = static_cast<Visit*>(ctx);
+        ++*v->seen;
+        *v->remaining = p;
+      },
+      &rec);
+  EXPECT_EQ(1, seen);
+  EXPECT_EQ(&slot, remaining);
+}
+
 TEST(GcRoots, StackWalkerKeepsObject) {
   ao::Heap heap(512, 4096);
   ao::Roots roots;

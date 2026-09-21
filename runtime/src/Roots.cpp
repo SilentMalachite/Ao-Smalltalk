@@ -12,7 +12,14 @@ void Roots::add(Oop* slot) {
 }
 
 void Roots::remove(Oop* slot) {
-  slots_.erase(std::remove(slots_.begin(), slots_.end(), slot), slots_.end());
+  if (slot == nullptr) {
+    return;
+  }
+  // One registration, most-recent first — nested IcGuard is stack-like.
+  auto it = std::find(slots_.rbegin(), slots_.rend(), slot);
+  if (it != slots_.rend()) {
+    slots_.erase(std::next(it).base());
+  }
 }
 
 std::uint32_t Roots::pushHandle(Oop obj) {
