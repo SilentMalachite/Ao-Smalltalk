@@ -31,6 +31,9 @@ void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   installInteger(heap, wk);
   installCharacter(heap, wk);
   installFloat(heap, wk);
+  installCollection(heap, wk);
+  installArray(heap, wk);
+  installString(heap, wk);
   putNative(heap, wk, wk.blockContextClass, "value", 0, "ao_BlockContext_value",
             ao_BlockContext_value);
   putNative(heap, wk, wk.blockContextClass, "value:", 1, "ao_BlockContext_value_",

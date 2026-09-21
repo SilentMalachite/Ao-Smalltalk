@@ -20,6 +20,9 @@ void installMagnitude(Heap& heap, WellKnown& wk);
 void installInteger(Heap& heap, WellKnown& wk);
 void installCharacter(Heap& heap, WellKnown& wk);
 void installFloat(Heap& heap, WellKnown& wk);
+void installCollection(Heap& heap, WellKnown& wk);
+void installArray(Heap& heap, WellKnown& wk);
+void installString(Heap& heap, WellKnown& wk);
 void installAll(Heap& heap, Roots& roots, WellKnown& wk);
 
 }  // namespace kernel

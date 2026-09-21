@@ -31,6 +31,12 @@ Oop ao_BlockContext_valueWithArguments_(CallContext& ctx, Oop receiver, const Oo
 namespace Str {
 Oop fromUtf8(Heap& heap, WellKnown& wk, std::string_view utf8);
 std::string toUtf8(Heap& heap, Oop str);
+std::uint32_t codePointCount(Heap& heap, Oop str);
+Oop at(Heap& heap, Oop str, std::int64_t oneBased);
+}
+
+namespace Arr {
+Oop fromSlots(Heap& heap, WellKnown& wk, const Oop* p, std::uint32_t n);
 }
 
 }  // namespace ao

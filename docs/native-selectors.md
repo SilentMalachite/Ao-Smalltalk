@@ -37,7 +37,9 @@ ao_<Class>_<selectorMangled>
 | `&` | `and` | `ao_True_and` |
 | `\|` | `or` | `ao_True_or` |
 | `doesNotUnderstand:` | `doesNotUnderstand_` | `ao_Object_doesNotUnderstand_` |
+| `at:` | `at_` | `ao_ArrayedCollection_at_` |
 | `at:put:` | `at_put_` | `ao_Array_at_put_` |
+| `new:` | `new_` | `ao_ArrayedCollection_new_` |
 | `ifTrue:` | `ifTrue_` | `ao_True_ifTrue_` |
 | `ifTrue:ifFalse:` | `ifTrue_ifFalse_` | `ao_True_ifTrue_ifFalse_` |
 | `and:` | `and_` | `ao_True_and_` |

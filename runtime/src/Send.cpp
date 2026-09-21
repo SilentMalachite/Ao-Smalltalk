@@ -56,7 +56,7 @@ Oop allocateMessage(Heap& heap, WellKnown& wk, Oop selector, const Oop* args, st
     return Oop{};
   }
   heap.slotAtPut(msg, 0, selector);
-  auto arr = heap.allocate(Oop::nil(), argc, 0);
+  auto arr = heap.allocate(wk.arrayClass, argc, 0);
   if (!arr.isHeap()) {
     return Oop{};
   }

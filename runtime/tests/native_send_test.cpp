@@ -84,6 +84,19 @@ TEST(NativeSend, DoesNotUnderstandReturnsMessage) {
   ASSERT_TRUE(r.isHeap());
   EXPECT_EQ(wk.messageClass, heap.klass(r));
   EXPECT_EQ(sel, heap.slotAt(r, 0));
+  auto argsArr = heap.slotAt(r, 1);
+  ASSERT_TRUE(argsArr.isHeap());
+  EXPECT_EQ(wk.arrayClass, heap.klass(argsArr));
+  EXPECT_EQ(0u, heap.size(argsArr));
+
+  ao::Oop arg = ao::Oop::fromSmallInteger(7);
+  auto r2 = ao::send(ctx, ao::Oop::fromSmallInteger(1), sel, &arg, 1, &ic);
+  ASSERT_TRUE(r2.isHeap());
+  auto args2 = heap.slotAt(r2, 1);
+  ASSERT_TRUE(args2.isHeap());
+  EXPECT_EQ(wk.arrayClass, heap.klass(args2));
+  ASSERT_EQ(1u, heap.size(args2));
+  EXPECT_EQ(arg, heap.slotAt(args2, 0));
 }
 
 TEST(NativeSend, DoesNotUnderstandAppliesSubclassNative) {
