@@ -67,3 +67,21 @@ TEST(Chunk, SubclassSendInMethodStaysMethodsFor) {
   ASSERT_EQ(1u, acts[0].methods.size());
   EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("subclass:"));
 }
+
+TEST(Chunk, LineEndBangAfterBinaryStillTerminates) {
+  const char* src =
+      "!Foo methodsFor: 't'!\n"
+      "plus\n"
+      "  ^$+!\n"
+      "other\n"
+      "  ^1!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(1u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
+  ASSERT_EQ(2u, acts[0].methods.size());
+  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("^$+"));
+  EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("other"));
+  EXPECT_NE(std::string::npos, acts[0].methods[1].source.find("other"));
+}

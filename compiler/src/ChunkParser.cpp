@@ -27,29 +27,6 @@ struct RawChunk {
   SourceSpan span;
 };
 
-bool isBinaryChar(char c) {
-  switch (c) {
-    case '+':
-    case '-':
-    case '*':
-    case '/':
-    case '\\':
-    case '~':
-    case '<':
-    case '>':
-    case '=':
-    case '@':
-    case '%':
-    case '|':
-    case '&':
-    case '?':
-    case '!':
-      return true;
-    default:
-      return false;
-  }
-}
-
 bool atLineEnd(std::string_view src, std::uint32_t p) {
   while (p < src.size() && (src[p] == ' ' || src[p] == '\t')) {
     p++;
@@ -95,12 +72,6 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         if (i + 1 < n && src[i + 1] == '!') {
           text.push_back('!');
           i += 2;
-          continue;
-        }
-        if ((i + 1 < n && isBinaryChar(src[i + 1])) ||
-            (i > start && isBinaryChar(src[i - 1]))) {
-          text.push_back(c);
-          i++;
           continue;
         }
         if (atLineEnd(src, i + 1)) {
