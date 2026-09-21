@@ -17,7 +17,7 @@
 |---|---|---|
 | P0 骨格 | [phases/P0.md](phases/P0.md) | done |
 | P1 オブジェクトメモリ | [phases/P1.md](phases/P1.md) | done |
-| P2 ブートストラップ | [phases/P2.md](phases/P2.md) | planned |
+| P2 ブートストラップ | [phases/P2.md](phases/P2.md) | done |
 | P3 ネイティブディスパッチ | [phases/P3.md](phases/P3.md) | planned |
 | P4 Kernel ネイティブ | [phases/P4.md](phases/P4.md) | planned |
 | P5 コンパイラ | [phases/P5.md](phases/P5.md) | planned |
