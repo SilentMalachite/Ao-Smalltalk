@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstring>
+#include <utility>
 
 namespace ao {
 
@@ -16,6 +17,7 @@ Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes)
   fromBump_ = fromStart_;
   toStart_ = fromEnd_;
   toEnd_ = toStart_ + nurseryBytes;
+  toBump_ = toStart_;
   oldStart_ = old_.get();
   oldEnd_ = oldStart_ + oldBytes;
   oldBump_ = oldStart_;
@@ -102,6 +104,27 @@ bool Heap::inOld(Oop obj) const {
   }
   auto* p = static_cast<std::byte*>(obj.heapPointer());
   return p >= oldStart_ && p < oldEnd_;
+}
+
+void Heap::flipNursery() {
+  std::swap(fromStart_, toStart_);
+  std::swap(fromEnd_, toEnd_);
+  fromBump_ = toBump_;
+  toBump_ = toStart_;
+}
+
+std::byte* Heap::reserveToSpace(std::size_t n) {
+  if (toBump_ + n > toEnd_) {
+    return nullptr;
+  }
+  std::byte* dest = toBump_;
+  toBump_ += n;
+  return dest;
+}
+
+bool Heap::containsNurseryFrom(void* p) const {
+  auto* b = static_cast<std::byte*>(p);
+  return b >= fromStart_ && b < fromEnd_;
 }
 
 }  // namespace ao

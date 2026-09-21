@@ -12,6 +12,7 @@ add_library(ao_runtime
   src/abi.cpp
   src/Oop.cpp
   src/Heap.cpp
+  src/Gc.cpp
 )
 target_include_directories(ao_runtime
   PUBLIC
@@ -29,6 +30,7 @@ add_executable(ao_runtime_tests
   tests/smoke_test.cpp
   tests/oop_tag_test.cpp
   tests/heap_alloc_test.cpp
+  tests/gc_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime GTest::gtest_main)
 include(GoogleTest)

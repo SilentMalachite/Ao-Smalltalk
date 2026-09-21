@@ -4,31 +4,32 @@
 - cluster-only mode — file stats not available
 
 ## Summary
-- 390 nodes · 457 edges · 40 communities (22 shown, 18 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 28 edges (avg confidence: 0.89)
+- 457 nodes · 566 edges · 41 communities (23 shown, 18 thin omitted)
+- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 44 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `dfe449e2`
+- Built from commit: `157eea3f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - SPEC.md
+- P4-03 Magnitude / SmallInteger / Character
+- ObjectHeader
+- Heap
 - P5 — Compiler
-- TEST
 - P2-02 class object skeletons
-- Oop
-- Bytecode interpreter
 - P3-04 lookup / super / doesNotUnderstand:
-- P4-09 Kernel NativeMethod scan and bench
-- P3-01 Symbol intern
-- P1 — Object Memory
+- Oop
+- Heap.cpp
 - TEST
-- SmokeTests.swift
+- Bytecode interpreter
+- P1 — Object Memory
 - P0-03: CMake + GoogleTest + CLI
 - P1-04 old-generation mark-compact
 - P9-01: Do it / Print it / Inspect it
+- SmokeTests.swift
 - P4-04 Array / ByteArray / String / Symbol
 - P4-06 Stream / Transcript model
 - P4-07 Process / ProcessorScheduler / Semaphore
@@ -53,16 +54,16 @@
 - Memory maintenance guide
 
 ## God Nodes (most connected - your core abstractions)
-1. `Oop` - 26 edges
-2. `P2-02 class object skeletons` - 11 edges
-3. `TEST()` - 9 edges
-4. `P0 phase doc` - 9 edges
-5. `P3-04 lookup / super / doesNotUnderstand:` - 9 edges
-6. `P4-03 Magnitude / SmallInteger / Character` - 9 edges
-7. `P4-09 Kernel NativeMethod scan and bench` - 9 edges
-8. `P1 — Object Memory` - 8 edges
-9. `TEST()` - 7 edges
-10. `P4-04 Array / ByteArray / String / Symbol` - 7 edges
+1. `Heap` - 29 edges
+2. `Oop` - 26 edges
+3. `TEST()` - 13 edges
+4. `P2-02 class object skeletons` - 11 edges
+5. `ObjectHeader` - 10 edges
+6. `TEST()` - 9 edges
+7. `P0 phase doc` - 9 edges
+8. `P4-03 Magnitude / SmallInteger / Character` - 9 edges
+9. `P4-09 Kernel NativeMethod scan and bench` - 9 edges
+10. `P3-04 lookup / super / doesNotUnderstand:` - 9 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `P0 phase doc` --references--> `CompilerSmoke.VersionIsNonEmpty`  [INFERRED]
@@ -95,55 +96,55 @@
 - **P9 PR dependency chain to v1** — prs_p9_01, prs_p9_02, prs_p9_03, prs_p9_04 [EXTRACTED 1.00]
 - **C ABI wrappers over ao::Runtime** — runtime_src_abi_ao_version, runtime_src_abi_ao_runtime_boot, runtime_src_abi_ao_runtime_shutdown [EXTRACTED 1.00]
 
-## Communities (40 total, 18 thin omitted)
+## Communities (41 total, 18 thin omitted)
 
 ### Community 0 - "SPEC.md"
 Cohesion: 0.08
-Nodes (37): ao_runtime_boot, ao_runtime_shutdown, ao_version, Root CMakeLists.txt, compiler CMakeLists, ao::compiler::version, version() implementation, CompilerSmoke.VersionIsNonEmpty (+29 more)
+Nodes (39): ao_runtime_boot, ao_runtime_shutdown, ao_version, Root CMakeLists.txt, compiler CMakeLists, ao::compiler::version, version() implementation, CompilerSmoke.VersionIsNonEmpty (+31 more)
 
-### Community 1 - "P5 — Compiler"
+### Community 1 - "P4-03 Magnitude / SmallInteger / Character"
+Cohesion: 0.06
+Nodes (34): inline cache, lookup, runtime/tests/native_send_test.cpp, P3-05 inline cache and send, send, runtime/include/ao/Send.hpp, Boolean, Bootstrap (+26 more)
+
+### Community 2 - "ObjectHeader"
+Cohesion: 0.06
+Nodes (25): CharacterRoundTrip, compiler, TEST(), CompilerSmoke, cstddef, cstdint, gtest, heap (+17 more)
+
+### Community 3 - "Heap"
+Cohesion: 0.08
+Nodes (31): ByteObjectPayload, ExhaustionReturnsEmpty, HeapAlloc, PointerObjectHasClassAndSize, Heap, allocate, bytes, flags (+23 more)
+
+### Community 4 - "P5 — Compiler"
 Cohesion: 0.08
 Nodes (31): P3 — Native Dispatch, CompiledMethod, doesNotUnderstand:, method lookup / send, MethodDictionary, NativeMethod, selector mangle ao_<Class>_<selectorMangled>, P4 — Kernel Native Implementation (+23 more)
 
-### Community 2 - "TEST"
-Cohesion: 0.09
-Nodes (19): AbiSmoke, BootAndShutdownReturnZero, BootVersionShutdown, compiler, TEST(), CompilerSmoke, cstdio, cstring (+11 more)
-
-### Community 3 - "P2-02 class object skeletons"
+### Community 5 - "P2-02 class object skeletons"
 Cohesion: 0.07
 Nodes (28): runtime/tests/bootstrap_test.cpp, Heap, Oop, P2-01 WellKnown and immediates, Roots, WellKnown, runtime/include/ao/WellKnown.hpp, Behavior (+20 more)
 
-### Community 4 - "Oop"
+### Community 6 - "P3-04 lookup / super / doesNotUnderstand:"
+Cohesion: 0.08
+Nodes (26): Heap, Oop, P3-01 Symbol intern, Symbol, runtime/include/ao/Symbol.hpp, Symbol::intern, runtime/tests/symbol_test.cpp, runtime/tests/method_dictionary_test.cpp (+18 more)
+
+### Community 7 - "Oop"
 Cohesion: 0.10
 Nodes (8): int64_t, Oop, kCharTag, kImmTag, kLow3, kSmiTag, raw_, uint64_t
 
-### Community 5 - "Bytecode interpreter"
+### Community 8 - "Heap.cpp"
+Cohesion: 0.17
+Nodes (22): cassert, header, objectBytes, align8(), byte, Oop, size_t, uint16_t (+14 more)
+
+### Community 9 - "TEST"
+Cohesion: 0.12
+Nodes (15): AbiSmoke, BootAndShutdownReturnZero, BootVersionShutdown, cstdio, cstring, runtime, ao executable, ao_runtime library (+7 more)
+
+### Community 10 - "Bytecode interpreter"
 Cohesion: 0.12
 Nodes (23): CompiledMethod class (P4 Kernel), Scanner (字句解析), Token stream, AST, Parser and AST, Ao bytecode ISA, Opcode constants, Codegen CompiledMethod (+15 more)
 
-### Community 6 - "P3-04 lookup / super / doesNotUnderstand:"
-Cohesion: 0.09
-Nodes (22): class hierarchy, doesNotUnderstand:, lookup, runtime/include/ao/Lookup.hpp, runtime/tests/lookup_test.cpp, MethodDictionary, NativeMethod, P3-04 lookup / super / doesNotUnderstand: (+14 more)
-
-### Community 7 - "P4-09 Kernel NativeMethod scan and bench"
-Cohesion: 0.10
-Nodes (20): Boolean, Bootstrap, NativeMethod, Object, runtime/src/kernel/Object.cpp, P4-01 Object / UndefinedObject / Boolean, send, Behavior (+12 more)
-
-### Community 8 - "P3-01 Symbol intern"
-Cohesion: 0.11
-Nodes (18): Heap, Oop, P3-01 Symbol intern, Symbol, runtime/include/ao/Symbol.hpp, Symbol::intern, runtime/tests/symbol_test.cpp, runtime/tests/method_dictionary_test.cpp (+10 more)
-
-### Community 9 - "P1 — Object Memory"
+### Community 11 - "P1 — Object Memory"
 Cohesion: 0.18
 Nodes (17): P1 — Object Memory, ao::Oop, ao::Gc, ao::Heap, nursery bump allocator, 64-bit tagged pointer, P2 — Bootstrap, Blue Book 6–10 (+9 more)
-
-### Community 10 - "TEST"
-Cohesion: 0.15
-Nodes (10): CharacterRoundTrip, cstdint, gtest, HeapAlignedPointerRoundTrip, IdentityEqualsIsBits, ImmediateThreePatterns, oop, OopTag (+2 more)
-
-### Community 11 - "SmokeTests.swift"
-Cohesion: 0.18
-Nodes (8): Ao, AoPlaceholder, SmokeTests, Phase P0 skeleton, Phase pipeline P0-P9, PackageDescription, XCTest, XCTestCase
 
 ### Community 12 - "P0-03: CMake + GoogleTest + CLI"
 Cohesion: 0.23
@@ -157,53 +158,57 @@ Nodes (11): runtime/src/Gc.cpp, runtime/tests/gc_test.cpp, nursery GC, P1-04 old
 Cohesion: 0.25
 Nodes (11): P9-01: Do it / Print it / Inspect it, Do it, Inspect it, Print it, P9-02: Browser accept, Browser accept, P9-03: Error display and VoiceOver, Error display (+3 more)
 
-### Community 15 - "P4-04 Array / ByteArray / String / Symbol"
+### Community 15 - "SmokeTests.swift"
+Cohesion: 0.22
+Nodes (6): Ao, AoPlaceholder, SmokeTests, PackageDescription, XCTest, XCTestCase
+
+### Community 16 - "P4-04 Array / ByteArray / String / Symbol"
 Cohesion: 0.25
 Nodes (8): Array, runtime/src/kernel/Array.cpp, ArrayedCollection, Bootstrap, NativeMethod, P4-04 Array / ByteArray / String / Symbol, send, runtime/src/kernel/String.cpp
 
-### Community 16 - "P4-06 Stream / Transcript model"
+### Community 17 - "P4-06 Stream / Transcript model"
 Cohesion: 0.25
 Nodes (8): Bootstrap, NativeMethod, P4-06 Stream / Transcript model, send, Stream, runtime/src/kernel/Stream.cpp, Transcript, runtime/tests/transcript_model_test.cpp
 
-### Community 17 - "P4-07 Process / ProcessorScheduler / Semaphore"
+### Community 18 - "P4-07 Process / ProcessorScheduler / Semaphore"
 Cohesion: 0.25
 Nodes (8): Bootstrap, NativeMethod, P4-07 Process / ProcessorScheduler / Semaphore, Process, runtime/src/kernel/Process.cpp, ProcessorScheduler, Semaphore, send
 
-### Community 18 - "Ao.app skeleton"
+### Community 19 - "Ao.app skeleton"
 Cohesion: 0.43
 Nodes (8): ao_abi boot/shutdown, Ao.app skeleton, Bundle ID jp.ao.smalltalk, TranscriptWindow, WorkspaceWindow, System Browser 5 panes, Do it / Print it keybindings, MainMenu and keybindings
 
-### Community 19 - "P4-05 Dictionary / Set / OrderedCollection"
+### Community 20 - "P4-05 Dictionary / Set / OrderedCollection"
 Cohesion: 0.29
 Nodes (7): Bootstrap, runtime/tests/collection_do_test.cpp, Dictionary, runtime/src/kernel/Dictionary.cpp, NativeMethod, P4-05 Dictionary / Set / OrderedCollection, send
 
-### Community 20 - "P4-08 Point / Rectangle"
+### Community 21 - "P4-08 Point / Rectangle"
 Cohesion: 0.29
 Nodes (7): Bootstrap, runtime/src/kernel/Geometry.cpp, NativeMethod, Point, P4-08 Point / Rectangle, Rectangle, send
 
-### Community 21 - "ao image save"
+### Community 22 - "ao image save"
 Cohesion: 0.50
 Nodes (5): .aoimage format (AOIM), No function-pointer fields in image, ao image save, NativeMethod as symbol-name strings on save, ao image load and NativeMethod rebind
 
 ## Knowledge Gaps
-- **173 isolated node(s):** `AoPlaceholder`, `VoiceOver labels`, `v1 golden acceptance`, `Ao`, `PackageDescription` (+168 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 211 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **191 isolated node(s):** `AoPlaceholder`, `VoiceOver labels`, `v1 golden acceptance`, `Ao`, `PackageDescription` (+186 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 240 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `P8 — AppKit Tools` connect `P5 — Compiler` to `SPEC.md`?**
-  _High betweenness centrality (0.086) - this node is a cross-community bridge._
+  _High betweenness centrality (0.095) - this node is a cross-community bridge._
 - **Why does `P0 phase doc` connect `SPEC.md` to `SmokeTests.swift`?**
-  _High betweenness centrality (0.064) - this node is a cross-community bridge._
-- **Why does `Oop` connect `Oop` to `TEST`?**
-  _High betweenness centrality (0.058) - this node is a cross-community bridge._
-- **Are the 3 inferred relationships involving `TEST()` (e.g. with `ao_runtime_boot()` and `ao_runtime_shutdown()`) actually correct?**
-  _`TEST()` has 3 INFERRED edges - model-reasoned connections that need verification._
+  _High betweenness centrality (0.067) - this node is a cross-community bridge._
+- **Why does `Oop` connect `Oop` to `Heap.cpp`, `ObjectHeader`?**
+  _High betweenness centrality (0.050) - this node is a cross-community bridge._
+- **Are the 8 inferred relationships involving `TEST()` (e.g. with `allocate` and `bytes`) actually correct?**
+  _`TEST()` has 8 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `AoPlaceholder`, `VoiceOver labels`, `v1 golden acceptance` to the rest of the system?**
-  _173 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _191 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `SPEC.md` be split into smaller, more focused modules?**
-  _Cohesion score 0.08416389811738649 - nodes in this community are weakly interconnected._
-- **Should `P5 — Compiler` be split into smaller, more focused modules?**
-  _Cohesion score 0.08387096774193549 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08080808080808081 - nodes in this community are weakly interconnected._
+- **Should `P4-03 Magnitude / SmallInteger / Character` be split into smaller, more focused modules?**
+  _Cohesion score 0.058823529411764705 - nodes in this community are weakly interconnected._

@@ -620,11 +620,6 @@
       "degree": 9
     },
     {
-      "id": "docs_prs_p3_04_pr",
-      "label": "P3-04 lookup / super / doesNotUnderstand:",
-      "degree": 9
-    },
-    {
       "id": "docs_prs_p4_03_pr",
       "label": "P4-03 Magnitude / SmallInteger / Character",
       "degree": 9
@@ -632,6 +627,11 @@
     {
       "id": "docs_prs_p4_09_pr",
       "label": "P4-09 Kernel NativeMethod scan and bench",
+      "degree": 9
+    },
+    {
+      "id": "docs_prs_p3_04_pr",
+      "label": "P3-04 lookup / super / doesNotUnderstand:",
       "degree": 9
     }
   ],
@@ -645,7 +645,7 @@
       ],
       "confidence": "INFERRED",
       "relation": "references",
-      "why": "inferred connection - not explicitly stated in source; crosses file types (code \u2194 doc); connects across different repos/directories; peripheral node `CompilerSmoke.VersionIsNonEmpty` unexpectedly reaches hub `P0 phase doc`"
+      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories; peripheral node `CompilerSmoke.VersionIsNonEmpty` unexpectedly reaches hub `P0 phase doc`"
     },
     {
       "source": "ABI boundary memory",
@@ -656,7 +656,7 @@
       ],
       "confidence": "EXTRACTED",
       "relation": "references",
-      "why": "crosses file types (code \u2194 doc); connects across different repos/directories; peripheral node `ao_runtime_boot` unexpectedly reaches hub `ABI boundary memory`"
+      "why": "crosses file types (code ↔ doc); connects across different repos/directories; peripheral node `ao_runtime_boot` unexpectedly reaches hub `ABI boundary memory`"
     },
     {
       "source": "ABI boundary memory",
@@ -667,7 +667,7 @@
       ],
       "confidence": "EXTRACTED",
       "relation": "references",
-      "why": "crosses file types (code \u2194 doc); connects across different repos/directories; peripheral node `ao_runtime_shutdown` unexpectedly reaches hub `ABI boundary memory`"
+      "why": "crosses file types (code ↔ doc); connects across different repos/directories; peripheral node `ao_runtime_shutdown` unexpectedly reaches hub `ABI boundary memory`"
     },
     {
       "source": "ABI boundary memory",
@@ -678,7 +678,7 @@
       ],
       "confidence": "EXTRACTED",
       "relation": "references",
-      "why": "crosses file types (code \u2194 doc); connects across different repos/directories; peripheral node `ao_version` unexpectedly reaches hub `ABI boundary memory`"
+      "why": "crosses file types (code ↔ doc); connects across different repos/directories; peripheral node `ao_version` unexpectedly reaches hub `ABI boundary memory`"
     },
     {
       "source": "ao::Oop typed pointer",
@@ -692,8 +692,41 @@
       "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; semantically similar concepts with no structural link"
     }
   ],
-  "tokens": {
-    "input": 0,
-    "output": 0
-  }
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `P8 — AppKit Tools` connect `P5 — Compiler` to `SPEC.md`?",
+      "why": "High betweenness centrality (0.095) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `P0 phase doc` connect `SPEC.md` to `SmokeTests.swift`?",
+      "why": "High betweenness centrality (0.067) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `Oop` connect `Oop` to `Heap.cpp`, `ObjectHeader`?",
+      "why": "High betweenness centrality (0.050) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 8 inferred relationships involving `TEST()` (e.g. with `allocate` and `bytes`) actually correct?",
+      "why": "`TEST()` has 8 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `AoPlaceholder`, `VoiceOver labels`, `v1 golden acceptance` to the rest of the system?",
+      "why": "191 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `SPEC.md` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.08080808080808081 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `P4-03 Magnitude / SmallInteger / Character` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.058823529411764705 - nodes in this community are weakly interconnected."
+    }
+  ]
 }

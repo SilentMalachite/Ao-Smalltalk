@@ -51,6 +51,10 @@ class Heap {
   friend class Gc;
 
  private:
+  void flipNursery();
+  std::byte* reserveToSpace(std::size_t n);
+  bool containsNurseryFrom(void* p) const;
+
   std::unique_ptr<std::byte[]> nursery_;
   std::unique_ptr<std::byte[]> old_;
   std::size_t nurseryHalf_ = 0;
@@ -59,6 +63,7 @@ class Heap {
   std::byte* fromBump_ = nullptr;
   std::byte* toStart_ = nullptr;
   std::byte* toEnd_ = nullptr;
+  std::byte* toBump_ = nullptr;
   std::byte* oldStart_ = nullptr;
   std::byte* oldEnd_ = nullptr;
   std::byte* oldBump_ = nullptr;
