@@ -45,6 +45,7 @@ void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   putNative(heap, wk, wk.blockContextClass, "valueWithArguments:", 1,
             "ao_BlockContext_valueWithArguments_", ao_BlockContext_valueWithArguments_);
   installProcess(heap, wk);
+  installGeometry(heap, wk);
 }
 
 }  // namespace kernel
