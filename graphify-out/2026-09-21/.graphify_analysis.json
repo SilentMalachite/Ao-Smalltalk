@@ -248,8 +248,8 @@
     ],
     "3": [
       "docs_native_selectors_native_selector_mangling",
-      "docs_native_selectors_\u30de\u30f3\u30b0\u30eb\u8868",
-      "docs_native_selectors_\u898f\u5247",
+      "docs_native_selectors_マングル表",
+      "docs_native_selectors_規則",
       "runtime_include_ao_oop_hpp_int64_t",
       "runtime_include_ao_oop_oop",
       "runtime_include_ao_oop_oop_charactervalue",
@@ -387,10 +387,10 @@
       "docs_prs_p1_06_files",
       "docs_prs_p1_06_interfaces",
       "docs_prs_p1_06_p1_06_weak_slot_gc",
-      "docs_prs_p1_06_\u30b3\u30df\u30c3\u30c8\u6587",
-      "docs_prs_p1_06_\u30c6\u30b9\u30c8",
-      "docs_prs_p1_06_\u624b\u9806",
-      "docs_prs_p1_06_\u76ee\u7684",
+      "docs_prs_p1_06_コミット文",
+      "docs_prs_p1_06_テスト",
+      "docs_prs_p1_06_手順",
+      "docs_prs_p1_06_目的",
       "runtime_include_ao_gc",
       "runtime_include_ao_gc_gc",
       "runtime_include_ao_gc_gc_clearweakafternursery",
@@ -505,9 +505,9 @@
       "docs_prs_p1_07_files",
       "docs_prs_p1_07_interfaces",
       "docs_prs_p1_07_p1_07_immovable_old_objects",
-      "docs_prs_p1_07_\u30c6\u30b9\u30c8",
-      "docs_prs_p1_07_\u624b\u9806",
-      "docs_prs_p1_07_\u76ee\u7684"
+      "docs_prs_p1_07_テスト",
+      "docs_prs_p1_07_手順",
+      "docs_prs_p1_07_目的"
     ],
     "10": [
       "docs_prs_p5_01_compiledmethod_class",
@@ -886,41 +886,41 @@
       "docs_prs_p9_01_files",
       "docs_prs_p9_01_interfaces",
       "docs_prs_p9_01_p9_01_do_it_print_it_inspect_it",
-      "docs_prs_p9_01_\u30b3\u30df\u30c3\u30c8\u6587",
-      "docs_prs_p9_01_\u30c6\u30b9\u30c8",
-      "docs_prs_p9_01_\u5b8c\u4e86\u6761\u4ef6",
-      "docs_prs_p9_01_\u624b\u9806",
-      "docs_prs_p9_01_\u76ee\u7684"
+      "docs_prs_p9_01_コミット文",
+      "docs_prs_p9_01_テスト",
+      "docs_prs_p9_01_完了条件",
+      "docs_prs_p9_01_手順",
+      "docs_prs_p9_01_目的"
     ],
     "37": [
       "docs_prs_p9_02_files",
       "docs_prs_p9_02_interfaces",
       "docs_prs_p9_02_p9_02_browser_accept",
-      "docs_prs_p9_02_\u30b3\u30df\u30c3\u30c8\u6587",
-      "docs_prs_p9_02_\u30c6\u30b9\u30c8",
-      "docs_prs_p9_02_\u5b8c\u4e86\u6761\u4ef6",
-      "docs_prs_p9_02_\u624b\u9806",
-      "docs_prs_p9_02_\u76ee\u7684"
+      "docs_prs_p9_02_コミット文",
+      "docs_prs_p9_02_テスト",
+      "docs_prs_p9_02_完了条件",
+      "docs_prs_p9_02_手順",
+      "docs_prs_p9_02_目的"
     ],
     "38": [
       "docs_prs_p9_03_files",
       "docs_prs_p9_03_interfaces",
-      "docs_prs_p9_03_p9_03_\u30a8\u30e9\u30fc\u8868\u793a\u3068_voiceover",
-      "docs_prs_p9_03_\u30b3\u30df\u30c3\u30c8\u6587",
-      "docs_prs_p9_03_\u30c6\u30b9\u30c8",
-      "docs_prs_p9_03_\u5b8c\u4e86\u6761\u4ef6",
-      "docs_prs_p9_03_\u624b\u9806",
-      "docs_prs_p9_03_\u76ee\u7684"
+      "docs_prs_p9_03_p9_03_エラー表示と_voiceover",
+      "docs_prs_p9_03_コミット文",
+      "docs_prs_p9_03_テスト",
+      "docs_prs_p9_03_完了条件",
+      "docs_prs_p9_03_手順",
+      "docs_prs_p9_03_目的"
     ],
     "39": [
       "docs_prs_p9_04_files",
       "docs_prs_p9_04_interfaces",
-      "docs_prs_p9_04_p9_04_v1_\u30b4\u30fc\u30eb\u30c7\u30f3\u53d7\u3051\u5165\u308c",
-      "docs_prs_p9_04_\u30b3\u30df\u30c3\u30c8\u6587",
-      "docs_prs_p9_04_\u30c6\u30b9\u30c8",
-      "docs_prs_p9_04_\u5b8c\u4e86\u6761\u4ef6",
-      "docs_prs_p9_04_\u624b\u9806",
-      "docs_prs_p9_04_\u76ee\u7684"
+      "docs_prs_p9_04_p9_04_v1_ゴールデン受け入れ",
+      "docs_prs_p9_04_コミット文",
+      "docs_prs_p9_04_テスト",
+      "docs_prs_p9_04_完了条件",
+      "docs_prs_p9_04_手順",
+      "docs_prs_p9_04_目的"
     ],
     "40": [
       "nameandapply",
@@ -1221,8 +1221,8 @@
       "degree": 16
     },
     {
-      "id": "docs_phases_p4",
-      "label": "P4 \u2014 Kernel Native Implementation",
+      "id": "runtime_tests_test_support_boot",
+      "label": "Boot",
       "degree": 14
     },
     {
@@ -1241,10 +1241,10 @@
       ],
       "confidence": "INFERRED",
       "relation": "references",
-      "why": "inferred connection - not explicitly stated in source; crosses file types (code \u2194 doc); connects across different repos/directories; bridges separate communities; peripheral node `CompilerSmoke.VersionIsNonEmpty` unexpectedly reaches hub `P0 phase doc`"
+      "why": "inferred connection - not explicitly stated in source; crosses file types (doc ↔ code); connects across different repos/directories; bridges separate communities; peripheral node `CompilerSmoke.VersionIsNonEmpty` unexpectedly reaches hub `P0 phase doc`"
     },
     {
-      "source": "\u624b\u9806",
+      "source": "手順",
       "target": "Heap",
       "source_files": [
         "docs/prs/P1-06.md",
@@ -1252,10 +1252,10 @@
       ],
       "confidence": "INFERRED",
       "relation": "references",
-      "why": "inferred connection - not explicitly stated in source; crosses file types (doc \u2194 code); connects across different repos/directories; bridges separate communities"
+      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories; bridges separate communities"
     },
     {
-      "source": "\u624b\u9806",
+      "source": "手順",
       "target": "Gc",
       "source_files": [
         "docs/prs/P1-06.md",
@@ -1263,33 +1263,66 @@
       ],
       "confidence": "INFERRED",
       "relation": "references",
-      "why": "inferred connection - not explicitly stated in source; crosses file types (doc \u2194 code); connects across different repos/directories"
+      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories"
     },
     {
-      "source": "Native selector mangling",
-      "target": "ao_Object_identityEquals()",
+      "source": "マングル表",
+      "target": "add()",
+      "source_files": [
+        "docs/native-selectors.md",
+        "runtime/src/NativeMethod.cpp"
+      ],
+      "confidence": "INFERRED",
+      "relation": "references",
+      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories"
+    },
+    {
+      "source": "マングル表",
+      "target": "ao_Object_class()",
       "source_files": [
         "docs/native-selectors.md",
         "runtime/src/Natives.cpp"
       ],
       "confidence": "INFERRED",
       "relation": "references",
-      "why": "inferred connection - not explicitly stated in source; crosses file types (doc \u2194 code); connects across different repos/directories"
-    },
-    {
-      "source": "Native selector mangling",
-      "target": "ao_SmallInteger_add()",
-      "source_files": [
-        "docs/native-selectors.md",
-        "runtime/src/Natives.cpp"
-      ],
-      "confidence": "INFERRED",
-      "relation": "references",
-      "why": "inferred connection - not explicitly stated in source; crosses file types (doc \u2194 code); connects across different repos/directories"
+      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories"
     }
   ],
-  "tokens": {
-    "input": 0,
-    "output": 0
-  }
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `Heap` connect `Heap` to `WellKnown`, `Oop`, `gtest`, `Oop`, `CallContext`, `Heap.cpp`, `Gc.cpp`, `TEST`, `WellKnown.cpp`, `TEST`, `.nil`, `test_support.hpp`, `Boot`, `TEST`, `Install.cpp`, `lookup_test.cpp`, `native_send_test.cpp`, `bootstrap_test.cpp`, `create`, `at`, `intern`, `gc_test.cpp`, `TEST`?",
+      "why": "High betweenness centrality (0.297) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `WellKnown` connect `WellKnown` to `Oop`, `Oop`, `Heap`, `Roots`?",
+      "why": "High betweenness centrality (0.257) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `Roots` connect `Roots` to `WellKnown`, `Oop`, `CallContext`, `Gc.cpp`, `bootstrap_test.cpp`, `WellKnown.cpp`, `.nil`, `Roots.cpp`, `at`, `test_support.hpp`, `Boot`, `gc_test.cpp`, `TEST`, `Install.cpp`, `lookup_test.cpp`, `native_send_test.cpp`?",
+      "why": "High betweenness centrality (0.126) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 18 inferred relationships involving `TEST()` (e.g. with `allocate` and `bytes`) actually correct?",
+      "why": "`TEST()` has 18 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `AoPlaceholder`, `addRoots`, `arrayClass` to the rest of the system?",
+      "why": "368 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `WellKnown` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.014814814814814815 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Oop` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.05639097744360902 - nodes in this community are weakly interconnected."
+    }
+  ]
 }

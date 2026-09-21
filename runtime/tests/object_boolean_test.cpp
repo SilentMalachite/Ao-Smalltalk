@@ -1,8 +1,13 @@
 #include "test_support.hpp"
 
+#include "ao/Format.hpp"
 #include "ao/Globals.hpp"
 
 #include <gtest/gtest.h>
+
+static ao::Oop formatOf(Boot& b, ao::Oop cls) {
+  return b.heap.slotAt(cls, ao::kClassSlotFormat);
+}
 
 TEST(KernelCatalog, NamedClassesAreHeap) {
   Boot b;
@@ -35,6 +40,43 @@ TEST(KernelCatalog, SmallIntegerSuperclassIsInteger) {
   EXPECT_EQ(b.wk.magnitudeClass, b.heap.slotAt(b.wk.characterClass, ao::kClassSlotSuperclass));
 }
 
+TEST(KernelCatalog, FormatBitsForIndexableClasses) {
+  Boot b;
+  auto arrayFmt = formatOf(b, b.wk.arrayClass);
+  EXPECT_TRUE(ao::Format::isIndexable(arrayFmt));
+  EXPECT_FALSE(ao::Format::isBytes(arrayFmt));
+  EXPECT_TRUE(ao::Format::isPointers(arrayFmt));
+
+  const ao::Oop byteClasses[] = {
+      b.wk.byteArrayClass,           b.wk.stringClass, b.wk.symbolClass,
+      b.wk.largePositiveIntegerClass, b.wk.largeNegativeIntegerClass, b.wk.floatClass};
+  for (ao::Oop cls : byteClasses) {
+    auto fmt = formatOf(b, cls);
+    EXPECT_TRUE(ao::Format::isIndexable(fmt));
+    EXPECT_TRUE(ao::Format::isBytes(fmt));
+    EXPECT_FALSE(ao::Format::isPointers(fmt));
+  }
+}
+
+TEST(KernelCatalog, SymbolDateTimeSuperclasses) {
+  Boot b;
+  EXPECT_EQ(b.wk.stringClass, b.heap.slotAt(b.wk.symbolClass, ao::kClassSlotSuperclass));
+  EXPECT_EQ(b.wk.magnitudeClass, b.heap.slotAt(b.wk.dateClass, ao::kClassSlotSuperclass));
+  EXPECT_EQ(b.wk.magnitudeClass, b.heap.slotAt(b.wk.timeClass, ao::kClassSlotSuperclass));
+}
+
+TEST(KernelCatalog, ProcessorIsProcessorSchedulerInstance) {
+  Boot b;
+  ASSERT_TRUE(b.wk.processor.isHeap());
+  EXPECT_EQ(b.wk.processorSchedulerClass, b.heap.klass(b.wk.processor));
+}
+
+TEST(KernelCatalog, CallContextHooksDefaultNull) {
+  Boot b;
+  EXPECT_EQ(nullptr, b.ctx.inspectHook);
+  EXPECT_EQ(nullptr, b.ctx.transcriptHook);
+}
+
 TEST(BlockContext, ValueAppliesNativeThunk) {
   Boot b;
   auto fn = [](ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
@@ -46,4 +88,52 @@ TEST(BlockContext, ValueAppliesNativeThunk) {
   auto r = send0(b, blk, "value");
   ASSERT_TRUE(r.isSmallInteger());
   EXPECT_EQ(4, r.smallIntegerValue());
+}
+
+TEST(BlockContext, ValueColonAppliesNativeThunk) {
+  Boot b;
+  auto fn = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t argc) {
+    if (argc != 1 || !args[0].isSmallInteger()) {
+      return ao::Oop{};
+    }
+    return ao::Oop::fromSmallInteger(args[0].smallIntegerValue() + 1);
+  };
+  auto blk = ao::makeNativeBlock(b.ctx, fn, 1);
+  auto r = send1(b, blk, "value:", ao::Oop::fromSmallInteger(3));
+  ASSERT_TRUE(r.isSmallInteger());
+  EXPECT_EQ(4, r.smallIntegerValue());
+}
+
+TEST(BlockContext, ValueValueAppliesNativeThunk) {
+  Boot b;
+  auto fn = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t argc) {
+    if (argc != 2 || !args[0].isSmallInteger() || !args[1].isSmallInteger()) {
+      return ao::Oop{};
+    }
+    return ao::Oop::fromSmallInteger(args[0].smallIntegerValue() + args[1].smallIntegerValue());
+  };
+  auto blk = ao::makeNativeBlock(b.ctx, fn, 2);
+  ao::Oop args[2] = {ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(3)};
+  auto sel = ao::Symbol::intern(b.wk, "value:value:");
+  auto r = ao::send(b.ctx, blk, sel, args, 2, nullptr);
+  ASSERT_TRUE(r.isSmallInteger());
+  EXPECT_EQ(4, r.smallIntegerValue());
+}
+
+TEST(BlockContext, ValueWithArgumentsAppliesNativeThunk) {
+  Boot b;
+  auto fn = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t argc) {
+    if (argc != 2 || !args[0].isSmallInteger() || !args[1].isSmallInteger()) {
+      return ao::Oop{};
+    }
+    return ao::Oop::fromSmallInteger(args[0].smallIntegerValue() * args[1].smallIntegerValue());
+  };
+  auto blk = ao::makeNativeBlock(b.ctx, fn, 2);
+  auto arr = b.heap.allocate(b.wk.arrayClass, 2, 0);
+  ASSERT_TRUE(arr.isHeap());
+  b.heap.slotAtPut(arr, 0, ao::Oop::fromSmallInteger(2));
+  b.heap.slotAtPut(arr, 1, ao::Oop::fromSmallInteger(3));
+  auto r = send1(b, blk, "valueWithArguments:", arr);
+  ASSERT_TRUE(r.isSmallInteger());
+  EXPECT_EQ(6, r.smallIntegerValue());
 }
