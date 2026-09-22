@@ -26,6 +26,7 @@ add_library(ao_runtime
   src/TestRunner.cpp
   src/Compile.cpp
   src/VendorExtract.cpp
+  src/ImageFormat.cpp
   src/Lookup.cpp
   src/Send.cpp
   src/kernel/Install.cpp
@@ -88,6 +89,7 @@ add_executable(ao_runtime_tests
   tests/vendor_extract_test.cpp
   tests/vendor_overwrite_test.cpp
   tests/vendor_filein_test.cpp
+  tests/image_format_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
 target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")

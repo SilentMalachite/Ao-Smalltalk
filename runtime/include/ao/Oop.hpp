@@ -48,6 +48,13 @@ class Oop {
   bool operator==(Oop other) const { return raw_ == other.raw_; }
   bool operator!=(Oop other) const { return raw_ != other.raw_; }
 
+  std::uint64_t bits() const { return raw_; }
+  static Oop fromBits(std::uint64_t raw) {
+    Oop o;
+    o.raw_ = raw;
+    return o;
+  }
+
  private:
   static Oop immediate(std::uint64_t kind) {
     Oop o;
