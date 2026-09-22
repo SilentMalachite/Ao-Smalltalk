@@ -3,8 +3,10 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Compile.hpp"
 #include "ao/Heap.hpp"
+#include "ao/Image.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Roots.hpp"
+#include "ao/Send.hpp"
 #include "ao/TestRunner.hpp"
 #include "ao/Vendor.hpp"
 #include "ao/WellKnown.hpp"
@@ -181,13 +183,87 @@ int bootAndRunTests(const std::string& dir) {
   return ao::runSmalltalkTests(ctx, dir);
 }
 
+int imageUsage() {
+  std::fputs("ao: usage: ao image save <path>\n"
+             "       ao image save --load-order <LOAD_ORDER> <path>\n"
+             "       ao image load <path>\n",
+             stderr);
+  return 2;
+}
+
+int runImage(int argc, char** argv) {
+  if (argc < 3) {
+    return imageUsage();
+  }
+  const bool isSave = std::strcmp(argv[2], "save") == 0;
+  const bool isLoad = std::strcmp(argv[2], "load") == 0;
+  if (!isSave && !isLoad) {
+    return imageUsage();
+  }
+
+  const char* loadOrder = nullptr;
+  const char* path = nullptr;
+  if (isLoad) {
+    if (argc != 4) {
+      return imageUsage();
+    }
+    path = argv[3];
+  } else if (argc == 6 && std::strcmp(argv[3], "--load-order") == 0) {
+    loadOrder = argv[4];
+    path = argv[5];
+  } else if (argc == 4 && std::strcmp(argv[3], "--load-order") != 0) {
+    path = argv[3];
+  } else {
+    return imageUsage();
+  }
+
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::ClassMethodCache cache;
+  cache.addRoots(roots);
+  ao::CallContext ctx{heap, roots, wk, &cache};
+
+  if (isSave) {
+    ao::Bootstrap::run(heap, roots, wk);
+    if (loadOrder != nullptr) {
+      std::vector<ao::compiler::CompileError> errors;
+      if (!ao::fileInLoadOrder(ctx, loadOrder, errors)) {
+        std::fputs("ao: image save failed\n", stderr);
+        return 1;
+      }
+    }
+    if (!ao::Image::save(heap, roots, wk, path)) {
+      std::fputs("ao: image save failed\n", stderr);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (!ao::Image::load(heap, roots, wk, path)) {
+    std::fputs("ao: image load failed\n", stderr);
+    return 1;
+  }
+  ao::Oop arg = ao::Oop::fromSmallInteger(2);
+  auto sel = wk.intern("+");
+  auto three = ao::send(ctx, ao::Oop::fromSmallInteger(1), sel, &arg, 1, nullptr);
+  auto isNil = ao::send(ctx, ao::Oop::nil(), wk.intern("isNil"), nullptr, 0, nullptr);
+  if (!three.isSmallInteger() || three.smallIntegerValue() != 3 || !isNil.isTrue()) {
+    std::fputs("ao: image load failed\n", stderr);
+    return 1;
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   if (argc >= 2 && std::strcmp(argv[1], "--help") == 0) {
     std::puts(
         "ao — Ao Smalltalk CLI\n  --help\n  --version\n  --test\n  extract-vendor <changes> <allowlist> <out-dir>\n"
-        "  filein <file.st>\n  filein --load-order <LOAD_ORDER>");
+        "  filein <file.st>\n  filein --load-order <LOAD_ORDER>\n"
+        "  image save <path>\n  image save --load-order <LOAD_ORDER> <path>\n"
+        "  image load <path>");
     return 0;
   }
   if (argc >= 2 && std::strcmp(argv[1], "--version") == 0) {
@@ -200,6 +276,9 @@ int main(int argc, char** argv) {
   }
   if (argc >= 2 && std::strcmp(argv[1], "filein") == 0) {
     return runFileIn(argc, argv);
+  }
+  if (argc >= 2 && std::strcmp(argv[1], "image") == 0) {
+    return runImage(argc, argv);
   }
   if (argc >= 2 && std::strcmp(argv[1], "--test") == 0) {
     std::string dir;
