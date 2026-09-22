@@ -34,6 +34,26 @@ bool atLineEnd(std::string_view src, std::uint32_t p) {
   return p >= src.size() || src[p] == '\n' || src[p] == '\r';
 }
 
+// Cuis ends a chunk with "! !" (bang, spaces or tabs, bang) at line end.
+// That first bang is the terminator. "!!" with no space stays a literal bang.
+bool bangSpaceBangAt(std::string_view src, std::uint32_t i, std::uint32_t& second) {
+  std::uint32_t p = i + 1;
+  if (p >= src.size() || (src[p] != ' ' && src[p] != '\t')) {
+    return false;
+  }
+  while (p < src.size() && (src[p] == ' ' || src[p] == '\t')) {
+    ++p;
+  }
+  if (p >= src.size() || src[p] != '!') {
+    return false;
+  }
+  if (!atLineEnd(src, p + 1)) {
+    return false;
+  }
+  second = p;
+  return true;
+}
+
 bool isCharacterBang(std::string_view src, std::uint32_t i) {
   std::uint32_t dollars = 0;
   while (i > 0 && src[i - 1] == '$') {
@@ -98,6 +118,11 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
           text.push_back('!');
           i += 2;
           continue;
+        }
+        std::uint32_t secondBang = 0;
+        if (bangSpaceBangAt(src, i, secondBang)) {
+          i = secondBang;
+          break;
         }
         if (atLineEnd(src, i + 1)) {
           break;

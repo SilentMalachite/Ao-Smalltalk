@@ -6,7 +6,41 @@
 #include <gtest/gtest.h>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
+
+namespace {
+
+std::string firstNonEmptyLine(std::string_view source) {
+  std::size_t i = 0;
+  while (i < source.size()) {
+    std::size_t end = i;
+    while (end < source.size() && source[end] != '\n' && source[end] != '\r') {
+      ++end;
+    }
+    std::size_t begin = i;
+    while (begin < end && (source[begin] == ' ' || source[begin] == '\t')) {
+      ++begin;
+    }
+    std::size_t trim = end;
+    while (trim > begin && (source[trim - 1] == ' ' || source[trim - 1] == '\t')) {
+      --trim;
+    }
+    if (begin < trim) {
+      return std::string(source.substr(begin, trim - begin));
+    }
+    i = end;
+    if (i < source.size() && source[i] == '\r') {
+      ++i;
+    }
+    if (i < source.size() && source[i] == '\n') {
+      ++i;
+    }
+  }
+  return {};
+}
+
+}  // namespace
 
 TEST(VendorExtract, LastDefinitionWinsAndDropsDoIt) {
   const char* src =
@@ -91,4 +125,34 @@ TEST(VendorChunks, EachExtractedFileHasOneClassDef) {
     }
     EXPECT_EQ(1, classDefs) << path.filename().string();
   }
+}
+
+TEST(VendorChunks, LinkSelectorsAreSeparateMethods) {
+  const std::string path = std::string(AO_SOURCE_DIR) + "/image/vendor/cuis/Link.st";
+  std::ifstream in(path, std::ios::binary);
+  ASSERT_TRUE(in.good());
+  std::stringstream buf;
+  buf << in.rdbuf();
+  const std::string text = buf.str();
+  EXPECT_EQ(std::string::npos, text.find("!!"));
+  std::vector<ao::compiler::CompileError> errs;
+  const std::vector<ao::compiler::ChunkAction> acts = ao::compiler::parseChunks(text, errs);
+  bool sawNextLink = false;
+  bool sawNextLinkColon = false;
+  for (const ao::compiler::ChunkAction& act : acts) {
+    if (act.kind != ao::compiler::ChunkKind::MethodsFor) {
+      continue;
+    }
+    for (const ao::compiler::ChunkMethod& method : act.methods) {
+      const std::string line = firstNonEmptyLine(method.source);
+      if (line == "nextLink") {
+        sawNextLink = true;
+        EXPECT_EQ(std::string::npos, method.source.find("nextLink:"));
+      } else if (line.compare(0, 9, "nextLink:") == 0) {
+        sawNextLinkColon = true;
+      }
+    }
+  }
+  EXPECT_TRUE(sawNextLink);
+  EXPECT_TRUE(sawNextLinkColon);
 }

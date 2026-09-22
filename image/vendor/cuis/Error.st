@@ -7,8 +7,8 @@
 isResumable
 	"Determine whether an exception is resumable."
 
-	^ false!!
+	^ false!
 !Error methodsFor: 'exceptionDescription'!
 defaultAction
 
-	self noHandler!!
+	self noHandler!

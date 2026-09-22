@@ -8,50 +8,46 @@
 
 	^self class classDefinesDuration
 		ifTrue: [ self class including: start + aDuration ]
-		ifFalse: [ self class starting: start + aDuration duration: duration ]!!
+		ifFalse: [ self class starting: start + aDuration duration: duration ]!
 - aDurationOrTimespan
 
-	^ aDurationOrTimespan subtractFrom: self!!
+	^ aDurationOrTimespan subtractFrom: self!
 = comparand
  	self == comparand ifTrue: [ ^ true ].
 	^ self class == comparand class 
 		and: [ self start = comparand start ]
 		and: [ self duration = comparand duration ]
-.!!
+.!
 hash
 
-	^ start hash bitXor: duration hash
-!!
+	^ start hash bitXor: duration hash!
 !Timespan methodsFor: 'squeak protocol'!
 duration
 	"Answer the Duration of this timespan"
 
-	^ duration
-!!
+	^ duration!
 end
 
 	^ self duration totalNanoSeconds = 0
 		ifTrue: [ self start ]
-		ifFalse: [ self next start - DateAndTime clockPrecision ]!!
+		ifFalse: [ self next start - DateAndTime clockPrecision ]!
 includes: operand
 	"Operand might be a Timespan or a DateAndtime"
 
 	^ (operand is: #Timespan)
 			ifTrue: [ (self includes: operand start)
 						and: [ self includes: operand end ] ]
-			ifFalse: [ operand between: start and: self end ]!!
+			ifFalse: [ operand between: start and: self end ]!
 includesAllOf: aCollection 
 	"Answer whether all the elements of aCollection are in the receiver."
 
 	aCollection do: [:elem | (self includes: elem) ifFalse: [^ false]].
-	^ true
-!!
+	^ true!
 includesAnyOf: aCollection 
 	"Answer whether any element of aCollection is included in the receiver"
 
 	aCollection do: [ :elem | (self includes: elem) ifTrue: [^ true]].
-	^false
-!!
+	^false!
 intersection: aTimespan
 	 "Return the Timespan both have in common, or nil"
 	"Warning: There's something possibly wrong here. See 
@@ -70,7 +66,7 @@ intersection: aTimespan
 	 anEnd := self end min: aTimespan end.
 	 anEnd < aBegin ifTrue: [^nil].
 
-	 ^ Timespan starting: aBegin ending: anEnd!!
+	 ^ Timespan starting: aBegin ending: anEnd!
 printOn: aStream
 
 
@@ -80,23 +76,21 @@ printOn: aStream
 		print: start;
 		nextPut: $D;
 		print: duration;
-		nextPut: $).
-!!
+		nextPut: $).!
 start
 	"Answer the start DateAndTime of this timespan"
 
-	^ start
-!!
+	^ start!
 start: aDateAndTime
 	"Store the start DateAndTime of this timespan"
 
 	self assert: (aDateAndTime is: #dateAndTime).
-	start := aDateAndTime!!
+	start := aDateAndTime!
 to: anEnd
 	"Answer an Timespan. anEnd must be aDateAndTime"
 
 	self assert: (anEnd is: #dateAndTime).
-	^ Timespan starting: self start ending: anEnd!!
+	^ Timespan starting: self start ending: anEnd!
 union: aTimespan
 	 "Return the Timespan spanned by both"
 	"
@@ -115,7 +109,7 @@ union: aTimespan
 
 	aBegin := self start min: aTimespan start.
 	anEnd := self end max: aTimespan end.
-	^ Timespan starting: aBegin ending: anEnd + DateAndTime clockPrecision!!
+	^ Timespan starting: aBegin ending: anEnd + DateAndTime clockPrecision!
 !Timespan methodsFor: 'enumerating'!
 every: aDuration do: aBlock
 
@@ -125,18 +119,15 @@ every: aDuration do: aBlock
 	[ element <= end ] whileTrue:
 	
 	[ aBlock value: element.
-		element := element + aDuration. ]
-!!
+		element := element + aDuration. ]!
 workDatesDo: aBlock
 	"Exclude Saturday and Sunday"
 
-	self do: aBlock with: start date when: [ :d | d dayOfWeek < 6 ].
-!!
+	self do: aBlock with: start date when: [ :d | d dayOfWeek < 6 ].!
 !Timespan methodsFor: 'private'!
 do: aBlock with: aFirstElement
 
-	self do: aBlock with: aFirstElement when: [ :t | true ].
-!!
+	self do: aBlock with: aFirstElement when: [ :t | true ].!
 do: aBlock with: aFirstElement when: aConditionBlock
 
 	| element end |
@@ -146,20 +137,19 @@ do: aBlock with: aFirstElement when: aConditionBlock
 	
 	[(aConditionBlock value: element)
 			ifTrue: [ aBlock value: element ].
-		element := element next. ]!!
+		element := element next. ]!
 duration: aDuration
 	"Set the Duration of this timespan"
 
-	duration := aDuration
-!!
+	duration := aDuration!
 subtractDuration: aDuration
 
 	^self class classDefinesDuration
 		ifTrue: [ self class including: start - aDuration ]
-		ifFalse: [ self class starting: start - aDuration duration: duration ]!!
+		ifFalse: [ self class starting: start - aDuration duration: duration ]!
 subtractMonth: aYear
 
-	^ self subtractTimespan: aYear!!
+	^ self subtractTimespan: aYear!
 subtractTimespan: aTimespan
 	"
 	(Month month: 'March' year: 2017) - (Month month: 'January' year: 2017)
@@ -174,16 +164,16 @@ subtractTimespan: aTimespan
 	aTimespan duration = self duration ifFalse: [
 		self error: 'Can not subtract Timespans of different duration' ].
 	
-	^self start subtractDateAndtime: aTimespan start!!
+	^self start subtractDateAndtime: aTimespan start!
 subtractYear: aYear
 
-	^ self subtractTimespan: aYear!!
+	^ self subtractTimespan: aYear!
 !Timespan methodsFor: 'smalltalk-80'!
 next
 
 	^self class classDefinesDuration
 		ifTrue: [ self class including: start + duration ]
-		ifFalse: [ self class starting: start + duration duration: duration ]!!
+		ifFalse: [ self class starting: start + duration duration: duration ]!
 previous
 	"
 	(Month month: 10 year: 2017) previous
@@ -191,17 +181,17 @@ previous
 	"
 	^self class classDefinesDuration
 		ifTrue: [ self class including: self end - duration ]
-		ifFalse: [ self class starting: start - duration duration: duration ]!!
+		ifFalse: [ self class starting: start - duration duration: duration ]!
 !Timespan methodsFor: 'testing'!
 is: aSymbol
-	^aSymbol == #Timespan or: [ super is: aSymbol ]!!
+	^aSymbol == #Timespan or: [ super is: aSymbol ]!
 !Timespan methodsFor: 'double dispatching'!
 includingTimespanOf: aTimespanClass
 
-	^ aTimespanClass includingTimespan: self!!
+	^ aTimespanClass includingTimespan: self!
 subtractFrom: aTimespan
 
-	^ aTimespan subtractTimespan: self!!
+	^ aTimespan subtractTimespan: self!
 !Timespan class methodsFor: 'squeak protocol'!
 current
 	"
@@ -210,17 +200,17 @@ current
 	Month current
 	"
 
-	^ self including: DateAndTime now!!
+	^ self including: DateAndTime now!
 fromString: aString
 	"Please call with specific subclass."
 
-	^ self readFrom: aString readStream!!
+	^ self readFrom: aString readStream!
 new
 	"Answer a Timespan starting on the Squeak epoch: 1 January 1901"
 	"Perhaps you need
 		Timespan current
 	"
-	^ self shouldNotImplement!!
+	^ self shouldNotImplement!
 starting: aDateAndTime duration: aDuration
 	self classDefinesDuration ifTrue: [
 		self shouldNotImplement ].
@@ -228,30 +218,30 @@ starting: aDateAndTime duration: aDuration
 	^ self basicNew
  		start: aDateAndTime;
 		duration: aDuration;
-		yourself!!
+		yourself!
 !Timespan class methodsFor: 'inquiries'!
 classDefinesDuration
 	"Answer yes if we must have a fixed duration.
 	Examples of this are Date, Month, Week, Year"
-	^false!!
+	^false!
 mustEncompassWholeDates
 	"Answer yes if we must start and end at midnight.
 	Examples of this are Date, Month, Week, Year"
-	^false!!
+	^false!
 !Timespan class methodsFor: 'instance creation'!
 including: aDateAndTime
 
-	^ aDateAndTime includingTimespanOf: self!!
+	^ aDateAndTime includingTimespanOf: self!
 includingDateAndTime: aDateAndTime
 
-	^ self starting: aDateAndTime duration: `Duration zero`.!!
+	^ self starting: aDateAndTime duration: `Duration zero`.!
 includingTimespan: aTimespan
 
 	| ending starting |
 	starting := self includingDateAndTime: aTimespan start.
 	ending := self includingDateAndTime: aTimespan end.
 	starting = ending ifTrue: [ ^ starting ].
-	self error: aTimespan printString, ' can not be included in a ', self name!!
+	self error: aTimespan printString, ' can not be included in a ', self name!
 starting: startDateAndTime ending: endDateAndTime
 	self classDefinesDuration ifTrue: [
 		self shouldNotImplement ].
@@ -259,4 +249,4 @@ starting: startDateAndTime ending: endDateAndTime
 	self assert: (endDateAndTime is: #dateAndTime).
 	^ self 
 		starting: startDateAndTime 
-		duration: endDateAndTime - startDateAndTime!!
+		duration: endDateAndTime - startDateAndTime!

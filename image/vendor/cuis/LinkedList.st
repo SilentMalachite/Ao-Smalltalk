@@ -6,7 +6,7 @@
 !LinkedList methodsFor: 'accessing'!
 at: index
 
-	^self at: index ifAbsent: [ self errorSubscriptBounds: index ]!!
+	^self at: index ifAbsent: [ self errorSubscriptBounds: index ]!
 at: index ifAbsent: exceptionBlock
 
 	| i |
@@ -14,25 +14,25 @@ at: index ifAbsent: exceptionBlock
 	i := 0.
 	self do: [ :link |
 		(i := i + 1) = index ifTrue: [ ^ link ]].
-	^ exceptionBlock value!!
+	^ exceptionBlock value!
 first
 	"Answer the first link;  create an error if the receiver is empty."
 
 	self emptyCheck.
-	^firstLink!!
+	^firstLink!
 last
 	"Answer the last link;  create an error if the receiver is empty."
 
 	self emptyCheck.
-	^lastLink!!
+	^lastLink!
 !LinkedList methodsFor: 'testing'!
 isEmpty
-	^firstLink == nil!!
+	^firstLink == nil!
 !LinkedList methodsFor: 'adding'!
 add: aLink 
 	"Add aLink to the end of the receiver's list."
 
-	^self addLast: aLink!!
+	^self addLast: aLink!
 add: link before: otherLink
 
 	| aLink |
@@ -46,14 +46,14 @@ add: link before: otherLink
 		].
 		 aLink := aLink nextLink.
 	].
-	^ self errorNotFound: otherLink!!
+	^ self errorNotFound: otherLink!
 addFirst: aLink 
 	"Add aLink to the beginning of the receiver's list."
 
 	self isEmpty ifTrue: [lastLink := aLink].
 	aLink nextLink: firstLink.
 	firstLink := aLink.
-	^aLink!!
+	^aLink!
 addLast: aLink 
 	"Add aLink to the end of the receiver's list."
 
@@ -61,7 +61,7 @@ addLast: aLink
 		ifTrue: [firstLink := aLink]
 		ifFalse: [lastLink nextLink: aLink].
 	lastLink := aLink.
-	^aLink!!
+	^aLink!
 !LinkedList methodsFor: 'removing'!
 remove: aLink ifAbsent: aBlock  
 	"Remove aLink from the receiver. If it is not there, answer the result of
@@ -80,7 +80,7 @@ remove: aLink ifAbsent: aBlock
 				aLink == lastLink
 					ifTrue: [lastLink := tempLink]].
 	aLink nextLink: nil.
-	^aLink!!
+	^aLink!
 removeFirst
 	"Remove the first element.  If the receiver is empty, cause an error;
 	otherwise answer the removed element.  Using the sequence addFirst:/removeFirst
@@ -94,7 +94,7 @@ removeFirst
 		ifTrue: [firstLink := nil. lastLink := nil]
 		ifFalse: [firstLink := oldLink nextLink].
 	oldLink nextLink: nil.
-	^oldLink!!
+	^oldLink!
 removeLast
 	"Remove the receiver's last element.  If the receiver is empty, cause an error;
 	otherwise answer the removed element.  Using addLast:/removeLast causes the
@@ -112,14 +112,14 @@ removeLast
 				 aLink nextLink: nil.
 				 lastLink := aLink].
 	oldLink nextLink: nil.
-	^oldLink!!
+	^oldLink!
 !LinkedList methodsFor: 'enumerating'!
 do: aBlock
 	| aLink |
 	aLink := firstLink.
 	[aLink == nil] whileFalse:
 		[aBlock value: aLink.
-		 aLink := aLink nextLink]!!
+		 aLink := aLink nextLink]!
 species
 
-	^ Array!!
+	^ Array!

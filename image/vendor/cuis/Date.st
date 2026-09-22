@@ -9,16 +9,16 @@ mmddyyyy
 
 	"Date today mmddyyyy"
 
-	^ self printFormat: #(2 1 3 $/ 1 1)!!
+	^ self printFormat: #(2 1 3 $/ 1 1)!
 printFormat: formatArray 
 	"Answer a String describing the receiver using the format denoted by the 
 	argument, formatArray."
 
 	^ String streamContents: [ :strm |
-		self printOn: strm format: formatArray].!!
+		self printOn: strm format: formatArray].!
 printOn: aStream
 
-	self printOn: aStream format: #(1 2 3 $  3 1 )!!
+	self printOn: aStream format: #(1 2 3 $  3 1 )!
 printOn: aStream format: formatArray 
 	"Print a description of the receiver on aStream using the format 
 	denoted the argument, formatArray: 
@@ -71,14 +71,14 @@ printOn: aStream format: formatArray
 			i < 3 ifTrue: [
 				(formatArray at: 4) ~= 0 ifTrue: [
 					aStream nextPut:
-						((formatArray at: 4) isNumber ifTrue: [ Character codePoint: (formatArray at: 4) ] ifFalse: [ formatArray at: 4 ]) ]]].!!
+						((formatArray at: 4) isNumber ifTrue: [ Character codePoint: (formatArray at: 4) ] ifFalse: [ formatArray at: 4 ]) ]]].!
 storeOn: aStream
 
-	aStream print: self printString; nextPutAll: ' asDate'!!
+	aStream print: self printString; nextPutAll: ' asDate'!
 yyyymmdd
 	"Format the date in ISO 8601 standard like '2002-10-22'."
 
-	^ self printFormat: #(3 2 1 $- 1 1 2)!!
+	^ self printFormat: #(3 2 1 $- 1 1 2)!
 !Date methodsFor: 'smalltalk-80'!
 previous: dayName 
 	"Answer the previous date whose weekday name is dayName."
@@ -86,162 +86,158 @@ previous: dayName
 	| n |
 	n := 7 + self weekdayIndex - (self class dayOfWeek: dayName) \\ 7.
 	n = 0 ifTrue: [ n := 7 ].
-	^ self - n days!!
+	^ self - n days!
 weekday
 	"Answer the name of the day of the week on which the receiver falls."
 
-	^ self dayOfWeekName!!
+	^ self dayOfWeekName!
 weekdayIndex
 	"Sunday=1, ... , Saturday=7
 	Monday=1, ... , Sunday=7
 	'12 May 2017 ' asDate weekdayIndex = 5
 	"
 
-	^ self dayOfWeek!!
+	^ self dayOfWeek!
 !Date methodsFor: 'squeak protocol'!
 < aDate
 
 	self assert: aDate class == Date.
-	^ self start < aDate start!!
+	^ self start < aDate start!
 > aDate
 
 	self assert: aDate class == Date.
-	^ self start > aDate start!!
+	^ self start > aDate start!
 dayMonthYearDo: aBlock 
 	"Supply integers for day, month and year to aBlock and return the result"
 
-	^ start dayMonthYearDo: aBlock!!
+	^ start dayMonthYearDo: aBlock!
 !Date methodsFor: 'public protocol'!
 dayOfMonth
 	"Answer the day of the month represented by the receiver."
 
-	^ start dayOfMonth!!
+	^ start dayOfMonth!
 dayOfWeek
 	"Answer the day of the week represented by the receiver."
 
-	^ start dayOfWeek!!
+	^ start dayOfWeek!
 dayOfWeekName
 	"Answer the day of the week represented by the receiver."
 
-	^ start dayOfWeekName!!
+	^ start dayOfWeekName!
 dayOfYear
 	"Answer the day of the year represented by the receiver."
 
-	^ start dayOfYear!!
+	^ start dayOfYear!
 daysInMonth
 
 
-	^ start daysInMonth!!
+	^ start daysInMonth!
 daysInYear
 	"Answer the number of days in the month represented by the receiver."
 
-	^ start daysInYear!!
+	^ start daysInYear!
 daysLeftInYear
-	^ start daysLeftInYear!!
+	^ start daysLeftInYear!
 firstDayOfMonth
 
-	^ start firstDayOfMonth!!
+	^ start firstDayOfMonth!
 isLeapYear
 
-	^ start isLeapYear!!
+	^ start isLeapYear!
 julianDayNumber
 
-	^ start julianDayNumber!!
+	^ start julianDayNumber!
 month
 
-	^start month!!
+	^start month!
 monthAbbreviation
 
-	^ start monthAbbreviation!!
+	^ start monthAbbreviation!
 monthIndex
 
-	^ start monthIndex!!
+	^ start monthIndex!
 monthName
 
-	^ start monthName!!
+	^ start monthName!
 secondsSinceSqueakEpoch
 	"Answer the seconds since the Squeak epoch: 1 January 1901"
 
-	^ start secondsSinceSqueakEpoch!!
+	^ start secondsSinceSqueakEpoch!
 week
 
-	^start week!!
+	^start week!
 year
 
-	^start year!!
+	^start year!
 yearNumber
 
-	^ start yearNumber!!
+	^ start yearNumber!
 !Date class methodsFor: 'smalltalk-80'!
 dayOfWeek: dayName 
 
-	^ Week indexOfDay: dayName!!
+	^ Week indexOfDay: dayName!
 daysInMonth: monthName forYear: yearInteger 
 
-	^ Month daysInMonth: monthName forYear: yearInteger.
-!!
+	^ Month daysInMonth: monthName forYear: yearInteger.!
 daysInYear: yearInteger 
 
-	^ Year daysInYear: yearInteger.!!
+	^ Year daysInYear: yearInteger.!
 firstWeekdayOfMonth: month year: year
 	"Answer the weekday index of the first day in <month> in the <year>."
 
-	^ (self newDay: 1 month: month year: year) weekdayIndex
-!!
+	^ (self newDay: 1 month: month year: year) weekdayIndex!
 fromDays: dayCount 
 	"Days since 1 January 1901"
 
-	^ self julianDayNumber: dayCount + Time squeakEpoch!!
+	^ self julianDayNumber: dayCount + Time squeakEpoch!
 fromSeconds: seconds
 	"Answer an instance of me which is 'seconds' seconds after January 1, 1901."
 
-	^ self fromDays: ((Duration seconds: seconds) days)!!
+	^ self fromDays: ((Duration seconds: seconds) days)!
 indexOfMonth: aMonthName 
 
-	^ Month indexOfMonth: aMonthName.
-!!
+	^ Month indexOfMonth: aMonthName.!
 leapYear: yearInteger 
 
-	^ Year leapYear: yearInteger!!
+	^ Year leapYear: yearInteger!
 nameOfDay: dayIndex 
 
-	^ Week nameOfDay: dayIndex !!
+	^ Week nameOfDay: dayIndex!
 nameOfMonth: anIndex 
 
-	^ Month nameOfMonth: anIndex.
-!!
+	^ Month nameOfMonth: anIndex.!
 newDay: day month: month year: year 
 
-	^ self year: year month: month day: day!!
+	^ self year: year month: month day: day!
 newDay: dayCount year: yearInteger
 
-	^ self year: yearInteger day: dayCount!!
+	^ self year: yearInteger day: dayCount!
 today
 	"In local time, the date in the current time zone.
 	This is, the date 'here'."
 
-	^ DateAndTime now date!!
+	^ DateAndTime now date!
 !Date class methodsFor: 'squeak protocol'!
 julianDayNumber: aJulianDayNumber
 
-	^ (DateAndTime julianDayNumber: aJulianDayNumber) date!!
+	^ (DateAndTime julianDayNumber: aJulianDayNumber) date!
 tomorrow
 
-	^ self today next!!
+	^ self today next!
 year: year day: dayOfYear
 
-	^ (DateAndTime year: year day: dayOfYear) date!!
+	^ (DateAndTime year: year day: dayOfYear) date!
 year: year month: month day: day
 
-	^ (DateAndTime year: year month: month day: day) date!!
+	^ (DateAndTime year: year month: month day: day) date!
 yesterday
 
-	^ self today previous!!
+	^ self today previous!
 !Date class methodsFor: 'general inquiries'!
 dateAndTimeNow
 	"Answer an array with first element Date today and second element Time now."
 
-	^Time dateAndTimeNow!!
+	^Time dateAndTimeNow!
 easterDateFor: year
 
  "  compute the easter date.
@@ -268,7 +264,7 @@ easterDateFor: year
   day := og + oe.
   ^day <= 31
     ifTrue: [Date newDay: day month: 3 year: year ]
-    ifFalse: [Date newDay: day - 31 month: 4 year: year].!!
+    ifFalse: [Date newDay: day - 31 month: 4 year: year].!
 orthodoxEasterDateFor: year
 
  "  compute the easter date according to the rules of the orthodox calendar.
@@ -286,21 +282,21 @@ orthodoxEasterDateFor: year
     r5 := rb \\ 7.
     rc := r4 + r5.
     date := Date newDay: 3 month: 4 year: year.
-    ^date + rc days!!
+    ^date + rc days!
 !Date class methodsFor: 'inquiries'!
 classDefinesDuration
 
-	^true!!
+	^true!
 mustEncompassWholeDates
 
-	^true!!
+	^true!
 !Date class methodsFor: 'instance creation'!
 includingDateAndTime: aDateAndTime
 
 	^self basicNew
  		start: aDateAndTime midnight;
 		duration: (Duration days: 1);
-		yourself!!
+		yourself!
 readFrom: aStream
 	"Read a Date from the stream in any of the forms:
 		<year>-<month>-<day>			(1982-04-15) (ISO8601)
@@ -309,7 +305,7 @@ readFrom: aStream
 		<year> <monthName> <day>		(1982 April 15)
 		<day> <monthName> <year>		(15 April 1982) (Only if third argument has 3 or more characters)"
 
-	^self readFrom: aStream allow90sStyleStamps: false!!
+	^self readFrom: aStream allow90sStyleStamps: false!
 readWithNamedMonthFrom: aStream firstNumber: firstAsNumberOrNil
 	"See sender. Handle these forms:
 		<monthName> <day> <year>		(April 15, 1982)
@@ -352,7 +348,7 @@ readWithNamedMonthFrom: aStream firstNumber: firstAsNumberOrNil
 							year := firstAsNumberOrNil.
 							day := third ]]].
 
-	^ self year: year month: month day: day!!
+	^ self year: year month: month day: day!
 readFrom: aStream allow90sStyleStamps: aBoolean
 	"Read a Date from the stream in any of the forms:
 		<year>-<month>-<day>			(1982-04-15) (ISO8601)
@@ -400,7 +396,7 @@ readFrom: aStream allow90sStyleStamps: aBoolean
 		^self year: 1900 + third month: (Month nameOfMonth: firstAsNumber) day: second ].
 
 	"YY-MM-DD, YYYY-MM-DD, etc.  (ISO8601)"
-	^self year: firstAsNumber month: (Month nameOfMonth: second) day: third!!
+	^self year: firstAsNumber month: (Month nameOfMonth: second) day: third!
 readWithNamedMonthFrom: aStream firstNumber: firstAsNumberOrNil allow90sStyleStamps: aBoolean
 	"See sender. Handle these forms:
 		<monthName> <day> <year>		(April 15, 1982)
@@ -445,4 +441,4 @@ readWithNamedMonthFrom: aStream firstNumber: firstAsNumberOrNil allow90sStyleSta
 							year := firstAsNumberOrNil.
 							day := third ]]].
 
-	^ self year: year month: month day: day!!
+	^ self year: year month: month day: day!

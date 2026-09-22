@@ -7,45 +7,43 @@
 at: index
 	"Return the element at the given position within the receiver"
 	(index < 1 or:[index > tally]) ifTrue:[^self errorSubscriptBounds: index].
-	^array at: index!!
+	^array at: index!
 at: index put: newObject
 	"Heaps are accessed with #add: not #at:put:"
-	^self shouldNotImplement!!
+	^self shouldNotImplement!
 first
 	"Return the first element in the receiver"
-	^array at: 1!!
+	^array at: 1!
 fullySort
 	"Fully sort the heap.
 	This method preserves the heap invariants and can thus be sent safely"
 	self privateReverseSort.
-	1 to: tally // 2 do: [:i | array swap: i with: 1 + tally - i]!!
+	1 to: tally // 2 do: [:i | array swap: i with: 1 + tally - i]!
 indexUpdateBlock: aBlockOrNil
 
-	indexUpdateBlock := aBlockOrNil.
-
-!!
+	indexUpdateBlock := aBlockOrNil.!
 reSort
 	"Resort the entire heap"
 	self isEmpty ifTrue:[^self].
-	tally // 2 to: 1 by: -1 do:[:i| self downHeap: i].!!
+	tally // 2 to: 1 by: -1 do:[:i| self downHeap: i].!
 size
 	"Return the number of elements in the receiver"
-	^tally!!
+	^tally!
 sortBlock
-	^sortBlock!!
+	^sortBlock!
 sortBlock: aBlock
 	sortBlock := aBlock.
-	self reSort!!
+	self reSort!
 !Heap methodsFor: 'testing'!
 isEmpty
 	"Answer whether the receiver contains any elements."
-	^tally = 0!!
+	^tally = 0!
 sorts: element1 before: element2
 	"Return true if element1 should be sorted before element2.
 	This method defines the sort order in the receiver"
 	^ sortBlock
 		ifNil: [element1 <= element2]
-		ifNotNil: [sortBlock value: element1 value: element2]!!
+		ifNotNil: [sortBlock value: element1 value: element2]!
 !Heap methodsFor: 'adding'!
 add: anObject
 	"Include newObject as one of the receiver's elements. Answer newObject."
@@ -53,7 +51,7 @@ add: anObject
 	array at: (tally := tally + 1) put: anObject.
 	self updateObjectIndex: tally.
 	self upHeap: tally.
-	^anObject!!
+	^anObject!
 !Heap methodsFor: 'removing'!
 remove: oldObject ifAbsent: aBlock
 	"Remove oldObject as one of the receiver's elements. If several of the 
@@ -62,18 +60,18 @@ remove: oldObject ifAbsent: aBlock
 	Otherwise, answer the argument, oldObject."
 	1 to: tally do:[:i| 
 		(array at: i) = oldObject ifTrue:[^self privateRemoveAt: i]].
-	^aBlock value!!
+	^aBlock value!
 removeAll
 
 	array atAllPut: nil.
-	tally := 0!!
+	tally := 0!
 removeAt: index
 	"Remove the element at given position"
 	(index < 1 or:[index > tally]) ifTrue:[^self errorSubscriptBounds: index].
-	^self privateRemoveAt: index!!
+	^self privateRemoveAt: index!
 removeFirst
 	"Remove the first element from the receiver"
-	^self removeAt: 1!!
+	^self removeAt: 1!
 !Heap methodsFor: 'comparing'!
 = otherCollection
 
@@ -83,11 +81,11 @@ removeFirst
 	sortBlock = otherCollection sortBlock
 		ifFalse: [ ^false ].
 
-	^self hasEqualElements: otherCollection !!
+	^self hasEqualElements: otherCollection!
 !Heap methodsFor: 'enumerating'!
 do: aBlock
 	"Evaluate aBlock with each of the receiver's elements as the argument."
-	1 to: tally do:[:i| aBlock value: (array at: i)]!!
+	1 to: tally do:[:i| aBlock value: (array at: i)]!
 select: aBlock 
 	"Evaluate aBlock with each of my elements as the argument. Collect into
 	a new collection like the receiver, only those elements for which aBlock
@@ -98,23 +96,23 @@ select: aBlock
 	self do: [ :each |
 		(aBlock value: each)
 			ifTrue: [ answer add: each ]].
-	^ answer!!
+	^ answer!
 !Heap methodsFor: 'growing'!
 grow
 	"Become larger."
-	self growTo: self size + self growSize.!!
+	self growTo: self size + self growSize.!
 growSize
 	"Return the size by which the receiver should grow if there are no empty slots left."
-	^array size max: 5!!
+	^array size max: 5!
 growTo: newSize
 	"Grow to the requested size."
 	| newArray |
 	newArray := Array new: (newSize max: tally).
 	newArray replaceFrom: 1 to: array size with: array startingAt: 1.
-	array := newArray!!
+	array := newArray!
 trim
 	"Remove any empty slots in the receiver."
-	self growTo: self size.!!
+	self growTo: self size.!
 !Heap methodsFor: 'private-heap'!
 downHeap: anIndex
 	"Check the heap downwards for correctness starting at anIndex.
@@ -139,7 +137,7 @@ downHeap: anIndex
 					"and try again with j"
 					k := j]].
 	array at: k put: value.
-	self updateObjectIndex: k.!!
+	self updateObjectIndex: k.!
 downHeapSingle: anIndex
 	"This version is optimized for the case when only one element in the receiver can be at a wrong position. It avoids one comparison at each node when travelling down the heap and checks the heap upwards after the element is at a bottom position. Since the probability for being at the bottom of the heap is much larger than for being somewhere in the middle this version should be faster."
 	| value k n j |
@@ -158,7 +156,7 @@ downHeapSingle: anIndex
 		k := j].
 	array at: k put: value.
 	self updateObjectIndex: k.
-	self upHeap: k!!
+	self upHeap: k!
 upHeap: anIndex
 	"Check the heap upwards for correctness starting at anIndex.
 	 Everything below anIndex is ok."
@@ -172,10 +170,10 @@ upHeap: anIndex
 			self updateObjectIndex: k.
 			k := kDiv2].
 	array at: k put: value.
-	self updateObjectIndex: k.!!
+	self updateObjectIndex: k.!
 !Heap methodsFor: 'private'!
 array
-	^array!!
+	^array!
 privateRemoveAt: index
 	"Remove the element at the given index and make sure the sorting order is okay"
 	| removed |
@@ -186,7 +184,7 @@ privateRemoveAt: index
 	index > tally ifFalse:[
 		"Use #downHeapSingle: since only one element has been removed"
 		self downHeapSingle: index].
-	^removed!!
+	^removed!
 privateReverseSort
 	"Arrange to have the array sorted in reverse order.
 	WARNING: this method breaks the heap invariants. It's up to the sender to restore them afterwards."
@@ -196,40 +194,40 @@ privateReverseSort
 		[array swap: 1 with: tally.
 		tally := tally - 1.
 		self downHeapSingle: 1].
-	tally := oldTally!!
+	tally := oldTally!
 setCollection: aCollection
 	array := aCollection.
-	tally := 0.!!
+	tally := 0.!
 setCollection: aCollection tally: newTally
 	array := aCollection.
-	tally := newTally.!!
+	tally := newTally.!
 updateObjectIndex: index
 	"If indexUpdateBlock is not nil, notify the object at index of its new position in the heap array."
 	indexUpdateBlock ifNotNil: [
-		indexUpdateBlock value: (array at: index) value: index]!!
+		indexUpdateBlock value: (array at: index) value: index]!
 !Heap methodsFor: 'copying'!
 postCopy
 
 	array := array copy.
-	tally := tally copy!!
+	tally := tally copy!
 !Heap class methodsFor: 'instance creation'!
 new
-	^self basicNew setCollection: (Array new: 10)!!
+	^self basicNew setCollection: (Array new: 10)!
 newFrom: aCollection
 	"Create a new heap with all the elements from aCollection"
 	^(self basicNew)
 		setCollection: aCollection asArray copy tally: aCollection size;
 		reSort;
-		yourself!!
+		yourself!
 sortBlock: aBlock
 	"Create a new heap sorted by the given block"
-	^self new sortBlock: aBlock!!
+	^self new sortBlock: aBlock!
 withAll: aCollection sortBlock: sortBlock
 	"Create a new heap with all the elements from aCollection"
 	^(self basicNew)
 		setCollection: aCollection asArray copy tally: aCollection size;
 		sortBlock: sortBlock;
-		yourself!!
+		yourself!
 !Heap class methodsFor: 'examples'!
 heapExample	"Heap heapExample"
 	"Create a sorted collection of numbers, remove the elements
@@ -254,8 +252,7 @@ heapExample	"Heap heapExample"
 			sorted removeFirst.
 			sorted add: rnd next].
 	].
-	Transcript newLine; show:'Time for SortedCollection: ', time printString,' msecs'.
-!!
+	Transcript newLine; show:'Time for SortedCollection: ', time printString,' msecs'.!
 heapSortExample	"Heap heapSortExample"
 	"Sort a random collection of Floats and compare the results with
 	SortedCollection (using the quick-sort algorithm) and 
@@ -279,5 +276,4 @@ heapSortExample	"Heap heapSortExample"
 	time := Time millisecondsToRun:[
 		array mergeSortFrom: 1 to: array size by: [:v1 :v2| v1 <= v2].
 	].
-	Transcript newLine; show:'Time for merge-sort: ', time printString,' msecs'.
-!!
+	Transcript newLine; show:'Time for merge-sort: ', time printString,' msecs'.!

@@ -5,9 +5,9 @@
   category: 'Collections-Unordered'!
 !Bag methodsFor: 'accessing'!
 at: index 
-	self errorNotKeyed!!
+	self errorNotKeyed!
 at: index put: anObject
-	self errorNotKeyed!!
+	self errorNotKeyed!
 atRandom: aGenerator 
 	"Answer a random element of the receiver.  Uses aGenerator which 
 	should be kept by the user in a variable and used every time. Use 
@@ -23,7 +23,7 @@ atRandom: aGenerator
 	self emptyCheck.
 	n := self size atRandom: aGenerator.
 	self withOccurrencesDo: [:each :times| (n := n - times) <= 0 ifTrue: [^ each]].
-	self error: 'collection invariants broken'!!
+	self error: 'collection invariants broken'!
 cumulativeCounts
 	"Answer with a collection of cumulative percents covered by elements so far."
 	| s n |
@@ -31,10 +31,10 @@ cumulativeCounts
 	n := 0.
 	^ self sortedCounts asArray collect: [ :a |
 		n := n + a key.
-		(n / s roundTo: 0.1) -> a value]!!
+		(n / s roundTo: 0.1) -> a value]!
 size
 
-	^contents inject: 0 into: [ :prevValue :each | prevValue + each ]!!
+	^contents inject: 0 into: [ :prevValue :each | prevValue + each ]!
 sortedCounts
 	"Answer with a collection of counts with elements, sorted by decreasing count."
 	| counts |
@@ -42,33 +42,33 @@ sortedCounts
 	contents associationsDo:
 		[:assn |
 		counts add: (Association key: assn value value: assn key)].
-	^ counts!!
+	^ counts!
 sortedElements
 	"Answer with a collection of elements with counts, sorted by element."
 	| elements |
 	elements := SortedCollection new.
 	contents associationsDo: [:assn | elements add: assn].
-	^ elements!!
+	^ elements!
 !Bag methodsFor: 'adding'!
 add: newObject 
-	^self add: newObject withOccurrences: 1!!
+	^self add: newObject withOccurrences: 1!
 add: newObject withOccurrences: anInteger 
 	"Add the element newObject to the receiver. Do so as though the element  
 	were added anInteger number of times. Answer newObject."
 	contents at: newObject put: (contents at: newObject ifAbsent: [0])
 			+ anInteger.
-	^ newObject!!
+	^ newObject!
 addAll: aCollection
 	"Refer to the comment in Collection|addAll:."
 
 	(aCollection is: #Bag) ifFalse: [^ super addAll: aCollection].
 	aCollection contents associationsDo: [ :each |
 		self add: each key withOccurrences: each value].
-	^ aCollection!!
+	^ aCollection!
 !Bag methodsFor: 'copying'!
 postCopy
 
-	contents := contents copy!!
+	contents := contents copy!
 !Bag methodsFor: 'enumerating'!
 allSatisfy: aBlock
 	"Evaluate aBlock with the elements of the receiver.
@@ -76,37 +76,37 @@ allSatisfy: aBlock
 	Otherwise return true."
 
 	contents keysDo: [:each | (aBlock value: each) ifFalse: [^ false]].
-	^ true!!
+	^ true!
 anySatisfy: aBlock
 	"Evaluate aBlock with the elements of the receiver.
 	If aBlock returns true for any element return true.
 	Otherwise return false"
 
 	contents keysDo: [:each| (aBlock value: each) ifTrue: [^ true]].
-	^ false!!
+	^ false!
 asSet
 	"Answer a set with the elements of the receiver"
 
-	 ^contents keys asSet!!
+	 ^contents keys asSet!
 collect: aBlock 
 	"Evaluate aBlock with each of the receiver's elements as the argument. Collect the resulting values into a collection that is like the receiver and nswer the new collection."
 	| answer |
 	answer := self species new.
 	self withOccurrencesDo: [:each :times| answer add: (aBlock value: each) withOccurrences: times].
-	^ answer!!
+	^ answer!
 count: aBlock
 	"Evaluate aBlock with each of the receiver's elements as the argument.  Return the number that answered true."
 	| count |
 	count := 0.
 	self withOccurrencesDo: [:each :times| (aBlock value: each) ifTrue: [count := count + times]].
-	^ count!!
+	^ count!
 detect: aBlock ifNone: exceptionBlock 
 	"Refer to the comment in Collection|detect:ifNone:."
 
 	contents keysDo: [:each | (aBlock value: each) ifTrue: [^ each]].
-	^ exceptionBlock value!!
+	^ exceptionBlock value!
 do: aBlock 
-	contents associationsDo: [:assoc | assoc value timesRepeat: [aBlock value: assoc key]]!!
+	contents associationsDo: [:assoc | assoc value timesRepeat: [aBlock value: assoc key]]!
 select: aBlock 
 	"Refer to the comment in Collection|select:."
 
@@ -115,15 +115,14 @@ select: aBlock
 	contents associationsDo: [:each |
 		(aBlock value: each key)
 			ifTrue: [newCollection add: each key withOccurrences: each value]].
-	^ newCollection!!
+	^ newCollection!
 withOccurrencesDo: aBlock
-	contents associationsDo: [:each| aBlock value: each key value: each value]!!
+	contents associationsDo: [:each| aBlock value: each key value: each value]!
 !Bag methodsFor: 'private'!
 contents
-	^contents
-!!
+	^contents!
 setContents: aDictionary
-	contents := aDictionary!!
+	contents := aDictionary!
 !Bag methodsFor: 'removing'!
 remove: oldObject ifAbsent: exceptionBlock 
 	"Refer to the comment in Collection|remove:ifAbsent:."
@@ -133,16 +132,16 @@ remove: oldObject ifAbsent: exceptionBlock
 	count = 1
 		ifTrue: [contents removeKey: oldObject]
 		ifFalse: [contents at: oldObject put: count - 1].
-	^ oldObject!!
+	^ oldObject!
 !Bag methodsFor: 'testing'!
 includes: anObject 
-	^contents includesKey: anObject!!
+	^contents includesKey: anObject!
 is: aSymbol
-	^ aSymbol == #Bag or: [ super is: aSymbol ]!!
+	^ aSymbol == #Bag or: [ super is: aSymbol ]!
 occurrencesOf: anObject 
 	(self includes: anObject)
 		ifTrue: [^contents at: anObject]
-		ifFalse: [^0]!!
+		ifFalse: [^0]!
 !Bag methodsFor: 'comparing'!
 = aBag
 	"Two bags are equal if
@@ -156,20 +155,20 @@ occurrencesOf: anObject
 	contents associationsDo: [ :assoc |
 		(aBag occurrencesOf: assoc key) = assoc value
 			ifFalse: [ ^ false ]].
-	^true!!
+	^true!
 !Bag methodsFor: 'statistics'!
 max: aBlock
 	"Answer the maximum of evaluating aBlock on all the elements of the receiver."
 	| answer |
 	self emptyCheck.
 	contents keysDo: [:each| answer := answer isNil ifTrue: [aBlock value: each] ifFalse: [answer max: (aBlock value: each)]].
-	^ answer!!
+	^ answer!
 min: aBlock
 	"Answer the minimum of evaluating aBlock on all the elements of the receiver."
 	| answer |
 	self emptyCheck.
 	contents keysDo: [:each| answer := answer isNil ifTrue: [aBlock value: each] ifFalse: [answer min: (aBlock value: each)]].
-	^ answer!!
+	^ answer!
 product: aBlock
 	| answer |
 	self emptyCheck.
@@ -178,7 +177,7 @@ product: aBlock
 		answer := answer isNil
 			ifTrue: [v raisedTo: times]
 			ifFalse: [answer * (v raisedTo: times)]].
-	^ answer!!
+	^ answer!
 sum: aBlock ifEmpty: emptyBlockOrValue
 	| answer |
 	self isEmpty ifTrue: [^ emptyBlockOrValue value].
@@ -187,15 +186,15 @@ sum: aBlock ifEmpty: emptyBlockOrValue
 		answer := answer isNil
 			ifTrue: [v * times]
 			ifFalse: [v * times + answer]].
-	^ answer!!
+	^ answer!
 !Bag class methodsFor: 'instance creation'!
 contentsClass
-	^Dictionary!!
+	^Dictionary!
 new
-	^ self basicNew setContents: self contentsClass new!!
+	^ self basicNew setContents: self contentsClass new!
 newFrom: aCollection
 	"Create a new collection containing all the elements from aCollection"
 
 	^ self new
 		addAll: aCollection;
-		yourself!!
+		yourself!

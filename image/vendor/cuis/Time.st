@@ -7,62 +7,58 @@
 < aTime
 
 	^seconds < aTime privateSeconds or: [ 
-		seconds = aTime privateSeconds and: [ nanos < aTime privateNanos ]]!!
+		seconds = aTime privateSeconds and: [ nanos < aTime privateNanos ]]!
 = aTime
 
 	"Any object is equal to itself"
 	self == aTime ifTrue: [ ^ true ].
 
 	self class == aTime class ifFalse: [ ^false ].
-	^ seconds = aTime privateSeconds and: [ nanos = aTime privateNanos ]!!
+	^ seconds = aTime privateSeconds and: [ nanos = aTime privateNanos ]!
 hash
 
-	^ seconds hash bitXor: nanos hash!!
+	^ seconds hash bitXor: nanos hash!
 hour
 
-	^ self hour24
-!!
+	^ self hour24!
 hour12
 	"Answer an <integer> between 1 and 12, inclusive, representing the hour 
 	of the day in the 12-hour clock of the local time of the receiver."
-	^ self hour24 - 1 \\ 12 + 1!!
+	^ self hour24 - 1 \\ 12 + 1!
 hour24
 
 
-	^ self asDurationSinceMidnight hours
-!!
+	^ self asDurationSinceMidnight hours!
 meridianAbbreviation
 
-	^ self hour < 12 ifTrue: ['AM'] ifFalse: ['PM'].
-!!
+	^ self hour < 12 ifTrue: ['AM'] ifFalse: ['PM'].!
 minute
 
-	^ self asDurationSinceMidnight minutes!!
+	^ self asDurationSinceMidnight minutes!
 second
 
 
-	^ self asDurationSinceMidnight seconds!!
+	^ self asDurationSinceMidnight seconds!
 !Time methodsFor: 'printing'!
 hhmm24
 	"Return a string of the form 1123 (for 11:23 am), 2154 (for 9:54 pm), of exactly 4 digits"
 
 	^(String streamContents: 
 		[ :aStream | self print24: true showSeconds: false on: aStream ])
-			copyWithout: $:!!
+			copyWithout: $:!
 print24
 	"Return as 8-digit string 'hh:mm:ss', with leading zeros if needed"
 
 	^String streamContents: [ :aStream |
-		self print24: true showSeconds: true on: aStream ]!!
+		self print24: true showSeconds: true on: aStream ]!
 print24: hr24 on: aStream 
 	"Format is 'hh:mm:ss' or 'h:mm:ss am' "
 
-	self print24: hr24 showSeconds: true on: aStream 
-!!
+	self print24: hr24 showSeconds: true on: aStream!
 print24: hr24 showSeconds: showSeconds on: aStream
 	"Format is 'hh:mm:ss' or 'h:mm:ss am'  or, if showSeconds is false, 'hh:mm' or 'h:mm am'"
 
-	^self print24: hr24 showSeconds: showSeconds showSecondsFraction: false on: aStream!!
+	^self print24: hr24 showSeconds: showSeconds showSecondsFraction: false on: aStream!
 print24: hr24 showSeconds: showSeconds showSecondsFraction: showSecondsFraction on: aStream
 	"Format is 'hh:mm:ss' or 'h:mm:ss am'  or, if showSeconds is false, 'hh:mm' or 'h:mm am'"
 
@@ -92,58 +88,55 @@ print24: hr24 showSeconds: showSeconds showSecondsFraction: showSecondsFraction 
 			ifFalse: [(s + (1.0 * self nanoSecond / Time nanosInSecond)) printOn: aStream]].
 
 	hr24 ifFalse: [
-		aStream nextPutAll: (h < 12 ifTrue: [' am'] ifFalse: [' pm']) ]!!
+		aStream nextPutAll: (h < 12 ifTrue: [' am'] ifFalse: [' pm']) ]!
 print24: hr24 showSecondsFraction: showSecondsFraction on: aStream
 	"Format is 'hh:mm:ss.ssssss' or 'h:mm:ss.ssssss am'  or, if showSecondsFraction is false, 'hh:mm:ss' or 'h:mm:ss am'"
 
-	^self print24: hr24 showSeconds: true showSecondsFraction: showSecondsFraction on: aStream!!
+	^self print24: hr24 showSeconds: true showSecondsFraction: showSecondsFraction on: aStream!
 printMinutes
 	"Return as string 'hh:mm pm'  "
 
 	^String streamContents:
-		[ :aStream | self print24: false showSeconds: false on: aStream ]
-
-!!
+		[ :aStream | self print24: false showSeconds: false on: aStream ]!
 printOn: aStream
 
 	self print24: false
 		showSeconds: (seconds ~= 0
 				or: [ nanos ~= 0])
 		showSecondsFraction: nanos ~= 0
-		on: aStream!!
+		on: aStream!
 storeOn: aStream
 
-	aStream print: self printString; nextPutAll: ' asTime'!!
+	aStream print: self printString; nextPutAll: ' asTime'!
 !Time methodsFor: 'squeak protocol'!
 nanoSecond
 
 
-	^ nanos
-!!
+	^ nanos!
 !Time methodsFor: 'private'!
 privateNanos
-	^nanos!!
+	^nanos!
 privateSeconds
-	^seconds!!
+	^seconds!
 seconds: secondCount
 	"Private - only used by Time class."
 
 	seconds := secondCount.
-	nanos := 0!!
+	nanos := 0!
 seconds: secondCount nanoSeconds: nanoCount 
 	"Private - only used by Time class."
 
 	self assert: nanoCount < Time nanosInSecond.
 	seconds := secondCount.
-	nanos := nanoCount!!
+	nanos := nanoCount!
 !Time methodsFor: 'public protocol'!
 - aTime
-	^ self asDurationSinceMidnight - aTime asDurationSinceMidnight!!
+	^ self asDurationSinceMidnight - aTime asDurationSinceMidnight!
 asDurationSinceMidnight
 
 	"Answer the duration since midnight"
 
-	^ Duration seconds: seconds nanoSeconds: nanos!!
+	^ Duration seconds: seconds nanoSeconds: nanos!
 !Time class methodsFor: 'benchmarks'!
 benchmarkPrimitiveResponseDelay
 	"
@@ -215,7 +208,7 @@ Running this benchmark will not give any useful result.'].
 	"And get us some result"
 	^String streamContents: [ :strm |
 		(actualTime - baseTime) * 1000 asFloat / (nLoops * 10) printOn: strm fractionDigits: 3.
-		strm nextPutAll: ' microseconds overhead per primitive call' ]!!
+		strm nextPutAll: ' microseconds overhead per primitive call' ]!
 !Time class methodsFor: 'general inquiries'!
 highResTimerTicksPerMillisecond
 	"
@@ -232,7 +225,7 @@ highResTimerTicksPerMillisecond
 	"Retry if rollover!!"
 	^ ticksPerMSec < 0
 		ifTrue: [ self highResTimerTicksPerMillisecond ]
-		ifFalse: [ ticksPerMSec ]!!
+		ifFalse: [ ticksPerMSec ]!
 humanWordsForSecondsAgo: secs
 	| date today |
 	"Return natural language for this date and time in the past."
@@ -258,59 +251,59 @@ humanWordsForSecondsAgo: secs
 "Example
 #(0.5 30 62 130 4000 10000 60000 90000 345600 864000 1728000 3456000 17280000 34560000 345600000) 
 		collect: [:ss | Time humanWordsForSecondsAgo: ss].
-"!!
+"!
 localMicrosecondClock
 	"Answer the number of microseconds since the Smalltalk epoch, 
 	i.e. 00:00 on the morning of January 1, 1901, in the local host time zone.
 	In other words, the number of microseconds since it was that time in this time zone.
 	Answer might be a LargePositiveInteger (very likely on 32-bit images, very unlikely on 64-bit images)."
 
-	^self primLocalMicrosecondClock!!
+	^self primLocalMicrosecondClock!
 localMillisecondClock
 	"Answer the number of milliseconds since the Smalltalk epoch, 
 	i.e. 00:00 on the morning of January 1, 1901, in the local host time zone.
 	In other words, the number of microseconds since it was that time in this time zone."
 
-	^self primLocalMicrosecondClock // 1000!!
+	^self primLocalMicrosecondClock // 1000!
 localSecondClock
 	"Answer the number of seconds since the Smalltalk epoch, 
 	i.e. 00:00 on the morning of January 1, 1901, in the local host time zone.
 	In other words, the number of microseconds since it was that time in this time zone."
 
-	^self primLocalMicrosecondClock // 1000000!!
+	^self primLocalMicrosecondClock // 1000000!
 microsecondsToRun: timedBlock 
 	"Answer the number of microseconds timedBlock takes to return its value."
 
 	| initialMicroseconds |
 	initialMicroseconds := self localMicrosecondClock.
 	timedBlock value.
-	^self localMicrosecondClock - initialMicroseconds!!
+	^self localMicrosecondClock - initialMicroseconds!
 millisecondClockValue
 	"Answer the number of milliseconds since the millisecond clock was last reset or rolled over.
 	Answer 0 if the primitive fails.
 	
 	Note: Prefer #localMillisecondClock, that doesn't rollover."
 
-	^ self primMillisecondClock!!
+	^ self primMillisecondClock!
 millisecondsToRun: timedBlock 
 	"Answer the number of milliseconds timedBlock takes to return its value."
 
 	| initialMilliseconds |
 	initialMilliseconds := self localMillisecondClock.
 	timedBlock value.
-	^self localMillisecondClock - initialMilliseconds!!
+	^self localMillisecondClock - initialMilliseconds!
 !Time class methodsFor: 'smalltalk-80'!
 dateAndTimeFromSeconds: secondCount
 
 	^ {
 		Date fromSeconds: secondCount.
-		self fromSeconds: secondCount \\ self secondsInDay}!!
+		self fromSeconds: secondCount \\ self secondsInDay}!
 dateAndTimeNow
 	"Answer a two-element Array of (Date today, Time now)."
 
 	| dateAndTime |
 	dateAndTime := DateAndTime now.
-	^{ dateAndTime date . dateAndTime time }!!
+	^{ dateAndTime date . dateAndTime time }!
 fromSeconds: secondCount 
 	"Answer an instance of me that is secondCount number of seconds since midnight."
 
@@ -319,12 +312,11 @@ fromSeconds: secondCount
 	integerSeconds = secondCount
 		ifTrue: [nanos := 0]
 		ifFalse: [nanos := (secondCount - integerSeconds * self nanosInSecond) asInteger].
-	^ self seconds: integerSeconds nanoSeconds: nanos
-!!
+	^ self seconds: integerSeconds nanoSeconds: nanos!
 new
 	"Answer a Time representing midnight"
 
-	^ self midnight!!
+	^ self midnight!
 readFrom: aStream
 	"Read a Time from the stream in the form:
 		<hour>:<minute>:<second> <am/pm>
@@ -367,7 +359,7 @@ readFrom: aStream
 	Time readFrom: '2:23:09.00123402 pm' readStream
 	Time readFrom: '2:23:09.001234020 pm' readStream
 	Time readFrom: '2:23:09.000123402 pm' readStream
-	"!!
+	"!
 !Time class methodsFor: 'squeak protocol'!
 afterMidnight: aDuration
 	"Answer a Time aDuration after midnight.
@@ -376,34 +368,33 @@ afterMidnight: aDuration
 	| nanoCount secondCount |
 	secondCount := aDuration totalSeconds \\ self secondsInDay.
 	nanoCount := aDuration nanoSeconds.
-	^ self basicNew seconds: secondCount nanoSeconds: nanoCount !!
+	^ self basicNew seconds: secondCount nanoSeconds: nanoCount!
 fromString: aString
-	^ self readFrom: aString readStream!!
+	^ self readFrom: aString readStream!
 hour: hour minute: minute second: second
 	"Answer a Time"
 
-	^ self hour: hour minute: minute second: second nanoSecond: 0!!
+	^ self hour: hour minute: minute second: second nanoSecond: 0!
 hour: hour minute: minute second: second nanoSecond: nanoCount
 	"Answer a Time"
 
 	^ self 
 		seconds: (hour * self secondsInHour) + (minute * self secondsInMinute) + second 
-		nanoSeconds: nanoCount!!
+		nanoSeconds: nanoCount!
 midnight
 
-	^ self seconds: 0
-!!
+	^ self seconds: 0!
 noon
 
-	^ self seconds: self secondsInDay / 2!!
+	^ self seconds: self secondsInDay / 2!
 seconds: seconds
 	"Answer a Time from midnight."
 
-	^ self afterMidnight: (Duration seconds: seconds)!!
+	^ self afterMidnight: (Duration seconds: seconds)!
 seconds: seconds nanoSeconds: nanoCount
 	"Answer a Time from midnight."
 
-	^ self afterMidnight: (Duration seconds: seconds nanoSeconds: nanoCount)!!
+	^ self afterMidnight: (Duration seconds: seconds nanoSeconds: nanoCount)!
 !Time class methodsFor: 'ansi protocol'!
 now
 	"Answer a Time representing the time right now - this is a 24 hour clock.
@@ -412,7 +403,7 @@ now
 	| microseconds utcMicroSsecondsAndOffset |
 	utcMicroSsecondsAndOffset := Time primUtcWithOffset: (Array new: 2).
 	microseconds := (utcMicroSsecondsAndOffset first + (utcMicroSsecondsAndOffset second * 1000000)).
-	^ self seconds:  (microseconds // 1000000) nanoSeconds: (microseconds \\ 1000000) * 1000.!!
+	^ self seconds:  (microseconds // 1000000) nanoSeconds: (microseconds \\ 1000000) * 1000.!
 !Time class methodsFor: 'primitives'!
 primHighResClock	
 	"Primitive. Answer the value of the high resolution clock if this computer has one.
@@ -429,7 +420,7 @@ primHighResClock
 	"Not really a clock, but a timer or ticker"
 
 	<primitive: 'primitiveHighResClock'>
-	^0!!
+	^0!
 primLocalMicrosecondClock
 	"Answer the number of microseconds since the local time zone Smalltalk epoch, 
 	i.e. 00:00 on the morning of January 1, 1901, in local time.
@@ -440,7 +431,7 @@ primLocalMicrosecondClock
 	Time primLocalMicrosecondClock/ 1000 / 1000 / 60 / 60 / 24 / 365.25
 	"
 	<primitive: 241>
-	^nil!!
+	^nil!
 primMillisecondClock
 	"Primitive. Answer the number of milliseconds since the millisecond clock
 	was last reset or rolled over. No sync to any system clock.
@@ -458,7 +449,7 @@ primMillisecondClock
 "Not really a clock, but a timer or ticker"
 
 	<primitive: 135>
-	self primitiveFailed!!
+	self primitiveFailed!
 primUtcMicrosecondClock
 	"Answer the number of microseconds since the UTC Smalltalk epoch, 
 	i.e. 00:00 on the morning of January 1, 1901, the start of the 20th century, in UTC time.
@@ -474,7 +465,7 @@ primUtcMicrosecondClock
 	(DateAndTime now - (DateAndTime year: 1901 month: 1 day: 1)) totalSeconds / 60 / 60 / 24 / 365.25
 	"
 	<primitive: 240>
-	^nil!!
+	^nil!
 primUtcWithOffset
 	"Answer a two element array.
 	Prefer #primUtcWithOffset:
@@ -496,7 +487,7 @@ primUtcWithOffset
 	(DateAndTime now - (DateAndTime year: 1970 month: 1 day: 1)) totalSeconds / 60 / 60 / 24 / 365.25
 	"
 	<primitive: 'primitiveUtcWithOffset'>
-	^nil!!
+	^nil!
 primUtcWithOffset: arrayOrObjectWithTwoSlots
 	"The parameter may be a two element array, or an object whose first two instance
 	variables are expected to be UTC microseconds and seconds offset from GMT.
@@ -512,31 +503,31 @@ primUtcWithOffset: arrayOrObjectWithTwoSlots
 	"
 
 	<primitive: 'primitiveUtcWithOffset'>
-	^nil!!
+	^nil!
 !Time class methodsFor: 'private'!
 currentUtcOffset
 	"
 	Time currentUtcOffset
 	"
-	^ DateAndTime now offset!!
+	^ DateAndTime now offset!
 !Time class methodsFor: 'constants'!
 microsecondsInDay
-	^86400000000!!
+	^86400000000!
 millisecondsInDay
-	^86400000!!
+	^86400000!
 nanosInSecond
-	^ 1000000000!!
+	^ 1000000000!
 nanosecondsInDay
-	^86400000000000!!
+	^86400000000000!
 secondsInDay
-	^86400!!
+	^86400!
 secondsInHour
-	^3600!!
+	^3600!
 secondsInMinute
-	^60!!
+	^60!
 squeakEpoch
-	^ 2415386. 		"Julian day number of 1 Jan 1901"!!
+	^ 2415386. 		"Julian day number of 1 Jan 1901"!
 !Time class methodsFor: 'cached state access'!
 releaseClassCachedState
 
-	MillisecondClockOffset := nil!!
+	MillisecondClockOffset := nil!

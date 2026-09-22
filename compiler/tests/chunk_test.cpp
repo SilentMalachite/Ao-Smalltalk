@@ -86,6 +86,38 @@ TEST(Chunk, LineEndBangAfterBinaryStillTerminates) {
   EXPECT_NE(std::string::npos, acts[0].methods[1].source.find("other"));
 }
 
+TEST(Chunk, BangSpaceBangEndsMethodButDoubleBangStaysLiteral) {
+  const char* spaced =
+      "!Foo methodsFor: 'accessing'!\n"
+      "nextLink\n"
+      "  ^nextLink! !\n"
+      "nextLink: aLink\n"
+      "  ^nextLink := aLink! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(spaced, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(2u, acts[0].methods.size());
+  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("^nextLink"));
+  EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("nextLink:"));
+  EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("!"));
+  EXPECT_NE(std::string::npos, acts[0].methods[1].source.find("nextLink:"));
+
+  const char* glued =
+      "!Foo methodsFor: 't'!\n"
+      "bang\n"
+      "  ^1!!\n"
+      "  + 2!\n";
+  errs.clear();
+  acts = ao::compiler::parseChunks(glued, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("1!"));
+  EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("1!!"));
+  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("+ 2"));
+}
+
 TEST(Chunk, CommentStampQuoteDoesNotSwallowClassDef) {
   const char* src =
       "!Foo commentStamp: 'hist' prior: 0!\n"
