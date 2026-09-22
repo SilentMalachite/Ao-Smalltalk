@@ -1,6 +1,7 @@
 #include "ao/Runtime.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/Compile.hpp"
 #include "ao/Heap.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Roots.hpp"
@@ -130,6 +131,45 @@ int runExtractVendor(int argc, char** argv) {
   return 0;
 }
 
+int runFileIn(int argc, char** argv) {
+  if (argc < 3) {
+    std::fputs("ao: usage: ao filein <file.st>\n"
+               "       ao filein --load-order <LOAD_ORDER>\n",
+               stderr);
+    return 2;
+  }
+  const bool loadOrder = std::strcmp(argv[2], "--load-order") == 0;
+  if (loadOrder) {
+    if (argc != 4) {
+      std::fputs("ao: usage: ao filein --load-order <LOAD_ORDER>\n", stderr);
+      return 2;
+    }
+  } else if (argc != 3) {
+    std::fputs("ao: usage: ao filein <file.st>\n", stderr);
+    return 2;
+  }
+
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::ClassMethodCache cache;
+  cache.addRoots(roots);
+  ao::CallContext ctx{heap, roots, wk, &cache};
+  ao::Bootstrap::run(heap, roots, wk);
+
+  std::vector<ao::compiler::CompileError> errors;
+  const bool ok = loadOrder ? ao::fileInLoadOrder(ctx, argv[3], errors)
+                            : ao::fileInFile(ctx, argv[2], errors);
+  if (!ok) {
+    if (!errors.empty()) {
+      std::fputs(errors.front().message.c_str(), stderr);
+      std::fputc('\n', stderr);
+    }
+    return 1;
+  }
+  return 0;
+}
+
 int bootAndRunTests(const std::string& dir) {
   ao::Heap heap;
   ao::Roots roots;
@@ -146,7 +186,8 @@ int bootAndRunTests(const std::string& dir) {
 int main(int argc, char** argv) {
   if (argc >= 2 && std::strcmp(argv[1], "--help") == 0) {
     std::puts(
-        "ao — Ao Smalltalk CLI\n  --help\n  --version\n  --test\n  extract-vendor <changes> <allowlist> <out-dir>");
+        "ao — Ao Smalltalk CLI\n  --help\n  --version\n  --test\n  extract-vendor <changes> <allowlist> <out-dir>\n"
+        "  filein <file.st>\n  filein --load-order <LOAD_ORDER>");
     return 0;
   }
   if (argc >= 2 && std::strcmp(argv[1], "--version") == 0) {
@@ -156,6 +197,9 @@ int main(int argc, char** argv) {
     }
     std::puts(buf);
     return 0;
+  }
+  if (argc >= 2 && std::strcmp(argv[1], "filein") == 0) {
+    return runFileIn(argc, argv);
   }
   if (argc >= 2 && std::strcmp(argv[1], "--test") == 0) {
     std::string dir;

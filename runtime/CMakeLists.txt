@@ -56,6 +56,7 @@ target_compile_options(ao_runtime PRIVATE -Wall -Wextra -Werror)
 
 add_executable(ao src/ao_main.cpp)
 target_link_libraries(ao PRIVATE ao_runtime)
+target_include_directories(ao PRIVATE ${CMAKE_SOURCE_DIR}/compiler/include)
 target_compile_options(ao PRIVATE -Wall -Wextra -Werror)
 set_target_properties(ao PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
@@ -86,6 +87,7 @@ add_executable(ao_runtime_tests
   tests/block_test.cpp
   tests/vendor_extract_test.cpp
   tests/vendor_overwrite_test.cpp
+  tests/vendor_filein_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
 target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")

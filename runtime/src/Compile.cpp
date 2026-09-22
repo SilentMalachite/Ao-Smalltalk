@@ -14,6 +14,9 @@
 #include "ao/Vendor.hpp"
 
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -286,6 +289,65 @@ bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& act
       case compiler::ChunkKind::DoIt:
         break;
     }
+  }
+  return true;
+}
+
+bool fileInString(CallContext& ctx, std::string_view src,
+                  std::vector<compiler::CompileError>& errors) {
+  const std::vector<compiler::ChunkAction> actions = compiler::parseChunks(src, errors);
+  return applyChunks(ctx, actions, errors);
+}
+
+bool fileInFile(CallContext& ctx, const std::filesystem::path& path,
+                std::vector<compiler::CompileError>& errors) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    errors.push_back(compiler::CompileError{{}, "cannot read: " + path.string()});
+    return false;
+  }
+  std::ostringstream buf;
+  buf << in.rdbuf();
+  if (!in && !in.eof()) {
+    errors.push_back(compiler::CompileError{{}, "cannot read: " + path.string()});
+    return false;
+  }
+  const std::string src = buf.str();
+  return fileInString(ctx, src, errors);
+}
+
+bool fileInLoadOrder(CallContext& ctx, const std::filesystem::path& loadOrder,
+                     std::vector<compiler::CompileError>& errors) {
+  std::ifstream in(loadOrder);
+  if (!in) {
+    errors.push_back(compiler::CompileError{{}, "cannot read: " + loadOrder.string()});
+    return false;
+  }
+  const std::filesystem::path base = loadOrder.parent_path();
+  std::string line;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
+    std::size_t begin = 0;
+    while (begin < line.size() && (line[begin] == ' ' || line[begin] == '\t')) {
+      ++begin;
+    }
+    std::size_t end = line.size();
+    while (end > begin && (line[end - 1] == ' ' || line[end - 1] == '\t')) {
+      --end;
+    }
+    if (begin == end || line[begin] == '#') {
+      continue;
+    }
+    const std::filesystem::path path = base / line.substr(begin, end - begin);
+    if (!fileInFile(ctx, path, errors)) {
+      return false;
+    }
+  }
+  if (!in.eof()) {
+    errors.push_back(compiler::CompileError{{}, "cannot read: " + loadOrder.string()});
+    return false;
   }
   return true;
 }
