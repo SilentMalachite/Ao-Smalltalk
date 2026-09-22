@@ -65,6 +65,13 @@ static constexpr const char* kNames[kSmalltalkCount] = {
 
 static_assert(sizeof(kNames) / sizeof(kNames[0]) == kSmalltalkCount);
 
+const char* nameAt(std::uint32_t index) {
+  if (index >= kSmalltalkCount) {
+    return nullptr;
+  }
+  return kNames[index];
+}
+
 void install(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   auto dict = heap.allocate(Oop::nil(), kSmalltalkCount, 0);
   if (!dict.isHeap()) {
