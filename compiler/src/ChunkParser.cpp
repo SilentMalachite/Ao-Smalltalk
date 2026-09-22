@@ -43,10 +43,34 @@ bool isCharacterBang(std::string_view src, std::uint32_t i) {
   return dollars % 2 == 1;
 }
 
+bool isLetter(char c) {
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
+// Prose uses ASCII apostrophes in words ("don't"). Those are not strings.
+bool isProseApostrophe(std::string_view src, std::uint32_t i) {
+  if (i == 0 || i + 1 >= src.size()) {
+    return false;
+  }
+  return isLetter(src[i - 1]) && isLetter(src[i + 1]);
+}
+
+bool firstLineHas(std::string_view text, std::string_view needle) {
+  std::size_t n = 0;
+  while (n < text.size() && text[n] != '\n' && text[n] != '\r') {
+    ++n;
+  }
+  return text.substr(0, n).find(needle) != std::string_view::npos;
+}
+
+// The chunk after a `commentStamp:` header is class-comment prose. A `"` in
+// that prose must not open a code comment, or the next class definition is
+// swallowed.
 std::vector<RawChunk> splitChunks(std::string_view src) {
   std::vector<RawChunk> out;
   const auto n = static_cast<std::uint32_t>(src.size());
   std::uint32_t i = 0;
+  bool proseNext = false;
   while (i < n) {
     while (i < n && isWs(src[i])) {
       i++;
@@ -57,6 +81,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     if (src[i] == '!') {
       i++;
     }
+    const bool prose = proseNext;
     const std::uint32_t start = i;
     std::string text;
     bool inStr = false;
@@ -64,12 +89,12 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     while (i < n) {
       const char c = src[i];
       if (!inStr && !inCmt && c == '!') {
-        if (isCharacterBang(src, i)) {
+        if (!prose && isCharacterBang(src, i)) {
           text.push_back(c);
           i++;
           continue;
         }
-        if (i + 1 < n && src[i + 1] == '!') {
+        if (!prose && i + 1 < n && src[i + 1] == '!') {
           text.push_back('!');
           i += 2;
           continue;
@@ -81,13 +106,18 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         i++;
         continue;
       }
-      if (!inStr && c == '"') {
+      if (!prose && !inStr && c == '"') {
         inCmt = !inCmt;
         text.push_back(c);
         i++;
         continue;
       }
       if (!inCmt && c == '\'') {
+        if (prose && !inStr && isProseApostrophe(src, i)) {
+          text.push_back(c);
+          i++;
+          continue;
+        }
         if (inStr && i + 1 < n && src[i + 1] == '\'') {
           text.push_back('\'');
           text.push_back('\'');
@@ -109,6 +139,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     if (isBlank(text)) {
       continue;
     }
+    proseNext = firstLineHas(text, "commentStamp:");
     RawChunk raw;
     raw.text = std::move(text);
     raw.span.start = start;

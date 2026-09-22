@@ -85,3 +85,48 @@ TEST(Chunk, LineEndBangAfterBinaryStillTerminates) {
   EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("other"));
   EXPECT_NE(std::string::npos, acts[0].methods[1].source.find("other"));
 }
+
+TEST(Chunk, CommentStampQuoteDoesNotSwallowClassDef) {
+  const char* src =
+      "!Foo commentStamp: 'hist' prior: 0!\n"
+      "Prose with a \" quote.\n"
+      "End!\n"
+      "!Object subclass: #Foo\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Test'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  int classDefs = 0;
+  std::string superName;
+  for (const auto& act : acts) {
+    if (act.kind == ao::compiler::ChunkKind::ClassDef && act.className == "Foo") {
+      ++classDefs;
+      superName = act.superName;
+    }
+  }
+  EXPECT_EQ(1, classDefs);
+  EXPECT_EQ("Object", superName);
+}
+
+TEST(Chunk, CommentStampApostropheDoesNotSwallowClassDef) {
+  const char* src =
+      "!Foo commentStamp: 'hist' prior: 0!\n"
+      "They don't stop.\n"
+      "End!\n"
+      "!Object subclass: #Foo\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Test'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  int classDefs = 0;
+  for (const auto& act : acts) {
+    if (act.kind == ao::compiler::ChunkKind::ClassDef && act.className == "Foo") {
+      ++classDefs;
+    }
+  }
+  EXPECT_EQ(1, classDefs);
+}
