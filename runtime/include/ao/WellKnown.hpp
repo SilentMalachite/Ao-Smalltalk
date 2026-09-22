@@ -32,6 +32,10 @@ class WellKnown {
   bool rebind(std::string_view name, Oop cls);
   void eachClass(void (*fn)(void* baton, Oop cls), void* baton) const;
   void eachNativeRequiredClass(void (*fn)(void* baton, Oop cls), void* baton) const;
+  void eachImageSlot(void (*fn)(void*, const char* name, Oop value), void* baton) const;
+  void eachExtra(void (*fn)(void*, std::string_view name, Oop cls), void* baton) const;
+  bool bindImageSlot(std::string_view name, Oop value);
+  bool rememberSymbol(Oop sym);
 
   Oop objectClass{};
   Oop objectMetaclass{};

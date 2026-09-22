@@ -48,8 +48,11 @@ class Heap {
   bool inNursery(Oop obj) const;
   bool inOld(Oop obj) const;
   std::size_t oldUsed() const;
+  std::size_t oldCapacity() const;
   std::size_t nurseryRemaining() const;
   std::size_t nurseryCapacity() const;
+  bool adoptOldBytes(const std::byte* src, std::size_t n, std::uint16_t nextHash);
+  std::uint16_t hashCursor() const;
 
   friend class Gc;
 

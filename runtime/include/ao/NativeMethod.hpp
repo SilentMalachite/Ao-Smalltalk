@@ -55,6 +55,8 @@ using NativeFn = Oop (*)(CallContext& ctx, Oop receiver, const Oop* args, std::u
 
 namespace NativeRegistry {
 std::uint32_t add(NativeFn fn);
+bool addNamed(std::string_view name, NativeFn fn, std::uint32_t* outIndex);
+bool findName(std::string_view name, std::uint32_t* outIndex);
 std::uint32_t size();
 }
 

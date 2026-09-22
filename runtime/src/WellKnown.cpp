@@ -97,6 +97,26 @@ constexpr NamedClass kNamedClasses[] = {
     {"Time", &WellKnown::timeClass, &WellKnown::timeMetaclass},
 };
 
+struct ImageSelector {
+  const char* name;
+  Oop WellKnown::* field;
+};
+
+constexpr ImageSelector kImageSelectors[] = {
+    {"value", &WellKnown::selValue},
+    {"value:", &WellKnown::selValue_},
+    {"new", &WellKnown::selNew},
+    {"basicNew", &WellKnown::selBasicNew},
+    {"basicNew:", &WellKnown::selBasicNew_},
+    {"size", &WellKnown::selSize},
+    {"at:", &WellKnown::selAt_},
+    {"at:put:", &WellKnown::selAt_put_},
+    {"do:", &WellKnown::selDo_},
+    {"error:", &WellKnown::selError_},
+    {"class", &WellKnown::selClass},
+    {"==", &WellKnown::selIdentityEquals},
+};
+
 bool extraIsClass(const WellKnown& wk, Oop obj) {
   if (!obj.isHeap()) {
     return false;
@@ -279,6 +299,86 @@ Oop WellKnown::intern(std::string_view utf8) {
   roots_->add(&intern_->table.back());
   intern_->byBytes.emplace(std::move(key), intern_->table.size() - 1);
   return intern_->table.back();
+}
+
+void WellKnown::eachImageSlot(void (*fn)(void*, const char* name, Oop value), void* baton) const {
+  if (fn == nullptr) {
+    return;
+  }
+  for (const auto& e : kNamedClasses) {
+    fn(baton, e.name, this->*e.cls);
+    const std::string meta = std::string(e.name) + " class";
+    fn(baton, meta.c_str(), this->*e.meta);
+  }
+  fn(baton, "Smalltalk", smalltalk);
+  fn(baton, "Processor", processor);
+  fn(baton, "transcript", transcript);
+  for (const auto& sel : kImageSelectors) {
+    fn(baton, sel.name, this->*sel.field);
+  }
+}
+
+void WellKnown::eachExtra(void (*fn)(void*, std::string_view name, Oop cls), void* baton) const {
+  if (fn == nullptr || extra_ == nullptr) {
+    return;
+  }
+  for (const auto& e : extra_->table) {
+    fn(baton, e.name, e.cls);
+  }
+}
+
+bool WellKnown::bindImageSlot(std::string_view name, Oop value) {
+  for (const auto& e : kNamedClasses) {
+    if (name == e.name) {
+      this->*e.cls = value;
+      return true;
+    }
+    if (name == std::string(e.name) + " class") {
+      this->*e.meta = value;
+      return true;
+    }
+  }
+  if (name == "Smalltalk") {
+    smalltalk = value;
+    return true;
+  }
+  if (name == "Processor") {
+    processor = value;
+    return true;
+  }
+  if (name == "transcript") {
+    transcript = value;
+    return true;
+  }
+  for (const auto& sel : kImageSelectors) {
+    if (name == sel.name) {
+      this->*sel.field = value;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool WellKnown::rememberSymbol(Oop sym) {
+  if (!sym.isHeap()) {
+    return false;
+  }
+  if ((heap_->flags(sym) & kFlagBytes) == 0) {
+    return false;
+  }
+  if (heap_->klass(sym) != symbolClass) {
+    return false;
+  }
+  const auto n = heap_->size(sym);
+  std::string key(reinterpret_cast<const char*>(heap_->bytes(sym)), n);
+  const auto it = intern_->byBytes.find(key);
+  if (it != intern_->byBytes.end()) {
+    return intern_->table[it->second] == sym;
+  }
+  intern_->table.push_back(sym);
+  roots_->add(&intern_->table.back());
+  intern_->byBytes.emplace(std::move(key), intern_->table.size() - 1);
+  return true;
 }
 
 }  // namespace ao

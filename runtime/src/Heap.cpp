@@ -110,6 +110,30 @@ std::size_t Heap::oldUsed() const {
   return static_cast<std::size_t>(oldBump_ - oldStart_);
 }
 
+std::size_t Heap::oldCapacity() const {
+  return static_cast<std::size_t>(oldEnd_ - oldStart_);
+}
+
+bool Heap::adoptOldBytes(const std::byte* src, std::size_t n, std::uint16_t nextHash) {
+  if (oldUsed() != 0) {
+    return false;
+  }
+  if (n > oldCapacity()) {
+    return false;
+  }
+  if (n != 0) {
+    if (src == nullptr) {
+      return false;
+    }
+    std::memcpy(oldStart_, src, n);
+  }
+  oldBump_ = oldStart_ + n;
+  nextHash_ = nextHash == 0 ? static_cast<std::uint16_t>(1) : nextHash;
+  return true;
+}
+
+std::uint16_t Heap::hashCursor() const { return nextHash_; }
+
 std::size_t Heap::nurseryRemaining() const {
   return static_cast<std::size_t>(fromEnd_ - fromBump_);
 }

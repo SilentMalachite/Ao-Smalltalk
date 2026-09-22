@@ -15,12 +15,26 @@ void putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, st
     return;
   }
   auto sel = Symbol::intern(wk, selector);
-  auto idx = NativeRegistry::add(fn);
+  std::uint32_t idx = 0;
+  if (!NativeRegistry::addNamed(name, fn, &idx)) {
+    return;
+  }
   auto meth = NativeMethod::create(heap, wk, sel, argc, name, idx, cls);
   if (!meth.isHeap()) {
     return;
   }
   MethodDictionary::atPut(heap, dict, sel, meth);
+}
+
+void ensureNativeNames() {
+  std::uint32_t idx = 0;
+  if (NativeRegistry::findName("ao_Object_identityEquals", &idx)) {
+    return;
+  }
+  Heap heap;
+  Roots roots;
+  WellKnown wk(heap, roots);
+  Bootstrap::run(heap, roots, wk);
 }
 
 void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {

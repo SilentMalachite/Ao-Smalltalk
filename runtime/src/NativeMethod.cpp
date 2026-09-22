@@ -1,6 +1,8 @@
 #include "ao/NativeMethod.hpp"
 
 #include <cstring>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ao {
@@ -8,8 +10,10 @@ namespace ao {
 namespace {
 
 std::vector<NativeFn> gNativeFns;
+std::vector<std::string> gNativeNames;
+std::unordered_map<std::string, std::uint32_t> gNativeByName;
 
-}
+}  // namespace
 
 namespace NativeRegistry {
 
@@ -21,7 +25,42 @@ std::uint32_t add(NativeFn fn) {
   }
   const auto i = static_cast<std::uint32_t>(gNativeFns.size());
   gNativeFns.push_back(fn);
+  gNativeNames.emplace_back();
   return i;
+}
+
+bool addNamed(std::string_view name, NativeFn fn, std::uint32_t* outIndex) {
+  const auto idx = add(fn);
+  const std::string key(name);
+  const auto it = gNativeByName.find(key);
+  if (it != gNativeByName.end()) {
+    if (it->second != idx) {
+      return false;
+    }
+    if (outIndex != nullptr) {
+      *outIndex = idx;
+    }
+    return true;
+  }
+  if (gNativeNames[idx].empty()) {
+    gNativeNames[idx] = key;
+  }
+  gNativeByName.emplace(key, idx);
+  if (outIndex != nullptr) {
+    *outIndex = idx;
+  }
+  return true;
+}
+
+bool findName(std::string_view name, std::uint32_t* outIndex) {
+  const auto it = gNativeByName.find(std::string(name));
+  if (it == gNativeByName.end()) {
+    return false;
+  }
+  if (outIndex != nullptr) {
+    *outIndex = it->second;
+  }
+  return true;
 }
 
 std::uint32_t size() { return static_cast<std::uint32_t>(gNativeFns.size()); }
