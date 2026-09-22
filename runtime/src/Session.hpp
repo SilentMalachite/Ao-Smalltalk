@@ -26,4 +26,17 @@ int sessionImageLoad(const char* path);
 int sessionFileInLoadOrder(const char* path);
 void ensureTranscriptClassMethods();
 
+int browserClassCount();
+int browserClassAt(int index, char* name, int nameLen, char* category, int categoryLen);
+int browserProtocolCount(const char* className, int meta);
+int browserProtocolAt(const char* className, int meta, int index, char* buf, int len);
+int browserSelectorCount(const char* className, int meta, const char* protocol);
+int browserSelectorAt(const char* className, int meta, const char* protocol, int index, char* buf,
+                      int len);
+int browserSource(const char* className, int meta, const char* selector, char* buf, int len);
+int browserClassDefinition(const char* className, char* buf, int len);
+int browserSuperclass(const char* className, int meta, char* buf, int len);
+int browserSubclassCount(const char* className);
+int browserSubclassAt(const char* className, int index, char* buf, int len);
+
 }  // namespace ao

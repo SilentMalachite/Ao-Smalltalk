@@ -104,3 +104,49 @@ extern "C" void ao_set_transcript_hook(AoTranscriptFn fn, void* user) {
     deliverTranscript(ctx, value);
   };
 }
+
+extern "C" int ao_browser_class_count(void) { return ao::browserClassCount(); }
+
+extern "C" int ao_browser_class_at(int index, char* name, int name_len, char* category,
+                                    int category_len) {
+  return ao::browserClassAt(index, name, name_len, category, category_len);
+}
+
+extern "C" int ao_browser_protocol_count(const char* class_name, int meta) {
+  return ao::browserProtocolCount(class_name, meta);
+}
+
+extern "C" int ao_browser_protocol_at(const char* class_name, int meta, int index, char* buf,
+                                       int len) {
+  return ao::browserProtocolAt(class_name, meta, index, buf, len);
+}
+
+extern "C" int ao_browser_selector_count(const char* class_name, int meta, const char* protocol) {
+  return ao::browserSelectorCount(class_name, meta, protocol);
+}
+
+extern "C" int ao_browser_selector_at(const char* class_name, int meta, const char* protocol,
+                                      int index, char* buf, int len) {
+  return ao::browserSelectorAt(class_name, meta, protocol, index, buf, len);
+}
+
+extern "C" int ao_browser_source(const char* class_name, int meta, const char* selector, char* buf,
+                                 int len) {
+  return ao::browserSource(class_name, meta, selector, buf, len);
+}
+
+extern "C" int ao_browser_class_definition(const char* class_name, char* buf, int len) {
+  return ao::browserClassDefinition(class_name, buf, len);
+}
+
+extern "C" int ao_browser_superclass(const char* class_name, int meta, char* buf, int len) {
+  return ao::browserSuperclass(class_name, meta, buf, len);
+}
+
+extern "C" int ao_browser_subclass_count(const char* class_name) {
+  return ao::browserSubclassCount(class_name);
+}
+
+extern "C" int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len) {
+  return ao::browserSubclassAt(class_name, index, buf, len);
+}
