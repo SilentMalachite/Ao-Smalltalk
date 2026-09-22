@@ -129,7 +129,6 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       if let name = value(at: table.selectedRow, in: model.categories) {
         categoryName = name
       }
-      selectorName = nil
     } else if table === classTable {
       if let name = value(at: table.selectedRow, in: model.classes) {
         selectedClass = name
@@ -180,6 +179,11 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       protocol: protocolName,
       selector: selectorName
     )
+    selectedClass = model.selectedClass ?? ""
+    if let kept = model.selectedProtocol {
+      protocolName = kept
+    }
+    selectorName = model.selectedSelector
     reloadLists()
   }
 

@@ -29,6 +29,88 @@ final class BrowserModelTests: XCTestCase {
     ao_runtime_shutdown()
   }
 
+  func testEmptyCategoryClearsClassProtocolsAndSource() {
+    let model = BrowserModel()
+    XCTAssertEqual(model.boot(), 0)
+    model.select(
+      category: "Kernel",
+      className: "Object",
+      meta: false,
+      protocol: "native",
+      selector: "printString"
+    )
+    XCTAssertFalse(model.source.isEmpty)
+    model.select(
+      category: "No-Such-Category",
+      className: "Object",
+      meta: false,
+      protocol: "native",
+      selector: "printString"
+    )
+    XCTAssertEqual(model.classes, [])
+    XCTAssertNil(model.selectedClass)
+    XCTAssertNil(model.selectedProtocol)
+    XCTAssertNil(model.selectedSelector)
+    XCTAssertEqual(model.protocols, [])
+    XCTAssertEqual(model.selectors, [])
+    XCTAssertEqual(model.source, "")
+  }
+
+  func testCategoryChangeSelectsClassInThatCategory() {
+    XCTAssertEqual(ao_runtime_boot(), 0)
+    let order = vendorLoadOrderPath()
+    XCTAssertEqual(order.withCString { ao_filein_load_order($0) }, 0)
+    let browser = BrowserWindow()
+    guard let outer = browser.window.contentView as? NSSplitView,
+          let top = outer.arrangedSubviews.first as? NSSplitView else {
+      XCTFail("expected a category/class split")
+      return
+    }
+    let categoryTables = tableViews(in: top)
+    guard categoryTables.count == 2 else {
+      XCTFail("expected category and class tables")
+      return
+    }
+    let categoryTable = categoryTables[0]
+    let classTable = categoryTables[1]
+    guard let otherRow = browser.model.categories.firstIndex(where: { $0 != "Kernel" }) else {
+      XCTFail("expected a category other than Kernel after file-in")
+      return
+    }
+    let other = browser.model.categories[otherRow]
+    XCTAssertTrue(browser.model.source.contains("ao_Object_printString"))
+    categoryTable.selectRowIndexes(IndexSet(integer: otherRow), byExtendingSelection: false)
+    XCTAssertFalse(browser.model.classes.isEmpty)
+    XCTAssertFalse(browser.model.classes.contains("Object"))
+    let classRow = classTable.selectedRow
+    XCTAssertGreaterThanOrEqual(classRow, 0)
+    guard classRow >= 0, classRow < browser.model.classes.count else {
+      return
+    }
+    let name = browser.model.classes[classRow]
+    XCTAssertEqual(name, browser.model.classes.first)
+    XCTAssertEqual(browser.model.selectedClass, name)
+    XCTAssertTrue(browser.model.source.contains("subclass: #\(name)"))
+    XCTAssertTrue(browser.model.source.contains("category: '\(other)'"))
+    XCTAssertFalse(browser.model.source.contains("subclass: #Object"))
+    XCTAssertFalse(browser.model.selectors.contains("printString"))
+    if let protocolName = browser.model.selectedProtocol {
+      XCTAssertTrue(browser.model.protocols.contains(protocolName))
+    }
+    if let selector = browser.model.selectedSelector {
+      XCTAssertTrue(browser.model.selectors.contains(selector))
+    }
+  }
+
+  private func vendorLoadOrderPath() -> String {
+    URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("image/vendor/LOAD_ORDER")
+      .path
+  }
+
   func testSystemBrowserPanesListOwnMethods() {
     let browser = BrowserWindow()
     XCTAssertEqual(browser.title, "System Browser")

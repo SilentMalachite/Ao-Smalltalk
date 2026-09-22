@@ -10,10 +10,10 @@ final class BrowserModel {
 
   private var didBoot = false
   private var selectedCategory: String?
-  private var selectedClass: String?
+  private(set) var selectedClass: String?
   private var selectedMeta = false
-  private var selectedProtocol: String?
-  private var selectedSelector: String?
+  private(set) var selectedProtocol: String?
+  private(set) var selectedSelector: String?
 
   func boot() -> Int32 {
     if didBoot {
@@ -34,8 +34,17 @@ final class BrowserModel {
     } else {
       classes = loaded.map(\.name)
     }
+    if let current = selectedClass, !classes.contains(current) {
+      selectedClass = classes.first
+    }
     protocols = loadProtocols()
+    if let current = selectedProtocol, !protocols.contains(current) {
+      selectedProtocol = nil
+    }
     selectors = loadSelectors()
+    if let current = selectedSelector, !selectors.contains(current) {
+      selectedSelector = nil
+    }
     source = loadSource()
   }
 
