@@ -1,6 +1,8 @@
 #include "test_support.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/Chunk.hpp"
+#include "ao/Compile.hpp"
 #include "ao/Context.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
@@ -15,8 +17,9 @@
 #include <string>
 #include <vector>
 
-TEST(KernelScan, MethodDictionaryValuesAreNativeMethods) {
-  Boot b;
+namespace {
+
+bool nativeRequiredDictsAreNative(Boot& b) {
   std::vector<std::string> bad;
   struct Scan {
     Boot* b;
@@ -37,14 +40,42 @@ TEST(KernelScan, MethodDictionaryValuesAreNativeMethods) {
       }
     }
   } scan{&b, &bad};
-  b.wk.eachClass(
+  b.wk.eachNativeRequiredClass(
       [](void* p, ao::Oop cls) {
         auto* s = static_cast<Scan*>(p);
         s->visit(cls);
         s->visit(s->b->heap.klass(cls));
       },
       &scan);
-  EXPECT_TRUE(bad.empty());
+  return bad.empty();
+}
+
+}  // namespace
+
+TEST(KernelScan, MethodDictionaryValuesAreNativeMethods) {
+  Boot b;
+  EXPECT_TRUE(nativeRequiredDictsAreNative(b));
+}
+
+TEST(KernelScan, UserCompiledMethodDoesNotFailScan) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #NotKernel\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'P6b-Test'!\n"
+      "!NotKernel methodsFor: 't'!\n"
+      "ok\n"
+      "  ^1!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(ao::applyChunks(b.ctx, acts, errs));
+  auto cls = b.wk.named("NotKernel");
+  auto meth = ao::lookup(b.heap, cls, b.wk.intern("ok"));
+  ASSERT_TRUE(meth.isHeap());
+  EXPECT_EQ(b.wk.compiledMethodClass, b.heap.klass(meth));
+  EXPECT_TRUE(nativeRequiredDictsAreNative(b));
 }
 
 TEST(KernelScan, RequiredSelectorsAreNativeMethods) {

@@ -11,6 +11,7 @@
 #include "ao/MethodImage.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
+#include "ao/Vendor.hpp"
 
 #include <cstring>
 #include <string>
@@ -142,8 +143,21 @@ void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
   }
 }
 
+bool refusesKernelRedefinition(const WellKnown& wk, std::string_view className,
+                               std::vector<compiler::CompileError>& errors) {
+  if (wk.isCatalogName(className) && !isVendorStub(className)) {
+    errors.push_back(
+        compiler::CompileError{{}, "refusing to redefine kernel class: " + std::string(className)});
+    return true;
+  }
+  return false;
+}
+
 bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
                    std::vector<compiler::CompileError>& errors) {
+  if (refusesKernelRedefinition(ctx.wk, action.className, errors)) {
+    return false;
+  }
   Root super(ctx.roots, ctx.wk.named(action.superName));
   if (!super.slot.isHeap()) {
     errors.push_back(compiler::CompileError{{}, "missing class: " + action.superName});
@@ -167,11 +181,18 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
     errors.push_back(compiler::CompileError{{}, "subclass failed: " + action.className});
     return false;
   }
+  if (isVendorStub(action.className) && !ctx.wk.rebind(action.className, created)) {
+    errors.push_back(compiler::CompileError{{}, "rebind failed: " + action.className});
+    return false;
+  }
   return true;
 }
 
 bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                      std::vector<compiler::CompileError>& errors) {
+  if (refusesKernelRedefinition(ctx.wk, action.className, errors)) {
+    return false;
+  }
   Root cls(ctx.roots, ctx.wk.named(action.className));
   if (!cls.slot.isHeap()) {
     errors.push_back(compiler::CompileError{{}, "missing class: " + action.className});
@@ -193,6 +214,16 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
       e.span.end += m.span.start;
       errors.push_back(std::move(e));
       continue;
+    }
+    const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
+    const Oop sel = ctx.wk.intern(cr.image.selector);
+    if (dict.isHeap() && sel.isHeap()) {
+      const Oop existing = MethodDictionary::at(ctx.heap, dict, sel);
+      if (existing.isHeap() && ctx.heap.klass(existing) == ctx.wk.nativeMethodClass) {
+        errors.push_back(compiler::CompileError{
+            m.span, "native selector overwrite refused: " + cr.image.selector});
+        continue;
+      }
     }
     const Oop installed = installMethod(ctx, tgt.slot, cr.image);
     if (!installed.isHeap()) {

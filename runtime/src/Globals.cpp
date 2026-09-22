@@ -86,5 +86,17 @@ Oop at(const WellKnown& wk, std::string_view name) {
   return wk.named(name);
 }
 
+void atPut(WellKnown& wk, std::string_view name, Oop value) {
+  if (!wk.smalltalk.isHeap()) {
+    return;
+  }
+  for (std::uint32_t i = 0; i < kSmalltalkCount; ++i) {
+    if (name == kNames[i]) {
+      wk.heap().slotAtPut(wk.smalltalk, i, value);
+      return;
+    }
+  }
+}
+
 }  // namespace Globals
 }  // namespace ao

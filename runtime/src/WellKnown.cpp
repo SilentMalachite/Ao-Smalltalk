@@ -1,6 +1,8 @@
 #include "ao/WellKnown.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/Globals.hpp"
+#include "ao/Vendor.hpp"
 
 #include <cstring>
 #include <deque>
@@ -194,6 +196,31 @@ void WellKnown::define(std::string_view name, Oop cls) {
   roots_->add(&extra_->table.back().cls);
 }
 
+bool WellKnown::isCatalogName(std::string_view name) const {
+  for (const auto& e : kNamedClasses) {
+    if (name == e.name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool WellKnown::rebind(std::string_view name, Oop cls) {
+  if (!isVendorStub(name) || !cls.isHeap()) {
+    return false;
+  }
+  for (const auto& e : kNamedClasses) {
+    if (name != e.name) {
+      continue;
+    }
+    this->*e.cls = cls;
+    this->*e.meta = heap_->klass(cls);
+    Globals::atPut(*this, name, cls);
+    return true;
+  }
+  return false;
+}
+
 void WellKnown::eachClass(void (*fn)(void* baton, Oop cls), void* baton) const {
   if (fn == nullptr) {
     return;
@@ -209,6 +236,18 @@ void WellKnown::eachClass(void (*fn)(void* baton, Oop cls), void* baton) const {
       continue;
     }
     fn(baton, e.cls);
+  }
+}
+
+void WellKnown::eachNativeRequiredClass(void (*fn)(void* baton, Oop cls), void* baton) const {
+  if (fn == nullptr) {
+    return;
+  }
+  for (const auto& e : kNamedClasses) {
+    if (isVendorStub(e.name)) {
+      continue;
+    }
+    fn(baton, this->*e.cls);
   }
 }
 

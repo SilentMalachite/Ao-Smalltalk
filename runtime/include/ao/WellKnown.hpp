@@ -28,7 +28,10 @@ class WellKnown {
   Oop classOf(Oop obj) const;
   Oop intern(std::string_view utf8);
   void define(std::string_view name, Oop cls);
+  bool isCatalogName(std::string_view name) const;
+  bool rebind(std::string_view name, Oop cls);
   void eachClass(void (*fn)(void* baton, Oop cls), void* baton) const;
+  void eachNativeRequiredClass(void (*fn)(void* baton, Oop cls), void* baton) const;
 
   Oop objectClass{};
   Oop objectMetaclass{};

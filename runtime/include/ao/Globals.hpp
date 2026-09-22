@@ -14,6 +14,7 @@ inline constexpr std::uint32_t kSmalltalkCount = 57;
 
 void install(Heap& heap, Roots& roots, WellKnown& wk);
 Oop at(const WellKnown& wk, std::string_view name);
+void atPut(WellKnown& wk, std::string_view name, Oop value);
 
 }  // namespace Globals
 }  // namespace ao
