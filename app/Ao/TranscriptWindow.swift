@@ -106,6 +106,10 @@ final class TranscriptWindow {
     window.close()
   }
 
+  func orderFront() {
+    window.makeKeyAndOrderFront(nil)
+  }
+
   func installHook() {
     ao_set_transcript_hook(aoTranscriptHook, Unmanaged.passUnretained(self).toOpaque())
   }

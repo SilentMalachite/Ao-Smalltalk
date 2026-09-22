@@ -16,4 +16,8 @@ final class WorkspaceWindow {
     ).window
     window.makeKeyAndOrderFront(nil)
   }
+
+  func orderFront() {
+    window.makeKeyAndOrderFront(nil)
+  }
 }
