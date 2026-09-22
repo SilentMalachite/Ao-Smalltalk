@@ -20,6 +20,21 @@ TEST(TranscriptModel, ShowInvokesHook) {
   EXPECT_EQ("hello\n", seen);
 }
 
+TEST(TranscriptModel, ClassSideShowForwardsToInstanceHook) {
+  Boot b;
+  static std::string seen;
+  seen.clear();
+  b.ctx.transcriptHook = [](ao::CallContext& ctx, ao::Oop v) {
+    if (v.isCharacter()) seen.push_back(static_cast<char>(v.characterValue()));
+    else if (!v.isNil()) seen += ao::Str::toUtf8(ctx.heap, v);
+  };
+  auto text = ao::Str::fromUtf8(b.heap, b.wk, "hello");
+  auto ret = send1(b, b.wk.transcriptClass, "show:", text);
+  EXPECT_EQ(b.wk.transcriptClass, ret);
+  send0(b, b.wk.transcriptClass, "cr");
+  EXPECT_EQ("hello\n", seen);
+}
+
 TEST(TranscriptModel, NextPutAndClearInvokeHook) {
   Boot b;
   static std::string seen;

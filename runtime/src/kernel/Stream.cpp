@@ -210,6 +210,18 @@ void callTranscriptHook(CallContext& ctx, Oop value) {
   }
 }
 
+Oop forwardTranscriptClass(CallContext& ctx, Oop receiver, const char* selector, const Oop* args,
+                           std::uint32_t argc) {
+  Root self(ctx.roots, receiver);
+  if (argc == 0) {
+    send(ctx, ctx.wk.transcript, ctx.wk.intern(selector), nullptr, 0, nullptr);
+    return self.slot;
+  }
+  Root arg(ctx.roots, args[0]);
+  send(ctx, ctx.wk.transcript, ctx.wk.intern(selector), &arg.slot, 1, nullptr);
+  return self.slot;
+}
+
 Oop selNextPut(WellKnown& wk) { return wk.intern("nextPut:"); }
 
 }  // namespace
@@ -438,6 +450,44 @@ Oop ao_Transcript_clear(CallContext& ctx, Oop receiver, const Oop*, std::uint32_
   return receiver;
 }
 
+Oop ao_Transcript_class_nextPut_(CallContext& ctx, Oop receiver, const Oop* args,
+                                 std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  return forwardTranscriptClass(ctx, receiver, "nextPut:", args, argc);
+}
+
+Oop ao_Transcript_class_nextPutAll_(CallContext& ctx, Oop receiver, const Oop* args,
+                                    std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  return forwardTranscriptClass(ctx, receiver, "nextPutAll:", args, argc);
+}
+
+Oop ao_Transcript_class_show_(CallContext& ctx, Oop receiver, const Oop* args,
+                              std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  return forwardTranscriptClass(ctx, receiver, "show:", args, argc);
+}
+
+Oop ao_Transcript_class_cr(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  return forwardTranscriptClass(ctx, receiver, "cr", nullptr, 0);
+}
+
+Oop ao_Transcript_class_clear(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  return forwardTranscriptClass(ctx, receiver, "clear", nullptr, 0);
+}
+
 Oop ao_SmalltalkImage_at_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -502,6 +552,17 @@ void installStream(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.transcriptClass, "show:", 1, "ao_Transcript_show_", ao_Transcript_show_);
   putNative(heap, wk, wk.transcriptClass, "cr", 0, "ao_Transcript_cr", ao_Transcript_cr);
   putNative(heap, wk, wk.transcriptClass, "clear", 0, "ao_Transcript_clear", ao_Transcript_clear);
+
+  putNative(heap, wk, wk.transcriptMetaclass, "nextPut:", 1, "ao_Transcript_class_nextPut_",
+            ao_Transcript_class_nextPut_);
+  putNative(heap, wk, wk.transcriptMetaclass, "nextPutAll:", 1, "ao_Transcript_class_nextPutAll_",
+            ao_Transcript_class_nextPutAll_);
+  putNative(heap, wk, wk.transcriptMetaclass, "show:", 1, "ao_Transcript_class_show_",
+            ao_Transcript_class_show_);
+  putNative(heap, wk, wk.transcriptMetaclass, "cr", 0, "ao_Transcript_class_cr",
+            ao_Transcript_class_cr);
+  putNative(heap, wk, wk.transcriptMetaclass, "clear", 0, "ao_Transcript_class_clear",
+            ao_Transcript_class_clear);
 
   putNative(heap, wk, wk.smalltalkImageClass, "at:", 1, "ao_SmalltalkImage_at_",
             ao_SmalltalkImage_at_);

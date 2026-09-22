@@ -16,6 +16,10 @@ int ao_image_save(const char* path);
 int ao_image_load(const char* path);
 int ao_filein_load_order(const char* path);
 
+typedef void (*AoTranscriptFn)(const char* utf8, int len, int is_clear, void* user);
+
+void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
+
 #ifdef __cplusplus
 }
 #endif
