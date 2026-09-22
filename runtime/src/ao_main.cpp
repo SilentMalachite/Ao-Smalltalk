@@ -5,6 +5,7 @@
 #include "ao/NativeMethod.hpp"
 #include "ao/Roots.hpp"
 #include "ao/TestRunner.hpp"
+#include "ao/Vendor.hpp"
 #include "ao/WellKnown.hpp"
 
 #include <mach-o/dyld.h>
@@ -13,8 +14,11 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace {
 
@@ -44,6 +48,88 @@ std::string testsBesideExecutable() {
   return {};
 }
 
+std::string trimLine(std::string line) {
+  if (!line.empty() && line.back() == '\r') {
+    line.pop_back();
+  }
+  std::size_t begin = 0;
+  while (begin < line.size() && (line[begin] == ' ' || line[begin] == '\t')) {
+    ++begin;
+  }
+  std::size_t end = line.size();
+  while (end > begin && (line[end - 1] == ' ' || line[end - 1] == '\t')) {
+    --end;
+  }
+  return line.substr(begin, end - begin);
+}
+
+int runExtractVendor(int argc, char** argv) {
+  if (argc != 5) {
+    std::fputs("ao: usage: ao extract-vendor <changes> <allowlist> <out-dir>\n", stderr);
+    return 2;
+  }
+  const std::filesystem::path changesPath(argv[2]);
+  const std::filesystem::path allowPath(argv[3]);
+  const std::filesystem::path outDir(argv[4]);
+
+  std::ifstream changesIn(changesPath, std::ios::binary);
+  if (!changesIn) {
+    std::fputs("ao: cannot read changes\n", stderr);
+    return 1;
+  }
+  std::stringstream changesBuf;
+  changesBuf << changesIn.rdbuf();
+  if (!changesIn && !changesIn.eof()) {
+    std::fputs("ao: cannot read changes\n", stderr);
+    return 1;
+  }
+  const std::string changes = changesBuf.str();
+
+  std::ifstream allowIn(allowPath);
+  if (!allowIn) {
+    std::fputs("ao: cannot read allowlist\n", stderr);
+    return 1;
+  }
+  std::vector<std::string> allowlist;
+  std::string line;
+  while (std::getline(allowIn, line)) {
+    line = trimLine(std::move(line));
+    if (!line.empty()) {
+      allowlist.push_back(std::move(line));
+    }
+  }
+  if (!allowIn.eof()) {
+    std::fputs("ao: cannot read allowlist\n", stderr);
+    return 1;
+  }
+
+  const ao::VendorExtractResult result = ao::extractVendor(changes, allowlist);
+
+  std::error_code ec;
+  std::filesystem::create_directories(outDir, ec);
+  if (ec) {
+    std::fputs("ao: cannot create out-dir\n", stderr);
+    return 1;
+  }
+  for (const ao::VendorClassFile& file : result.files) {
+    const std::filesystem::path path = outDir / (file.className + ".st");
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+      std::fputs("ao: cannot write class file\n", stderr);
+      return 1;
+    }
+    out << file.chunkText;
+    if (!out) {
+      std::fputs("ao: cannot write class file\n", stderr);
+      return 1;
+    }
+  }
+  for (const std::string& note : result.notes) {
+    std::puts(note.c_str());
+  }
+  return 0;
+}
+
 int bootAndRunTests(const std::string& dir) {
   ao::Heap heap;
   ao::Roots roots;
@@ -59,7 +145,8 @@ int bootAndRunTests(const std::string& dir) {
 
 int main(int argc, char** argv) {
   if (argc >= 2 && std::strcmp(argv[1], "--help") == 0) {
-    std::puts("ao — Ao Smalltalk CLI\n  --help\n  --version\n  --test");
+    std::puts(
+        "ao — Ao Smalltalk CLI\n  --help\n  --version\n  --test\n  extract-vendor <changes> <allowlist> <out-dir>");
     return 0;
   }
   if (argc >= 2 && std::strcmp(argv[1], "--version") == 0) {
@@ -82,6 +169,9 @@ int main(int argc, char** argv) {
       }
     }
     return bootAndRunTests(dir);
+  }
+  if (argc >= 2 && std::strcmp(argv[1], "extract-vendor") == 0) {
+    return runExtractVendor(argc, argv);
   }
   std::fputs("ao: no command (P0 stub). Try --help.\n", stderr);
   return 2;

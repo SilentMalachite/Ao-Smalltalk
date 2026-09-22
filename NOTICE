@@ -7,3 +7,8 @@ See the LICENSE file for the full license text.
 Third-party class libraries, when added under image/vendor/, retain their
 original licenses. Origins will be listed in this file and in
 image/vendor/ORIGIN.md.
+
+Cuis-Smalltalk class library excerpts
+https://github.com/Cuis-Smalltalk/Cuis-Smalltalk-Dev
+commit 2628e261acaf4577084f2e788e973d0269b44fc5
+MIT; see image/vendor/cuis/LICENSE
