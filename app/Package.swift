@@ -8,7 +8,8 @@ let package = Package(
     .library(name: "Ao", targets: ["Ao"])
   ],
   targets: [
-    .target(name: "Ao", path: "Ao"),
+    .target(name: "Ao", dependencies: ["CAo"], path: "Ao"),
+    .systemLibrary(name: "CAo", path: "CAo"),
     .testTarget(name: "AoTests", dependencies: ["Ao"], path: "AoTests")
   ]
 )

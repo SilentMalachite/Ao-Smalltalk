@@ -2,7 +2,8 @@ import XCTest
 @testable import Ao
 
 final class SmokeTests: XCTestCase {
-  func testPlaceholderTypeExists() {
-    XCTAssertEqual(AoPlaceholder.phase, "P0")
+  @MainActor
+  func testBrowserModelExists() {
+    _ = BrowserModel()
   }
 }

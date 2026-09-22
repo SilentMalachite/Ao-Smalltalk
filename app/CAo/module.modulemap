@@ -1,0 +1,4 @@
+module CAo {
+  header "../../bridge/ao_abi.h"
+  export *
+}
