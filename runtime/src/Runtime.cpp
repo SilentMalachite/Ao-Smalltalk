@@ -1,12 +1,13 @@
 #include "ao/Runtime.hpp"
+#include "Session.hpp"
 
 #include <cstdio>
 
 namespace ao {
 
-int boot() { return 0; }
+int boot() { return sessionBoot(); }
 
-int shutdown() { return 0; }
+int shutdown() { return sessionShutdown(); }
 
 int version_string(char* buf, int len) {
   if (buf == nullptr || len <= 0) {

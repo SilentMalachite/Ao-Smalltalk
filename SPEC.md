@@ -405,6 +405,96 @@ C ABI（`bridge/ao_abi.h`）のみが runtime と app の境界。
 
 AppKit オブジェクトを OOP としてヒープに直接置かない。ホストハンドル表で結ぶ。
 
+#### セッション
+
+プロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ作る。既にあるときに再度呼ぶと 0 以外を返す。`ao::shutdown()` はセッションを捨て、セッションが無くても 0 を返す。
+
+中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。ヒープの既定容量は変えない。
+
+`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureTranscriptClassMethods` を呼び、メタクラスに `show:` が無ければクラス側ネイティブを `putNative` する。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。探針に失敗したセッションはシャットダウンしない。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めなければ `AO_ERR`。
+
+#### C ABI
+
+既存の `AO_OK = 0`、`AO_ERR = 1` は維持する。追加する。
+
+```
+AO_ERR_COMPILE = 2
+AO_ERR_EVAL = 3
+AO_ERR_RANGE = 4
+```
+
+文字列バッファは、`buf_len > 0` なら必ず NUL で終わる。入り切らないときは `AO_ERR_RANGE`。
+
+```c
+typedef struct AoSpan {
+  unsigned int start;
+  unsigned int end;
+  char message[256];
+} AoSpan;
+
+typedef void (*AoTranscriptFn)(const char* utf8, int len, int is_clear, void* user);
+typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, void* user);
+
+int ao_image_save(const char* path);
+int ao_image_load(const char* path);
+int ao_filein_load_order(const char* path);
+void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
+void ao_set_inspect_hook(AoInspectFn fn, void* user);
+
+int ao_browser_class_count(void);
+int ao_browser_class_at(int index, char* name, int name_len, char* category, int category_len);
+int ao_browser_protocol_count(const char* class_name, int meta);
+int ao_browser_protocol_at(const char* class_name, int meta, int index, char* buf, int len);
+int ao_browser_selector_count(const char* class_name, int meta, const char* protocol);
+int ao_browser_selector_at(const char* class_name, int meta, const char* protocol,
+                           int index, char* buf, int len);
+int ao_browser_source(const char* class_name, int meta, const char* selector, char* buf, int len);
+int ao_browser_class_definition(const char* class_name, char* buf, int len);
+int ao_browser_superclass(const char* class_name, int meta, char* buf, int len);
+int ao_browser_subclass_count(const char* class_name);
+int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len);
+
+int ao_workspace_reset(void);
+int ao_eval(const char* source, int source_len, int mode, char* out, int out_len, AoSpan* err);
+int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);
+int ao_accept_class(const char* source, AoSpan* err);
+```
+
+`meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
+
+#### ソースはイメージに書かない
+
+メソッドソースはセッションのルート表（`(Oop method, Oop string)` を `Roots` に登録したベクタ）だけが持つ。`.aoimage` には書かない。上書きした古い対はルートから外す。`ao_runtime_boot` と `ao_image_load` は表を空にする。
+
+#### プロトコルとカテゴリ
+
+プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列。
+
+#### Transcript のクラス側転送
+
+クラス側の `show:` / `nextPutAll:` / `nextPut:` / `cr` / `clear` は、`WellKnown::transcript` に同じメッセージを送り、戻り値はクラス（レシーバ）である。フックへ渡す UTF-8 は、文字ならそのスカラー 1 個、バイト列の文字列ならそのバイト、nil なら `is_clear = 1`、`len = 0`。インスタンス側の既存ネイティブは変えない。
+
+#### ワークスペース変数
+
+ワークスペースはセッションに 1 つ。`IdentityDictionary` ではなく、名前文字列をキーにした `Dictionary` をルートする。`ao_workspace_reset` は空の辞書に戻す。`knownGlobals` は `Globals::nameAt` の 57 名、`eachExtra` の名、`eachClass` のクラス名バイト。`workspaceTemps` は辞書のキーを UTF-8 でソートしたもの。未定義名はテンプ、既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。テンプが 255 を超えたら `too many temporaries`。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。空 OOP は `AO_ERR_EVAL`。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。
+
+#### printString
+
+Object の `printString` はクラス名のまま。次だけネイティブで上書きする。
+
+| レシーバ | 文字列 |
+|---|---|
+| nil | `nil` |
+| true | `true` |
+| false | `false` |
+| SmallInteger | 十進。負号付き。桁区切りなし |
+| Character | スカラーが 32…126 なら `$` と その 1 バイト。それ以外はクラス名 |
+| String | 単一引用符で囲み、中の `'` は `''` |
+| Float | `snprintf` の `%g` |
+| Array | `#(` の直後に要素の `printString` を空白区切りで並べ、`)` で閉じる。空なら `#()`。深さ 4 を超えた要素は `...` |
+
+LargeInteger とそれ以外はクラス名のまま。
+
 ### 3.11 イメージ形式 `.aoimage`
 
 - マジック `AOIM`、バージョン、ポインタサイズ、エンディアン
@@ -413,7 +503,7 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 - グローバル辞書
 - 起動時に再配置し、NativeMethod の関数ポインタは **ロード時にシンボル名で結び直す**（ポインタをファイルに書かない）
 
-`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。
+`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。
 
 ### 3.12 クラスライブラリは取り込む。自作しない
 
