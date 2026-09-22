@@ -25,7 +25,7 @@ GitHub 向けの案内（英語が正本）: [`README.md`](../README.md) / [`REA
 | P5 コンパイラ | [phases/P5.md](phases/P5.md) | done |
 | P6 インタプリタ | [phases/P6.md](phases/P6.md) | planned |
 | P6b vendor file-in | [phases/P6b.md](phases/P6b.md) | planned |
-| P7 イメージ | [phases/P7.md](phases/P7.md) | planned |
+| P7 イメージ | [phases/P7.md](phases/P7.md) | done |
 | P8 AppKit ツール | [phases/P8.md](phases/P8.md) | planned |
 | P9 統合 | [phases/P9.md](phases/P9.md) | planned |
 
