@@ -19,7 +19,7 @@ struct VendorClassFile {
 };
 
 struct VendorExtractResult {
-  std::vector<VendorClassFile> files;  // allowlist 順、deferred は含まない
+  std::vector<VendorClassFile> files;  // superclass before subclass; deferred excluded
   std::vector<std::string> notes;      // "Heap: variableSubclass" など
 };
 

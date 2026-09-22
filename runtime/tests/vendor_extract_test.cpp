@@ -156,3 +156,52 @@ TEST(VendorChunks, LinkSelectorsAreSeparateMethods) {
   EXPECT_TRUE(sawNextLink);
   EXPECT_TRUE(sawNextLinkColon);
 }
+
+TEST(VendorExtract, RewritesHostSelectorAndDefersMissingSuper) {
+  const char* src =
+      "!MissingSuper subclass: #FileStream\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Files'!\n"
+      "!FileStream methodsFor: 'open/close'!\n"
+      "open\n"
+      "  ^StandardFileStream new!\n"
+      "!Object subclass: #Link\n"
+      "  instanceVariableNames: 'nextLink'\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Collections-Support'!\n";
+  auto r = ao::extractVendor(src, {"FileStream", "Link"});
+  ASSERT_EQ(1u, r.files.size());
+  EXPECT_EQ("Link", r.files[0].className);
+  bool saw = false;
+  for (const auto& n : r.notes) {
+    if (n.find("FileStream") != std::string::npos && n.find("MissingSuper") != std::string::npos) {
+      saw = true;
+    }
+  }
+  EXPECT_TRUE(saw);
+}
+
+TEST(VendorExtract, PatchesHostWordInMethodBody) {
+  const char* src =
+      "!Object subclass: #FileStream\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Files'!\n"
+      "!FileStream methodsFor: 'open/close'!\n"
+      "open\n"
+      "  ^StandardFileStream new!\n"
+      "!FileStream methodsFor: 'primitives'!\n"
+      "primSize\n"
+      "  <primitive: 94>\n"
+      "  ^self primitiveFailed!\n";
+  auto r = ao::extractVendor(src, {"FileStream"});
+  ASSERT_EQ(1u, r.files.size());
+  EXPECT_NE(std::string::npos, r.files[0].chunkText.find("ao-host-patch"));
+  EXPECT_NE(std::string::npos, r.files[0].chunkText.find("host file stream is not connected"));
+  EXPECT_EQ(std::string::npos, r.files[0].chunkText.find("StandardFileStream"));
+  EXPECT_NE(std::string::npos, r.files[0].chunkText.find("<primitive: 94>"));
+}
