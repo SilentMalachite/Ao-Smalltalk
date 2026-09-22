@@ -65,6 +65,15 @@ TEST(ImageFormat, HeaderRoundTripAndRejects) {
 
   std::byte filler[16];
   ao::ImageFormat::writeFiller(filler);
+  const std::byte wantFiller[16] = {
+      std::byte{0x04}, std::byte{0}, std::byte{0}, std::byte{0},
+      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0},
+      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0},
+      std::byte{0x01}, std::byte{0}, std::byte{0}, std::byte{0},
+  };
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_EQ(wantFiller[i], filler[i]) << i;
+  }
   ao::Oop klass;
   ASSERT_TRUE(ao::ImageFormat::decodeNonHeap(0x4u, &klass));
   EXPECT_TRUE(klass.isNil());
