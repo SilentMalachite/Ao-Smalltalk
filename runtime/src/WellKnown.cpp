@@ -203,6 +203,10 @@ Oop WellKnown::named(std::string_view name) const {
 }
 
 void WellKnown::define(std::string_view name, Oop cls) {
+  // Catalog names live in the well-known slots. extra_ would make save fail.
+  if (isCatalogName(name)) {
+    return;
+  }
   if (extra_ == nullptr) {
     extra_ = std::make_unique<ExtraTable>();
   }

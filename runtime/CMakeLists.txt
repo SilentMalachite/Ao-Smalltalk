@@ -28,6 +28,7 @@ add_library(ao_runtime
   src/VendorExtract.cpp
   src/ImageFormat.cpp
   src/ImageSave.cpp
+  src/ImageLoad.cpp
   src/Lookup.cpp
   src/Send.cpp
   src/kernel/Install.cpp

@@ -114,6 +114,8 @@ std::size_t Heap::oldCapacity() const {
   return static_cast<std::size_t>(oldEnd_ - oldStart_);
 }
 
+const std::byte* Heap::oldBase() const { return oldStart_; }
+
 bool Heap::adoptOldBytes(const std::byte* src, std::size_t n, std::uint16_t nextHash) {
   if (oldUsed() != 0) {
     return false;
