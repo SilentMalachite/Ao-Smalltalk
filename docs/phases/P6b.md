@@ -30,10 +30,10 @@ vendor 由来メソッドがネイティブ必須セレクタを上書きして�
 
 ## 受け入れ
 
-- [ ] ORIGIN.md に URL・コミット・ライセンス場所がある
-- [ ] LOAD_ORDER が固定されている
-- [ ] 上書き禁止テスト緑
-- [ ] 非 Kernel が CompiledMethod
+- [x] ORIGIN.md に URL・コミット・ライセンス場所がある
+- [x] LOAD_ORDER が固定されている
+- [x] 上書き禁止テスト緑
+- [x] 非 Kernel が CompiledMethod
 
 ## PR 一覧
 
