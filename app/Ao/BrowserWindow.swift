@@ -27,6 +27,9 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   override init() {
     _ = NSApplication.shared
     let frame = NSRect(x: 220, y: 120, width: 880, height: 560)
+    // NSSplitView keeps the current size ratio, so a zero frame stays collapsed.
+    let band = NSRect(x: 0, y: 0, width: frame.width, height: frame.height / 3)
+    let column = NSRect(x: 0, y: 0, width: frame.width / 2, height: band.height)
     let window = NSWindow(
       contentRect: frame,
       styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -37,7 +40,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     window.isReleasedWhenClosed = false
     window.isRestorable = false
 
-    let source = BrowserWindow.makeSource()
+    let source = BrowserWindow.makeSource(frame: band)
     let sideControl = NSSegmentedControl(
       labels: ["instance", "class"],
       trackingMode: .selectOne,
@@ -58,17 +61,25 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     configure(protocolTable)
     configure(selectorTable)
 
-    let top = NSSplitView()
+    let categoryScroll = scroll(for: categoryTable, frame: column)
+    let classes = classPane(frame: column)
+    let top = NSSplitView(frame: band)
     top.isVertical = true
     top.dividerStyle = .thin
-    top.addArrangedSubview(scroll(for: categoryTable))
-    top.addArrangedSubview(classPane())
+    top.addArrangedSubview(categoryScroll)
+    top.addArrangedSubview(classes)
+    categoryScroll.frame = column
+    classes.frame = column
 
-    let middle = NSSplitView()
+    let protocolScroll = scroll(for: protocolTable, frame: column)
+    let selectorScroll = scroll(for: selectorTable, frame: column)
+    let middle = NSSplitView(frame: band)
     middle.isVertical = true
     middle.dividerStyle = .thin
-    middle.addArrangedSubview(scroll(for: protocolTable))
-    middle.addArrangedSubview(scroll(for: selectorTable))
+    middle.addArrangedSubview(protocolScroll)
+    middle.addArrangedSubview(selectorScroll)
+    protocolScroll.frame = column
+    selectorScroll.frame = column
 
     let outer = NSSplitView(frame: NSRect(origin: .zero, size: frame.size))
     outer.isVertical = false
@@ -77,6 +88,9 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     outer.addArrangedSubview(top)
     outer.addArrangedSubview(middle)
     outer.addArrangedSubview(source.scroll)
+    top.frame = band
+    middle.frame = band
+    source.scroll.frame = band
     window.contentView = outer
 
     showInitialSelection()
@@ -232,31 +246,36 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     table.delegate = self
   }
 
-  private func scroll(for table: NSTableView) -> NSScrollView {
-    let scroll = NSScrollView()
+  private func scroll(for table: NSTableView, frame: NSRect) -> NSScrollView {
+    let scroll = NSScrollView(frame: frame)
     scroll.hasVerticalScroller = true
     scroll.hasHorizontalScroller = false
     scroll.borderType = .noBorder
+    scroll.autoresizingMask = [.width, .height]
+    let contentSize = scroll.contentSize
+    let width = contentSize.width > 0 ? contentSize.width : frame.width
+    let height = contentSize.height > 0 ? contentSize.height : frame.height
+    table.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    table.autoresizingMask = [.width]
     scroll.documentView = table
     return scroll
   }
 
-  private func classPane() -> NSView {
-    let pane = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 220))
+  private func classPane(frame: NSRect) -> NSView {
+    let pane = NSView(frame: frame)
     let sideHeight: CGFloat = 24
+    let gap: CGFloat = 4
     sideControl.frame = NSRect(
       x: 8,
-      y: pane.bounds.height - sideHeight - 4,
-      width: 180,
+      y: max(frame.height - sideHeight - gap, 0),
+      width: min(180, max(frame.width - 16, 1)),
       height: sideHeight
     )
     sideControl.autoresizingMask = [.minYMargin, .maxXMargin]
-    let list = scroll(for: classTable)
-    list.frame = NSRect(
-      x: 0,
-      y: 0,
-      width: pane.bounds.width,
-      height: pane.bounds.height - sideHeight - 8
+    let listHeight = max(frame.height - sideHeight - gap * 2, 1)
+    let list = scroll(
+      for: classTable,
+      frame: NSRect(x: 0, y: 0, width: frame.width, height: listHeight)
     )
     list.autoresizingMask = [.width, .height]
     pane.addSubview(sideControl)
@@ -264,23 +283,31 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     return pane
   }
 
-  private static func makeSource() -> (scroll: NSScrollView, text: NSTextView) {
-    let scroll = NSScrollView()
+  private static func makeSource(frame: NSRect) -> (scroll: NSScrollView, text: NSTextView) {
+    let scroll = NSScrollView(frame: frame)
     scroll.hasVerticalScroller = true
     scroll.hasHorizontalScroller = false
     scroll.borderType = .noBorder
-    let text = NSTextView()
-    text.isEditable = false
-    text.isSelectable = true
-    text.isRichText = false
-    text.isVerticallyResizable = true
-    text.isHorizontallyResizable = false
-    text.autoresizingMask = [.width]
-    text.minSize = NSSize(width: 0, height: 0)
+    scroll.autoresizingMask = [.width, .height]
+    let contentSize = scroll.contentSize
+    let width = contentSize.width > 0 ? contentSize.width : frame.width
+    let height = contentSize.height > 0 ? contentSize.height : frame.height
+    let text = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    text.minSize = NSSize(width: 0, height: height)
     text.maxSize = NSSize(
       width: CGFloat.greatestFiniteMagnitude,
       height: CGFloat.greatestFiniteMagnitude
     )
+    text.isVerticallyResizable = true
+    text.isHorizontallyResizable = false
+    text.autoresizingMask = [.width]
+    text.isEditable = false
+    text.isSelectable = true
+    text.isRichText = false
+    if let container = text.textContainer {
+      container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+      container.widthTracksTextView = true
+    }
     scroll.documentView = text
     return (scroll, text)
   }

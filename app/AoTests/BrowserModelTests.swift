@@ -66,7 +66,17 @@ final class BrowserModelTests: XCTestCase {
     XCTAssertTrue(browser.model.source.contains("ao_Object_printString"))
     let sourcePane = outer.arrangedSubviews[2]
     XCTAssertTrue(tableViews(in: sourcePane).isEmpty)
-    XCTAssertTrue(textViews(in: sourcePane).first?.string.contains("ao_Object_printString") == true)
+    guard let source = textViews(in: sourcePane).first else {
+      XCTFail("missing source text")
+      return
+    }
+    XCTAssertTrue(source.string.contains("ao_Object_printString"))
+    browser.window.layoutIfNeeded()
+    assertPositiveFrame(categoryTable, "category list")
+    assertPositiveFrame(classTable, "class list")
+    assertPositiveFrame(protocolTable, "protocol list")
+    assertPositiveFrame(selectorTable, "selector list")
+    assertPositiveFrame(source, "source text")
 
     guard let classRow = browser.model.classes.firstIndex(of: "Class") else {
       XCTFail("Class missing from the class list")
@@ -98,6 +108,29 @@ final class BrowserModelTests: XCTestCase {
     XCTAssertEqual(selectorTable.numberOfRows, browser.model.selectors.count)
     XCTAssertTrue(browser.model.selectors.contains("show:"))
     XCTAssertFalse(browser.model.selectors.contains("printString"))
+  }
+
+  private func assertPositiveFrame(
+    _ view: NSView,
+    _ label: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let visible = view.visibleRect
+    XCTAssertGreaterThan(
+      visible.width,
+      0,
+      "\(label) width frame \(view.frame) visible \(visible)",
+      file: file,
+      line: line
+    )
+    XCTAssertGreaterThan(
+      visible.height,
+      0,
+      "\(label) height frame \(view.frame) visible \(visible)",
+      file: file,
+      line: line
+    )
   }
 
   private func tableViews(in root: NSView?) -> [NSTableView] {
