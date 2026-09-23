@@ -403,3 +403,79 @@ TEST(CollectionDo, SelectCountersAtSmiMaxFail) {
   expectFailString(b, send1(b, results.slot, "at:", smi(1)), "select: count out of range");
   expectFailString(b, send1(b, results.slot, "at:", smi(2)), "select: index out of range");
 }
+
+namespace {
+
+// 入口の検査のあとで利用者のブロックが走り、thunk の pc を書き換える。do: はブロックを ivar に
+// 保存し、collect: / select: / reject: のブロックがそれを SmallInteger の最大値にする。
+const char* kSmiMaxLatePoker =
+    "!Collection subclass: #SmiMaxLatePoker\n"
+    "  instanceVariableNames: 'thunk results'\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'SmiRange'!\n"
+    "!SmiMaxLatePoker methodsFor: 'enumerating'!\n"
+    "reset\n"
+    "  results := OrderedCollection new!\n"
+    "results\n"
+    "  ^results!\n"
+    "size\n"
+    "  ^1!\n"
+    "do: aBlock\n"
+    "  | saved |\n"
+    "  thunk := aBlock.\n"
+    "  saved := aBlock instVarAt: 2.\n"
+    "  results add: (aBlock value: 1).\n"
+    "  aBlock instVarAt: 2 put: saved!\n"
+    "poke\n"
+    "  thunk instVarAt: 2 put: 4611686018427387903!\n"
+    "pokeCollect\n"
+    "  ^self collect: [:x | self poke. x]!\n"
+    "pokeSelect\n"
+    "  ^self select: [:x | self poke. true]!\n"
+    "pokeReject\n"
+    "  ^self reject: [:x | self poke. false]! !\n";
+
+ao::Oop newLatePoker(Boot& b) {
+  std::vector<ao::compiler::CompileError> errs;
+  EXPECT_TRUE(ao::fileInString(b.ctx, kSmiMaxLatePoker, errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root poker(b.roots, send0(b, b.wk.named("SmiMaxLatePoker"), "new"));
+  send0(b, poker.slot, "reset");
+  return poker.slot;
+}
+
+}  // namespace
+
+// 0649b20 の入口の検査は、ブロックのあとで読み直した pc には効かなかった（+1 で abort）。
+TEST(CollectionDo, CollectIndexPokedByUserBlockFails) {
+  Boot b;
+  ao::Root poker(b.roots, newLatePoker(b));
+  ASSERT_TRUE(poker.slot.isHeap());
+  send0(b, poker.slot, "pokeCollect");
+  ao::Root results(b.roots, send0(b, poker.slot, "results"));
+  ASSERT_EQ(smi(1), send0(b, results.slot, "size"));
+  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "collect: index out of range");
+}
+
+TEST(CollectionDo, SelectCountersPokedByUserBlockFail) {
+  Boot b;
+  ao::Root poker(b.roots, newLatePoker(b));
+  ASSERT_TRUE(poker.slot.isHeap());
+  send0(b, poker.slot, "pokeSelect");
+  ao::Root results(b.roots, send0(b, poker.slot, "results"));
+  ASSERT_EQ(smi(2), send0(b, results.slot, "size"));
+  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "select: count out of range");
+  expectFailString(b, send1(b, results.slot, "at:", smi(2)), "select: index out of range");
+}
+
+TEST(CollectionDo, RejectCountersPokedByUserBlockFail) {
+  Boot b;
+  ao::Root poker(b.roots, newLatePoker(b));
+  ASSERT_TRUE(poker.slot.isHeap());
+  send0(b, poker.slot, "pokeReject");
+  ao::Root results(b.roots, send0(b, poker.slot, "results"));
+  ASSERT_EQ(smi(2), send0(b, results.slot, "size"));
+  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "reject: count out of range");
+  expectFailString(b, send1(b, results.slot, "at:", smi(2)), "reject: index out of range");
+}

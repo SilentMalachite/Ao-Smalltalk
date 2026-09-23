@@ -31,6 +31,20 @@ bool counterAtMax(const Heap& heap, Oop thunk) {
   return n.isSmallInteger() && n.smallIntegerValue() >= kSmiMax;
 }
 
+// 利用者のブロックのあとで読み直した値 n を +1 して pc に書く。ブロックも pc を書き換えられるので、
+// 入口の検査だけでは足りない。+1 が SmallInteger を超えるなら書かずに false を返す（呼び出し側が
+// 失敗にする）。n が SmallInteger でなければ何もしない。
+bool bumpCounter(Heap& heap, Oop thunk, Oop n) {
+  if (!n.isSmallInteger()) {
+    return true;
+  }
+  if (n.smallIntegerValue() >= kSmiMax) {
+    return false;
+  }
+  heap.slotAtPut(thunk, kCtxPc, Oop::fromSmallInteger(n.smallIntegerValue() + 1));
+  return true;
+}
+
 Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop* args,
                                std::uint32_t argc) {
   if (argc != 1) {
@@ -47,8 +61,8 @@ Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop*
   const Oop idx = ctx.heap.slotAt(self.slot, kCtxPc);
   Oop put[2] = {idx, mapped.slot};
   send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
-  if (idx.isSmallInteger()) {
-    ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::fromSmallInteger(idx.smallIntegerValue() + 1));
+  if (!bumpCounter(ctx.heap, self.slot, idx)) {
+    return fail(ctx, self.slot, "collect: index out of range");
   }
   return mapped.slot;
 }
@@ -69,11 +83,9 @@ Oop ao_Collection_filter_count(CallContext& ctx, const Oop& receiver, const Oop*
   const Oop pred = send(ctx, user, ctx.wk.selValue_, &elt.slot, 1, nullptr);
   const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();
   const bool keep = keepTrue ? pred.isTrue() : pred.isFalse();
-  if (keep) {
-    const Oop n = ctx.heap.slotAt(self.slot, kCtxPc);
-    if (n.isSmallInteger()) {
-      ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::fromSmallInteger(n.smallIntegerValue() + 1));
-    }
+  if (keep && !bumpCounter(ctx.heap, self.slot, ctx.heap.slotAt(self.slot, kCtxPc))) {
+    return fail(ctx, self.slot,
+                keepTrue ? "select: count out of range" : "reject: count out of range");
   }
   return pred;
 }
@@ -99,8 +111,9 @@ Oop ao_Collection_filter_fill(CallContext& ctx, const Oop& receiver, const Oop* 
     const Oop idx = ctx.heap.slotAt(self.slot, kCtxPc);
     Oop put[2] = {idx, elt.slot};
     send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
-    if (idx.isSmallInteger()) {
-      ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::fromSmallInteger(idx.smallIntegerValue() + 1));
+    if (!bumpCounter(ctx.heap, self.slot, idx)) {
+      return fail(ctx, self.slot,
+                  keepTrue ? "select: index out of range" : "reject: index out of range");
     }
   }
   return pred;
