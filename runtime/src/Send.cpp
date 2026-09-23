@@ -211,4 +211,27 @@ bool callBlock(CallContext& ctx, Oop blk, const Oop* args, std::uint32_t n, Oop*
   return true;
 }
 
+bool truthOf(CallContext& ctx, Oop value, bool* truth) {
+  if (value.isTrue() || value.isFalse()) {
+    *truth = value.isTrue();
+    return true;
+  }
+  Root v(ctx.roots, value);
+  const Oop sel = ctx.wk.intern("mustBeBoolean");
+  if (!sel.isHeap()) {
+    abortEvaluation(ctx, "NonBoolean receiver");
+    return false;
+  }
+  const Oop answer = send(ctx, v.slot, sel, nullptr, 0, nullptr);
+  if (unwinding(ctx)) {
+    return false;
+  }
+  if (!answer.isTrue() && !answer.isFalse()) {
+    abortEvaluation(ctx, "NonBoolean receiver");
+    return false;
+  }
+  *truth = answer.isTrue();
+  return true;
+}
+
 }  // namespace ao

@@ -303,3 +303,141 @@ TEST(BlockAbort, UnboundedRecursionReportsStackOverflow) {
   EXPECT_EQ(3, send1(b, ao::Oop::fromSmallInteger(1), "+", ao::Oop::fromSmallInteger(2))
                    .smallIntegerValue());
 }
+
+namespace {
+
+// ブロックのネイティブを見るクラス。共有 temp の前でも使えるよう、状態はインスタンス変数 n に置く。
+constexpr const char* kBlockProbe =
+    "!Object subclass: #R2Blocks\n"
+    "  instanceVariableNames: 'n'\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Blocks methodsFor: 'probes'!\n"
+    "n\n"
+    "  ^n!\n"
+    "countTo: k\n"
+    "  | cond body |\n"
+    "  n := 0.\n"
+    "  cond := [n < k].\n"
+    "  body := [n := n + 1].\n"
+    "  ^(cond whileTrue: body) isNil ifTrue: [n] ifFalse: [#notNil]!\n"
+    "countDownFrom: k\n"
+    "  | cond |\n"
+    "  n := k.\n"
+    "  cond := [n := n - 1. n = 0].\n"
+    "  cond whileFalse.\n"
+    "  ^n!\n"
+    "repeatTo: k\n"
+    "  | body |\n"
+    "  n := 0.\n"
+    "  body := [n := n + 1. n = k ifTrue: [^n]].\n"
+    "  body repeat.\n"
+    "  ^#never!\n"
+    "times: k\n"
+    "  n := 0.\n"
+    "  ^k timesRepeat: [n := n + 1]!\n"
+    "ensureNormal\n"
+    "  n := 0.\n"
+    "  ^[1] ensure: [n := n + 1]!\n"
+    "ensureNlr\n"
+    "  n := 0.\n"
+    "  [^7] ensure: [n := 10].\n"
+    "  ^0!\n"
+    "curtailNormal\n"
+    "  n := 0.\n"
+    "  ^[1] ifCurtailed: [n := 5]!\n"
+    "curtailNlr\n"
+    "  n := 0.\n"
+    "  [^7] ifCurtailed: [n := 5].\n"
+    "  ^0! !\n";
+
+struct BlockProbe {
+  Boot b;
+  ao::Root probe{b.roots};
+  BlockProbe() {
+    std::vector<ao::compiler::CompileError> errs;
+    const bool ok = ao::fileInString(b.ctx, kBlockProbe, errs);
+    EXPECT_TRUE(ok && errs.empty()) << (errs.empty() ? "file-in failed" : errs[0].message);
+    probe.slot = send0(b, b.wk.named("R2Blocks"), "new");
+  }
+  ao::Oop call(const char* sel) { return send0(b, probe.slot, sel); }
+  ao::Oop call(const char* sel, std::int64_t k) {
+    return send1(b, probe.slot, sel, ao::Oop::fromSmallInteger(k));
+  }
+  std::int64_t n() { return send0(b, probe.slot, "n").smallIntegerValue(); }
+};
+
+// Smalltalk の式を AoTest の外で評価する（テンポラリは宣言して使う）。
+ao::Oop evalExpr(Boot& b, const std::string& body) {
+  auto img = ao::compiler::compileMethod("doIt\n" + body);
+  if (!img.ok) {
+    ADD_FAILURE() << img.error.message;
+    return ao::Oop{};
+  }
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  return ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+}
+
+}  // namespace
+
+TEST(BlockNatives, WhileTrueNativeWithBlockVariables) {
+  BlockProbe p;
+  EXPECT_EQ(4, p.call("countTo:", 4).smallIntegerValue());
+  EXPECT_EQ(0, p.call("countDownFrom:", 3).smallIntegerValue());
+}
+
+TEST(BlockNatives, RepeatStopsOnNonLocalReturn) {
+  BlockProbe p;
+  EXPECT_EQ(5, p.call("repeatTo:", 5).smallIntegerValue());
+}
+
+TEST(BlockNatives, TimesRepeatCounts) {
+  BlockProbe p;
+  EXPECT_EQ(3, p.call("times:", 3).smallIntegerValue());
+  EXPECT_EQ(3, p.n());
+  EXPECT_EQ(0, p.call("times:", 0).smallIntegerValue());
+  EXPECT_EQ(0, p.n());
+}
+
+TEST(BlockNatives, ValueWithFourArgs) {
+  Boot b;
+  EXPECT_EQ(6, evalExpr(b, "^[:a :b :c | a + b + c] value: 1 value: 2 value: 3")
+                   .smallIntegerValue());
+  EXPECT_EQ(10, evalExpr(b, "^[:a :b :c :d | a + b + c + d] value: 1 value: 2 value: 3 value: 4")
+                    .smallIntegerValue());
+}
+
+TEST(BlockNatives, NumArgsAnswersArity) {
+  Boot b;
+  EXPECT_EQ(0, evalExpr(b, "^[] numArgs").smallIntegerValue());
+  EXPECT_EQ(2, evalExpr(b, "^[:a :b | a] numArgs").smallIntegerValue());
+}
+
+TEST(BlockNatives, EnsureRunsOnNormalAndNonLocalExit) {
+  BlockProbe p;
+  EXPECT_EQ(1, p.call("ensureNormal").smallIntegerValue());
+  EXPECT_EQ(1, p.n());
+  EXPECT_EQ(7, p.call("ensureNlr").smallIntegerValue());
+  EXPECT_EQ(10, p.n());
+  EXPECT_FALSE(p.b.ctx.nonlocalReturn);
+}
+
+TEST(BlockNatives, IfCurtailedRunsOnlyOnUnwind) {
+  BlockProbe p;
+  EXPECT_EQ(1, p.call("curtailNormal").smallIntegerValue());
+  EXPECT_EQ(0, p.n());
+  EXPECT_EQ(7, p.call("curtailNlr").smallIntegerValue());
+  EXPECT_EQ(5, p.n());
+}
+
+// 02 Low: OrderedCollection の内部スロットを引数に展開しない。
+TEST(BlockNatives, ValueWithArgumentsRejectsNonArray) {
+  Boot b;
+  const ao::Oop rejected =
+      evalExpr(b, "^[:a :b :c | c] valueWithArguments: (OrderedCollection new add: 7; yourself)");
+  ASSERT_TRUE(rejected.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(rejected));
+  EXPECT_EQ("valueWithArguments: expects an Array", ao::Str::toUtf8(b.heap, rejected));
+  EXPECT_EQ(9, evalExpr(b, "^[:a :b | a + b] valueWithArguments: #(4 5)").smallIntegerValue());
+}

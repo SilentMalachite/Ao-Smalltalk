@@ -91,6 +91,19 @@ TEST(KernelScan, RequiredSelectorsAreNativeMethods) {
       {b.wk.trueClass, "ifTrue:ifFalse:"},
       {b.wk.smallIntegerClass, "+"},
       {b.wk.arrayClass, "at:"},
+      {b.wk.objectClass, "mustBeBoolean"},
+      {b.wk.smallIntegerClass, "timesRepeat:"},
+      {b.wk.blockContextClass, "value:value:value:"},
+      {b.wk.blockContextClass, "value:value:value:value:"},
+      {b.wk.blockContextClass, "numArgs"},
+      {b.wk.blockContextClass, "whileTrue:"},
+      {b.wk.blockContextClass, "whileFalse:"},
+      {b.wk.blockContextClass, "whileTrue"},
+      {b.wk.blockContextClass, "whileFalse"},
+      {b.wk.blockContextClass, "repeat"},
+      {b.wk.blockContextClass, "ensure:"},
+      {b.wk.blockContextClass, "ifCurtailed:"},
+      {b.wk.blockContextClass, "cannotReturn:"},
   };
   for (const auto& r : reqs) {
     auto sel = ao::Symbol::intern(b.wk, r.sel);

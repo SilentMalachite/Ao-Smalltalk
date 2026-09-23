@@ -375,26 +375,12 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
 // JumpTrue / JumpFalse (SPEC §3.5). A non-Boolean gets mustBeBoolean, and the answer must be
 // a Boolean; otherwise the evaluation aborts. Leaves when the send unwound or aborted.
 Leave branchTruth(CallContext& ctx, Frame& frame, Oop value, bool outermost, bool* truth) {
-  if (value.isTrue() || value.isFalse()) {
-    *truth = value.isTrue();
+  if (truthOf(ctx, value, truth)) {
     return {};
   }
-  Root v(ctx.roots, value);
-  Root sel(ctx.roots, ctx.wk.intern("mustBeBoolean"));
-  if (!sel.slot.isHeap()) {
-    return miss();
-  }
-  const Oop answer = send(ctx, v.slot, sel.slot, nullptr, 0, nullptr);
+  // mustBeBoolean unwound: a non-local return may end at this frame; an abort never does.
   const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);
-  if (nl.leave) {
-    return nl;
-  }
-  if (!answer.isTrue() && !answer.isFalse()) {
-    abortEvaluation(ctx, "NonBoolean receiver");
-    return miss();
-  }
-  *truth = answer.isTrue();
-  return {};
+  return nl.leave ? nl : miss();
 }
 
 // The temp vector held in temp t, when it is a pointer object with slot i.

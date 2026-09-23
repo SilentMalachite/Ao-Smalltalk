@@ -176,6 +176,26 @@ Oop ao_Integer_to_do_(CallContext& ctx, const Oop& receiver, const Oop* args, st
   return receiver;
 }
 
+// Evaluates the block receiver times and answers the receiver (SPEC §3.6).
+Oop ao_Integer_timesRepeat_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
+  if (argc != 1 || !receiver.isSmallInteger()) {
+    return Oop{};
+  }
+  const auto count = receiver.smallIntegerValue();
+  Gc gc(ctx.heap, ctx.roots);
+  Oop ignored;
+  for (std::int64_t i = 1; i <= count; ++i) {
+    if (!callBlock(ctx, args[0], nullptr, 0, &ignored)) {
+      return Oop{};
+    }
+    if ((i & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
+  }
+  return receiver;
+}
+
 Oop ao_Integer_asCharacter(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isSmallInteger()) {
     return Oop{};
@@ -223,6 +243,7 @@ void installInteger(Heap& heap, WellKnown& wk) {
       {"<", 1, "ao_Integer_lessThan", ao_Integer_lessThan},
       {"to:", 1, "ao_Integer_to_", ao_Integer_to_},
       {"to:do:", 2, "ao_Integer_to_do_", ao_Integer_to_do_},
+      {"timesRepeat:", 1, "ao_Integer_timesRepeat_", ao_Integer_timesRepeat_},
       {"/", 1, "ao_Integer_divide", ao_Integer_divide},
       {"asCharacter", 0, "ao_Integer_asCharacter", ao_Integer_asCharacter},
   };

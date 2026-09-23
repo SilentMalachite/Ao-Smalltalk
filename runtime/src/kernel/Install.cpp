@@ -61,6 +61,28 @@ void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
             ao_BlockContext_value_value_);
   putNative(heap, wk, wk.blockContextClass, "valueWithArguments:", 1,
             "ao_BlockContext_valueWithArguments_", ao_BlockContext_valueWithArguments_);
+  putNative(heap, wk, wk.blockContextClass, "value:value:value:", 3,
+            "ao_BlockContext_value_value_value_", ao_BlockContext_value_value_value_);
+  putNative(heap, wk, wk.blockContextClass, "value:value:value:value:", 4,
+            "ao_BlockContext_value_value_value_value_", ao_BlockContext_value_value_value_value_);
+  putNative(heap, wk, wk.blockContextClass, "numArgs", 0, "ao_BlockContext_numArgs",
+            ao_BlockContext_numArgs);
+  putNative(heap, wk, wk.blockContextClass, "whileTrue:", 1, "ao_BlockContext_whileTrue_",
+            ao_BlockContext_whileTrue_);
+  putNative(heap, wk, wk.blockContextClass, "whileFalse:", 1, "ao_BlockContext_whileFalse_",
+            ao_BlockContext_whileFalse_);
+  putNative(heap, wk, wk.blockContextClass, "whileTrue", 0, "ao_BlockContext_whileTrue",
+            ao_BlockContext_whileTrue);
+  putNative(heap, wk, wk.blockContextClass, "whileFalse", 0, "ao_BlockContext_whileFalse",
+            ao_BlockContext_whileFalse);
+  putNative(heap, wk, wk.blockContextClass, "repeat", 0, "ao_BlockContext_repeat",
+            ao_BlockContext_repeat);
+  putNative(heap, wk, wk.blockContextClass, "ensure:", 1, "ao_BlockContext_ensure_",
+            ao_BlockContext_ensure_);
+  putNative(heap, wk, wk.blockContextClass, "ifCurtailed:", 1, "ao_BlockContext_ifCurtailed_",
+            ao_BlockContext_ifCurtailed_);
+  putNative(heap, wk, wk.blockContextClass, "cannotReturn:", 1, "ao_BlockContext_cannotReturn_",
+            ao_BlockContext_cannotReturn_);
   installProcess(heap, wk);
   installGeometry(heap, wk);
   installCompiledMethod(heap, wk);

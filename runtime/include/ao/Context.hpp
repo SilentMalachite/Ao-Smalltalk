@@ -35,6 +35,28 @@ Oop ao_BlockContext_value_value_(CallContext& ctx, const Oop& receiver, const Oo
                                  std::uint32_t argc);
 Oop ao_BlockContext_valueWithArguments_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                         std::uint32_t argc);
+Oop ao_BlockContext_value_value_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                       std::uint32_t argc);
+Oop ao_BlockContext_value_value_value_value_(CallContext& ctx, const Oop& receiver,
+                                             const Oop* args, std::uint32_t argc);
+Oop ao_BlockContext_numArgs(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc);
+Oop ao_BlockContext_whileTrue_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc);
+Oop ao_BlockContext_whileFalse_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                std::uint32_t argc);
+Oop ao_BlockContext_whileTrue(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc);
+Oop ao_BlockContext_whileFalse(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc);
+Oop ao_BlockContext_repeat(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc);
+Oop ao_BlockContext_ensure_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc);
+Oop ao_BlockContext_ifCurtailed_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                 std::uint32_t argc);
+Oop ao_BlockContext_cannotReturn_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                  std::uint32_t argc);
 
 namespace Str {
 // Does not GC. Empty Oop when the nursery (or old, for a large string) is full.
