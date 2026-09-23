@@ -820,6 +820,7 @@ TEST(GcSafety, InstallMethodFailsWhenSelectorCannotBeInterned) {
   fillOld(b);
   fillNurseryTo(b, literalsAndBytes(b, cr.image) + 16);
   EXPECT_FALSE(ao::installMethod(b.ctx, cls.slot, cr.image).isHeap());
+  EXPECT_TRUE(b.heap.outOfMemory());
   EXPECT_EQ(tally, b.heap.slotAt(dict.slot, ao::kDictSlotTally));
   expectNoEmptyKey(b, dict.slot);
 }
@@ -947,4 +948,51 @@ TEST(GcSafety, OutOfMemoryRunsAtMostOneFullGc) {
   EXPECT_FALSE(ao::allocateRetry(b.ctx, ao::Oop::nil(), 3u << 20, ao::kFlagBytes).isHeap());
   EXPECT_TRUE(b.heap.outOfMemory());
   EXPECT_EQ(beforeHuge, b.heap.oldCollections());
+}
+
+// GC しない割り当ても、old の上限で失敗したら out of memory のフラグを立てる（SPEC §3.2）。以前は
+// allocateRetry だけが立てたので、collect: の thunk の NativeMethod が作れないと、nil で埋めた配列が
+// 黙って返った。結果の配列と thunk のブロックは入り、NativeMethod は入らない nursery の残りにする。
+TEST(GcSafety, CollectThunkMethodFailureSetsOutOfMemory) {
+  Boot b(1 << 20, 1 << 20, 1 << 20);  // old は 1 MiB で頭打ち
+  b.heap.setGcStress(0);  // nursery の残りを作るため、途中で GC を走らせない
+  ao::Oop slots[3] = {smi(1), smi(2), smi(3)};
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 3));
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, doubleIt, 1));
+  ao::Root sel(b.roots, b.wk.intern("collect:"));
+  ASSERT_TRUE(arr.slot.isHeap() && blk.slot.isHeap() && sel.slot.isHeap());
+
+  fillOld(b);
+  fillNurseryTo(b, b.heap.objectBytesFor(3, 0) + b.heap.objectBytesFor(ao::kBlockSlotCount, 0) + 16);
+  ASSERT_FALSE(b.heap.outOfMemory());
+  ao::send(b.ctx, arr.slot, sel.slot, &blk.slot, 1, nullptr);
+  EXPECT_TRUE(b.heap.outOfMemory());
+}
+
+// Symbol の intern、メソッド辞書の作成と拡張も同じ。割り当て以外の理由の失敗（キーがヒープでない）
+// ではフラグを立てない。
+TEST(GcSafety, NoGcAllocationFailuresSetOutOfMemory) {
+  Boot b(1 << 20, 1 << 20, 1 << 20);  // old は 1 MiB で頭打ち
+  b.heap.setGcStress(0);
+  ao::Root dict(b.roots, ao::MethodDictionary::create(b.heap, b.wk, 1));
+  ao::Root key(b.roots, b.wk.intern("zzOomFirstKey"));
+  ao::Root grownKey(b.roots, b.wk.intern("zzOomSecondKey"));
+  ASSERT_TRUE(dict.slot.isHeap() && key.slot.isHeap() && grownKey.slot.isHeap());
+  ASSERT_TRUE(ao::MethodDictionary::atPut(b.heap, dict.slot, key.slot, smi(1)));
+  fillOld(b);
+  fillNursery(b);
+
+  EXPECT_FALSE(ao::MethodDictionary::atPut(b.heap, dict.slot, ao::Oop{}, smi(2)));
+  EXPECT_FALSE(b.heap.outOfMemory());
+
+  EXPECT_FALSE(b.wk.intern("zzOomFreshSymbolThatDoesNotFit").isHeap());
+  EXPECT_TRUE(b.heap.outOfMemory());
+  b.heap.clearOutOfMemory();
+
+  EXPECT_FALSE(ao::MethodDictionary::create(b.heap, b.wk, 8).isHeap());
+  EXPECT_TRUE(b.heap.outOfMemory());
+  b.heap.clearOutOfMemory();
+
+  EXPECT_FALSE(ao::MethodDictionary::atPut(b.heap, dict.slot, grownKey.slot, smi(2)));
+  EXPECT_TRUE(b.heap.outOfMemory());
 }

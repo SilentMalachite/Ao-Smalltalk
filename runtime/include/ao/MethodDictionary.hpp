@@ -11,7 +11,7 @@ namespace ao {
 inline constexpr std::uint32_t kDictSlotTally = 0;
 inline constexpr std::uint32_t kDictSlotArray = 1;
 
-// GC しない（allocateNoGc: nursery、満杯なら old）。old も上限なら失敗する。
+// GC しない（allocateNoGc: nursery、満杯なら old）。old も上限なら失敗し、out of memory のフラグを立てる。
 namespace MethodDictionary {
 // Empty Oop when the nursery is full and old is at its max.
 Oop create(Heap& heap, WellKnown& wk, std::uint32_t capacity);

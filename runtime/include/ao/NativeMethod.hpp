@@ -65,6 +65,7 @@ std::uint32_t size();
 }
 
 namespace NativeMethod {
+// Does not GC (allocateNoGc). With old at its max: sets the out-of-memory flag, empty Oop.
 Oop create(Heap& heap, WellKnown& wk, Oop selector, std::uint32_t argc, std::string_view name,
            std::uint32_t registryIndex, Oop methodClass);
 Oop apply(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc);

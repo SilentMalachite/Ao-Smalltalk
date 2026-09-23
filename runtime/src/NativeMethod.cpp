@@ -71,14 +71,17 @@ namespace NativeMethod {
 
 Oop create(Heap& heap, WellKnown& wk, Oop selector, std::uint32_t argc, std::string_view name,
            std::uint32_t registryIndex, Oop methodClass) {
-  // Does not GC: the nursery first, then old when it is full.
+  // Does not GC: the nursery first, then old when it is full. Fails only with old at its max,
+  // which is out of memory (SPEC §3.2).
   auto meth = heap.allocateNoGc(wk.nativeMethodClass, kNativeSlotCount, 0);
   if (!meth.isHeap()) {
+    heap.setOutOfMemory();
     return Oop{};
   }
   const auto n = static_cast<std::uint32_t>(name.size());
   auto nameObj = heap.allocateNoGc(Oop::nil(), n, kFlagBytes);
   if (!nameObj.isHeap()) {
+    heap.setOutOfMemory();
     return Oop{};
   }
   if (n != 0) {

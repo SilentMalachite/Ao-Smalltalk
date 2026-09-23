@@ -300,6 +300,7 @@ Oop WellKnown::internWith(std::string_view utf8, bool tenured) {
   Oop sym = tenured ? heap_->allocateTenured(symbolClass, n, kFlagBytes)
                     : heap_->allocateNoGc(symbolClass, n, kFlagBytes);
   if (!sym.isHeap()) {
+    heap_->setOutOfMemory();
     return Oop{};
   }
   if (n != 0) {

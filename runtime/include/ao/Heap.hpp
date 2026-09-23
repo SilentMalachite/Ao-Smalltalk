@@ -57,11 +57,14 @@ class Heap {
   // Places the object in old, growing its commit up to oldMaxBytes(). Empty Oop at the max.
   // Does not GC.
   Oop allocateTenured(Oop cls, std::uint32_t size, std::uint16_t flags);
-  // Nursery, then old when the nursery is full. Does not GC. For Heap-level code.
+  // Nursery, then old when the nursery is full. Does not GC. For Heap-level code. Callers set the
+  // out-of-memory flag when it fails (old at its max).
   Oop allocateNoGc(Oop cls, std::uint32_t size, std::uint16_t flags);
   std::size_t largeObjectBytes() const;
 
-  // Set by allocateRetry when an allocation fails even after a collection and in old.
+  // Set when an allocation finally fails: allocateRetry after its collections and in old, and
+  // the allocations that do not collect (intern, method dictionaries, NativeMethod::create) at
+  // old's max.
   void setOutOfMemory() { outOfMemory_ = true; }
   bool outOfMemory() const { return outOfMemory_; }
   void clearOutOfMemory() { outOfMemory_ = false; }

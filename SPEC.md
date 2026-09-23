@@ -167,7 +167,7 @@ bit 2:0 = 000      → ヒープオブジェクト。8 バイト整列ポイン�
   - GC を走らせてよい割り当て（`allocateRetry`）が大きなオブジェクトを old に直接置く前で、`oldUsed + そのサイズ > threshold` のとき。スキャベンジを先に行う。
   - `allocateRetry` が old の上限で失敗したとき。その呼び出しの中でまだ full GC が走っていなければ、full GC を 1 回走らせてから、割り当てを 1 回やり直す。`allocateRetry` 1 回が諦めるまでに走らせる full GC は 1 回までとする。old の上限より大きな要求は、GC せずに失敗にする。
 - GC を走らせない割り当て（メソッド辞書の作成・拡張、Symbol の intern、NativeMethod の作成）は、nursery に置き、nursery が満杯なら old に置く（`asSymbol` の Symbol は old に直接置く）。失敗するのは old の上限のときだけである。
-- それでも割り当てられないときは、評価エラー「out of memory」にする。
+- それでも割り当てられないとき（GC を走らせない割り当てが old の上限で失敗したときを含む）は、評価エラー「out of memory」にする。
 - ネイティブが受け取る receiver と引数は、ルート済みとする。ネイティブの途中で GC が走っても、転送先を指す。
 
 ### 3.3 メッセージ送信
