@@ -18,6 +18,15 @@ public final class AoApp: NSObject, NSApplicationDelegate {
 
   public func applicationWillFinishLaunching(_ notification: Notification) {
     let actions = MainMenu.Actions(
+      doIt: {
+        sendToKeyWorkspace(self.launch?.workspace, keyWindow: NSApplication.shared.keyWindow) { $0.doIt() }
+      },
+      printIt: {
+        sendToKeyWorkspace(self.launch?.workspace, keyWindow: NSApplication.shared.keyWindow) { $0.printIt() }
+      },
+      inspectIt: {
+        sendToKeyWorkspace(self.launch?.workspace, keyWindow: NSApplication.shared.keyWindow) { $0.inspectIt() }
+      },
       showBrowser: { self.showBrowser() },
       showTranscript: { self.launch?.transcript.orderFront() },
       showWorkspace: { self.launch?.workspace.orderFront() },
