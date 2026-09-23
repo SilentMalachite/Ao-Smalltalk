@@ -23,6 +23,11 @@ constexpr std::uint32_t kRectOrigin = 0;
 constexpr std::uint32_t kRectCorner = 1;
 
 Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags) {
+  if (ctx.heap.gcStress() != 0) {
+    Root stressed(ctx.roots, cls);
+    Gc(ctx.heap, ctx.roots).stressPoint();
+    cls = stressed.slot;
+  }
   Oop obj = ctx.heap.allocate(cls, size, flags);
   if (obj.isHeap()) {
     return obj;

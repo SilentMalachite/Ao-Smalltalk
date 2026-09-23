@@ -1,12 +1,31 @@
 #include "ao/Heap.hpp"
 
 #include <cassert>
+#include <charconv>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <system_error>
 #include <utility>
 
 namespace ao {
 
 static std::size_t align8(std::size_t n) { return (n + 7u) & ~std::size_t{7}; }
+
+// AO_GC_STRESS が正の十進整数ならその値。未設定・空・0・不正な文字列は 0（無効）。
+static std::uint32_t gcStressFromEnv() {
+  const char* v = std::getenv("AO_GC_STRESS");
+  if (v == nullptr) {
+    return 0;
+  }
+  const char* end = v + std::strlen(v);
+  std::uint32_t n = 0;
+  const auto [p, ec] = std::from_chars(v, end, n);
+  if (ec != std::errc{} || p != end) {
+    return 0;
+  }
+  return n;
+}
 
 Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes)
     : nursery_(std::make_unique<std::byte[]>(2 * nurseryBytes)),
@@ -21,6 +40,7 @@ Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes)
   oldStart_ = old_.get();
   oldEnd_ = oldStart_ + oldBytes;
   oldBump_ = oldStart_;
+  gcStress_ = gcStressFromEnv();
 }
 
 std::size_t Heap::objectBytes(const ObjectHeader* h) const {
@@ -45,7 +65,8 @@ Oop Heap::allocate(Oop cls, std::uint32_t size, std::uint16_t flags) {
   h->hash = nextHash_++;
   if (nextHash_ == 0) nextHash_ = 1;
   if (flags & kFlagBytes) {
-    std::memset(reinterpret_cast<std::byte*>(h + 1), 0, size);
+    // 8 バイト境界までの詰め物も 0 にする。再利用する領域は前の中身や毒を含む。
+    std::memset(reinterpret_cast<std::byte*>(h + 1), 0, n - sizeof(ObjectHeader));
   } else {
     auto* slots = reinterpret_cast<Oop*>(h + 1);
     for (std::uint32_t i = 0; i < size; ++i) slots[i] = Oop::nil();
@@ -54,10 +75,16 @@ Oop Heap::allocate(Oop cls, std::uint32_t size, std::uint16_t flags) {
 }
 
 ObjectHeader* Heap::header(Oop obj) {
+  if (gcStress_ != 0) {
+    checkNotPoisoned(obj);
+  }
   return static_cast<ObjectHeader*>(obj.heapPointer());
 }
 
 const ObjectHeader* Heap::header(Oop obj) const {
+  if (gcStress_ != 0) {
+    checkNotPoisoned(obj);
+  }
   return static_cast<const ObjectHeader*>(obj.heapPointer());
 }
 
@@ -135,6 +162,31 @@ bool Heap::adoptOldBytes(const std::byte* src, std::size_t n, std::uint16_t next
 }
 
 std::uint16_t Heap::hashCursor() const { return nextHash_; }
+
+void Heap::setGcStress(std::uint32_t n) {
+  gcStress_ = n;
+  stressTicks_ = 0;
+  stressCollections_ = 0;
+}
+
+void Heap::poisonFreed(std::byte* begin, std::byte* end) {
+  if (gcStress_ != 0 && begin < end) {
+    std::memset(begin, kGcPoisonByte, static_cast<std::size_t>(end - begin));
+  }
+}
+
+void Heap::checkNotPoisoned(Oop obj) const {
+  if (!obj.isHeap()) {
+    return;
+  }
+  const auto* h = static_cast<const ObjectHeader*>(obj.heapPointer());
+  if (h->klass.bits() != kGcPoisonWord) {
+    return;
+  }
+  std::fprintf(stderr, "ao: GC stress: stale reference to freed object at %p\n",
+               obj.heapPointer());
+  std::abort();
+}
 
 std::size_t Heap::nurseryRemaining() const {
   return static_cast<std::size_t>(fromEnd_ - fromBump_);

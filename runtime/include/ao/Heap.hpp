@@ -15,6 +15,10 @@ inline constexpr std::uint16_t kFlagImmovable = 1u << 3;
 inline constexpr std::uint16_t kFlagMarked    = 1u << 4;
 inline constexpr std::uint16_t kFlagForwarded = 1u << 5;
 
+// GC ストレスモードで解放領域を埋める値。解放済みの番地を header として読むと klass がこの語になる。
+inline constexpr std::uint8_t kGcPoisonByte = 0xA5;
+inline constexpr std::uint64_t kGcPoisonWord = 0xA5A5A5A5A5A5A5A5ull;
+
 struct ObjectHeader {
   Oop klass;
   std::uint32_t size;
@@ -55,6 +59,11 @@ class Heap {
   bool adoptOldBytes(const std::byte* src, std::size_t n, std::uint16_t nextHash);
   std::uint16_t hashCursor() const;
 
+  // GC ストレス: safepoint と allocateRetry の n 回に 1 回ナーサリ GC を走らせる（0 は無効）。
+  // コンストラクタは環境変数 AO_GC_STRESS（正の十進整数）を読む。
+  void setGcStress(std::uint32_t n);
+  std::uint32_t gcStress() const { return gcStress_; }
+
   friend class Gc;
 
  private:
@@ -63,6 +72,15 @@ class Heap {
   bool containsNurseryFrom(void* p) const;
   bool fitsOld(std::size_t n) const;
   std::byte* reserveOld(std::size_t n);
+  bool stressDue() {
+    if (gcStress_ == 0 || ++stressTicks_ < gcStress_) {
+      return false;
+    }
+    stressTicks_ = 0;
+    return true;
+  }
+  void poisonFreed(std::byte* begin, std::byte* end);
+  void checkNotPoisoned(Oop obj) const;
 
   std::unique_ptr<std::byte[]> nursery_;
   std::unique_ptr<std::byte[]> old_;
@@ -77,6 +95,9 @@ class Heap {
   std::byte* oldEnd_ = nullptr;
   std::byte* oldBump_ = nullptr;
   std::uint16_t nextHash_ = 1;
+  std::uint32_t gcStress_ = 0;
+  std::uint32_t stressTicks_ = 0;
+  std::uint32_t stressCollections_ = 0;
 };
 
 }  // namespace ao

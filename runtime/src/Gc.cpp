@@ -12,8 +12,19 @@ namespace ao {
 Gc::Gc(Heap& heap, Roots& roots) : heap_(&heap), roots_(&roots) {}
 
 void Gc::safepoint() {
+  stressPoint();
   if (heap_->nurseryRemaining() < heap_->nurseryCapacity() / 8) {
     collectNursery();
+  }
+}
+
+void Gc::stressPoint() {
+  if (!heap_->stressDue()) {
+    return;
+  }
+  collectNursery();
+  if (++heap_->stressCollections_ % 4 == 0) {
+    collectOld();
   }
 }
 
@@ -62,6 +73,7 @@ void Gc::collectNursery() {
   if (!failed_) {
     clearWeakAfterNursery();
     heap_->flipNursery();
+    heap_->poisonFreed(heap_->toStart_, heap_->toEnd_);
   }
 }
 
@@ -404,7 +416,9 @@ void Gc::collectOld() {
       cursor = b;
     }
   }
+  std::byte* const freedEnd = heap_->oldBump_;
   heap_->oldBump_ = usedEnd;
+  heap_->poisonFreed(usedEnd, freedEnd);
 }
 
 }  // namespace ao

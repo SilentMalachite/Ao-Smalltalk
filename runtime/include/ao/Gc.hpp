@@ -12,6 +12,8 @@ class Gc {
   void collectNursery();
   void collectOld();
   void safepoint();
+  // GC ストレス時だけ n 回に 1 回ナーサリ GC、その 4 回に 1 回 old GC も走らせる。
+  void stressPoint();
 
  private:
   Oop copy(Oop obj);
