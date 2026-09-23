@@ -5,6 +5,7 @@
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 
@@ -241,6 +242,10 @@ void clearNonlocal(CallContext& ctx) {
 }
 
 Leave consumeNonlocal(CallContext& ctx, bool isMethod, Oop methodContext, bool outermost) {
+  // An abort has no home: no frame stops it (SPEC §3.4). The outermost entry clears it.
+  if (ctx.aborting) {
+    return miss();
+  }
   if (!ctx.nonlocalReturn) {
     return {};
   }
@@ -363,6 +368,48 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   return {};
 }
 
+// JumpTrue / JumpFalse (SPEC §3.5). A non-Boolean gets mustBeBoolean, and the answer must be
+// a Boolean; otherwise the evaluation aborts. Leaves when the send unwound or aborted.
+Leave branchTruth(CallContext& ctx, Frame& frame, Oop value, bool outermost, bool* truth) {
+  if (value.isTrue() || value.isFalse()) {
+    *truth = value.isTrue();
+    return {};
+  }
+  Root v(ctx.roots, value);
+  Root sel(ctx.roots, ctx.wk.intern("mustBeBoolean"));
+  if (!sel.slot.isHeap()) {
+    return miss();
+  }
+  const Oop answer = send(ctx, v.slot, sel.slot, nullptr, 0, nullptr);
+  const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);
+  if (nl.leave) {
+    return nl;
+  }
+  if (!answer.isTrue() && !answer.isFalse()) {
+    abortEvaluation(ctx, "NonBoolean receiver");
+    return miss();
+  }
+  *truth = answer.isTrue();
+  return {};
+}
+
+// The temp vector held in temp t, when it is a pointer object with slot i.
+bool remoteSlot(CallContext& ctx, const Temps& temps, std::uint8_t t, std::uint8_t i, Oop* vec) {
+  if (!temps.at(t, vec) || !vec->isHeap() || (ctx.heap.flags(*vec) & kFlagBytes) != 0) {
+    return false;
+  }
+  return i < ctx.heap.size(*vec);
+}
+
+// Literal `index` when it is an Association-shaped binding (a pointer object with a value slot).
+bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
+  if (!literalAt(ctx, method, index, assoc) || !assoc->isHeap() ||
+      (ctx.heap.flags(*assoc) & kFlagBytes) != 0) {
+    return false;
+  }
+  return kAssocValue < ctx.heap.size(*assoc);
+}
+
 }  // namespace
 
 Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc,
@@ -458,7 +505,7 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     if (!readByte(ctx, frame->method, pc, &opb)) {
       return Oop{};
     }
-    if (opb > static_cast<std::uint8_t>(compiler::Op::Primitive)) {
+    if (opb > static_cast<std::uint8_t>(compiler::kLastOp)) {
       return Oop{};
     }
     const auto op = static_cast<compiler::Op>(opb);
@@ -612,7 +659,12 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           if (!stack.pop(&v)) {
             return Oop{};
           }
-          take = (op == compiler::Op::JumpTrue) ? v.isTrue() : v.isFalse();
+          bool truth = false;
+          const Leave nl = branchTruth(ctx, *frame, v, depth.outermost, &truth);
+          if (nl.leave) {
+            return nl.value;
+          }
+          take = (op == compiler::Op::JumpTrue) == truth;
         }
         if (take && !jumpTo(ctx, gc, *frame, rel16(argb[0], argb[1]))) {
           return Oop{};
@@ -689,6 +741,59 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
       }
       case compiler::Op::Primitive:
         break;
+      case compiler::Op::PushNewArray: {
+        const Oop arr = allocateRetry(ctx, ctx.wk.arrayClass, argb[0], 0);
+        if (!arr.isHeap()) {
+          return Oop{};
+        }
+        stack.push(arr);
+        break;
+      }
+      case compiler::Op::PushRemoteTemp: {
+        Oop vec;
+        if (!remoteSlot(ctx, temps, argb[1], argb[0], &vec)) {
+          return Oop{};
+        }
+        stack.push(ctx.heap.slotAt(vec, argb[0]));
+        break;
+      }
+      case compiler::Op::StoreRemoteTemp:
+      case compiler::Op::PopStoreRemoteTemp: {
+        Oop vec;
+        Oop v;
+        if (!remoteSlot(ctx, temps, argb[1], argb[0], &vec)) {
+          return Oop{};
+        }
+        const bool popped =
+            op == compiler::Op::PopStoreRemoteTemp ? stack.pop(&v) : stack.top(&v);
+        if (!popped) {
+          return Oop{};
+        }
+        ctx.heap.slotAtPut(vec, argb[0], v);
+        break;
+      }
+      case compiler::Op::PushLitVar: {
+        Oop assoc;
+        if (!litVar(ctx, frame->method, argb[0], &assoc)) {
+          return Oop{};
+        }
+        stack.push(ctx.heap.slotAt(assoc, kAssocValue));
+        break;
+      }
+      case compiler::Op::StoreLitVar:
+      case compiler::Op::PopStoreLitVar: {
+        Oop assoc;
+        Oop v;
+        if (!litVar(ctx, frame->method, argb[0], &assoc)) {
+          return Oop{};
+        }
+        const bool popped = op == compiler::Op::PopStoreLitVar ? stack.pop(&v) : stack.top(&v);
+        if (!popped) {
+          return Oop{};
+        }
+        ctx.heap.slotAtPut(assoc, kAssocValue, v);
+        break;
+      }
     }
   }
 }

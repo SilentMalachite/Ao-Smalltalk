@@ -1,3 +1,4 @@
+#include "ao/Bytecode.hpp"
 #include "ao/Compiler.hpp"
 #include <gtest/gtest.h>
 #include <string>
@@ -75,4 +76,35 @@ TEST(Codegen, EighteenDigitIntegerSurvivesAsInt) {
   ASSERT_EQ(1u, r.image.literals.size());
   EXPECT_EQ(LitKind::Int, r.image.literals[0].kind);
   EXPECT_EQ(100000000000000001LL, r.image.literals[0].intValue);
+}
+
+TEST(Codegen, DisassemblesAppendedOps) {
+  using ao::compiler::Op;
+  ao::compiler::MethodImage image;
+  image.selector = "hand";
+  image.numTemps = 1;
+  image.bytes = {
+      static_cast<std::uint8_t>(Op::PushNewArray), 2,
+      static_cast<std::uint8_t>(Op::PopStoreTemp), 0,
+      static_cast<std::uint8_t>(Op::PushRemoteTemp), 1, 0,
+      static_cast<std::uint8_t>(Op::StoreRemoteTemp), 1, 0,
+      static_cast<std::uint8_t>(Op::PopStoreRemoteTemp), 0, 0,
+      static_cast<std::uint8_t>(Op::PushLitVar), 0,
+      static_cast<std::uint8_t>(Op::StoreLitVar), 0,
+      static_cast<std::uint8_t>(Op::PopStoreLitVar), 0,
+      static_cast<std::uint8_t>(Op::ReturnNil),
+  };
+  EXPECT_EQ(
+      "method hand args=0 temps=1 prim=0\n"
+      "literals:\n"
+      "  PushNewArray 2\n"
+      "  PopStoreTemp 0\n"
+      "  PushRemoteTemp 1 0\n"
+      "  StoreRemoteTemp 1 0\n"
+      "  PopStoreRemoteTemp 0 0\n"
+      "  PushLitVar 0\n"
+      "  StoreLitVar 0\n"
+      "  PopStoreLitVar 0\n"
+      "  ReturnNil\n",
+      disassemble(image));
 }

@@ -94,6 +94,7 @@ add_executable(ao_runtime_tests
   tests/context_test.cpp
   tests/compiler_roundtrip_test.cpp
   tests/block_test.cpp
+  tests/interpreter_test.cpp
   tests/vendor_extract_test.cpp
   tests/vendor_overwrite_test.cpp
   tests/vendor_filein_test.cpp

@@ -38,7 +38,17 @@ enum class Op : std::uint8_t {
   ReturnBlock,
   CreateBlock,
   Primitive,
+  // Appended in B2. Numbers only grow; existing ones never change (SPEC §3.5).
+  PushNewArray,
+  PushRemoteTemp,
+  StoreRemoteTemp,
+  PopStoreRemoteTemp,
+  PushLitVar,
+  StoreLitVar,
+  PopStoreLitVar,
 };
+
+inline constexpr Op kLastOp = Op::PopStoreLitVar;
 
 inline constexpr std::uint8_t operandBytes(Op op) {
   switch (op) {
@@ -50,6 +60,10 @@ inline constexpr std::uint8_t operandBytes(Op op) {
     case Op::StoreInstVar:
     case Op::PopStoreTemp:
     case Op::PopStoreInstVar:
+    case Op::PushNewArray:
+    case Op::PushLitVar:
+    case Op::StoreLitVar:
+    case Op::PopStoreLitVar:
       return 1;
     case Op::Send:
     case Op::SendSuper:
@@ -59,6 +73,9 @@ inline constexpr std::uint8_t operandBytes(Op op) {
     case Op::JumpFalse:
     case Op::CreateBlock:
     case Op::Primitive:
+    case Op::PushRemoteTemp:
+    case Op::StoreRemoteTemp:
+    case Op::PopStoreRemoteTemp:
       return 2;
     case Op::PushReceiver:
     case Op::PushTrue:

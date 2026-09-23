@@ -178,6 +178,12 @@ Oop ao_Object_error_(CallContext&, const Oop&, const Oop* args, std::uint32_t ar
   return args[0];
 }
 
+// SPEC §3.5: sent when a jump finds a non-Boolean. The default aborts the evaluation.
+Oop ao_Object_mustBeBoolean(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
+  if (argc != 0) return Oop{};
+  return abortEvaluation(ctx, "NonBoolean receiver");
+}
+
 Oop ao_Object_subclassResponsibility(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Str::fromUtf8(ctx, "subclassResponsibility");
@@ -440,6 +446,7 @@ void installObject(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, cls, "doesNotUnderstand:", 1, "ao_Object_doesNotUnderstand_",
             ao_Object_doesNotUnderstand_);
   putNative(heap, wk, cls, "error:", 1, "ao_Object_error_", ao_Object_error_);
+  putNative(heap, wk, cls, "mustBeBoolean", 0, "ao_Object_mustBeBoolean", ao_Object_mustBeBoolean);
   putNative(heap, wk, cls, "subclassResponsibility", 0, "ao_Object_subclassResponsibility",
             ao_Object_subclassResponsibility);
   putNative(heap, wk, cls, "shouldNotImplement", 0, "ao_Object_shouldNotImplement",

@@ -166,4 +166,26 @@ Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std
   return applyMethod(ctx, meth, receiver, args, argc);
 }
 
+bool unwinding(const CallContext& ctx) { return ctx.nonlocalReturn || ctx.aborting; }
+
+Oop abortEvaluation(CallContext& ctx, const char* reason) {
+  if (!ctx.aborting) {
+    ctx.aborting = true;
+    ctx.abortReason = reason;
+  }
+  // An abort has no home: it overrides a non-local return still in flight.
+  ctx.nonlocalReturn = false;
+  ctx.nonlocalHome = Oop{};
+  ctx.nonlocalValue = Oop{};
+  return Oop{};
+}
+
+void clearUnwinding(CallContext& ctx) {
+  ctx.aborting = false;
+  ctx.abortReason = nullptr;
+  ctx.nonlocalReturn = false;
+  ctx.nonlocalHome = Oop{};
+  ctx.nonlocalValue = Oop{};
+}
+
 }  // namespace ao

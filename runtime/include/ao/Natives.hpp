@@ -4,6 +4,10 @@
 
 namespace ao {
 
+// Association layout. The LitVar bytecodes read and write the value slot (SPEC §3.5).
+inline constexpr std::uint32_t kAssocKey = 0;
+inline constexpr std::uint32_t kAssocValue = 1;
+
 Oop ao_Object_identityEquals(CallContext& ctx, const Oop& receiver, const Oop* args,
                              std::uint32_t argc);
 Oop ao_Object_identityNotEquals(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -26,6 +30,8 @@ Oop ao_Object_perform_withArguments_(CallContext& ctx, const Oop& receiver, cons
 Oop ao_Object_doesNotUnderstand_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc);
 Oop ao_Object_error_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
+Oop ao_Object_mustBeBoolean(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc);
 Oop ao_Object_subclassResponsibility(CallContext& ctx, const Oop& receiver, const Oop* args,
                                      std::uint32_t argc);
 Oop ao_Object_shouldNotImplement(CallContext& ctx, const Oop& receiver, const Oop* args,

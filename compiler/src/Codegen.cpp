@@ -871,6 +871,20 @@ const char* opName(Op op) {
       return "CreateBlock";
     case Op::Primitive:
       return "Primitive";
+    case Op::PushNewArray:
+      return "PushNewArray";
+    case Op::PushRemoteTemp:
+      return "PushRemoteTemp";
+    case Op::StoreRemoteTemp:
+      return "StoreRemoteTemp";
+    case Op::PopStoreRemoteTemp:
+      return "PopStoreRemoteTemp";
+    case Op::PushLitVar:
+      return "PushLitVar";
+    case Op::StoreLitVar:
+      return "StoreLitVar";
+    case Op::PopStoreLitVar:
+      return "PopStoreLitVar";
   }
   return "Unknown";
 }
