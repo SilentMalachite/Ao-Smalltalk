@@ -903,16 +903,18 @@ namespace {
 
 constexpr const char* kDeepEnsure =
     "!Object subclass: #R2DeepEnsure\n"
-    "  instanceVariableNames: 'enter exit'\n"
+    "  instanceVariableNames: 'levels enter exit'\n"
     "  classVariableNames: ''\n"
     "  poolDictionaries: ''\n"
     "  category: 'B2-Test'!\n"
     "!R2DeepEnsure methodsFor: 'r'!\n"
     "start\n"
+    "  levels := 0.\n"
     "  enter := 0.\n"
     "  exit := 0.\n"
     "  ^self recur!\n"
     "recur\n"
+    "  levels := levels + 1.\n"
     "  ^[enter := enter + 1. self recur] ensure: [self b1]!\n"
     "b1\n"
     "  ^self b2!\n"
@@ -922,8 +924,12 @@ constexpr const char* kDeepEnsure =
     "  ^self b4!\n"
     "b4\n"
     "  exit := exit + 1!\n"
-    "missing\n"
-    "  ^enter - exit! !\n";
+    "levels\n"
+    "  ^levels!\n"
+    "enter\n"
+    "  ^enter!\n"
+    "exit\n"
+    "  ^exit! !\n";
 
 }  // namespace
 
@@ -966,5 +972,17 @@ TEST(BlockAbort, EnsureCleanupRunsNearStackLimit) {
   ASSERT_TRUE(b.ctx.aborting);
   EXPECT_EQ(std::string("stack overflow"), b.ctx.abortReason);
   ao::clearUnwinding(b.ctx);
-  EXPECT_EQ(0, send0(b, obj.slot, "missing").smallIntegerValue());
+  // levels は ensure: を送る前に数えた段、enter は本体が始まった段、exit は後始末が終わった回数。
+  // 本体が始まった段の後始末はすべて走り（enter <= exit）、どの段でも後始末は 1 回まで
+  // （exit <= levels）。ガードがどこで当たるかはスタックとフレームの大きさで決まる。最も深い段で
+  // ensure: の適用か、そのレシーバのブロックの適用で当たると、本体はその段だけ始まらない
+  // （levels - enter が 1）。後者では後始末は走る（SPEC §3.4）。
+  const std::int64_t levels = send0(b, obj.slot, "levels").smallIntegerValue();
+  const std::int64_t enter = send0(b, obj.slot, "enter").smallIntegerValue();
+  const std::int64_t exit = send0(b, obj.slot, "exit").smallIntegerValue();
+  SCOPED_TRACE(testing::Message() << "levels " << levels << " enter " << enter << " exit " << exit);
+  EXPECT_GT(enter, 0);
+  EXPECT_LE(enter, exit);
+  EXPECT_LE(exit, levels);
+  EXPECT_LE(levels - enter, 1);
 }

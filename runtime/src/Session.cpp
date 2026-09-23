@@ -214,6 +214,8 @@ void ensureKernelNatives() {
   // every method it has.
   kernel::installMissing(s.heap, s.roots, s.wk);
   Globals::adoptImageClass(s.heap, s.wk);
+  // SPEC §3.5: installMissing may have added one of the eight; a kept user method may hide one.
+  s.wk.checkSmallIntegerFastPath();
 }
 
 namespace {

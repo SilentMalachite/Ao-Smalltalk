@@ -52,6 +52,23 @@ struct OperandStack {
     *out = slots.back();
     return true;
   }
+  // The value fromTop slots below the top (0 is the top), left on the stack.
+  bool peek(std::uint32_t fromTop, Oop* out) const {
+    if (fromTop >= slots.size()) {
+      return false;
+    }
+    *out = slots[slots.size() - 1 - fromTop];
+    return true;
+  }
+
+  // Overwrites the top in place. Its slot stays rooted, so Roots is not touched.
+  bool replaceTop(Oop v) {
+    if (slots.empty()) {
+      return false;
+    }
+    slots.back() = v;
+    return true;
+  }
   std::uint32_t depth() const { return static_cast<std::uint32_t>(slots.size()); }
 };
 
@@ -325,8 +342,70 @@ std::int16_t rel16(std::uint8_t lo, std::uint8_t hi) {
   return static_cast<std::int16_t>(bits);
 }
 
+Oop boolean(bool v) { return v ? Oop::true_() : Oop::false_(); }
+
+// The answer of special selector k for SmallInteger values a and b, when k is one of
+// + - * < > <= >= = and the answer is a Boolean or a SmallInteger.
+bool smallIntegerAnswer(std::uint8_t k, std::int64_t a, std::int64_t b, Oop* answer) {
+  std::int64_t n = 0;
+  bool overflow = false;
+  switch (k) {
+    case compiler::kSpecialAdd:
+      overflow = __builtin_add_overflow(a, b, &n);
+      break;
+    case compiler::kSpecialSubtract:
+      overflow = __builtin_sub_overflow(a, b, &n);
+      break;
+    case compiler::kSpecialMultiply:
+      overflow = __builtin_mul_overflow(a, b, &n);
+      break;
+    case compiler::kSpecialLess:
+      *answer = boolean(a < b);
+      return true;
+    case compiler::kSpecialGreater:
+      *answer = boolean(a > b);
+      return true;
+    case compiler::kSpecialLessEqual:
+      *answer = boolean(a <= b);
+      return true;
+    case compiler::kSpecialGreaterEqual:
+      *answer = boolean(a >= b);
+      return true;
+    case compiler::kSpecialEqual:
+      *answer = boolean(a == b);
+      return true;
+    default:
+      return false;
+  }
+  if (overflow || n < kSmiMin || n > kSmiMax) {
+    return false;
+  }
+  *answer = Oop::fromSmallInteger(n);
+  return true;
+}
+
+// SPEC §3.5: SendSpecial k with one argument, a SmallInteger receiver and a SmallInteger argument
+// answers without a send when smallIntegerAnswer has the answer and the session has checked that
+// SmallInteger finds natives for these selectors (they answer the same). An old image that hides
+// one turns this off. Replaces the two operands by the answer; otherwise
+// leaves the stack as it was, and the caller sends. Allocates nothing, so no GC runs.
+bool answerWithoutSend(const WellKnown& wk, OperandStack& stack, std::uint8_t k,
+                       std::uint8_t argc) {
+  Oop rcvr;
+  Oop arg;
+  Oop answer;
+  if (!wk.smallIntegerFastPath() || argc != 1 || !stack.peek(1, &rcvr) || !stack.peek(0, &arg) ||
+      !rcvr.isSmallInteger() || !arg.isSmallInteger() ||
+      !smallIntegerAnswer(k, rcvr.smallIntegerValue(), arg.smallIntegerValue(), &answer)) {
+    return false;
+  }
+  stack.pop(&arg);
+  return stack.replaceTop(answer);
+}
+
 Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint8_t argc, Oop selector,
                   bool isSuper, bool outermost) {
+  ++ctx.interpretedSends;
   RootedArray argv(ctx.roots, argc);
   for (std::uint32_t k = 0; k < argc; ++k) {
     const std::uint32_t i = argc - 1 - k;
@@ -607,11 +686,10 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
       case compiler::Op::SendSpecial: {
         Oop selector;
         if (op == compiler::Op::SendSpecial) {
-          const char* name = compiler::specialSelector(argb[0]);
-          if (name == nullptr) {
-            return Oop{};
+          if (answerWithoutSend(ctx.wk, stack, argb[0], argb[1])) {
+            break;
           }
-          selector = ctx.wk.intern(name);
+          selector = ctx.wk.specialSelector(argb[0]);
           if (!selector.isHeap()) {
             return Oop{};
           }

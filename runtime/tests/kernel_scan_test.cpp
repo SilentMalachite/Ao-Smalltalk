@@ -4,6 +4,7 @@
 #include "ao/Chunk.hpp"
 #include "ao/Compile.hpp"
 #include "ao/Context.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/Oop.hpp"
@@ -116,6 +117,17 @@ TEST(KernelScan, RequiredSelectorsAreNativeMethods) {
   }
 }
 
+// SPEC §3.5: SendSpecial が SmallInteger 同士で送信を省く 8 セレクタは、SmallInteger から引くと
+// どれもネイティブに当たる。省いても答えが送信と同じであることの前提。
+TEST(KernelScan, SmallIntegerSpecialSelectorsResolveToNatives) {
+  Boot b;
+  for (const char* sel : {"+", "-", "*", "<", ">", "<=", ">=", "="}) {
+    const ao::Oop meth = ao::lookup(b.heap, b.wk.smallIntegerClass, b.wk.intern(sel));
+    ASSERT_TRUE(meth.isHeap()) << sel;
+    EXPECT_EQ(b.wk.nativeMethodClass, b.heap.klass(meth)) << sel;
+  }
+}
+
 TEST(KernelBench, TenMillionToDo) {
   Boot b;
   auto body = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
@@ -130,6 +142,42 @@ TEST(KernelBench, TenMillionToDo) {
   EXPECT_LT(ms, 30000);
   std::printf("P4 to:do: 10000000 native %lld ms\n", static_cast<long long>(ms));
   EXPECT_EQ(0u, b.ctx.interpretedBytecodes);
+}
+
+// SPEC §3.5: ユーザーメソッドの展開した to:do:。1 反復は 13 命令（判定 4、本体 4、増分 5）で、
+// SmallInteger の <= と + は送信しない。命令数は、前置き 5（1 を積んで複製、ループ変数と上限を
+// 置く）、最後の判定 4、ReturnTop 1 を足した 13N + 10 である。
+TEST(KernelBench, InlinedToDoMillion) {
+  Boot b;
+  constexpr std::int64_t kN = 1000000;
+  const char* src =
+      "!Object subclass: #B3Bench\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'!\n"
+      "!B3Bench methodsFor: 'bench'!\n"
+      "loop\n"
+      "  ^1 to: 1000000 do: [:i | i + 1]! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs));
+  ASSERT_TRUE(errs.empty()) << errs[0].message;
+  ao::Root inst(b.roots, send0(b, b.wk.named("B3Bench"), "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  const std::uint64_t bytecodes = b.ctx.interpretedBytecodes;
+  const std::uint64_t sends = b.ctx.interpretedSends;
+  const auto start = std::chrono::steady_clock::now();
+  const ao::Oop got = send0(b, inst.slot, "loop");
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - start)
+                      .count();
+  std::printf("B3 inlined to:do: %lld compiled %lld ms\n", static_cast<long long>(kN),
+              static_cast<long long>(ms));
+  ASSERT_TRUE(got.isSmallInteger());
+  EXPECT_EQ(1, got.smallIntegerValue());
+  EXPECT_EQ(static_cast<std::uint64_t>(13 * kN + 10), b.ctx.interpretedBytecodes - bytecodes);
+  EXPECT_EQ(0u, b.ctx.interpretedSends - sends);
+  EXPECT_LT(ms, 30000);
 }
 
 // SPEC §3.10: ロードしたイメージに無い Kernel ネイティブだけを足し、あるものは上書きしない。

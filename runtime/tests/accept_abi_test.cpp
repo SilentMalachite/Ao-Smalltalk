@@ -64,6 +64,51 @@ TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
   std::remove(path);
 }
 
+// SPEC §3.10: Kernel クラスでは、引くとネイティブに当たるセレクタ（上位クラスから継承したネイティブ）
+// も拒む。インスタンス側とクラス側の両方。Kernel クラスへの新しいセレクタと、Kernel でないクラスで
+// 継承したネイティブを上書きするのは受け付ける。
+TEST(AcceptAbi, AcceptRefusesShadowingInheritedNativeInKernelClass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  struct Refused {
+    const char* cls;
+    int meta;
+    const char* source;
+    const char* selector;
+  };
+  const Refused refused[] = {
+      {"SmallInteger", 0, "<= x\n  ^false\n", "<="},  // Magnitude>><=
+      {"Integer", 0, "<= x\n  ^false\n", "<="},       // Magnitude>><=
+      {"SmallInteger", 0, "< x\n  ^false\n", "<"},    // Integer>><
+      {"SmallInteger", 1, "new\n  ^3\n", "new"},      // Behavior>>new
+  };
+  for (const Refused& r : refused) {
+    SCOPED_TRACE(r.source);
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method(r.cls, r.meta, r.source, &err));
+    EXPECT_EQ(std::string("native selector overwrite refused: ") + r.selector,
+              std::string(err.message));
+  }
+  char out[64];
+  ASSERT_EQ(AO_OK, ao_eval("3 <= 4", 6, AO_EVAL_PRINTIT, out, 64, &err));
+  EXPECT_STREQ("true", out);
+
+  EXPECT_EQ(AO_OK, ao_accept_method("Object", 0, "r2New\n  ^1\n", &err)) << err.message;
+  const char* def =
+      "Object subclass: #B3Shadow\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  EXPECT_EQ(AO_OK, ao_accept_method("B3Shadow", 0, "printString\n  ^'shadow'\n", &err))
+      << err.message;
+  EXPECT_EQ(AO_OK, ao_accept_method("B3Shadow", 0, "<= x\n  ^false\n", &err)) << err.message;
+  EXPECT_EQ(AO_OK, ao_accept_method("B3Shadow", 1, "new\n  ^super new\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_eval("B3Shadow new <= 1", 17, AO_EVAL_PRINTIT, out, 64, &err));
+  EXPECT_STREQ("false", out);
+  ao_runtime_shutdown();
+}
+
 TEST(AcceptAbi, ObjectSubclassObjectIsCompileError) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   AoSpan err{};

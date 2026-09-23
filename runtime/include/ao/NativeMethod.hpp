@@ -47,6 +47,10 @@ struct CallContext {
   HostOopHook transcriptHook = nullptr;
   Oop activeContext{};
   std::uint64_t interpretedBytecodes = 0;
+  // Sends the interpreter made for Send, SendSuper and SendSpecial (performSend). A SendSpecial
+  // that SmallIntegers answer without a send (SPEC §3.5) does not count; mustBeBoolean and
+  // cannotReturn: do not either.
+  std::uint64_t interpretedSends = 0;
   int testFailures = 0;
   bool nonlocalReturn = false;
   Oop nonlocalHome{};

@@ -4,6 +4,8 @@
 #include "ao/Oop.hpp"
 #include "ao/Roots.hpp"
 
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <string_view>
 
@@ -42,6 +44,24 @@ class WellKnown {
   void eachExtra(void (*fn)(void*, std::string_view name, Oop cls), void* baton) const;
   bool bindImageSlot(std::string_view name, Oop value);
   bool rememberSymbol(Oop sym);
+
+  // SendSpecial's selector table (compiler::specialSelector), interned ahead of use so the
+  // interpreter reads selector k without interning (SPEC §3.5).
+  static constexpr std::uint8_t kSpecialSelectorCount = 28;
+  // Interns every special selector. Bootstrap calls it; Image::load calls it after it has
+  // remembered the image's Symbols. Does not GC; false when an intern fails.
+  bool internSpecialSelectors();
+  // Selector k, read from its rooted intern-table slot, so a GC that moves the Symbol is seen.
+  // Empty Oop when k is out of range or internSpecialSelectors has not filled it.
+  Oop specialSelector(std::uint8_t k) const {
+    return k < kSpecialSelectorCount && specialSlots_[k] != nullptr ? *specialSlots_[k] : Oop{};
+  }
+  // SPEC §3.5: SendSpecial answers + - * < > <= >= = for two SmallIntegers without a send only
+  // while this holds: each of them, looked up from SmallInteger, finds a NativeMethod.
+  bool smallIntegerFastPath() const { return smallIntegerFastPath_; }
+  // Looks the eight selectors up from SmallInteger and sets smallIntegerFastPath. Bootstrap::run,
+  // Image::load and ensureKernelNatives call it. An old image may hide one with a user method.
+  void checkSmallIntegerFastPath();
 
   Oop objectClass{};
   Oop objectMetaclass{};
@@ -183,6 +203,9 @@ class WellKnown {
   std::unique_ptr<InternTable> intern_;
   std::unique_ptr<ExtraTable> extra_;
   std::uint64_t globalsVersion_ = 0;
+  // Slots of intern_->table. A deque keeps its elements in place as it grows.
+  std::array<const Oop*, kSpecialSelectorCount> specialSlots_{};
+  bool smallIntegerFastPath_ = false;
 };
 
 }  // namespace ao

@@ -145,9 +145,15 @@ void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
   }
 }
 
+// A Kernel class (SPEC §3.6): file-in does not redefine it (SPEC §3.12), and accept does not
+// hide a native it finds (SPEC §3.10). A vendor stub is not one.
+bool isKernelClassName(const WellKnown& wk, std::string_view className) {
+  return wk.isCatalogName(className) && !isVendorStub(className);
+}
+
 bool refusesKernelRedefinition(const WellKnown& wk, std::string_view className,
                                std::vector<compiler::CompileError>& errors) {
-  if (wk.isCatalogName(className) && !isVendorStub(className)) {
+  if (isKernelClassName(wk, className)) {
     errors.push_back(
         compiler::CompileError{{}, "refusing to redefine kernel class: " + std::string(className)});
     return true;
@@ -402,16 +408,21 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
   }
 
   Root old(ctx.roots, Oop::nil());
+  bool findsNative = false;
   {
     const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
-    if (dict.isHeap()) {
-      const Oop sel = ctx.wk.intern(cr.image.selector);
-      if (sel.isHeap()) {
-        old.slot = MethodDictionary::at(ctx.heap, dict, sel);
-      }
+    const Oop sel = ctx.wk.intern(cr.image.selector);
+    if (dict.isHeap() && sel.isHeap()) {
+      old.slot = MethodDictionary::at(ctx.heap, dict, sel);
     }
+    // SPEC §3.10: in a Kernel class, a native the selector finds through the superclasses is
+    // not hidden either. Neither intern nor lookup GCs, so the raw Oops stay valid.
+    const Oop found = sel.isHeap() && isKernelClassName(ctx.wk, className)
+                          ? lookup(ctx.heap, tgt.slot, sel)
+                          : old.slot;
+    findsNative = found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass;
   }
-  if (old.slot.isHeap() && ctx.heap.klass(old.slot) == ctx.wk.nativeMethodClass) {
+  if (findsNative) {
     assignError(error, "native selector overwrite refused: " + cr.image.selector);
     return false;
   }

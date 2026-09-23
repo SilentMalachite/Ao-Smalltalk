@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
 namespace ao::compiler {
 
@@ -101,8 +102,8 @@ inline constexpr std::uint8_t operandBytes(Op op) {
 
 inline constexpr std::uint8_t specialCount() { return 28; }
 
-inline const char* specialSelector(std::uint8_t i) {
-  static constexpr const char* kSpecial[28] = {
+constexpr const char* specialSelector(std::uint8_t i) {
+  constexpr const char* kSpecial[specialCount()] = {
       "+",          "-",        "*",     "/",      "//",     "\\\\", "@",      "bitShift:",
       "bitAnd:",    "bitOr:",   "<",     ">",      "<=",     ">=",   "=",      "~=",
       "==",         "class",    "size",  "at:",    "at:put:", "value", "value:", "do:",
@@ -113,5 +114,25 @@ inline const char* specialSelector(std::uint8_t i) {
   }
   return kSpecial[i];
 }
+
+// Numbers in the special selector table that the interpreter answers for two SmallIntegers
+// without a send (SPEC §3.5). The checks below tie each number to its place in the table.
+inline constexpr std::uint8_t kSpecialAdd = 0;
+inline constexpr std::uint8_t kSpecialSubtract = 1;
+inline constexpr std::uint8_t kSpecialMultiply = 2;
+inline constexpr std::uint8_t kSpecialLess = 10;
+inline constexpr std::uint8_t kSpecialGreater = 11;
+inline constexpr std::uint8_t kSpecialLessEqual = 12;
+inline constexpr std::uint8_t kSpecialGreaterEqual = 13;
+inline constexpr std::uint8_t kSpecialEqual = 14;
+
+static_assert(std::string_view(specialSelector(kSpecialAdd)) == "+");
+static_assert(std::string_view(specialSelector(kSpecialSubtract)) == "-");
+static_assert(std::string_view(specialSelector(kSpecialMultiply)) == "*");
+static_assert(std::string_view(specialSelector(kSpecialLess)) == "<");
+static_assert(std::string_view(specialSelector(kSpecialGreater)) == ">");
+static_assert(std::string_view(specialSelector(kSpecialLessEqual)) == "<=");
+static_assert(std::string_view(specialSelector(kSpecialGreaterEqual)) == ">=");
+static_assert(std::string_view(specialSelector(kSpecialEqual)) == "=");
 
 }  // namespace ao::compiler
