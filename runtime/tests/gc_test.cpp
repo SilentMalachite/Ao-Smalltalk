@@ -1,4 +1,5 @@
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Heap.hpp"
 #include "ao/Oop.hpp"
 #include "ao/Roots.hpp"
@@ -245,6 +246,63 @@ TEST(GcRoots, StackWalkerKeepsObject) {
   gc.collectNursery();
   ASSERT_TRUE(stackObj.isHeap());
   EXPECT_TRUE(heap.inOld(stackObj));
+}
+
+namespace {
+
+int countVisitedRoots(ao::Roots& roots) {
+  int seen = 0;
+  roots.visitAll([](void* ctx, ao::Oop*) { ++*static_cast<int*>(ctx); }, &seen);
+  return seen;
+}
+
+}  // namespace
+
+TEST(GcRoots, RangeRootIsVisitedAndPopped) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  ao::Oop range[2] = {heap.allocate(ao::Oop::nil(), 0, 0), heap.allocate(ao::Oop::nil(), 1, 0)};
+  ASSERT_TRUE(range[0].isHeap());
+  ASSERT_TRUE(range[1].isHeap());
+  ASSERT_FALSE(heap.inOld(range[0]));
+  roots.pushRange(range, 2);
+  EXPECT_EQ(2, countVisitedRoots(roots));
+  gc.collectNursery();
+  ASSERT_TRUE(range[0].isHeap());
+  ASSERT_TRUE(range[1].isHeap());
+  EXPECT_TRUE(heap.inOld(range[0]));
+  EXPECT_TRUE(heap.inOld(range[1]));
+  EXPECT_EQ(1u, heap.size(range[1]));
+  roots.popRange(range, 2);
+  EXPECT_EQ(0, countVisitedRoots(roots));
+}
+
+TEST(GcRoots, RootedArrayBeyondInlineSlotsSurvivesGc) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  constexpr std::uint32_t kCount = ao::RootedArray::kInlineSlots + 1;
+  {
+    ao::RootedArray arr(roots, kCount);
+    ASSERT_EQ(kCount, arr.size());
+    ASSERT_EQ(&arr[0], arr.ptr());
+    for (std::uint32_t i = 0; i < kCount; ++i) {
+      EXPECT_TRUE(arr[i].isNil());
+      arr[i] = heap.allocate(ao::Oop::nil(), 0, 0);
+      ASSERT_TRUE(arr[i].isHeap());
+    }
+    {
+      ao::RootedArray inner(roots, 2);
+      EXPECT_EQ(static_cast<int>(kCount) + 2, countVisitedRoots(roots));
+    }
+    gc.collectNursery();
+    for (std::uint32_t i = 0; i < kCount; ++i) {
+      ASSERT_TRUE(arr[i].isHeap());
+      EXPECT_TRUE(heap.inOld(arr[i]));
+    }
+  }
+  EXPECT_EQ(0, countVisitedRoots(roots));
 }
 
 TEST(GcWeak, UnrootedReferentBecomesNil) {

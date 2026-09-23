@@ -2,19 +2,11 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Send.hpp"
 
 namespace ao {
 namespace {
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 constexpr std::uint32_t kProcNextLink = 0;
 constexpr std::uint32_t kProcContext  = 1;

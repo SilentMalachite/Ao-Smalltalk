@@ -1,42 +1,17 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 
 namespace ao {
 namespace {
 
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
-
 constexpr std::uint32_t kPointX = 0;
 constexpr std::uint32_t kPointY = 1;
 constexpr std::uint32_t kRectOrigin = 0;
 constexpr std::uint32_t kRectCorner = 1;
-
-Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags) {
-  if (ctx.heap.gcStress() != 0) {
-    Root stressed(ctx.roots, cls);
-    Gc(ctx.heap, ctx.roots).stressPoint();
-    cls = stressed.slot;
-  }
-  Oop obj = ctx.heap.allocate(cls, size, flags);
-  if (obj.isHeap()) {
-    return obj;
-  }
-  Root held(ctx.roots, cls);
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return ctx.heap.allocate(held.slot, size, flags);
-}
 
 bool isPoint(CallContext& ctx, Oop o) {
   return o.isHeap() && ctx.heap.klass(o) == ctx.wk.pointClass && ctx.heap.size(o) > kPointY &&

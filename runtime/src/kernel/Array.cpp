@@ -2,6 +2,7 @@
 
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
@@ -27,15 +28,6 @@ Oop fromSlots(Heap& heap, WellKnown& wk, const Oop* p, std::uint32_t n) {
 namespace {
 
 constexpr int kArrayPrintMaxDepth = 4;
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 bool isArray(const CallContext& ctx, Oop obj) {
   return obj.isHeap() && ctx.wk.classOf(obj) == ctx.wk.arrayClass;

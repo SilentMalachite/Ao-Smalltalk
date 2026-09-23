@@ -4,6 +4,7 @@
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 #include "ao/kernel/Install.hpp"
@@ -18,15 +19,6 @@
 
 namespace ao {
 namespace {
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 Oop ao_AoTest_assert_equals_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 2 || args == nullptr) {

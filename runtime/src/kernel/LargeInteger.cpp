@@ -2,6 +2,7 @@
 
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -13,15 +14,6 @@ namespace LargeInteger {
 namespace {
 
 using Digits = std::vector<std::uint32_t>;
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 struct Big {
   bool neg = false;

@@ -1,19 +1,11 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Send.hpp"
 
 namespace ao {
 namespace {
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 Oop selEquals(WellKnown& wk) { return wk.intern("="); }
 Oop selHash(WellKnown& wk) { return wk.intern("hash"); }

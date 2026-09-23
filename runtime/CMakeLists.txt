@@ -15,6 +15,7 @@ add_library(ao_runtime
   src/Heap.cpp
   src/Gc.cpp
   src/Roots.cpp
+  src/HandleScope.cpp
   src/WellKnown.cpp
   src/Bootstrap.cpp
   src/Globals.cpp

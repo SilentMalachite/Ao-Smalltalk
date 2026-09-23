@@ -5,6 +5,7 @@
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/Globals.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Image.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/MethodDictionary.hpp"
@@ -528,42 +529,6 @@ std::vector<std::string> subclassNames(Session& s, const std::string& name,
 
 bool metaOk(int meta) { return meta == 0 || meta == 1; }
 
-struct HostRoot {
-  Roots& roots;
-  Oop slot;
-  explicit HostRoot(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~HostRoot() { roots.remove(&slot); }
-  HostRoot(const HostRoot&) = delete;
-  HostRoot& operator=(const HostRoot&) = delete;
-};
-
-struct HostSlots {
-  Roots& roots;
-  std::unique_ptr<Oop[]> data;
-  std::uint32_t n = 0;
-  HostSlots(Roots& r, std::uint32_t count) : roots(r), n(count) {
-    if (n == 0) {
-      return;
-    }
-    data.reset(new Oop[n]);
-    for (std::uint32_t i = 0; i < n; ++i) {
-      data[i] = Oop::nil();
-      roots.add(&data[i]);
-    }
-  }
-  ~HostSlots() {
-    if (!data) {
-      return;
-    }
-    for (std::uint32_t i = 0; i < n; ++i) {
-      roots.remove(&data[i]);
-    }
-  }
-  HostSlots(const HostSlots&) = delete;
-  HostSlots& operator=(const HostSlots&) = delete;
-  Oop* ptr() const { return data.get(); }
-};
-
 struct HostBind {
   CallContext& ctx;
   HostBind(CallContext& c, Oop* ptr, std::uint32_t count) : ctx(c) {
@@ -643,7 +608,7 @@ void blankOut(char* out, int outLen) {
 }
 
 bool dictAtKey(Session& session, std::string_view name, Oop* out) {
-  HostRoot key(session.roots, Str::fromUtf8(session.heap, session.wk, name));
+  Root key(session.roots, Str::fromUtf8(session.heap, session.wk, name));
   if (!key.slot.isHeap()) {
     return false;
   }
@@ -656,8 +621,8 @@ bool dictAtKey(Session& session, std::string_view name, Oop* out) {
 }
 
 bool dictAtPutKey(Session& session, std::string_view name, Oop value) {
-  HostRoot key(session.roots, Str::fromUtf8(session.heap, session.wk, name));
-  HostRoot val(session.roots, value);
+  Root key(session.roots, Str::fromUtf8(session.heap, session.wk, name));
+  Root val(session.roots, value);
   if (!key.slot.isHeap()) {
     return false;
   }
@@ -724,14 +689,14 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     return AO_ERR_EVAL;
   }
 
-  HostRoot method(session.roots, boxMethodImage(*session.ctx, image, session.wk.compiledMethodClass));
+  Root method(session.roots, boxMethodImage(*session.ctx, image, session.wk.compiledMethodClass));
   if (!method.slot.isHeap()) {
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
 
   const auto ntemps = static_cast<std::uint32_t>(image.numTemps);
-  HostSlots slots(session.roots, ntemps);
+  RootedArray slots(session.roots, ntemps);
   for (std::uint32_t i = 0; i < ntemps; ++i) {
     if (!image.tempBindings[i].workspace) {
       continue;
@@ -744,7 +709,7 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     slots.ptr()[i] = value;
   }
 
-  HostRoot result(session.roots);
+  Root result(session.roots);
   {
     HostBind bound(*session.ctx, ntemps == 0 ? nullptr : slots.ptr(), ntemps);
     result.slot = applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil());
@@ -785,7 +750,7 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
-  HostRoot printed(session.roots,
+  Root printed(session.roots,
                    send(*session.ctx, result.slot, printSel, nullptr, 0, nullptr));
   if (!printed.slot.isHeap() || (session.heap.flags(printed.slot) & kFlagBytes) == 0) {
     blankOut(out, outLen);

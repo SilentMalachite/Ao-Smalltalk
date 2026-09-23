@@ -1,6 +1,8 @@
 #include "ao/Roots.hpp"
 
 #include <algorithm>
+#include <cassert>
+#include <iterator>
 
 namespace ao {
 
@@ -19,6 +21,26 @@ void Roots::remove(Oop* slot) {
   auto it = std::find(slots_.rbegin(), slots_.rend(), slot);
   if (it != slots_.rend()) {
     slots_.erase(std::next(it).base());
+  }
+}
+
+void Roots::pushRange(Oop* first, std::size_t n) {
+  if (first == nullptr || n == 0) {
+    return;
+  }
+  ranges_.push_back(Range{first, n});
+}
+
+void Roots::popRange(Oop* first, std::size_t n) {
+  if (first == nullptr || n == 0) {
+    return;
+  }
+  assert(!ranges_.empty() && ranges_.back().first == first && ranges_.back().n == n &&
+         "root ranges must be popped LIFO");
+  auto it = std::find_if(ranges_.rbegin(), ranges_.rend(),
+                         [&](const Range& r) { return r.first == first && r.n == n; });
+  if (it != ranges_.rend()) {
+    ranges_.erase(std::next(it).base());
   }
 }
 
@@ -64,6 +86,11 @@ void Roots::visitAll(VisitFn visit, void* ctx) {
   for (Oop* slot : slots_) {
     if (slot != nullptr) {
       visit(ctx, slot);
+    }
+  }
+  for (const Range& r : ranges_) {
+    for (std::size_t i = 0; i < r.n; ++i) {
+      visit(ctx, r.first + i);
     }
   }
   for (std::size_t i = 0; i < handles_.size(); ++i) {
