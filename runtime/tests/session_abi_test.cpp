@@ -167,3 +167,28 @@ TEST_F(SessionAbi, HugeAllocationReportsOutOfMemory) {
   EXPECT_STREQ("", err2.message);
   ao_runtime_shutdown();
 }
+
+// INSPECTIT でも、out of memory になった評価はエラーだけを返す。inspect フックを呼んでから
+// out of memory を返していた（Inspector が開き、そのあとでエラーになる）。
+TEST_F(SessionAbi, OutOfMemoryInspectItDoesNotCallInspectHook) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  int calls = 0;
+  ao_set_inspect_hook([](const char*, const char*, void* user) { *static_cast<int*>(user) += 1; },
+                      &calls);
+  char out[64];
+  AoSpan err{};
+  const char* src = "(Array new: 600000000). 3";
+  EXPECT_EQ(AO_ERR_EVAL,
+            ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_INSPECTIT, out, 64, &err));
+  EXPECT_STREQ("out of memory", err.message);
+  EXPECT_STREQ("", out);
+  EXPECT_EQ(0, calls);
+
+  // フックは次の評価ではふつうに呼ばれる。
+  AoSpan err2{};
+  ASSERT_EQ(AO_OK, ao_eval("1 + 2", 5, AO_EVAL_INSPECTIT, out, 64, &err2));
+  EXPECT_STREQ("3", out);
+  EXPECT_EQ(1, calls);
+  ao_set_inspect_hook(nullptr, nullptr);
+  ao_runtime_shutdown();
+}

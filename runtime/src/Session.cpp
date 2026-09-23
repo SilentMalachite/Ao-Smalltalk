@@ -759,6 +759,12 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     return AO_ERR_EVAL;
   }
   const std::string utf8 = Str::toUtf8(session.heap, printed.slot);
+  // out of memory になった評価は、エラーだけを返す（文言は sessionEval が入れる）。Inspector を
+  // 開かないよう、フックより先に判定する。
+  if (session.heap.outOfMemory()) {
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
   if (mode == AO_EVAL_INSPECTIT && inspect != nullptr) {
     const std::string cls = classNameOf(session.heap, session.wk.classOf(result.slot));
     inspect(cls.c_str(), utf8.c_str(), inspectUser);
