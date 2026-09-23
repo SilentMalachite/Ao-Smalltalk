@@ -575,6 +575,35 @@ TEST(GcWeak, LiveOldReferentRewrittenAcrossCompact) {
   EXPECT_TRUE(heap.inOld(child));
 }
 
+// 弱スロット → old の O → nursery の N で、O が弱参照でしか届かないとき、スキャベンジは O を
+// たどらず N をコピーしない。O の slot は解放済みの番地を指し、弱スロットから O へ届いてしまう。
+// スキャベンジは届く old をすべてたどるので、たどられなかった old を指す弱スロットはその時点で nil。
+TEST(GcWeak, WeakOnlyOldReferentClearedAtScavenge) {
+  ao::Heap heap(512, 8192);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto weak = heap.allocateTenured(ao::Oop::nil(), 2, ao::kFlagWeak);
+  auto weakOnly = heap.allocateTenured(ao::Oop::nil(), 1, 0);
+  auto live = heap.allocateTenured(ao::Oop::nil(), 0, 0);
+  auto young = heap.allocate(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(heap.inOld(weak));
+  ASSERT_TRUE(heap.inOld(weakOnly));
+  ASSERT_TRUE(heap.inOld(live));
+  ASSERT_TRUE(heap.inNursery(young));
+  heap.slotAtPut(weakOnly, 0, young);
+  heap.slotAtPut(weak, 0, weakOnly);
+  heap.slotAtPut(weak, 1, live);
+  roots.add(&weak);
+  roots.add(&live);
+
+  gc.collectNursery();
+
+  EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
+  EXPECT_EQ(live, heap.slotAt(weak, 1));
+  roots.remove(&live);
+  roots.remove(&weak);
+}
+
 TEST(GcOld, ImmovableKeepsAddressAcrossCompact) {
   ao::Heap heap(256, 2048);
   ao::Roots roots;

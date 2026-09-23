@@ -67,8 +67,9 @@ Oop Gc::copy(Oop obj) {
 }
 
 void Gc::collectNursery() {
-  scavengeFromRoots();
-  clearWeakAfterNursery();
+  std::unordered_set<std::uintptr_t> traced;
+  scavengeFromRoots(traced);
+  clearWeakAfterNursery(traced);
   heap_->flipNursery();
   heap_->poisonFreed(heap_->toStart_, heap_->toEnd_);
   // full GC はスキャベンジの後、oldUsed が閾値を超えたときだけ走らせる（SPEC §3.2）。
@@ -89,9 +90,8 @@ void Gc::collectBeforeTenured(std::size_t bytes) {
   }
 }
 
-void Gc::scavengeFromRoots() {
+void Gc::scavengeFromRoots(std::unordered_set<std::uintptr_t>& visited) {
   std::vector<Oop> stack;
-  std::unordered_set<std::uintptr_t> visited;
 
   struct Ctx {
     Gc* gc;
@@ -144,8 +144,10 @@ void Gc::scavengeFromRoots() {
   }
 }
 
-void Gc::clearWeakAfterNursery() {
+void Gc::clearWeakAfterNursery(const std::unordered_set<std::uintptr_t>& traced) {
   // from-space を指す弱スロット: 転送済みなら転送先、そうでなければ死んでいるので nil。
+  // old を指す弱スロット: スキャベンジは届く old をすべてたどる。たどられなかった old は弱参照でしか
+  // 届かない（死んでいる）。その slot の nursery への参照は転送されていないので、ここで nil にする。
   auto fixWeak = [&](std::byte* scan, std::byte* end) {
     while (scan < end) {
       auto* h = reinterpret_cast<ObjectHeader*>(scan);
@@ -154,7 +156,16 @@ void Gc::clearWeakAfterNursery() {
         auto* slots = reinterpret_cast<Oop*>(h + 1);
         for (std::uint32_t i = 0; i < h->size; ++i) {
           Oop s = slots[i];
-          if (!s.isHeap() || !heap_->containsNurseryFrom(s.heapPointer())) {
+          if (!s.isHeap()) {
+            continue;
+          }
+          if (heap_->inOld(s)) {
+            if (traced.count(reinterpret_cast<std::uintptr_t>(s.heapPointer())) == 0) {
+              slots[i] = Oop::nil();
+            }
+            continue;
+          }
+          if (!heap_->containsNurseryFrom(s.heapPointer())) {
             continue;
           }
           ObjectHeader* ch = heap_->header(s);
