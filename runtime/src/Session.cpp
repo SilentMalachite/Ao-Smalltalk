@@ -769,7 +769,26 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
 
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser) {
-  return evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser);
+  // 評価の前に立っていたフラグ（accept や file-in の途中のもの）を、この評価のせいにしない。
+  if (g_session != nullptr) {
+    g_session->heap.clearOutOfMemory();
+  }
+  const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser);
+  // SPEC §3.2: old の上限で割り当てられなければ評価エラー「out of memory」。巻き戻し（B3）は
+  // まだ無いので、評価を走り切らせてからフラグで判定する。
+  if (g_session == nullptr || !g_session->heap.outOfMemory()) {
+    return rc;
+  }
+  g_session->heap.clearOutOfMemory();
+  blankOut(out, outLen);
+  if (err != nullptr) {
+    static constexpr char kOutOfMemory[] = "out of memory";
+    static_assert(sizeof(kOutOfMemory) <= sizeof(err->message));
+    err->start = 0;
+    err->end = 0;
+    std::memcpy(err->message, kOutOfMemory, sizeof(kOutOfMemory));
+  }
+  return AO_ERR_EVAL;
 }
 
 void rememberMethodSource(Oop method, Oop text, Oop replaced) {
