@@ -43,7 +43,12 @@ Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes, std::size_t oldMaxByt
   toEnd_ = toStart_ + nurseryBytes;
   toBump_ = toStart_;
   // 予約かコミットに失敗したら old は空のまま（上限 0）にする。old への割り当ては失敗する。
-  if (!old_->reserve(oldMax_, kOldCommitUnit) || !old_->commit(oldInitial_)) {
+  // 黙って劣化させず、stderr に 1 行出す。
+  const bool reserved = old_->reserve(oldMax_, kOldCommitUnit);
+  if (!reserved || !old_->commit(oldInitial_)) {
+    std::fprintf(stderr,
+                 "ao: heap: could not %s %zu bytes of old space; old allocations will fail\n",
+                 reserved ? "commit" : "reserve", reserved ? oldInitial_ : oldMax_);
     old_ = std::make_unique<VirtualRegion>();
     oldInitial_ = 0;
     oldMax_ = 0;

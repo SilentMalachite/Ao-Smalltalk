@@ -5,8 +5,10 @@
 #include "ao/Roots.hpp"
 #include "ao/WellKnown.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -187,4 +189,19 @@ TEST(HeapAlloc, AllocateNoGcSpillsToOld) {
   // GC は走っていない: nursery の object は同じ番地のまま。
   EXPECT_TRUE(heap.inNursery(first));
   EXPECT_EQ(firstAt, first.heapPointer());
+}
+
+// old の予約に失敗すると、old は空（上限 0）になり、old への割り当てはすべて失敗する。黙って
+// 劣化させず、stderr に 1 行の診断を出す。2^60 バイトの予約は mmap が必ず断る。
+TEST(HeapAlloc, OldReserveFailureIsReported) {
+  testing::internal::CaptureStderr();
+  ao::Heap heap(4096, 64u << 10, std::size_t{1} << 60);
+  const std::string err = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(0u, heap.oldMaxBytes());
+  EXPECT_EQ(0u, heap.oldCapacity());
+  EXPECT_FALSE(heap.allocateTenured(ao::Oop::nil(), 1, 0).isHeap());
+  EXPECT_TRUE(heap.allocate(ao::Oop::nil(), 1, 0).isHeap());  // nursery は使える
+  EXPECT_EQ(0u, err.rfind("ao: ", 0)) << err;
+  EXPECT_NE(std::string::npos, err.find("old space")) << err;
+  EXPECT_EQ(1, std::count(err.begin(), err.end(), '\n')) << err;
 }
