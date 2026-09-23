@@ -185,7 +185,10 @@ TEST(CompilerRoundtrip, NestedCompiledSendKeepsOuterContext) {
   env.instVarNames.emplace_back("x");
   auto innerOld = ao::compiler::compileMethod("innerOld\n  self forceOld.\n  ^1", env);
   ASSERT_TRUE(innerOld.ok) << innerOld.error.message;
-  auto innerSlide = ao::compiler::compileMethod("innerSlide\n  self forceSlide.\n  ^thisContext", env);
+  // The sender is read after the slide, while innerSlide still runs: a returned context is dead
+  // (nil pc and sender, SPEC §3.4).
+  auto innerSlide =
+      ao::compiler::compileMethod("innerSlide\n  self forceSlide.\n  ^thisContext sender", env);
   ASSERT_TRUE(innerSlide.ok) << innerSlide.error.message;
   auto outer = ao::compiler::compileMethod(
       "outer\n  x := self innerOld.\n  self forceNursery.\n  ^self innerSlide", env);
@@ -195,12 +198,10 @@ TEST(CompilerRoundtrip, NestedCompiledSendKeepsOuterContext) {
   ASSERT_TRUE(ao::installMethod(b.ctx, b.wk.named("Nest"), outer.image).isHeap());
   auto obj = send0(b, b.wk.named("Nest"), "new");
   ASSERT_TRUE(obj.isHeap());
-  auto got = send0(b, obj, "outer");
-  ASSERT_TRUE(got.isHeap());
-  EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(got));
-  auto home = b.heap.slotAt(got, ao::kCtxSender);
+  auto home = send0(b, obj, "outer");
   ASSERT_TRUE(home.isHeap());
   EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(home));
+  EXPECT_TRUE(b.heap.slotAt(home, ao::kCtxSender).isNil());
   auto nest = b.wk.named("Nest");
   auto outerMeth = ao::lookup(b.heap, nest, b.wk.intern("outer"));
   EXPECT_EQ(outerMeth, b.heap.slotAt(home, ao::kCtxMethod));

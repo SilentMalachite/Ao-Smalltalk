@@ -441,3 +441,93 @@ TEST(BlockNatives, ValueWithArgumentsRejectsNonArray) {
   EXPECT_EQ("valueWithArguments: expects an Array", ao::Str::toUtf8(b.heap, rejected));
   EXPECT_EQ(9, evalExpr(b, "^[:a :b | a + b] valueWithArguments: #(4 5)").smallIntegerValue());
 }
+
+namespace {
+
+constexpr const char* kActivationProbe =
+    "!Object subclass: #R2Activation\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Activation methodsFor: 'probes'!\n"
+    "recursiveSenders\n"
+    "  | blk log |\n"
+    "  log := OrderedCollection new.\n"
+    "  blk := [:b :d |\n"
+    "    log add: thisContext sender.\n"
+    "    d > 0 ifTrue: [b value: b value: d - 1].\n"
+    "    log add: thisContext sender].\n"
+    "  blk value: blk value: 1.\n"
+    "  ^log!\n"
+    "makeBlock\n"
+    "  ^[:x | ^x]!\n"
+    "useDeadHome\n"
+    "  | b log |\n"
+    "  log := OrderedCollection new.\n"
+    "  b := self makeBlock.\n"
+    "  log add: #before.\n"
+    "  log add: (b value: 3).\n"
+    "  log add: #after.\n"
+    "  ^log! !\n";
+
+ao::Oop runActivationProbe(Boot& b, const char* sel) {
+  std::vector<ao::compiler::CompileError> errs;
+  if (!ao::fileInString(b.ctx, kActivationProbe, errs) || !errs.empty()) {
+    ADD_FAILURE() << (errs.empty() ? "file-in failed" : errs[0].message);
+    return ao::Oop{};
+  }
+  ao::Root probe(b.roots, send0(b, b.wk.named("R2Activation"), "new"));
+  return send0(b, probe.slot, sel);
+}
+
+ao::Oop ocAt(Boot& b, ao::Oop oc, std::int64_t i) {
+  return send1(b, oc, "at:", ao::Oop::fromSmallInteger(i));
+}
+
+}  // namespace
+
+// 02 Low: 同じブロックを再帰的に起動しても、外側の起動の sender は内側に書き換えられない。
+TEST(BlockActivation, RecursiveBlockKeepsOwnSender) {
+  Boot b;
+  ao::Root log(b.roots, runActivationProbe(b, "recursiveSenders"));
+  ASSERT_TRUE(log.slot.isHeap());
+  ASSERT_EQ(4, send0(b, log.slot, "size").smallIntegerValue());
+  const ao::Oop outerBefore = ocAt(b, log.slot, 1);
+  const ao::Oop innerBefore = ocAt(b, log.slot, 2);
+  EXPECT_EQ(outerBefore, ocAt(b, log.slot, 4));
+  EXPECT_EQ(innerBefore, ocAt(b, log.slot, 3));
+  EXPECT_NE(outerBefore, innerBefore);
+  EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(outerBefore));
+  EXPECT_EQ(b.wk.blockContextClass, b.heap.klass(innerBefore));
+}
+
+// 02 Medium: ホームが返ったあとの ^ は cannotReturn: の答えをブロックの値にし、呼び出し元は続く。
+TEST(BlockActivation, DeadHomeReturnAnswersErrorAndContinues) {
+  Boot b;
+  ao::Root log(b.roots, runActivationProbe(b, "useDeadHome"));
+  ASSERT_TRUE(log.slot.isHeap());
+  ASSERT_EQ(3, send0(b, log.slot, "size").smallIntegerValue());
+  EXPECT_EQ(b.wk.intern("before"), ocAt(b, log.slot, 1));
+  const ao::Oop answer = ocAt(b, log.slot, 2);
+  ASSERT_TRUE(answer.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(answer));
+  EXPECT_EQ("cannot return", ao::Str::toUtf8(b.heap, answer));
+  EXPECT_EQ(b.wk.intern("after"), ocAt(b, log.slot, 3));
+  EXPECT_FALSE(b.ctx.nonlocalReturn);
+  EXPECT_FALSE(b.ctx.aborting);
+}
+
+// SPEC §3.4: フレームを抜けたコンテキストは pc と sender が nil になる。
+TEST(BlockActivation, ExitedContextIsMarkedDead) {
+  Boot b;
+  auto img = ao::compiler::compileMethod("ctx\n  ^thisContext");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  const ao::Oop got = ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0,
+                                           ao::Oop::nil());
+  ASSERT_TRUE(got.isHeap());
+  EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(got));
+  EXPECT_TRUE(b.heap.slotAt(got, ao::kCtxPc).isNil());
+  EXPECT_TRUE(b.heap.slotAt(got, ao::kCtxSender).isNil());
+}

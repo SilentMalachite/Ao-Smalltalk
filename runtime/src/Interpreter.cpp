@@ -162,6 +162,31 @@ struct FieldRoots {
   FieldRoots& operator=(const FieldRoots&) = delete;
 };
 
+// Marks the frame's context dead (nil pc and sender) on every way out of the frame (SPEC §3.4).
+// Declare it after FieldRoots, so the context is still rooted when it runs.
+struct ContextExitGuard {
+  CallContext& ctx;
+  Frame& frame;
+  ContextExitGuard(CallContext& c, Frame& f) : ctx(c), frame(f) {}
+  ~ContextExitGuard() {
+    if (frame.context.isHeap()) {
+      ctx.heap.slotAtPut(frame.context, kCtxPc, Oop::nil());
+      ctx.heap.slotAtPut(frame.context, kCtxSender, Oop::nil());
+    }
+  }
+  ContextExitGuard(const ContextExitGuard&) = delete;
+  ContextExitGuard& operator=(const ContextExitGuard&) = delete;
+};
+
+// A context whose frame has not ended yet: it still has an integer pc.
+bool contextAlive(CallContext& ctx, Oop context) {
+  if (!context.isHeap() || (ctx.heap.flags(context) & kFlagBytes) != 0 ||
+      ctx.heap.size(context) <= kCtxPc) {
+    return false;
+  }
+  return ctx.heap.slotAt(context, kCtxPc).isSmallInteger();
+}
+
 struct ActiveGuard {
   CallContext& ctx;
   Oop saved;
@@ -443,15 +468,18 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
   // activeContext defaults to empty, not nil. Top-level sender is nil.
   const Oop caller = ctx.activeContext.isHeap() ? ctx.activeContext : Oop::nil();
   if (frame->isBlock) {
-    frame->context = blockHold.slot;
-    ctx.heap.slotAtPut(frame->context, kCtxSender, caller);
+    // A fresh activation per call; the closure itself is never written (SPEC §3.4).
+    frame->context = Context::createBlock(
+        ctx, frame->method, frame->receiver, ctx.heap.slotAt(blockHold.slot, kBlockHome),
+        ctx.heap.slotAt(blockHold.slot, kBlockCopied), caller, static_cast<std::uint8_t>(argc));
   } else {
     frame->context = Context::createMethod(ctx, frame->method, frame->receiver, caller,
                                            static_cast<std::uint8_t>(argc));
-    if (!frame->context.isHeap()) {
-      return Oop{};
-    }
   }
+  if (!frame->context.isHeap()) {
+    return Oop{};
+  }
+  ContextExitGuard exited(ctx, *frame);
 
   ActiveGuard active(ctx, frame->context, depth.outermost);
   Temps temps(ctx.roots, numTemps);
@@ -685,13 +713,26 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
         if (!stack.pop(&v)) {
           return Oop{};
         }
+        if (!frame->isBlock) {
+          return v;
+        }
+        const Oop home = ctx.heap.slotAt(frame->context, kBlockHome);
+        if (!contextAlive(ctx, home)) {
+          // SPEC §3.4: the home has returned. cannotReturn:'s answer is this block's value, and
+          // no unrelated caller is unwound.
+          Root value(ctx.roots, v);
+          Root sel(ctx.roots, ctx.wk.intern("cannotReturn:"));
+          if (!sel.slot.isHeap()) {
+            return Oop{};
+          }
+          const Oop answer = send(ctx, frame->context, sel.slot, &value.slot, 1, nullptr);
+          const Leave nl = consumeNonlocal(ctx, false, frame->context, depth.outermost);
+          return nl.leave ? nl.value : answer;
+        }
         ctx.nonlocalReturn = true;
-        ctx.nonlocalHome =
-            frame->isBlock ? ctx.heap.slotAt(frame->context, kBlockHome) : Oop::nil();
+        ctx.nonlocalHome = home;
         ctx.nonlocalValue = v;
-        const Leave nl =
-            consumeNonlocal(ctx, !frame->isBlock, frame->context, depth.outermost);
-        return nl.leave ? nl.value : v;
+        return consumeNonlocal(ctx, false, frame->context, depth.outermost).value;
       }
       case compiler::Op::CreateBlock: {
         Oop lit;
@@ -724,9 +765,10 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           ctx.heap.slotAtPut(arr.slot, i, copies.ptr()[i]);
         }
         const Oop home = frame->isBlock ? ctx.heap.slotAt(frame->context, kBlockHome) : frame->context;
+        // A closure has no sender; each call's activation gets one (SPEC §3.4).
         Root created(ctx.roots,
                      Context::createBlock(ctx, blockMethod.slot, frame->receiver, home, arr.slot,
-                                          frame->context, blockArgs));
+                                          Oop::nil(), blockArgs));
         if (!created.slot.isHeap()) {
           return Oop{};
         }
