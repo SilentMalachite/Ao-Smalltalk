@@ -88,7 +88,13 @@ Oop ao_Array_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   if (argc != 1) {
     return Oop{};
   }
-  if (!isArray(ctx, receiver) || !isArray(ctx, args[0])) {
+  // An array that holds itself is equal to itself without comparing its elements.
+  if (receiver == args[0]) {
+    return Oop::true_();
+  }
+  // Same class (an Array subclass too), as `class ==`. Pointer slots only.
+  if (!receiver.isHeap() || (ctx.heap.flags(receiver) & kFlagBytes) != 0 ||
+      !args[0].isHeap() || ctx.wk.classOf(args[0]) != ctx.wk.classOf(receiver)) {
     return Oop::false_();
   }
   Root left(ctx.roots, receiver);

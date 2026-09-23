@@ -7,7 +7,11 @@
 #include <cstring>
 
 extern "C" int ao_version(char* buf, int buf_len) {
-  return ao::version_string(buf, buf_len) == 0 ? AO_OK : AO_ERR;
+  if (buf == nullptr || buf_len < 1) {
+    return AO_ERR;
+  }
+  // SPEC §3.10: snprintf still NUL-terminates what it cut.
+  return ao::version_string(buf, buf_len) == 0 ? AO_OK : AO_ERR_RANGE;
 }
 
 extern "C" int ao_runtime_boot(void) {
@@ -136,6 +140,10 @@ extern "C" int ao_accept_method(const char* class_name, int meta, const char* so
   ao::Session* s = ao::session();
   if (s == nullptr || s->ctx == nullptr || class_name == nullptr || source == nullptr ||
       (meta != 0 && meta != 1)) {
+    return AO_ERR;
+  }
+  // SPEC §3.10: a name that does not resolve to a class is not a compile error.
+  if (!ao::namesBehavior(*s->ctx, class_name)) {
     return AO_ERR;
   }
   ao::compiler::CompileError error;

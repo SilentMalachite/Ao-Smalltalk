@@ -83,6 +83,33 @@ TEST_F(BrowserAbi, ObjectIsKernelAndPrintStringIsNative) {
 
   EXPECT_EQ(AO_ERR, ao_browser_source("NoSuchClass", 0, "printString", source, 256));
   EXPECT_EQ(AO_ERR, ao_browser_superclass("NoSuchClass", 0, superName, 128));
-  EXPECT_EQ(AO_ERR, ao_browser_subclass_count("NoSuchClass"));
+  EXPECT_EQ(-1, ao_browser_subclass_count("NoSuchClass"));
   ao_runtime_shutdown();
+}
+
+// 06 Low / SPEC §3.10: 件数を返す関数は、失敗なら -1 を返す（AO_ERR の 1 は 1 件と区別できない）。
+// 失敗は、セッションが無い、名前がクラスに当たらない、meta が 0 でも 1 でない、引数が NULL。
+TEST_F(BrowserAbi, CountsAnswerMinusOneOnFailure) {
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  EXPECT_EQ(-1, ao_browser_class_count());
+  EXPECT_EQ(-1, ao_browser_protocol_count("Object", 0));
+  EXPECT_EQ(-1, ao_browser_selector_count("Object", 0, "native"));
+  EXPECT_EQ(-1, ao_browser_subclass_count("Object"));
+
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  EXPECT_GT(ao_browser_class_count(), 0);
+  EXPECT_EQ(-1, ao_browser_protocol_count("NoSuchClass", 0));
+  EXPECT_EQ(-1, ao_browser_selector_count("NoSuchClass", 0, "native"));
+  EXPECT_EQ(-1, ao_browser_subclass_count("NoSuchClass"));
+  EXPECT_EQ(-1, ao_browser_protocol_count("Object", 2));
+  EXPECT_EQ(-1, ao_browser_protocol_count("Object", -1));
+  EXPECT_EQ(-1, ao_browser_selector_count("Object", 2, "native"));
+  EXPECT_EQ(-1, ao_browser_protocol_count(nullptr, 0));
+  EXPECT_EQ(-1, ao_browser_selector_count(nullptr, 0, "native"));
+  EXPECT_EQ(-1, ao_browser_selector_count("Object", 0, nullptr));
+  EXPECT_EQ(-1, ao_browser_subclass_count(nullptr));
+  // 成功なら 0 以上。
+  EXPECT_EQ(1, ao_browser_protocol_count("Object", 0));
+  EXPECT_GT(ao_browser_selector_count("Object", 0, "native"), 0);
+  EXPECT_EQ(0, ao_browser_selector_count("Object", 0, "user"));
 }

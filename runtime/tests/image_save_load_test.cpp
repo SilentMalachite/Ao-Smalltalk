@@ -633,3 +633,31 @@ TEST(ImageSaveLoad, ShadowedSmallIntegerSelectorDisablesFastPath) {
   EXPECT_STREQ("false", out);
   ao_runtime_shutdown();
 }
+
+// SPEC §3.10: ao_image_load はロードと探針（1 + 2 が 3、nil isNil が true）を新しいセッションで行い、
+// どちらも通ったときだけ差し替える。探針に失敗したら AO_ERR で、ロード前のセッションを使い続ける。
+TEST(ImageSaveLoad, FailedProbeKeepsCurrentSession) {
+  Boot b;
+  auto broken = ao::compiler::compileMethod("+ x\n  ^0");
+  ASSERT_TRUE(broken.ok) << broken.error.message;
+  ASSERT_TRUE(ao::installMethod(b.ctx, b.wk.smallIntegerClass, broken.image).isHeap());
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-probe-fails.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  {
+    // Image::load は通る。落ちるのは探針である。
+    Loaded loaded;
+    ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, path.string()));
+  }
+
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_eval("b3keep := 41", 12, AO_EVAL_DOIT, out, 64, &err)) << err.message;
+  EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str()));
+  ASSERT_EQ(AO_OK, ao_eval("b3keep + 1", 10, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("42", out);
+  ASSERT_EQ(AO_OK, ao_eval("nil isNil", 9, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("true", out);
+  ao_runtime_shutdown();
+  std::filesystem::remove(path);
+}

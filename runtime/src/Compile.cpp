@@ -15,6 +15,7 @@
 #include "ao/Symbol.hpp"
 #include "ao/Vendor.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -405,16 +406,24 @@ void assignError(compiler::CompileError* error, std::string message) {
   error->message = std::move(message);
 }
 
+bool namesBehavior(CallContext& ctx, std::string_view className) {
+  // A class inherits from Behavior through its metaclass, a metaclass through Metaclass.
+  // Processor, Smalltalk, nil and other globals do not (SPEC §3.10).
+  const Oop obj = ctx.wk.named(className);
+  return isClassShaped(ctx.heap, obj) &&
+         chainIncludes(ctx.heap, ctx.heap.klass(obj), ctx.wk.behaviorClass);
+}
+
 bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
                         std::string_view source, compiler::CompileError* error) {
   if (error != nullptr) {
     *error = {};
   }
-  Root cls(ctx.roots, ctx.wk.named(className));
-  if (!cls.slot.isHeap()) {
+  if (!namesBehavior(ctx, className)) {
     assignError(error, "missing class: " + std::string(className));
     return false;
   }
+  Root cls(ctx.roots, ctx.wk.named(className));
   const Oop side = meta ? ctx.heap.klass(cls.slot) : cls.slot;
   if (!side.isHeap()) {
     assignError(error, "missing class: " + std::string(className));
@@ -479,7 +488,19 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
     *error = {};
   }
   std::vector<compiler::CompileError> errors;
-  const bool ok = fileInString(ctx, source, errors);
+  const std::vector<compiler::ChunkAction> actions = compiler::parseChunks(source, errors);
+  // SPEC §3.10: only class definitions and methodsFor: chunks. Every chunk is checked before any
+  // is applied, so a stray expression or method body leaves the image as it was.
+  const bool definitionsOnly =
+      !actions.empty() &&
+      std::none_of(actions.begin(), actions.end(), [](const compiler::ChunkAction& action) {
+        return action.kind == compiler::ChunkKind::DoIt;
+      });
+  if (!definitionsOnly) {
+    assignError(error, "not a class definition");
+    return false;
+  }
+  const bool ok = applyChunks(ctx, actions, errors);
   if (ok && errors.empty()) {
     return true;
   }

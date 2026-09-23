@@ -14,6 +14,8 @@ struct MethodImage;
 
 Oop boxMethodImage(CallContext& ctx, const compiler::MethodImage& image, Oop methodClass);
 Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image);
+// The name resolves to a class or metaclass (a Behavior), not Processor or another global.
+bool namesBehavior(CallContext& ctx, std::string_view className);
 bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
                         std::string_view source, compiler::CompileError* error);
 bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::CompileError* error);

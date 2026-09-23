@@ -173,11 +173,13 @@ int sessionImageLoad(const char* path) {
   if (!installEmptyWorkspace(*next)) {
     return 1;
   }
-  g_session = std::move(next);
-  ensureKernelNatives();
-  if (!loadedImageProbes(*g_session)) {
+  // SPEC §3.10: the natives and the probes run on the new session. Only when both pass does it
+  // replace the current one; otherwise the current session stays as it was.
+  ensureKernelNatives(*next);
+  if (!loadedImageProbes(*next)) {
     return 1;
   }
+  g_session = std::move(next);
   clearMethodSources();
   return 0;
 }
@@ -197,11 +199,7 @@ int sessionFileInLoadOrder(const char* path) {
   return fileInLoadOrder(*g_session->ctx, path, errors) ? 0 : 1;
 }
 
-void ensureKernelNatives() {
-  if (g_session == nullptr) {
-    return;
-  }
-  Session& s = *g_session;
+void ensureKernelNatives(Session& s) {
   // An image may have a Transcript metaclass without a dictionary; the class-side natives need one.
   const Oop meta = s.wk.transcriptMetaclass;
   if (meta.isHeap() && !s.heap.slotAt(meta, kClassSlotMethodDict).isHeap()) {
@@ -507,6 +505,9 @@ std::vector<std::string> subclassNames(Session& s, const std::string& name,
   return out;
 }
 
+// SPEC §3.10: a count function's failure. AO_ERR (1) would read as one row.
+constexpr int kCountFailed = -1;
+
 bool metaOk(int meta) { return meta == 0 || meta == 1; }
 
 struct NameBag {
@@ -614,7 +615,12 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR;
   }
-  if (sourceLen < 0 || (source == nullptr && sourceLen != 0) || (outLen > 0 && out == nullptr)) {
+  // SPEC §3.10: without a place for the answer nothing is compiled or evaluated, so a caller
+  // that retries does not run the side effects twice.
+  if (out == nullptr || outLen < 1) {
+    return AO_ERR;
+  }
+  if (sourceLen < 0 || (source == nullptr && sourceLen != 0)) {
     blankOut(out, outLen);
     return AO_ERR;
   }
@@ -806,7 +812,7 @@ void clearMethodSources() {
 int browserClassCount() {
   Session* s = session();
   if (s == nullptr) {
-    return 0;
+    return kCountFailed;
   }
   return static_cast<int>(classRows(*s).size());
 }
@@ -835,12 +841,12 @@ int browserClassAt(int index, char* name, int nameLen, char* category, int categ
 int browserProtocolCount(const char* className, int meta) {
   Session* s = session();
   if (s == nullptr || className == nullptr || !metaOk(meta)) {
-    return AO_ERR;
+    return kCountFailed;
   }
   const auto rows = classRows(*s);
   const ClassRow* row = findClass(rows, className);
   if (row == nullptr) {
-    return AO_ERR;
+    return kCountFailed;
   }
   return static_cast<int>(protocolsOf(methodsOf(*s, sideOf(*s, row->cls, meta))).size());
 }
@@ -865,12 +871,12 @@ int browserProtocolAt(const char* className, int meta, int index, char* buf, int
 int browserSelectorCount(const char* className, int meta, const char* protocol) {
   Session* s = session();
   if (s == nullptr || className == nullptr || protocol == nullptr || !metaOk(meta)) {
-    return AO_ERR;
+    return kCountFailed;
   }
   const auto rows = classRows(*s);
   const ClassRow* row = findClass(rows, className);
   if (row == nullptr) {
-    return AO_ERR;
+    return kCountFailed;
   }
   if (!knownProtocol(protocol)) {
     return 0;
@@ -945,11 +951,11 @@ int browserSuperclass(const char* className, int meta, char* buf, int len) {
 int browserSubclassCount(const char* className) {
   Session* s = session();
   if (s == nullptr || className == nullptr) {
-    return AO_ERR;
+    return kCountFailed;
   }
   const auto rows = classRows(*s);
   if (findClass(rows, className) == nullptr) {
-    return AO_ERR;
+    return kCountFailed;
   }
   return static_cast<int>(subclassNames(*s, className, rows).size());
 }
