@@ -1,11 +1,11 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
+#include <cstring>
 #include <string>
 
 namespace ao {
@@ -34,13 +34,12 @@ bool isArray(const CallContext& ctx, Oop obj) {
 }
 
 Oop bytesFrom(CallContext& ctx, std::string_view text) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, text);
-  if (s.isHeap()) {
-    return s;
+  const auto n = static_cast<std::uint32_t>(text.size());
+  const Oop s = allocateRetry(ctx, ctx.wk.stringClass, n, kFlagBytes);
+  if (s.isHeap() && n != 0) {
+    std::memcpy(ctx.heap.bytes(s), text.data(), n);
   }
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return Str::fromUtf8(ctx.heap, ctx.wk, text);
+  return s;
 }
 
 // Depth 1 is the outermost array. Above 4, print "..." and do not send printString.

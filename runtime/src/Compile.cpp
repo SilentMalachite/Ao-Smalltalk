@@ -6,7 +6,6 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/MethodDictionary.hpp"
@@ -59,15 +58,10 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
     }
     case compiler::LitKind::Char:
       return Oop::fromCharacter(static_cast<char32_t>(lit.intValue));
-    case compiler::LitKind::String: {
-      Oop s = Str::fromUtf8(ctx.heap, ctx.wk, lit.text);
-      if (!s.isHeap() && !lit.text.empty()) {
-        Gc gc(ctx.heap, ctx.roots);
-        gc.collectNursery();
-        s = Str::fromUtf8(ctx.heap, ctx.wk, lit.text);
-      }
-      return s;
-    }
+    case compiler::LitKind::String:
+      return boxBytes(ctx, ctx.wk.stringClass,
+                      reinterpret_cast<const std::uint8_t*>(lit.text.data()),
+                      static_cast<std::uint32_t>(lit.text.size()));
     case compiler::LitKind::Symbol:
       return ctx.wk.intern(lit.text);
     case compiler::LitKind::Array: {
@@ -96,13 +90,8 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
 }
 
 Oop boxUtf8(CallContext& ctx, std::string_view utf8) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, utf8);
-  if (s.isHeap()) {
-    return s;
-  }
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return Str::fromUtf8(ctx.heap, ctx.wk, utf8);
+  return boxBytes(ctx, ctx.wk.stringClass, reinterpret_cast<const std::uint8_t*>(utf8.data()),
+                  static_cast<std::uint32_t>(utf8.size()));
 }
 
 void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {

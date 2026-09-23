@@ -3,13 +3,13 @@
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 #include "ao/kernel/Install.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -40,11 +40,10 @@ Oop ao_AoTest_assert_equals_(CallContext& ctx, const Oop& receiver, const Oop* a
   std::string message = Str::toUtf8(ctx.heap, left.slot);
   message.append(" ~= ");
   message += Str::toUtf8(ctx.heap, right.slot);
-  Root text(ctx.roots, Str::fromUtf8(ctx.heap, ctx.wk, message));
-  if (!text.slot.isHeap()) {
-    Gc gc(ctx.heap, ctx.roots);
-    gc.collectNursery();
-    text.slot = Str::fromUtf8(ctx.heap, ctx.wk, message);
+  const auto n = static_cast<std::uint32_t>(message.size());
+  Root text(ctx.roots, allocateRetry(ctx, ctx.wk.stringClass, n, kFlagBytes));
+  if (text.slot.isHeap() && n != 0) {
+    std::memcpy(ctx.heap.bytes(text.slot), message.data(), n);
   }
   if (!text.slot.isHeap()) {
     return Oop{};
