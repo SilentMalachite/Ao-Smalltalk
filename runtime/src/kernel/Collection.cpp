@@ -259,6 +259,9 @@ Oop ao_Collection_collect_(CallContext& ctx, const Oop& receiver, const Oop* arg
   Root rcvr(ctx.roots, receiver);
   Root blk(ctx.roots, args[0]);
   const Oop nOop = send(ctx, rcvr.slot, ctx.wk.selSize, nullptr, 0, nullptr);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   Root arr(ctx.roots, send(ctx, ctx.wk.arrayClass, ctx.wk.selBasicNew_, &nOop, 1, nullptr));
   Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_collect_fill, 1));
   if (!thunk.slot.isHeap() || !arr.slot.isHeap()) {
@@ -351,6 +354,9 @@ Oop ao_Collection_includes_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root rcvr(ctx.roots, receiver);
   Root needle(ctx.roots, args[0]);
   send(ctx, needle.slot, selHash(ctx.wk), nullptr, 0, nullptr);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_includes_scan, 1));
   if (!thunk.slot.isHeap()) {
     return Oop::false_();

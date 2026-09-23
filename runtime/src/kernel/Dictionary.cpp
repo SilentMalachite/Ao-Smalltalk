@@ -82,9 +82,11 @@ bool growInner(CallContext& ctx, Root& hashed) {
   return true;
 }
 
+// UINT32_MAX when the key is absent, and also when hash or = started an unwind (SPEC §3.4). The
+// caller tells the two apart with unwinding(ctx) and then returns the empty OOP.
 std::uint32_t findPair(CallContext& ctx, Root& dict, Root& key, bool identity) {
   consumeHash(ctx, key);
-  if (!ensureInner(ctx, dict)) {
+  if (unwinding(ctx) || !ensureInner(ctx, dict)) {
     return UINT32_MAX;
   }
   const Oop inner0 = ctx.heap.slotAt(dict.slot, kHashedArray);
@@ -101,13 +103,17 @@ std::uint32_t findPair(CallContext& ctx, Root& dict, Root& key, bool identity) {
     if (keysMatch(ctx, key, cand, identity)) {
       return i;
     }
+    if (unwinding(ctx)) {
+      return UINT32_MAX;
+    }
   }
   return UINT32_MAX;
 }
 
+// Like findPair: UINT32_MAX also when hash or = started an unwind.
 std::uint32_t findValue(CallContext& ctx, Root& set, Root& value, bool identity) {
   consumeHash(ctx, value);
-  if (!ensureInner(ctx, set)) {
+  if (unwinding(ctx) || !ensureInner(ctx, set)) {
     return UINT32_MAX;
   }
   const Oop inner0 = ctx.heap.slotAt(set.slot, kHashedArray);
@@ -123,6 +129,9 @@ std::uint32_t findValue(CallContext& ctx, Root& set, Root& value, bool identity)
     }
     if (keysMatch(ctx, value, cand, identity)) {
       return i;
+    }
+    if (unwinding(ctx)) {
+      return UINT32_MAX;
     }
   }
   return UINT32_MAX;
@@ -159,6 +168,9 @@ Oop dictAt(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t
   Root dict(ctx.roots, receiver);
   Root key(ctx.roots, args[0]);
   const auto i = findPair(ctx, dict, key, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (i == UINT32_MAX) {
     return Oop::nil();
   }
@@ -175,6 +187,9 @@ Oop dictAtPut(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint3
   Root key(ctx.roots, args[0]);
   Root value(ctx.roots, args[1]);
   const auto found = findPair(ctx, dict, key, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (found != UINT32_MAX) {
     const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
     ctx.heap.slotAtPut(inner, found + 1, value.slot);
@@ -214,7 +229,11 @@ Oop dictIncludesKey(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   }
   Root dict(ctx.roots, receiver);
   Root key(ctx.roots, args[0]);
-  return findPair(ctx, dict, key, identity) == UINT32_MAX ? Oop::false_() : Oop::true_();
+  const auto i = findPair(ctx, dict, key, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  return i == UINT32_MAX ? Oop::false_() : Oop::true_();
 }
 
 Oop setAdd(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
@@ -224,7 +243,11 @@ Oop setAdd(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t
   }
   Root set(ctx.roots, receiver);
   Root value(ctx.roots, args[0]);
-  if (findValue(ctx, set, value, identity) != UINT32_MAX) {
+  const auto found = findValue(ctx, set, value, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  if (found != UINT32_MAX) {
     return value.slot;
   }
   if (!ensureInner(ctx, set)) {
@@ -260,7 +283,11 @@ Oop setIncludes(CallContext& ctx, const Oop& receiver, const Oop* args, std::uin
   }
   Root set(ctx.roots, receiver);
   Root value(ctx.roots, args[0]);
-  return findValue(ctx, set, value, identity) == UINT32_MAX ? Oop::false_() : Oop::true_();
+  const auto i = findValue(ctx, set, value, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  return i == UINT32_MAX ? Oop::false_() : Oop::true_();
 }
 
 std::int64_t ocSize(Heap& heap, Oop oc) {
@@ -375,6 +402,9 @@ Oop ao_Dictionary_includes_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root dict(ctx.roots, receiver);
   Root needle(ctx.roots, args[0]);
   consumeHash(ctx, needle);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (!ensureInner(ctx, dict)) {
     return Oop::false_();
   }
@@ -388,6 +418,9 @@ Oop ao_Dictionary_includes_(CallContext& ctx, const Oop& receiver, const Oop* ar
     const Oop val = ctx.heap.slotAt(inner, i + 1);
     if (keysMatch(ctx, needle, val, false)) {
       return Oop::true_();
+    }
+    if (unwinding(ctx)) {
+      return Oop{};
     }
   }
   return Oop::false_();
@@ -741,11 +774,17 @@ Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uin
   Root add(ctx.roots, ctx.wk.intern("+"));
   for (;;) {
     const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     if (past.isTrue()) {
       break;
     }
     ++count;
     cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     if (count > (std::int64_t{1} << 20)) {
       break;
     }

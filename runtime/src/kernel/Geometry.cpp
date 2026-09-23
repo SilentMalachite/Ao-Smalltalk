@@ -62,7 +62,13 @@ Oop pointBin(CallContext& ctx, Oop receiver, Oop arg, const char* sel) {
     oy.slot = other.slot;
   }
   Root nx(ctx.roots, sendBin(ctx, x.slot, sel, ox.slot));
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   Root ny(ctx.roots, sendBin(ctx, y.slot, sel, oy.slot));
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   return makePoint(ctx, nx.slot, ny.slot);
 }
 
@@ -166,11 +172,15 @@ Oop ao_Point_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   Root x(ctx.roots, ctx.heap.slotAt(rcvr.slot, kPointX));
   Root ox(ctx.roots, ctx.heap.slotAt(other.slot, kPointX));
   if (!sendBin(ctx, x.slot, "=", ox.slot).isTrue()) {
-    return Oop::false_();
+    return unwinding(ctx) ? Oop{} : Oop::false_();
   }
   Root y(ctx.roots, ctx.heap.slotAt(rcvr.slot, kPointY));
   Root oy(ctx.roots, ctx.heap.slotAt(other.slot, kPointY));
-  return sendBin(ctx, y.slot, "=", oy.slot).isTrue() ? Oop::true_() : Oop::false_();
+  const Oop eq = sendBin(ctx, y.slot, "=", oy.slot);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  return eq.isTrue() ? Oop::true_() : Oop::false_();
 }
 
 Oop ao_Rectangle_origin_corner_(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -255,17 +265,18 @@ Oop ao_Rectangle_containsPoint_(CallContext& ctx, const Oop& receiver, const Oop
   Root cy(ctx.roots, ctx.heap.slotAt(corner.slot, kPointY));
   Root px(ctx.roots, ctx.heap.slotAt(p.slot, kPointX));
   Root py(ctx.roots, ctx.heap.slotAt(p.slot, kPointY));
+  // A send that starts an unwind answers the empty OOP, which is not true (SPEC §3.4).
   if (!sendBin(ctx, ox.slot, "<=", px.slot).isTrue()) {
-    return Oop::false_();
+    return unwinding(ctx) ? Oop{} : Oop::false_();
   }
   if (!sendBin(ctx, oy.slot, "<=", py.slot).isTrue()) {
-    return Oop::false_();
+    return unwinding(ctx) ? Oop{} : Oop::false_();
   }
   if (!sendBin(ctx, px.slot, "<", cx.slot).isTrue()) {
-    return Oop::false_();
+    return unwinding(ctx) ? Oop{} : Oop::false_();
   }
   if (!sendBin(ctx, py.slot, "<", cy.slot).isTrue()) {
-    return Oop::false_();
+    return unwinding(ctx) ? Oop{} : Oop::false_();
   }
   return Oop::true_();
 }
@@ -294,9 +305,21 @@ Oop ao_Rectangle_intersect_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root c2x(ctx.roots, ctx.heap.slotAt(c2.slot, kPointX));
   Root c2y(ctx.roots, ctx.heap.slotAt(c2.slot, kPointY));
   Root ox(ctx.roots, magMax(ctx, o1x.slot, o2x.slot));
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   Root oy(ctx.roots, magMax(ctx, o1y.slot, o2y.slot));
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   Root cx(ctx.roots, magMin(ctx, c1x.slot, c2x.slot));
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   Root cy(ctx.roots, magMin(ctx, c1y.slot, c2y.slot));
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   Root origin(ctx.roots, makePoint(ctx, ox.slot, oy.slot));
   Root corner(ctx.roots, makePoint(ctx, cx.slot, cy.slot));
   return makeRect(ctx, origin.slot, corner.slot);

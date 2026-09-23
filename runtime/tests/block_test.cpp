@@ -986,3 +986,183 @@ TEST(BlockAbort, EnsureCleanupRunsNearStackLimit) {
   EXPECT_LE(exit, levels);
   EXPECT_LE(levels - enter, 1);
 }
+
+namespace {
+
+// 送った先で「NonBoolean receiver」の abort を始めるクラス（SPEC §3.4）。R2Sour はキーや座標や
+// コレクションとして受けた hash = < <= > + size を中断する。R2Slots は hash と size を普通に答え、
+// = と at:put: を中断する。R2Sink（Stream）は nextPut: を中断する。R2Seen は ensure: の後始末から
+// 見た Dictionary の大きさを n に残す。
+constexpr const char* kSourProbe =
+    "!Object subclass: #R2Sour\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Sour methodsFor: 'aborting'!\n"
+    "hash\n"
+    "  ^nil ifTrue: [1]!\n"
+    "= other\n"
+    "  ^nil ifTrue: [false]!\n"
+    "< other\n"
+    "  ^nil ifTrue: [false]!\n"
+    "<= other\n"
+    "  ^nil ifTrue: [false]!\n"
+    "> other\n"
+    "  ^nil ifTrue: [false]!\n"
+    "+ other\n"
+    "  ^nil ifTrue: [self]!\n"
+    "size\n"
+    "  ^nil ifTrue: [0]! !\n"
+    "!Object subclass: #R2Slots\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Slots methodsFor: 'aborting'!\n"
+    "size\n"
+    "  ^3!\n"
+    "= other\n"
+    "  ^nil ifTrue: [false]!\n"
+    "at: i put: v\n"
+    "  ^nil ifTrue: [v]! !\n"
+    "!Stream subclass: #R2Sink\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Sink methodsFor: 'aborting'!\n"
+    "nextPut: c\n"
+    "  ^nil ifTrue: [c]! !\n"
+    "!Object subclass: #R2Seen\n"
+    "  instanceVariableNames: 'n'\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Seen methodsFor: 'probes'!\n"
+    "n\n"
+    "  ^n!\n"
+    "atPutSeen\n"
+    "  | d |\n"
+    "  d := Dictionary new.\n"
+    "  [d at: R2Sour new put: 1] ensure: [n := d size].\n"
+    "  ^d! !\n";
+
+// C++ から送ったネイティブの答えが空 OOP で、「NonBoolean receiver」の中断が続いていることを
+// 確かめ、中断の状態を消す。
+void expectAbortedEmpty(Boot& b, ao::Oop got) {
+  EXPECT_TRUE(got.isEmpty());
+  EXPECT_TRUE(b.ctx.aborting);
+  if (b.ctx.abortReason == nullptr) {
+    ADD_FAILURE() << "no abort reason";
+  } else {
+    EXPECT_EQ(std::string("NonBoolean receiver"), b.ctx.abortReason);
+  }
+  ao::clearUnwinding(b.ctx);
+}
+
+std::int64_t sizeOf(Boot& b, ao::Oop coll) {
+  const ao::Oop n = send0(b, coll, "size");
+  EXPECT_TRUE(n.isSmallInteger());
+  return n.isSmallInteger() ? n.smallIntegerValue() : -1;
+}
+
+}  // namespace
+
+// レビュー指摘: hash が abort を始めても、Dictionary>>at:put: は対を入れずに戻る。ensure: の後始末
+// から見た大きさは 0 のままである（SPEC §3.4）。
+TEST(NativeSendUnwind, DictionaryAtPutSkipsInsertWhenHashAborts) {
+  Boot b;
+  ASSERT_TRUE(fileIn(b, kSourProbe));
+  ao::Root seen(b.roots, send0(b, b.wk.named("R2Seen"), "new"));
+  expectAbortedEmpty(b, send0(b, seen.slot, "atPutSeen"));
+  const ao::Oop n = send0(b, seen.slot, "n");
+  ASSERT_TRUE(n.isSmallInteger());
+  EXPECT_EQ(0, n.smallIntegerValue());
+}
+
+// SPEC §3.4: キーに送った hash か = が abort を始めたら、Dictionary / Set のネイティブは探索も挿入も
+// やめて空 OOP を返す。大きさは変わらない。
+TEST(NativeSendUnwind, HashedCollectionsStopWhenHashOrEqualsAborts) {
+  Boot b;
+  ASSERT_TRUE(fileIn(b, kSourProbe));
+  struct Case {
+    const char* coll;  // 中断しない式
+    const char* sel;
+    const char* key;   // R2Sour は hash、R2Slots は = で中断する
+    std::int64_t size;
+  };
+  const Case cases[] = {
+      {"^Dictionary new", "at:put:", "R2Sour", 0},
+      {"^Dictionary new", "at:", "R2Sour", 0},
+      {"^Dictionary new", "includesKey:", "R2Sour", 0},
+      {"^Dictionary new", "includes:", "R2Sour", 0},
+      {"^IdentityDictionary new", "at:put:", "R2Sour", 0},
+      {"^Set new", "add:", "R2Sour", 0},
+      {"^Set new", "includes:", "R2Sour", 0},
+      {"^Dictionary new at: 1 put: 1; yourself", "at:put:", "R2Slots", 1},
+      {"^Dictionary new at: 1 put: 1; yourself", "includes:", "R2Slots", 1},
+      {"^Set new add: 1; yourself", "add:", "R2Slots", 1},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(std::string(c.coll) + " " + c.sel + " " + c.key);
+    ao::Root coll(b.roots, evalExpr(b, c.coll));
+    ASSERT_TRUE(coll.slot.isHeap());
+    ao::Root key(b.roots, send0(b, b.wk.named(c.key), "new"));
+    const bool atPut = std::string(c.sel) == "at:put:";
+    expectAbortedEmpty(b, atPut ? send2(b, coll.slot, c.sel, key.slot, ao::Oop::fromSmallInteger(2))
+                                : send1(b, coll.slot, c.sel, key.slot));
+    EXPECT_EQ(c.size, sizeOf(b, coll.slot));
+  }
+}
+
+// SPEC §3.4: collection の at:put: が abort を始めたら、WriteStream>>nextPut: は位置を進めない。
+TEST(NativeSendUnwind, WriteStreamKeepsPositionWhenAtPutAborts) {
+  Boot b;
+  ASSERT_TRUE(fileIn(b, kSourProbe));
+  ao::Root s(b.roots, evalExpr(b, "^WriteStream on: R2Slots new"));
+  ASSERT_TRUE(s.slot.isHeap());
+  expectAbortedEmpty(b, send1(b, s.slot, "nextPut:", ao::Oop::fromSmallInteger(7)));
+  const ao::Oop pos = send0(b, s.slot, "position");
+  ASSERT_TRUE(pos.isSmallInteger());
+  EXPECT_EQ(0, pos.smallIntegerValue());
+}
+
+// SPEC §3.4: 送った先が abort を始めたら、ネイティブは残りの要素や座標に送らず、新しいオブジェクトも
+// 作らず、直ちに空 OOP を返す。答えだけを見る（どれも、中断のあとに見える副作用を持たない）。
+TEST(NativeSendUnwind, NativesAnswerEmptyWhenTheirSendAborts) {
+  Boot b;
+  ASSERT_TRUE(fileIn(b, kSourProbe));
+  constexpr const char* kRect =
+      "^Rectangle origin: (Point x: R2Sour new y: 0) corner: (Point x: 5 y: 5)";
+  struct Case {
+    const char* rcvr;  // 中断しない式
+    const char* sel;
+    const char* arg;   // nullptr なら単項
+  };
+  const Case cases[] = {
+      {"^(Array new: 1) at: 1 put: R2Sour new; yourself", "=",
+       "^(Array new: 1) at: 1 put: 1; yourself"},
+      {"^Point x: R2Sour new y: 1", "+", "^Point x: 1 y: 1"},
+      {"^Point x: R2Sour new y: 1", "=", "^Point x: 1 y: 1"},
+      {kRect, "containsPoint:", "^Point x: 1 y: 1"},
+      {kRect, "intersect:", "^Rectangle origin: (Point x: 1 y: 1) corner: (Point x: 4 y: 4)"},
+      {"^Interval from: R2Sour new to: 3 by: 1", "size", nullptr},
+      {"^ReadStream", "on:", "^R2Sour new"},
+      {"| s | s := WriteStream on: (Array new: 0). s instVarAt: 1 put: R2Sour new. ^s",
+       "nextPut:", "^1"},
+      {"^R2Sink new", "cr", nullptr},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(std::string(c.rcvr) + " " + c.sel);
+    ao::Root rcvr(b.roots, evalExpr(b, c.rcvr));
+    ASSERT_TRUE(rcvr.slot.isHeap());
+    if (c.arg == nullptr) {
+      expectAbortedEmpty(b, send0(b, rcvr.slot, c.sel));
+      continue;
+    }
+    ao::Root arg(b.roots, evalExpr(b, c.arg));
+    ASSERT_FALSE(arg.slot.isEmpty());
+    expectAbortedEmpty(b, send1(b, rcvr.slot, c.sel, arg.slot));
+  }
+}

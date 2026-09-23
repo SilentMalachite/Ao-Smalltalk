@@ -251,6 +251,9 @@ Oop ao_Stream_cr(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_
   Root self(ctx.roots, receiver);
   Oop nl = Oop::fromCharacter(static_cast<char32_t>('\n'));
   send(ctx, self.slot, selNextPut(ctx.wk), &nl, 1, nullptr);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   return self.slot;
 }
 
@@ -273,6 +276,9 @@ Oop ao_PositionableStream_on_(CallContext& ctx, const Oop& receiver, const Oop* 
   ctx.heap.slotAtPut(stream.slot, kStreamCollection, coll.slot);
   ctx.heap.slotAtPut(stream.slot, kStreamPosition, Oop::fromSmallInteger(0));
   const auto n = collectionSize(ctx, coll);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   const Oop limit = Oop::fromSmallInteger(n);
   ctx.heap.slotAtPut(stream.slot, kStreamReadLimit, limit);
   if (inst > static_cast<std::int64_t>(kStreamWriteLimit)) {
@@ -317,6 +323,9 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, const Oop& receiver, const 
   }
   const auto neu = pos + 1;
   const auto n = collectionSize(ctx, coll);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (neu > n) {
     if (isArray(ctx, coll.slot)) {
       coll.slot = growArray(ctx, coll, static_cast<std::uint32_t>(neu));
@@ -342,6 +351,9 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, const Oop& receiver, const 
   }
   Oop put[2] = {Oop::fromSmallInteger(neu), val.slot};
   send(ctx, coll.slot, ctx.wk.selAt_put_, put, 2, nullptr);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   noteWrite(ctx.heap, self.slot, neu);
   return val.slot;
 }
