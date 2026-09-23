@@ -549,7 +549,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 `meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
 
-`ao_accept_method` は `NativeMethod` を CompiledMethod で置き換えない。対象の側のメソッド辞書にネイティブがあるセレクタに加えて、Kernel クラス（§3.6）では、そのクラスから引くとネイティブに当たるセレクタ（上位クラスから継承したネイティブ）も拒む。例えば `SmallInteger>><=` は `Magnitude>><=` のネイティブを隠すので拒む。どちらも `AO_ERR_COMPILE` で、メッセージは `native selector overwrite refused: <selector>` である。Kernel でないクラスは、継承したネイティブを上書きできる。
+`ao_accept_method` は `NativeMethod` を CompiledMethod で置き換えない。対象の側のメソッド辞書にネイティブがあるセレクタに加えて、Kernel クラス（§3.6）では、そのクラスから引くとネイティブに当たるセレクタ（上位クラスから継承したネイティブ）も拒む。例えば `SmallInteger>><=` は `Magnitude>><=` のネイティブを隠すので拒む。どちらも `AO_ERR_COMPILE` で、メッセージは `native selector overwrite refused: <selector>` である。Kernel でないクラスは、継承したネイティブを上書きできる。Kernel クラスかどうかは、名前で引いた先のクラスそのもので決める（クラス側でも、名前で引いたクラスで決める。引いた先が Kernel クラスのメタクラスなら、Kernel クラスとみなす）。`Smalltalk at: #IntegerAlias put: SmallInteger` のような別名で指しても、Kernel クラスの名前で指したときと同じに拒む。
 
 #### ソースはイメージに書かない
 
@@ -628,7 +628,7 @@ LargeInteger とそれ以外はクラス名のまま。
 #### 載せ方
 
 1. upstream の `.st`（またはチェンク書き出し）を `image/vendor/<origin>/` に置く。
-2. Kernel と衝突するメソッド（`Object>>#==` などネイティブ必須）は file-in しない。すでに `NativeMethod` があるセレクタは上書き禁止。
+2. Kernel と衝突するメソッド（`Object>>#==` などネイティブ必須）は file-in しない。すでに `NativeMethod` があるセレクタは上書き禁止。Kernel クラス（§3.6）への `methodsFor:` チャンクは丸ごと拒む。Kernel クラスかどうかは accept（§3.10）と同じく、名前で引いた先のクラスそのもので決める。別名で指しても拒む。
 3. ホストに移した機能（描画、ファイルダイアログ、Browser ビュー）を参照するメソッドは `image/patches/` でスタブか削除する。
 4. P5 以降、`ao filein image/vendor/...` で `CompiledMethod` として載せる。
 5. ロード順は `image/vendor/LOAD_ORDER` に固定する。

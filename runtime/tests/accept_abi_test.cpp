@@ -109,6 +109,45 @@ TEST(AcceptAbi, AcceptRefusesShadowingInheritedNativeInKernelClass) {
   ao_runtime_shutdown();
 }
 
+// SPEC §3.10: Kernel クラスかどうかは、名前で引いた先のクラスそのもので決める。別名で指しても、
+// 継承したネイティブを隠すセレクタは拒む。SendSpecial の高速路と送信の答えは食い違わない。
+// Kernel でないクラスの別名は、これまでどおり受け付ける。
+TEST(AcceptAbi, AcceptRefusesKernelClassThroughAlias) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto run = [&](const char* src, int mode) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), mode, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, run("Smalltalk at: #IntegerAlias put: SmallInteger", AO_EVAL_DOIT))
+      << err.message;
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("IntegerAlias", 0, "<= x\n  ^false\n", &err));
+  EXPECT_EQ(std::string("native selector overwrite refused: <="), std::string(err.message));
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("IntegerAlias", 1, "new\n  ^3\n", &err));
+  EXPECT_EQ(std::string("native selector overwrite refused: new"), std::string(err.message));
+  ASSERT_EQ(AO_OK, run("Smalltalk at: #IntegerMetaAlias put: SmallInteger class", AO_EVAL_DOIT))
+      << err.message;
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("IntegerMetaAlias", 0, "new\n  ^3\n", &err));
+  EXPECT_EQ(std::string("native selector overwrite refused: new"), std::string(err.message));
+  ASSERT_EQ(AO_OK, run("3 <= 4", AO_EVAL_PRINTIT)) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, run("3 perform: #<= with: 4", AO_EVAL_PRINTIT)) << err.message;
+  EXPECT_STREQ("true", out);
+
+  const char* def =
+      "Object subclass: #B3Aliased\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  ASSERT_EQ(AO_OK, run("Smalltalk at: #B3Alias put: B3Aliased", AO_EVAL_DOIT)) << err.message;
+  EXPECT_EQ(AO_OK, ao_accept_method("B3Alias", 0, "<= x\n  ^false\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, run("B3Aliased new <= 1", AO_EVAL_PRINTIT)) << err.message;
+  EXPECT_STREQ("false", out);
+  ao_runtime_shutdown();
+}
+
 TEST(AcceptAbi, ObjectSubclassObjectIsCompileError) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   AoSpan err{};

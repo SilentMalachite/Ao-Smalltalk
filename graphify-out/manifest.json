@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1790190178.0811877,
-    "seen": 1790190632.5345721,
-    "ast_hash": "156a1e380a5a2cdc85aff18921b8ab45",
+    "mtime": 1790198076.5939507,
+    "seen": 1790198311.976495,
+    "ast_hash": "60ddd9e0c97002da64296362c2bd75a8",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -876,15 +876,15 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Array.cpp": {
-    "mtime": 1790171125.4790833,
-    "seen": 1790186161.514456,
-    "ast_hash": "eeced4594b53212fcc4c5c453bdc35cd",
+    "mtime": 1790198162.0287006,
+    "seen": 1790198311.9764428,
+    "ast_hash": "bada3986bf75af46d27a745f6a4f7dc9",
     "semantic_hash": ""
   },
   "runtime/src/kernel/Collection.cpp": {
-    "mtime": 1790172794.683384,
-    "seen": 1790186161.514459,
-    "ast_hash": "f4b12cbc091808676ee3f054941886db",
+    "mtime": 1790198161.9209719,
+    "seen": 1790198311.9764469,
+    "ast_hash": "47aabc23ba9ef2b8c83c0b654f98adc7",
     "semantic_hash": ""
   },
   "runtime/src/kernel/String.cpp": {
@@ -900,9 +900,9 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Dictionary.cpp": {
-    "mtime": 1790172815.9618454,
-    "seen": 1790186161.5144598,
-    "ast_hash": "d4e8f81a0a75e8e76108c3643159b603",
+    "mtime": 1790198152.1298814,
+    "seen": 1790198311.976448,
+    "ast_hash": "a17c13db39faec6f31c34cb1b712d6fb",
     "semantic_hash": ""
   },
   "runtime/tests/collection_do_test.cpp": {
@@ -912,9 +912,9 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Stream.cpp": {
-    "mtime": 1790172832.4533174,
-    "seen": 1790186161.514466,
-    "ast_hash": "24331925d4bce1f456bc9501d5e8302d",
+    "mtime": 1790198205.4773977,
+    "seen": 1790198311.976455,
+    "ast_hash": "baae36f2d604684eda0e8e0ad027bf04",
     "semantic_hash": ""
   },
   "runtime/tests/transcript_model_test.cpp": {
@@ -936,9 +936,9 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Geometry.cpp": {
-    "mtime": 1790171125.4805474,
-    "seen": 1790186161.514462,
-    "ast_hash": "ad8ac9c3986a55210d19cb4d033b8da3",
+    "mtime": 1790198205.0430367,
+    "seen": 1790198311.97645,
+    "ast_hash": "f56ef9df702e85aa0b62a828b55b339c",
     "semantic_hash": ""
   },
   "runtime/tests/geometry_test.cpp": {
@@ -1074,9 +1074,9 @@
     "semantic_hash": ""
   },
   "runtime/src/Compile.cpp": {
-    "mtime": 1790189070.549108,
-    "seen": 1790189469.686947,
-    "ast_hash": "847326165e55cd8d05a45cb874cc4568",
+    "mtime": 1790198253.5497832,
+    "seen": 1790198311.976421,
+    "ast_hash": "f0247265815fb1891be4e92c3b55cb9a",
     "semantic_hash": ""
   },
   "runtime/src/CompiledMethod.cpp": {
@@ -1158,9 +1158,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/block_test.cpp": {
-    "mtime": 1790190410.3308632,
-    "seen": 1790190632.534534,
-    "ast_hash": "8645d3a7e1afb1d7ae3d141844d789bf",
+    "mtime": 1790198006.8458679,
+    "seen": 1790198311.976458,
+    "ast_hash": "28bfdda2e7b07e839020605c818da09a",
     "semantic_hash": ""
   },
   "runtime/tests/compiler_roundtrip_test.cpp": {
@@ -1200,9 +1200,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/vendor_overwrite_test.cpp": {
-    "mtime": 1790046676.5398,
-    "seen": 1790145297.992202,
-    "ast_hash": "fc7b5027bf5d8028e8648f985a3225cd",
+    "mtime": 1790198086.0061738,
+    "seen": 1790198311.976483,
+    "ast_hash": "7d13f1bb766fcd2a0afeb7f56fbd3ba0",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-09-22-p6b-vendor-filein.md": {
@@ -1398,9 +1398,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/accept_abi_test.cpp": {
-    "mtime": 1790188910.9423018,
-    "seen": 1790189469.68698,
-    "ast_hash": "364a337f366327ac316aff315effa599",
+    "mtime": 1790198076.701139,
+    "seen": 1790198311.976456,
+    "ast_hash": "61bcc8284e57ae68fdbcdecdfc911051",
     "semantic_hash": ""
   },
   "runtime/tests/print_string_test.cpp": {

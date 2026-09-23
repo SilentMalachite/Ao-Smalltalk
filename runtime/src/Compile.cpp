@@ -151,9 +151,28 @@ bool isKernelClassName(const WellKnown& wk, std::string_view className) {
   return wk.isCatalogName(className) && !isVendorStub(className);
 }
 
-bool refusesKernelRedefinition(const WellKnown& wk, std::string_view className,
+// SPEC §3.10 / §3.12: whether cls, the class a name resolved to, is a Kernel class. It compares
+// identities, so an alias global (Smalltalk at: #IntegerAlias put: SmallInteger) is one too. A
+// catalog class that is not a vendor stub is a Kernel class, and so is its metaclass.
+bool isKernelClass(const WellKnown& wk, Oop cls) {
+  struct Probe {
+    const Heap& heap;
+    Oop cls;
+    bool found;
+  } probe{wk.heap(), cls, false};
+  wk.eachNativeRequiredClass(
+      [](void* baton, Oop kernel) {
+        auto* p = static_cast<Probe*>(baton);
+        p->found = p->found || kernel == p->cls ||
+                   (kernel.isHeap() && p->heap.klass(kernel) == p->cls);
+      },
+      &probe);
+  return probe.found;
+}
+
+bool refusesKernelRedefinition(bool kernel, std::string_view className,
                                std::vector<compiler::CompileError>& errors) {
-  if (isKernelClassName(wk, className)) {
+  if (kernel) {
     errors.push_back(
         compiler::CompileError{{}, "refusing to redefine kernel class: " + std::string(className)});
     return true;
@@ -163,7 +182,10 @@ bool refusesKernelRedefinition(const WellKnown& wk, std::string_view className,
 
 bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
                    std::vector<compiler::CompileError>& errors) {
-  if (refusesKernelRedefinition(ctx.wk, action.className, errors)) {
+  // subclass: makes a new class and rebinds only the name (an alias too), never a Kernel class in
+  // place. A catalog name is refused: define keeps its well-known slot.
+  if (refusesKernelRedefinition(isKernelClassName(ctx.wk, action.className), action.className,
+                                errors)) {
     return false;
   }
   Root super(ctx.roots, ctx.wk.named(action.superName));
@@ -199,12 +221,12 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
 
 bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                      std::vector<compiler::CompileError>& errors) {
-  if (refusesKernelRedefinition(ctx.wk, action.className, errors)) {
-    return false;
-  }
   Root cls(ctx.roots, ctx.wk.named(action.className));
   if (!cls.slot.isHeap()) {
     errors.push_back(compiler::CompileError{{}, "missing class: " + action.className});
+    return false;
+  }
+  if (refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action.className, errors)) {
     return false;
   }
   const Oop target = action.meta ? ctx.heap.klass(cls.slot) : cls.slot;
@@ -416,8 +438,9 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
       old.slot = MethodDictionary::at(ctx.heap, dict, sel);
     }
     // SPEC §3.10: in a Kernel class, a native the selector finds through the superclasses is
-    // not hidden either. Neither intern nor lookup GCs, so the raw Oops stay valid.
-    const Oop found = sel.isHeap() && isKernelClassName(ctx.wk, className)
+    // not hidden either. Kernel-ness is the class the name resolved to, so an alias is one too.
+    // Neither intern nor lookup GCs, so the raw Oops stay valid.
+    const Oop found = sel.isHeap() && isKernelClass(ctx.wk, cls.slot)
                           ? lookup(ctx.heap, tgt.slot, sel)
                           : old.slot;
     findsNative = found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass;
