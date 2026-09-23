@@ -1,13 +1,18 @@
 #include "test_support.hpp"
 
+#include "ao_abi.h"
+
 #include "ao/Bootstrap.hpp"
+#include "ao/Bytecode.hpp"
 #include "ao/Chunk.hpp"
 #include "ao/Compile.hpp"
 #include "ao/CompiledMethod.hpp"
+#include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Image.hpp"
 #include "ao/ImageFormat.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/Symbol.hpp"
@@ -511,4 +516,120 @@ TEST(ImageSaveLoad, RejectsHeapBytesAboveOldMax) {
   ASSERT_TRUE(ao::Image::load(exact.heap, exact.roots, exact.wk, path.string()));
   EXPECT_EQ(heapBytes, exact.heap.oldUsed());
   expectOnePlusTwo(exact);
+}
+
+namespace {
+
+// SmallInteger 以外に送る特殊セレクタ（new: at:put: at: size value value: do: class ==）と、
+// SmallInteger 同士の +。答えは 20 + 3 + 7 + 5 + 100 + 42 = 177。
+constexpr const char* kSpecialSends =
+    "f\n"
+    "  | arr blk s |\n"
+    "  arr := Array new: 3.\n"
+    "  arr at: 1 put: 10.\n"
+    "  arr at: 2 put: 20.\n"
+    "  arr at: 3 put: 12.\n"
+    "  blk := [:e | e].\n"
+    "  s := 0.\n"
+    "  arr do: [:e | s := s + e].\n"
+    "  ^(arr at: 2) + arr size + (blk value: 7) + [5] value\n"
+    "    + ((arr class == Array) ifTrue: [100] ifFalse: [0]) + s";
+
+// source を Object のメソッドとしてコンパイルし、nil に対して引数なしで走らせる。
+ao::Oop runSource(ao::CallContext& ctx, const char* source) {
+  auto img = ao::compiler::compileMethod(source);
+  if (!img.ok) {
+    ADD_FAILURE() << img.error.message;
+    return ao::Oop{};
+  }
+  ao::Root cm(ctx.roots, ao::boxMethodImage(ctx, img.image, ctx.wk.objectClass));
+  if (!cm.slot.isHeap()) {
+    return ao::Oop{};
+  }
+  return ao::Interpreter::run(ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+}
+
+void expectSpecialSends(ao::CallContext& ctx) {
+  const std::uint64_t sends = ctx.interpretedSends;
+  const ao::Oop got = runSource(ctx, kSpecialSends);
+  ASSERT_TRUE(got.isSmallInteger());
+  EXPECT_EQ(177, got.smallIntegerValue());
+  EXPECT_GT(ctx.interpretedSends, sends);
+}
+
+// 前もって intern した特殊セレクタは、今の intern 表にある同じ名前の Symbol である。
+void expectSpecialSelectorsInterned(ao::WellKnown& wk) {
+  for (std::uint8_t k = 0; k < ao::WellKnown::kSpecialSelectorCount; ++k) {
+    const char* name = ao::compiler::specialSelector(k);
+    const ao::Oop sel = wk.specialSelector(k);
+    ASSERT_TRUE(sel.isHeap()) << name;
+    EXPECT_EQ(wk.intern(name), sel) << name;
+  }
+}
+
+void collectAll(ao::Heap& heap, ao::Roots& roots) {
+  ao::Gc gc(heap, roots);
+  gc.collectNursery();
+  gc.collectOld();
+}
+
+}  // namespace
+
+// SendSpecial は前もって intern したセレクタを番号で引く（SPEC §3.5）。GC で Symbol が動いても、
+// イメージを読み込んで WellKnown とヒープが替わっても、同じセレクタを送る。
+TEST(ImageSaveLoad, SpecialSelectorsSurviveGcAndImageLoad) {
+  Boot b;
+  expectSpecialSelectorsInterned(b.wk);
+  expectSpecialSends(b.ctx);
+  collectAll(b.heap, b.roots);
+  expectSpecialSelectorsInterned(b.wk);
+  expectSpecialSends(b.ctx);
+
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-special.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  Loaded loaded;
+  ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, path.string()));
+  EXPECT_TRUE(loaded.wk.smallIntegerFastPath());
+  expectSpecialSelectorsInterned(loaded.wk);
+  expectSpecialSends(loaded.ctx);
+  collectAll(loaded.heap, loaded.roots);
+  expectSpecialSelectorsInterned(loaded.wk);
+  expectSpecialSends(loaded.ctx);
+}
+
+// SPEC §3.5: 継承したネイティブを隠す SmallInteger>><= を持つ古いイメージ（HEAD の accept は通して
+// いた）を読み込むと、そのセッションでは高速路を使わない。SendSpecial の答えは perform: と同じく
+// ユーザーの定義になり、送信として数える。ほかの 7 セレクタも送る。
+TEST(ImageSaveLoad, ShadowedSmallIntegerSelectorDisablesFastPath) {
+  Boot b;
+  EXPECT_TRUE(b.wk.smallIntegerFastPath());
+  auto shadow = ao::compiler::compileMethod("<= x\n  ^false");
+  ASSERT_TRUE(shadow.ok) << shadow.error.message;
+  ASSERT_TRUE(ao::installMethod(b.ctx, b.wk.smallIntegerClass, shadow.image).isHeap());
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-shadowed.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+
+  Loaded loaded;
+  ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, path.string()));
+  EXPECT_FALSE(loaded.wk.smallIntegerFastPath());
+  std::uint64_t sends = loaded.ctx.interpretedSends;
+  const ao::Oop special = runSource(loaded.ctx, "f\n  ^3 <= 4");
+  EXPECT_EQ(1u, loaded.ctx.interpretedSends - sends);
+  EXPECT_TRUE(special.isFalse());
+  EXPECT_EQ(special, runSource(loaded.ctx, "f\n  ^3 perform: #<= with: 4"));
+  sends = loaded.ctx.interpretedSends;
+  EXPECT_EQ(ao::Oop::fromSmallInteger(7), runSource(loaded.ctx, "f\n  ^3 + 4"));
+  EXPECT_EQ(1u, loaded.ctx.interpretedSends - sends);
+
+  // セッションの経路（ao_image_load は ensureKernelNatives のあとで確かめ直す）でも同じ。
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str()));
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_eval("3 <= 4", 6, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("false", out);
+  ASSERT_EQ(AO_OK, ao_eval("3 perform: #<= with: 4", 22, AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("false", out);
+  ao_runtime_shutdown();
 }

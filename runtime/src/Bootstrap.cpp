@@ -182,6 +182,7 @@ static void internHotSelectors(WellKnown& wk) {
   wk.selError_ = wk.intern("error:");
   wk.selClass = wk.intern("class");
   wk.selIdentityEquals = wk.intern("==");
+  wk.internSpecialSelectors();
 }
 
 static void ensureMethodDict(Heap& heap, WellKnown& wk, Oop cls) {
@@ -263,6 +264,7 @@ void run(Heap& heap, Roots& roots, WellKnown& wk) {
   wireCycle(heap, wk);
   installNatives(heap, roots, wk);
   Globals::install(heap, roots, wk);
+  wk.checkSmallIntegerFastPath();
 }
 
 }  // namespace Bootstrap

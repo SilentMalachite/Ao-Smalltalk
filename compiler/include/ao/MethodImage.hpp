@@ -21,6 +21,8 @@ enum class LitKind : std::uint8_t {
   Array,
   ByteArray,
   Method,
+  // A workspace binding named `text`. The runtime boxes it as the session's Association.
+  Binding,
 };
 
 struct MethodImage;
@@ -43,18 +45,12 @@ struct Literal {
 };
 
 struct MethodImage {
-  struct TempBinding {
-    std::string name;
-    bool workspace = false;
-  };
-
   std::string selector;
   std::uint8_t numArgs = 0;
   std::uint8_t numTemps = 0;
   std::uint16_t primitive = 0;
   std::vector<std::uint8_t> bytes;
   std::vector<Literal> literals;
-  std::vector<TempBinding> tempBindings;
 };
 
 inline Literal::Literal() = default;
@@ -87,8 +83,9 @@ inline Literal& Literal::operator=(const Literal& other) {
 struct CompileEnv {
   std::vector<std::string> instVarNames;
   std::vector<std::string> knownGlobals;
-  std::vector<std::string> workspaceTemps;
-  bool undeclaredAreTemps = false;
+  // Workspace (SPEC §3.10): a name that is not local, an instance variable, a pseudo-variable or
+  // a known global is a binding (LitVar). The method answers its last expression.
+  bool undeclaredAreBindings = false;
 };
 
 struct CompileResult {

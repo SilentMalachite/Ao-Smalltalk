@@ -7,6 +7,8 @@
 #include "ao/Lookup.hpp"
 #include "ao/Symbol.hpp"
 
+#include <iterator>
+
 namespace ao {
 namespace {
 
@@ -164,6 +166,72 @@ Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std
     return doesNotUnderstand(ctx, receiver, selector, args, argc);
   }
   return applyMethod(ctx, meth, receiver, args, argc);
+}
+
+bool unwinding(const CallContext& ctx) { return ctx.nonlocalReturn || ctx.aborting; }
+
+Oop abortEvaluation(CallContext& ctx, const char* reason) {
+  if (!ctx.aborting) {
+    ctx.aborting = true;
+    ctx.abortReason = reason;
+  }
+  // An abort has no home: it overrides a non-local return still in flight.
+  ctx.nonlocalReturn = false;
+  ctx.nonlocalHome = Oop{};
+  ctx.nonlocalValue = Oop{};
+  return Oop{};
+}
+
+void clearUnwinding(CallContext& ctx) {
+  ctx.aborting = false;
+  ctx.abortReason = nullptr;
+  ctx.nonlocalReturn = false;
+  ctx.nonlocalHome = Oop{};
+  ctx.nonlocalValue = Oop{};
+}
+
+bool callBlock(CallContext& ctx, Oop blk, const Oop* args, std::uint32_t n, Oop* out) {
+  static constexpr const char* kValueSelectors[] = {
+      "value", "value:", "value:value:", "value:value:value:", "value:value:value:value:"};
+  *out = Oop{};
+  if (n >= std::size(kValueSelectors)) {
+    return !unwinding(ctx);
+  }
+  const Oop sel = n == 0   ? ctx.wk.selValue
+                  : n == 1 ? ctx.wk.selValue_
+                           : ctx.wk.intern(kValueSelectors[n]);
+  if (!sel.isHeap()) {
+    return !unwinding(ctx);
+  }
+  const Oop result = send(ctx, blk, sel, args, n, nullptr);
+  if (unwinding(ctx)) {
+    return false;
+  }
+  *out = result;
+  return true;
+}
+
+bool truthOf(CallContext& ctx, Oop value, bool* truth) {
+  if (value.isTrue() || value.isFalse()) {
+    *truth = value.isTrue();
+    return true;
+  }
+  Root v(ctx.roots, value);
+  const Oop sel = ctx.wk.intern("mustBeBoolean");
+  if (!sel.isHeap()) {
+    abortEvaluation(ctx, "NonBoolean receiver");
+    return false;
+  }
+  const Oop answer = send(ctx, v.slot, sel, nullptr, 0, nullptr);
+  if (unwinding(ctx)) {
+    return false;
+  }
+  if (!answer.isTrue() && !answer.isFalse()) {
+    abortEvaluation(ctx, "NonBoolean receiver");
+    return false;
+  }
+  *truth = answer.isTrue();
+  return true;
 }
 
 }  // namespace ao

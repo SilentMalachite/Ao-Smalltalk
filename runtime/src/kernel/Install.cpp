@@ -7,6 +7,12 @@
 
 namespace ao {
 namespace kernel {
+namespace {
+
+// Set only while installMissing runs: putNative then keeps any method already in the dictionary.
+bool gOnlyMissing = false;
+
+}  // namespace
 
 bool putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, std::uint32_t argc,
                std::string_view name, NativeFn fn) {
@@ -17,6 +23,9 @@ bool putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, st
   auto sel = Symbol::intern(wk, selector);
   if (!sel.isHeap()) {
     return false;
+  }
+  if (gOnlyMissing && MethodDictionary::at(heap, dict, sel).isHeap()) {
+    return true;
   }
   std::uint32_t idx = 0;
   if (!NativeRegistry::addNamed(name, fn, &idx)) {
@@ -61,9 +70,37 @@ void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
             ao_BlockContext_value_value_);
   putNative(heap, wk, wk.blockContextClass, "valueWithArguments:", 1,
             "ao_BlockContext_valueWithArguments_", ao_BlockContext_valueWithArguments_);
+  putNative(heap, wk, wk.blockContextClass, "value:value:value:", 3,
+            "ao_BlockContext_value_value_value_", ao_BlockContext_value_value_value_);
+  putNative(heap, wk, wk.blockContextClass, "value:value:value:value:", 4,
+            "ao_BlockContext_value_value_value_value_", ao_BlockContext_value_value_value_value_);
+  putNative(heap, wk, wk.blockContextClass, "numArgs", 0, "ao_BlockContext_numArgs",
+            ao_BlockContext_numArgs);
+  putNative(heap, wk, wk.blockContextClass, "whileTrue:", 1, "ao_BlockContext_whileTrue_",
+            ao_BlockContext_whileTrue_);
+  putNative(heap, wk, wk.blockContextClass, "whileFalse:", 1, "ao_BlockContext_whileFalse_",
+            ao_BlockContext_whileFalse_);
+  putNative(heap, wk, wk.blockContextClass, "whileTrue", 0, "ao_BlockContext_whileTrue",
+            ao_BlockContext_whileTrue);
+  putNative(heap, wk, wk.blockContextClass, "whileFalse", 0, "ao_BlockContext_whileFalse",
+            ao_BlockContext_whileFalse);
+  putNative(heap, wk, wk.blockContextClass, "repeat", 0, "ao_BlockContext_repeat",
+            ao_BlockContext_repeat);
+  putNative(heap, wk, wk.blockContextClass, "ensure:", 1, "ao_BlockContext_ensure_",
+            ao_BlockContext_ensure_);
+  putNative(heap, wk, wk.blockContextClass, "ifCurtailed:", 1, "ao_BlockContext_ifCurtailed_",
+            ao_BlockContext_ifCurtailed_);
+  putNative(heap, wk, wk.blockContextClass, "cannotReturn:", 1, "ao_BlockContext_cannotReturn_",
+            ao_BlockContext_cannotReturn_);
   installProcess(heap, wk);
   installGeometry(heap, wk);
   installCompiledMethod(heap, wk);
+}
+
+void installMissing(Heap& heap, Roots& roots, WellKnown& wk) {
+  gOnlyMissing = true;
+  installAll(heap, roots, wk);
+  gOnlyMissing = false;
 }
 
 }  // namespace kernel

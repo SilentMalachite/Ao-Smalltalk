@@ -14,8 +14,6 @@ constexpr std::uint32_t kHashedArray = 1;
 constexpr std::uint32_t kOcArray = 0;
 constexpr std::uint32_t kOcFirst = 1;
 constexpr std::uint32_t kOcLast = 2;
-constexpr std::uint32_t kAssocKey = 0;
-constexpr std::uint32_t kAssocValue = 1;
 constexpr std::uint32_t kIvStart = 0;
 constexpr std::uint32_t kIvStop = 1;
 constexpr std::uint32_t kIvStep = 2;
@@ -84,9 +82,11 @@ bool growInner(CallContext& ctx, Root& hashed) {
   return true;
 }
 
+// UINT32_MAX when the key is absent, and also when hash or = started an unwind (SPEC §3.4). The
+// caller tells the two apart with unwinding(ctx) and then returns the empty OOP.
 std::uint32_t findPair(CallContext& ctx, Root& dict, Root& key, bool identity) {
   consumeHash(ctx, key);
-  if (!ensureInner(ctx, dict)) {
+  if (unwinding(ctx) || !ensureInner(ctx, dict)) {
     return UINT32_MAX;
   }
   const Oop inner0 = ctx.heap.slotAt(dict.slot, kHashedArray);
@@ -103,13 +103,17 @@ std::uint32_t findPair(CallContext& ctx, Root& dict, Root& key, bool identity) {
     if (keysMatch(ctx, key, cand, identity)) {
       return i;
     }
+    if (unwinding(ctx)) {
+      return UINT32_MAX;
+    }
   }
   return UINT32_MAX;
 }
 
+// Like findPair: UINT32_MAX also when hash or = started an unwind.
 std::uint32_t findValue(CallContext& ctx, Root& set, Root& value, bool identity) {
   consumeHash(ctx, value);
-  if (!ensureInner(ctx, set)) {
+  if (unwinding(ctx) || !ensureInner(ctx, set)) {
     return UINT32_MAX;
   }
   const Oop inner0 = ctx.heap.slotAt(set.slot, kHashedArray);
@@ -125,6 +129,9 @@ std::uint32_t findValue(CallContext& ctx, Root& set, Root& value, bool identity)
     }
     if (keysMatch(ctx, value, cand, identity)) {
       return i;
+    }
+    if (unwinding(ctx)) {
+      return UINT32_MAX;
     }
   }
   return UINT32_MAX;
@@ -161,6 +168,9 @@ Oop dictAt(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t
   Root dict(ctx.roots, receiver);
   Root key(ctx.roots, args[0]);
   const auto i = findPair(ctx, dict, key, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (i == UINT32_MAX) {
     return Oop::nil();
   }
@@ -177,6 +187,9 @@ Oop dictAtPut(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint3
   Root key(ctx.roots, args[0]);
   Root value(ctx.roots, args[1]);
   const auto found = findPair(ctx, dict, key, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (found != UINT32_MAX) {
     const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
     ctx.heap.slotAtPut(inner, found + 1, value.slot);
@@ -216,7 +229,11 @@ Oop dictIncludesKey(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   }
   Root dict(ctx.roots, receiver);
   Root key(ctx.roots, args[0]);
-  return findPair(ctx, dict, key, identity) == UINT32_MAX ? Oop::false_() : Oop::true_();
+  const auto i = findPair(ctx, dict, key, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  return i == UINT32_MAX ? Oop::false_() : Oop::true_();
 }
 
 Oop setAdd(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
@@ -226,7 +243,11 @@ Oop setAdd(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t
   }
   Root set(ctx.roots, receiver);
   Root value(ctx.roots, args[0]);
-  if (findValue(ctx, set, value, identity) != UINT32_MAX) {
+  const auto found = findValue(ctx, set, value, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  if (found != UINT32_MAX) {
     return value.slot;
   }
   if (!ensureInner(ctx, set)) {
@@ -262,7 +283,11 @@ Oop setIncludes(CallContext& ctx, const Oop& receiver, const Oop* args, std::uin
   }
   Root set(ctx.roots, receiver);
   Root value(ctx.roots, args[0]);
-  return findValue(ctx, set, value, identity) == UINT32_MAX ? Oop::false_() : Oop::true_();
+  const auto i = findValue(ctx, set, value, identity);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  return i == UINT32_MAX ? Oop::false_() : Oop::true_();
 }
 
 std::int64_t ocSize(Heap& heap, Oop oc) {
@@ -377,6 +402,9 @@ Oop ao_Dictionary_includes_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root dict(ctx.roots, receiver);
   Root needle(ctx.roots, args[0]);
   consumeHash(ctx, needle);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (!ensureInner(ctx, dict)) {
     return Oop::false_();
   }
@@ -390,6 +418,9 @@ Oop ao_Dictionary_includes_(CallContext& ctx, const Oop& receiver, const Oop* ar
     const Oop val = ctx.heap.slotAt(inner, i + 1);
     if (keysMatch(ctx, needle, val, false)) {
       return Oop::true_();
+    }
+    if (unwinding(ctx)) {
+      return Oop{};
     }
   }
   return Oop::false_();
@@ -422,7 +453,10 @@ Oop ao_Dictionary_do_(CallContext& ctx, const Oop& receiver, const Oop* args, st
     }
     ctx.heap.slotAtPut(assoc.slot, kAssocKey, key.slot);
     ctx.heap.slotAtPut(assoc.slot, kAssocValue, value.slot);
-    send(ctx, blk.slot, ctx.wk.selValue_, &assoc.slot, 1, nullptr);
+    Oop ignored;
+    if (!callBlock(ctx, blk.slot, &assoc.slot, 1, &ignored)) {
+      return Oop{};
+    }
   }
   return dict.slot;
 }
@@ -453,9 +487,14 @@ Oop ao_Dictionary_collect_(CallContext& ctx, const Oop& receiver, const Oop* arg
       continue;
     }
     val.slot = ctx.heap.slotAt(inner, i + 1);
-    mapped.slot = send(ctx, blk.slot, ctx.wk.selValue_, &val.slot, 1, nullptr);
+    if (!callBlock(ctx, blk.slot, &val.slot, 1, &mapped.slot)) {
+      return Oop{};
+    }
     Oop put[2] = {Oop::fromSmallInteger(idx), mapped.slot};
     send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     ++idx;
   }
   return arr.slot;
@@ -508,7 +547,10 @@ Oop ao_Set_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint
     if (elt.slot.isNil()) {
       continue;
     }
-    send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+    Oop ignored;
+    if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+      return Oop{};
+    }
   }
   return set.slot;
 }
@@ -603,7 +645,10 @@ Oop ao_OrderedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* a
   for (std::int64_t i = first; i <= last; ++i) {
     const Oop arr = ctx.heap.slotAt(oc.slot, kOcArray);
     elt.slot = ctx.heap.slotAt(arr, static_cast<std::uint32_t>(i - 1));
-    send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+    Oop ignored;
+    if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+      return Oop{};
+    }
   }
   return oc.slot;
 }
@@ -729,11 +774,17 @@ Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uin
   Root add(ctx.roots, ctx.wk.intern("+"));
   for (;;) {
     const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     if (past.isTrue()) {
       break;
     }
     ++count;
     cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     if (count > (std::int64_t{1} << 20)) {
       break;
     }
@@ -762,7 +813,10 @@ Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std:
           break;
         }
         elt.slot = Oop::fromSmallInteger(static_cast<std::int64_t>(i));
-        send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+        Oop ignored;
+        if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+          return Oop{};
+        }
       }
     } else {
       for (__int128 i = start.smallIntegerValue(); i >= stop.smallIntegerValue(); i += st) {
@@ -770,7 +824,10 @@ Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std:
           break;
         }
         elt.slot = Oop::fromSmallInteger(static_cast<std::int64_t>(i));
-        send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+        Oop ignored;
+        if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+          return Oop{};
+        }
       }
     }
     return iv.slot;
@@ -787,11 +844,20 @@ Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   Root add(ctx.roots, ctx.wk.intern("+"));
   for (std::int64_t n = 0; n <= (std::int64_t{1} << 20); ++n) {
     const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     if (past.isTrue()) {
       break;
     }
-    send(ctx, blk.slot, ctx.wk.selValue_, &cur.slot, 1, nullptr);
+    Oop ignored;
+    if (!callBlock(ctx, blk.slot, &cur.slot, 1, &ignored)) {
+      return Oop{};
+    }
     cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
   }
   return iv.slot;
 }

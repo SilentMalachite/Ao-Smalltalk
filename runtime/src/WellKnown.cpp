@@ -1,7 +1,9 @@
 #include "ao/WellKnown.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/Bytecode.hpp"
 #include "ao/Globals.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Vendor.hpp"
 
 #include <cstring>
@@ -10,6 +12,8 @@
 #include <unordered_map>
 
 namespace ao {
+
+static_assert(WellKnown::kSpecialSelectorCount == compiler::specialCount());
 
 struct WellKnown::InternTable {
   std::deque<Oop> table;
@@ -210,6 +214,7 @@ void WellKnown::define(std::string_view name, Oop cls) {
   if (extra_ == nullptr) {
     extra_ = std::make_unique<ExtraTable>();
   }
+  ++globalsVersion_;
   for (auto& e : extra_->table) {
     if (e.name == name) {
       e.cls = cls;
@@ -240,6 +245,7 @@ bool WellKnown::rebind(std::string_view name, Oop cls) {
     this->*e.cls = cls;
     this->*e.meta = heap_->klass(cls);
     Globals::atPut(*this, name, cls);
+    ++globalsVersion_;
     return true;
   }
   return false;
@@ -390,6 +396,34 @@ bool WellKnown::rememberSymbol(Oop sym) {
   roots_->add(&intern_->table.back());
   intern_->byBytes.emplace(std::move(key), intern_->table.size() - 1);
   return true;
+}
+
+bool WellKnown::internSpecialSelectors() {
+  for (std::uint8_t k = 0; k < kSpecialSelectorCount; ++k) {
+    const char* name = compiler::specialSelector(k);
+    if (name == nullptr || !intern(name).isHeap()) {
+      return false;
+    }
+    // intern left the Symbol in a rooted slot of the table. The GC updates that slot.
+    specialSlots_[k] = &intern_->table[intern_->byBytes.find(name)->second];
+  }
+  return true;
+}
+
+void WellKnown::checkSmallIntegerFastPath() {
+  static constexpr std::uint8_t kComputed[] = {
+      compiler::kSpecialAdd,       compiler::kSpecialSubtract,     compiler::kSpecialMultiply,
+      compiler::kSpecialLess,      compiler::kSpecialGreater,      compiler::kSpecialLessEqual,
+      compiler::kSpecialGreaterEqual, compiler::kSpecialEqual,
+  };
+  bool native = true;
+  for (const std::uint8_t k : kComputed) {
+    const Oop sel = specialSelector(k);
+    // lookup does not GC.
+    const Oop meth = sel.isHeap() ? lookup(*heap_, smallIntegerClass, sel) : Oop::nil();
+    native = native && meth.isHeap() && heap_->klass(meth) == nativeMethodClass;
+  }
+  smallIntegerFastPath_ = native;
 }
 
 }  // namespace ao

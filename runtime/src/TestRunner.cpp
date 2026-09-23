@@ -4,6 +4,7 @@
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 #include "ao/kernel/Install.hpp"
@@ -154,7 +155,18 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     }
     // 前に立ったフラグ（起動時や前のファイルのもの）を、このファイルのせいにしない（sessionEval と同じ）。
     ctx.heap.clearOutOfMemory();
+    clearUnwinding(ctx);
+    refreshStackLimit(ctx);
     const bool ran = runFile(ctx, cls, doIt, body);
+    // SPEC §3.4: abort（stack overflow など）はファイルの失敗。理由を出して消す。
+    if (ctx.aborting) {
+      std::fprintf(stderr, "ao --test: %s: %s\n", file.string().c_str(),
+                   ctx.abortReason != nullptr ? ctx.abortReason : "evaluation aborted");
+      clearUnwinding(ctx);
+      ctx.heap.clearOutOfMemory();
+      ctx.testFailures += 1;
+      return 1;
+    }
     // SPEC §3.2: out of memory は評価エラー。途中の文の空の結果は捨てられ、後の assert は通りうるので、
     // 走り切った後にフラグで判定する。
     if (ctx.heap.outOfMemory()) {

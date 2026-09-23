@@ -5,9 +5,14 @@
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 
+#include <pthread.h>
+
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -45,6 +50,23 @@ struct OperandStack {
       return false;
     }
     *out = slots.back();
+    return true;
+  }
+  // The value fromTop slots below the top (0 is the top), left on the stack.
+  bool peek(std::uint32_t fromTop, Oop* out) const {
+    if (fromTop >= slots.size()) {
+      return false;
+    }
+    *out = slots[slots.size() - 1 - fromTop];
+    return true;
+  }
+
+  // Overwrites the top in place. Its slot stays rooted, so Roots is not touched.
+  bool replaceTop(Oop v) {
+    if (slots.empty()) {
+      return false;
+    }
+    slots.back() = v;
     return true;
   }
   std::uint32_t depth() const { return static_cast<std::uint32_t>(slots.size()); }
@@ -90,48 +112,6 @@ struct Temps {
   }
 };
 
-// Hides hostTemps for the duration of this frame so a nested run cannot alias them.
-// Writes the slots back when this frame's temps die, including early returns.
-struct HostTempGuard {
-  CallContext* ctx = nullptr;
-  Temps* temps = nullptr;
-  Oop* ptr = nullptr;
-  std::uint32_t count = 0;
-  Oop* prevPtr = nullptr;
-  std::uint32_t prevCount = 0;
-  bool active = false;
-
-  HostTempGuard(CallContext& c, Temps& t, bool use) : ctx(&c), temps(&t) {
-    if (!use) {
-      return;
-    }
-    active = true;
-    ptr = c.hostTemps;
-    count = c.hostTempCount;
-    prevPtr = c.hostTemps;
-    prevCount = c.hostTempCount;
-    c.hostTemps = nullptr;
-    c.hostTempCount = 0;
-  }
-
-  ~HostTempGuard() {
-    if (!active || ptr == nullptr) {
-      return;
-    }
-    for (std::uint32_t i = 0; i < count; ++i) {
-      Oop v;
-      if (temps->at(i, &v)) {
-        ptr[i] = v;
-      }
-    }
-    ctx->hostTemps = prevPtr;
-    ctx->hostTempCount = prevCount;
-  }
-
-  HostTempGuard(const HostTempGuard&) = delete;
-  HostTempGuard& operator=(const HostTempGuard&) = delete;
-};
-
 struct Frame {
   Oop method{};
   Oop receiver{};
@@ -156,6 +136,31 @@ struct FieldRoots {
   FieldRoots(const FieldRoots&) = delete;
   FieldRoots& operator=(const FieldRoots&) = delete;
 };
+
+// Marks the frame's context dead (nil pc and sender) on every way out of the frame (SPEC §3.4).
+// Declare it after FieldRoots, so the context is still rooted when it runs.
+struct ContextExitGuard {
+  CallContext& ctx;
+  Frame& frame;
+  ContextExitGuard(CallContext& c, Frame& f) : ctx(c), frame(f) {}
+  ~ContextExitGuard() {
+    if (frame.context.isHeap()) {
+      ctx.heap.slotAtPut(frame.context, kCtxPc, Oop::nil());
+      ctx.heap.slotAtPut(frame.context, kCtxSender, Oop::nil());
+    }
+  }
+  ContextExitGuard(const ContextExitGuard&) = delete;
+  ContextExitGuard& operator=(const ContextExitGuard&) = delete;
+};
+
+// A context whose frame has not ended yet: it still has an integer pc.
+bool contextAlive(CallContext& ctx, Oop context) {
+  if (!context.isHeap() || (ctx.heap.flags(context) & kFlagBytes) != 0 ||
+      ctx.heap.size(context) <= kCtxPc) {
+    return false;
+  }
+  return ctx.heap.slotAt(context, kCtxPc).isSmallInteger();
+}
 
 struct ActiveGuard {
   CallContext& ctx;
@@ -241,6 +246,10 @@ void clearNonlocal(CallContext& ctx) {
 }
 
 Leave consumeNonlocal(CallContext& ctx, bool isMethod, Oop methodContext, bool outermost) {
+  // An abort has no home: no frame stops it (SPEC §3.4). The outermost entry clears it.
+  if (ctx.aborting) {
+    return miss();
+  }
   if (!ctx.nonlocalReturn) {
     return {};
   }
@@ -333,8 +342,70 @@ std::int16_t rel16(std::uint8_t lo, std::uint8_t hi) {
   return static_cast<std::int16_t>(bits);
 }
 
+Oop boolean(bool v) { return v ? Oop::true_() : Oop::false_(); }
+
+// The answer of special selector k for SmallInteger values a and b, when k is one of
+// + - * < > <= >= = and the answer is a Boolean or a SmallInteger.
+bool smallIntegerAnswer(std::uint8_t k, std::int64_t a, std::int64_t b, Oop* answer) {
+  std::int64_t n = 0;
+  bool overflow = false;
+  switch (k) {
+    case compiler::kSpecialAdd:
+      overflow = __builtin_add_overflow(a, b, &n);
+      break;
+    case compiler::kSpecialSubtract:
+      overflow = __builtin_sub_overflow(a, b, &n);
+      break;
+    case compiler::kSpecialMultiply:
+      overflow = __builtin_mul_overflow(a, b, &n);
+      break;
+    case compiler::kSpecialLess:
+      *answer = boolean(a < b);
+      return true;
+    case compiler::kSpecialGreater:
+      *answer = boolean(a > b);
+      return true;
+    case compiler::kSpecialLessEqual:
+      *answer = boolean(a <= b);
+      return true;
+    case compiler::kSpecialGreaterEqual:
+      *answer = boolean(a >= b);
+      return true;
+    case compiler::kSpecialEqual:
+      *answer = boolean(a == b);
+      return true;
+    default:
+      return false;
+  }
+  if (overflow || n < kSmiMin || n > kSmiMax) {
+    return false;
+  }
+  *answer = Oop::fromSmallInteger(n);
+  return true;
+}
+
+// SPEC §3.5: SendSpecial k with one argument, a SmallInteger receiver and a SmallInteger argument
+// answers without a send when smallIntegerAnswer has the answer and the session has checked that
+// SmallInteger finds natives for these selectors (they answer the same). An old image that hides
+// one turns this off. Replaces the two operands by the answer; otherwise
+// leaves the stack as it was, and the caller sends. Allocates nothing, so no GC runs.
+bool answerWithoutSend(const WellKnown& wk, OperandStack& stack, std::uint8_t k,
+                       std::uint8_t argc) {
+  Oop rcvr;
+  Oop arg;
+  Oop answer;
+  if (!wk.smallIntegerFastPath() || argc != 1 || !stack.peek(1, &rcvr) || !stack.peek(0, &arg) ||
+      !rcvr.isSmallInteger() || !arg.isSmallInteger() ||
+      !smallIntegerAnswer(k, rcvr.smallIntegerValue(), arg.smallIntegerValue(), &answer)) {
+    return false;
+  }
+  stack.pop(&arg);
+  return stack.replaceTop(answer);
+}
+
 Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint8_t argc, Oop selector,
                   bool isSuper, bool outermost) {
+  ++ctx.interpretedSends;
   RootedArray argv(ctx.roots, argc);
   for (std::uint32_t k = 0; k < argc; ++k) {
     const std::uint32_t i = argc - 1 - k;
@@ -363,10 +434,42 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   return {};
 }
 
+// JumpTrue / JumpFalse (SPEC §3.5). A non-Boolean gets mustBeBoolean, and the answer must be
+// a Boolean; otherwise the evaluation aborts. Leaves when the send unwound or aborted.
+Leave branchTruth(CallContext& ctx, Frame& frame, Oop value, bool outermost, bool* truth) {
+  if (truthOf(ctx, value, truth)) {
+    return {};
+  }
+  // mustBeBoolean unwound: a non-local return may end at this frame; an abort never does.
+  const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);
+  return nl.leave ? nl : miss();
+}
+
+// The temp vector held in temp t, when it is a pointer object with slot i.
+bool remoteSlot(CallContext& ctx, const Temps& temps, std::uint8_t t, std::uint8_t i, Oop* vec) {
+  if (!temps.at(t, vec) || !vec->isHeap() || (ctx.heap.flags(*vec) & kFlagBytes) != 0) {
+    return false;
+  }
+  return i < ctx.heap.size(*vec);
+}
+
+// Literal `index` when it is an Association-shaped binding (a pointer object with a value slot).
+bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
+  if (!literalAt(ctx, method, index, assoc) || !assoc->isHeap() ||
+      (ctx.heap.flags(*assoc) & kFlagBytes) != 0) {
+    return false;
+  }
+  return kAssocValue < ctx.heap.size(*assoc);
+}
+
 }  // namespace
 
 Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc,
                      Oop block) {
+  // No frame starts while frames unwind (SPEC §3.4), even under a native that missed it.
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (!method.isHeap() || ctx.heap.klass(method) != ctx.wk.compiledMethodClass) {
     return Oop{};
   }
@@ -392,6 +495,10 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     argHold.ptr()[i] = args[i];
   }
   DepthGuard depth(gInterpreterDepth);
+  if (depth.outermost) {
+    // The stack range may belong to an earlier thread whose stack this one now reuses.
+    refreshStackLimit(ctx);
+  }
   NonlocalGuard nonlocal(ctx, depth.outermost);
   // Root inputs before the safepoint. applyMethod's caller may hold the method only in a register.
   Gc gc(ctx.heap, ctx.roots);
@@ -402,26 +509,21 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
   // activeContext defaults to empty, not nil. Top-level sender is nil.
   const Oop caller = ctx.activeContext.isHeap() ? ctx.activeContext : Oop::nil();
   if (frame->isBlock) {
-    frame->context = blockHold.slot;
-    ctx.heap.slotAtPut(frame->context, kCtxSender, caller);
+    // A fresh activation per call; the closure itself is never written (SPEC §3.4).
+    frame->context = Context::createBlock(
+        ctx, frame->method, frame->receiver, ctx.heap.slotAt(blockHold.slot, kBlockHome),
+        ctx.heap.slotAt(blockHold.slot, kBlockCopied), caller, static_cast<std::uint8_t>(argc));
   } else {
     frame->context = Context::createMethod(ctx, frame->method, frame->receiver, caller,
                                            static_cast<std::uint8_t>(argc));
-    if (!frame->context.isHeap()) {
-      return Oop{};
-    }
   }
+  if (!frame->context.isHeap()) {
+    return Oop{};
+  }
+  ContextExitGuard exited(ctx, *frame);
 
   ActiveGuard active(ctx, frame->context, depth.outermost);
   Temps temps(ctx.roots, numTemps);
-  const bool useHost = !frame->isBlock && ctx.hostTemps != nullptr &&
-                       ctx.hostTempCount == static_cast<std::uint32_t>(numTemps);
-  if (useHost) {
-    for (std::uint32_t i = 0; i < numTemps; ++i) {
-      temps.put(i, ctx.hostTemps[i]);
-    }
-  }
-  HostTempGuard hostBack(ctx, temps, useHost);
   for (std::uint32_t i = 0; i < argc; ++i) {
     temps.put(i, argHold.ptr()[i]);
   }
@@ -458,7 +560,7 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     if (!readByte(ctx, frame->method, pc, &opb)) {
       return Oop{};
     }
-    if (opb > static_cast<std::uint8_t>(compiler::Op::Primitive)) {
+    if (opb > static_cast<std::uint8_t>(compiler::kLastOp)) {
       return Oop{};
     }
     const auto op = static_cast<compiler::Op>(opb);
@@ -584,11 +686,10 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
       case compiler::Op::SendSpecial: {
         Oop selector;
         if (op == compiler::Op::SendSpecial) {
-          const char* name = compiler::specialSelector(argb[0]);
-          if (name == nullptr) {
-            return Oop{};
+          if (answerWithoutSend(ctx.wk, stack, argb[0], argb[1])) {
+            break;
           }
-          selector = ctx.wk.intern(name);
+          selector = ctx.wk.specialSelector(argb[0]);
           if (!selector.isHeap()) {
             return Oop{};
           }
@@ -612,7 +713,12 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           if (!stack.pop(&v)) {
             return Oop{};
           }
-          take = (op == compiler::Op::JumpTrue) ? v.isTrue() : v.isFalse();
+          bool truth = false;
+          const Leave nl = branchTruth(ctx, *frame, v, depth.outermost, &truth);
+          if (nl.leave) {
+            return nl.value;
+          }
+          take = (op == compiler::Op::JumpTrue) == truth;
         }
         if (take && !jumpTo(ctx, gc, *frame, rel16(argb[0], argb[1]))) {
           return Oop{};
@@ -639,13 +745,26 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
         if (!stack.pop(&v)) {
           return Oop{};
         }
+        if (!frame->isBlock) {
+          return v;
+        }
+        const Oop home = ctx.heap.slotAt(frame->context, kBlockHome);
+        if (!contextAlive(ctx, home)) {
+          // SPEC §3.4: the home has returned. cannotReturn:'s answer is this block's value, and
+          // no unrelated caller is unwound.
+          Root value(ctx.roots, v);
+          Root sel(ctx.roots, ctx.wk.intern("cannotReturn:"));
+          if (!sel.slot.isHeap()) {
+            return Oop{};
+          }
+          const Oop answer = send(ctx, frame->context, sel.slot, &value.slot, 1, nullptr);
+          const Leave nl = consumeNonlocal(ctx, false, frame->context, depth.outermost);
+          return nl.leave ? nl.value : answer;
+        }
         ctx.nonlocalReturn = true;
-        ctx.nonlocalHome =
-            frame->isBlock ? ctx.heap.slotAt(frame->context, kBlockHome) : Oop::nil();
+        ctx.nonlocalHome = home;
         ctx.nonlocalValue = v;
-        const Leave nl =
-            consumeNonlocal(ctx, !frame->isBlock, frame->context, depth.outermost);
-        return nl.leave ? nl.value : v;
+        return consumeNonlocal(ctx, false, frame->context, depth.outermost).value;
       }
       case compiler::Op::CreateBlock: {
         Oop lit;
@@ -678,9 +797,10 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           ctx.heap.slotAtPut(arr.slot, i, copies.ptr()[i]);
         }
         const Oop home = frame->isBlock ? ctx.heap.slotAt(frame->context, kBlockHome) : frame->context;
+        // A closure has no sender; each call's activation gets one (SPEC §3.4).
         Root created(ctx.roots,
                      Context::createBlock(ctx, blockMethod.slot, frame->receiver, home, arr.slot,
-                                          frame->context, blockArgs));
+                                          Oop::nil(), blockArgs));
         if (!created.slot.isHeap()) {
           return Oop{};
         }
@@ -689,6 +809,59 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
       }
       case compiler::Op::Primitive:
         break;
+      case compiler::Op::PushNewArray: {
+        const Oop arr = allocateRetry(ctx, ctx.wk.arrayClass, argb[0], 0);
+        if (!arr.isHeap()) {
+          return Oop{};
+        }
+        stack.push(arr);
+        break;
+      }
+      case compiler::Op::PushRemoteTemp: {
+        Oop vec;
+        if (!remoteSlot(ctx, temps, argb[1], argb[0], &vec)) {
+          return Oop{};
+        }
+        stack.push(ctx.heap.slotAt(vec, argb[0]));
+        break;
+      }
+      case compiler::Op::StoreRemoteTemp:
+      case compiler::Op::PopStoreRemoteTemp: {
+        Oop vec;
+        Oop v;
+        if (!remoteSlot(ctx, temps, argb[1], argb[0], &vec)) {
+          return Oop{};
+        }
+        const bool popped =
+            op == compiler::Op::PopStoreRemoteTemp ? stack.pop(&v) : stack.top(&v);
+        if (!popped) {
+          return Oop{};
+        }
+        ctx.heap.slotAtPut(vec, argb[0], v);
+        break;
+      }
+      case compiler::Op::PushLitVar: {
+        Oop assoc;
+        if (!litVar(ctx, frame->method, argb[0], &assoc)) {
+          return Oop{};
+        }
+        stack.push(ctx.heap.slotAt(assoc, kAssocValue));
+        break;
+      }
+      case compiler::Op::StoreLitVar:
+      case compiler::Op::PopStoreLitVar: {
+        Oop assoc;
+        Oop v;
+        if (!litVar(ctx, frame->method, argb[0], &assoc)) {
+          return Oop{};
+        }
+        const bool popped = op == compiler::Op::PopStoreLitVar ? stack.pop(&v) : stack.top(&v);
+        if (!popped) {
+          return Oop{};
+        }
+        ctx.heap.slotAtPut(assoc, kAssocValue, v);
+        break;
+      }
     }
   }
 }
@@ -698,6 +871,18 @@ Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std
   if (!method.isHeap()) {
     return Oop{};
   }
+  // SPEC §3.4: every send, native or compiled, passes here, so unbounded recursion stops here
+  // with a reserve left for unwinding. A frame outside the known range is another thread.
+  const auto sp = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0));
+  const auto limit = [&ctx] {
+    return ctx.cleanupDepth > 0 ? ctx.stackCleanupLimit : ctx.stackLimit;
+  };
+  if (sp < limit() || sp > ctx.stackHigh) {
+    refreshStackLimit(ctx);
+    if (sp < limit()) {
+      return abortEvaluation(ctx, "stack overflow");
+    }
+  }
   const Oop k = ctx.heap.klass(method);
   if (k == ctx.wk.nativeMethodClass) {
     return NativeMethod::apply(ctx, method, receiver, args, argc);
@@ -706,6 +891,17 @@ Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std
     return Interpreter::run(ctx, method, receiver, args, argc, block);
   }
   return Oop{};
+}
+
+void refreshStackLimit(CallContext& ctx) {
+  pthread_t self = pthread_self();
+  const auto high = reinterpret_cast<std::uintptr_t>(pthread_get_stackaddr_np(self));
+  const std::size_t size = pthread_get_stacksize_np(self);
+  const std::size_t reserve = std::min<std::size_t>(std::size_t{512} * 1024, size / 4);
+  ctx.stackHigh = high;
+  ctx.stackLimit = high - size + reserve;
+  // ensure: cleanups may use half of the reserve; the rest is left for unwinding.
+  ctx.stackCleanupLimit = high - size + reserve / 2;
 }
 
 }  // namespace ao

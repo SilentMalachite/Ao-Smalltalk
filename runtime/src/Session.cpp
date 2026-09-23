@@ -9,6 +9,7 @@
 #include "ao/Image.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/MethodDictionary.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
 
@@ -26,6 +27,8 @@ namespace {
 
 std::unique_ptr<Session> g_session;
 
+Oop workspaceBinding(CallContext& ctx, std::string_view name);
+
 void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook inspect) {
   session.cache = std::make_unique<ClassMethodCache>();
   session.cache->addRoots(session.roots);
@@ -33,6 +36,7 @@ void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook ins
       session.heap, session.roots, session.wk, session.cache.get()});
   session.ctx->transcriptHook = transcript;
   session.ctx->inspectHook = inspect;
+  session.ctx->bindingHook = workspaceBinding;
 }
 
 bool installEmptyWorkspace(Session& session) {
@@ -170,7 +174,7 @@ int sessionImageLoad(const char* path) {
     return 1;
   }
   g_session = std::move(next);
-  ensureTranscriptClassMethods();
+  ensureKernelNatives();
   if (!loadedImageProbes(*g_session)) {
     return 1;
   }
@@ -193,50 +197,25 @@ int sessionFileInLoadOrder(const char* path) {
   return fileInLoadOrder(*g_session->ctx, path, errors) ? 0 : 1;
 }
 
-Oop ao_Transcript_class_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
-                                 std::uint32_t argc);
-Oop ao_Transcript_class_nextPutAll_(CallContext& ctx, const Oop& receiver, const Oop* args,
-                                    std::uint32_t argc);
-Oop ao_Transcript_class_show_(CallContext& ctx, const Oop& receiver, const Oop* args,
-                              std::uint32_t argc);
-Oop ao_Transcript_class_cr(CallContext& ctx, const Oop& receiver, const Oop* args,
-                           std::uint32_t argc);
-Oop ao_Transcript_class_clear(CallContext& ctx, const Oop& receiver, const Oop* args,
-                              std::uint32_t argc);
-
-void ensureTranscriptClassMethods() {
+void ensureKernelNatives() {
   if (g_session == nullptr) {
     return;
   }
   Session& s = *g_session;
+  // An image may have a Transcript metaclass without a dictionary; the class-side natives need one.
   const Oop meta = s.wk.transcriptMetaclass;
-  if (!meta.isHeap()) {
-    return;
-  }
-  Oop dict = s.heap.slotAt(meta, kClassSlotMethodDict);
-  if (!dict.isHeap()) {
-    dict = MethodDictionary::create(s.heap, s.wk, 8);
-    if (!dict.isHeap()) {
-      return;
+  if (meta.isHeap() && !s.heap.slotAt(meta, kClassSlotMethodDict).isHeap()) {
+    const Oop dict = MethodDictionary::create(s.heap, s.wk, 8);
+    if (dict.isHeap()) {
+      s.heap.slotAtPut(meta, kClassSlotMethodDict, dict);
     }
-    s.heap.slotAtPut(meta, kClassSlotMethodDict, dict);
   }
-  s.roots.add(&dict);
-  const Oop show = s.wk.intern("show:");
-  const bool present = MethodDictionary::at(s.heap, dict, show).isHeap();
-  s.roots.remove(&dict);
-  if (present) {
-    return;
-  }
-  kernel::putNative(s.heap, s.wk, meta, "nextPut:", 1, "ao_Transcript_class_nextPut_",
-                    ao_Transcript_class_nextPut_);
-  kernel::putNative(s.heap, s.wk, meta, "nextPutAll:", 1, "ao_Transcript_class_nextPutAll_",
-                    ao_Transcript_class_nextPutAll_);
-  kernel::putNative(s.heap, s.wk, meta, "show:", 1, "ao_Transcript_class_show_",
-                    ao_Transcript_class_show_);
-  kernel::putNative(s.heap, s.wk, meta, "cr", 0, "ao_Transcript_class_cr", ao_Transcript_class_cr);
-  kernel::putNative(s.heap, s.wk, meta, "clear", 0, "ao_Transcript_class_clear",
-                    ao_Transcript_class_clear);
+  // SPEC §3.10: add the Kernel natives the image lacks (those added after it was saved) and keep
+  // every method it has.
+  kernel::installMissing(s.heap, s.roots, s.wk);
+  Globals::adoptImageClass(s.heap, s.wk);
+  // SPEC §3.5: installMissing may have added one of the eight; a kept user method may hide one.
+  s.wk.checkSmallIntegerFastPath();
 }
 
 namespace {
@@ -530,20 +509,6 @@ std::vector<std::string> subclassNames(Session& s, const std::string& name,
 
 bool metaOk(int meta) { return meta == 0 || meta == 1; }
 
-struct HostBind {
-  CallContext& ctx;
-  HostBind(CallContext& c, Oop* ptr, std::uint32_t count) : ctx(c) {
-    ctx.hostTemps = ptr;
-    ctx.hostTempCount = count;
-  }
-  ~HostBind() {
-    ctx.hostTemps = nullptr;
-    ctx.hostTempCount = 0;
-  }
-  HostBind(const HostBind&) = delete;
-  HostBind& operator=(const HostBind&) = delete;
-};
-
 struct NameBag {
   Heap* heap = nullptr;
   std::vector<std::string>* names = nullptr;
@@ -577,64 +542,61 @@ void collectKnownGlobals(Session& session, std::vector<std::string>* names) {
       names->emplace_back(name);
     }
   }
+  names->emplace_back("Smalltalk");
   NameBag bag{&session.heap, names};
   session.wk.eachExtra(collectExtraGlobal, &bag);
   session.wk.eachClass(collectClassGlobal, &bag);
 }
 
-void collectWorkspaceKeys(Session& session, std::vector<std::string>* keys) {
-  keys->clear();
-  if (!pointerSlots(session.heap, session.workspace, 2)) {
-    return;
+// SPEC §3.10: cached, and rebuilt only after a class definition or Smalltalk at:put:.
+const std::vector<std::string>& knownGlobals(Session& session) {
+  const std::uint64_t version = session.wk.globalsVersion();
+  if (!session.knownGlobalsCached || session.knownGlobalsVersion != version) {
+    collectKnownGlobals(session, &session.knownGlobals);
+    session.knownGlobalsVersion = version;
+    session.knownGlobalsCached = true;
   }
-  const Oop inner = session.heap.slotAt(session.workspace, 1);
-  if (!inner.isHeap() || (session.heap.flags(inner) & kFlagBytes) != 0) {
-    return;
+  return session.knownGlobals;
+}
+
+// SPEC §3.10: the workspace binding for name. Made with value nil and kept in the workspace
+// dictionary on first use, so every evaluation sees the same Association.
+Oop workspaceBinding(CallContext& ctx, std::string_view name) {
+  Session* s = g_session.get();
+  if (s == nullptr || !s->workspace.isHeap()) {
+    return Oop{};
   }
-  const auto n = session.heap.size(inner);
-  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
-    const Oop key = session.heap.slotAt(inner, i);
-    if (!key.isHeap() || (session.heap.flags(key) & kFlagBytes) == 0) {
-      continue;
+  Root key(ctx.roots, Str::fromUtf8(ctx, name));
+  Root has(ctx.roots, ctx.wk.intern("includesKey:"));
+  Root at(ctx.roots, ctx.wk.intern("at:"));
+  Root atPut(ctx.roots, ctx.wk.intern("at:put:"));
+  if (!key.slot.isHeap() || !has.slot.isHeap() || !at.slot.isHeap() || !atPut.slot.isHeap()) {
+    return Oop{};
+  }
+  if (send(ctx, s->workspace, has.slot, &key.slot, 1, nullptr).isTrue()) {
+    const Oop found = send(ctx, s->workspace, at.slot, &key.slot, 1, nullptr);
+    if (found.isHeap() && ctx.heap.klass(found) == ctx.wk.associationClass) {
+      return found;
     }
-    keys->push_back(byteText(session.heap, key));
   }
-  std::sort(keys->begin(), keys->end(), utf8Less);
+  RootedArray kv(ctx.roots, 2);
+  kv[0] = key.slot;
+  kv[1] = allocateRetry(ctx, ctx.wk.associationClass, 2, 0);
+  if (!kv[1].isHeap()) {
+    return Oop{};
+  }
+  ctx.heap.slotAtPut(kv[1], kAssocKey, kv[0]);
+  ctx.heap.slotAtPut(kv[1], kAssocValue, Oop::nil());
+  if (send(ctx, s->workspace, atPut.slot, kv.ptr(), 2, nullptr).isEmpty()) {
+    return Oop{};
+  }
+  return kv[1];
 }
 
 void blankOut(char* out, int outLen) {
   if (outLen > 0 && out != nullptr) {
     out[0] = '\0';
   }
-}
-
-bool dictAtKey(Session& session, std::string_view name, Oop* out) {
-  Root key(session.roots, Str::fromUtf8(*session.ctx, name));
-  if (!key.slot.isHeap()) {
-    return false;
-  }
-  const Oop sel = session.wk.intern("at:");
-  if (!sel.isHeap()) {
-    return false;
-  }
-  *out = send(*session.ctx, session.workspace, sel, &key.slot, 1, nullptr);
-  return !out->isEmpty();
-}
-
-bool dictAtPutKey(Session& session, std::string_view name, Oop value) {
-  // キーの割り当ては GC する。value を先にルートに載せる。
-  Root val(session.roots, value);
-  Root key(session.roots, Str::fromUtf8(*session.ctx, name));
-  if (!key.slot.isHeap()) {
-    return false;
-  }
-  const Oop sel = session.wk.intern("at:put:");
-  if (!sel.isHeap()) {
-    return false;
-  }
-  Oop args[2] = {key.slot, val.slot};
-  const Oop stored = send(*session.ctx, session.workspace, sel, args, 2, nullptr);
-  return !stored.isEmpty();
 }
 
 int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
@@ -664,9 +626,8 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
   }
 
   compiler::CompileEnv env;
-  env.undeclaredAreTemps = true;
-  collectKnownGlobals(session, &env.knownGlobals);
-  collectWorkspaceKeys(session, &env.workspaceTemps);
+  env.undeclaredAreBindings = true;
+  env.knownGlobals = knownGlobals(session);
   const compiler::CompileResult compiled = compiler::compileMethod(text, env);
   if (!compiled.ok) {
     if (err != nullptr) {
@@ -686,49 +647,24 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
   }
 
   const compiler::MethodImage& image = compiled.image;
-  if (image.numArgs != 0 || image.tempBindings.size() != static_cast<std::size_t>(image.numTemps)) {
+  if (image.numArgs != 0) {
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
 
+  // Boxing the Binding literals finds or makes the workspace's Associations (SPEC §3.10), so
+  // assignments land in the workspace dictionary directly and nothing is written back.
   Root method(session.roots, boxMethodImage(*session.ctx, image, session.wk.compiledMethodClass));
   if (!method.slot.isHeap()) {
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
 
-  const auto ntemps = static_cast<std::uint32_t>(image.numTemps);
-  RootedArray slots(session.roots, ntemps);
-  for (std::uint32_t i = 0; i < ntemps; ++i) {
-    if (!image.tempBindings[i].workspace) {
-      continue;
-    }
-    Oop value = Oop::nil();
-    if (!dictAtKey(session, image.tempBindings[i].name, &value)) {
-      blankOut(out, outLen);
-      return AO_ERR_EVAL;
-    }
-    slots.ptr()[i] = value;
-  }
-
-  Root result(session.roots);
-  {
-    HostBind bound(*session.ctx, ntemps == 0 ? nullptr : slots.ptr(), ntemps);
-    result.slot = applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil());
-  }
+  Root result(session.roots,
+              applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil()));
   if (result.slot.isEmpty()) {
     blankOut(out, outLen);
     return AO_ERR_EVAL;
-  }
-
-  for (std::uint32_t i = 0; i < ntemps; ++i) {
-    if (!image.tempBindings[i].workspace) {
-      continue;
-    }
-    if (!dictAtPutKey(session, image.tempBindings[i].name, slots.ptr()[i])) {
-      blankOut(out, outLen);
-      return AO_ERR_EVAL;
-    }
   }
 
   if (mode == AO_EVAL_DOIT) {
@@ -777,23 +713,36 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser) {
   // 評価の前に立っていたフラグ（accept や file-in の途中のもの）を、この評価のせいにしない。
-  if (g_session != nullptr) {
+  if (g_session != nullptr && g_session->ctx != nullptr) {
     g_session->heap.clearOutOfMemory();
+    clearUnwinding(*g_session->ctx);
+    refreshStackLimit(*g_session->ctx);
   }
   const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser);
-  // SPEC §3.2: old の上限で割り当てられなければ評価エラー「out of memory」。巻き戻し（B3）は
-  // まだ無いので、評価を走り切らせてからフラグで判定する。
-  if (g_session == nullptr || !g_session->heap.outOfMemory()) {
+  if (g_session == nullptr || g_session->ctx == nullptr) {
+    return rc;
+  }
+  // SPEC §3.4: abort は最外で理由を読んで消す。SPEC §3.2: old の上限で割り当てられなければ
+  // 評価エラー「out of memory」（巻き戻しは B3 まで無いので、走り切った後にフラグで判定する）。
+  CallContext& ctx = *g_session->ctx;
+  const char* reason = nullptr;
+  if (ctx.aborting) {
+    reason = ctx.abortReason != nullptr ? ctx.abortReason : "evaluation aborted";
+  } else if (g_session->heap.outOfMemory()) {
+    reason = "out of memory";
+  }
+  clearUnwinding(ctx);
+  if (reason == nullptr) {
     return rc;
   }
   g_session->heap.clearOutOfMemory();
   blankOut(out, outLen);
   if (err != nullptr) {
-    static constexpr char kOutOfMemory[] = "out of memory";
-    static_assert(sizeof(kOutOfMemory) <= sizeof(err->message));
+    const std::size_t n = std::min(std::strlen(reason), sizeof(err->message) - 1);
     err->start = 0;
     err->end = 0;
-    std::memcpy(err->message, kOutOfMemory, sizeof(kOutOfMemory));
+    std::memcpy(err->message, reason, n);
+    err->message[n] = '\0';
   }
   return AO_ERR_EVAL;
 }

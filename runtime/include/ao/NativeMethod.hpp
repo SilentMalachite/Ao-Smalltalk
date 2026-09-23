@@ -35,6 +35,8 @@ struct ClassMethodCache {
 struct CallContext;
 
 using HostOopHook = void (*)(CallContext& ctx, Oop value);
+// Finds or makes the workspace binding (an Association) for name; empty Oop on failure.
+using BindingHook = Oop (*)(CallContext& ctx, std::string_view name);
 
 struct CallContext {
   Heap& heap;
@@ -45,13 +47,29 @@ struct CallContext {
   HostOopHook transcriptHook = nullptr;
   Oop activeContext{};
   std::uint64_t interpretedBytecodes = 0;
+  // Sends the interpreter made for Send, SendSuper and SendSpecial (performSend). A SendSpecial
+  // that SmallIntegers answer without a send (SPEC §3.5) does not count; mustBeBoolean and
+  // cannotReturn: do not either.
+  std::uint64_t interpretedSends = 0;
   int testFailures = 0;
   bool nonlocalReturn = false;
   Oop nonlocalHome{};
   Oop nonlocalValue{};
-  // Caller-rooted temp slots. Non-null only for the ao_eval frame that matches numTemps.
-  Oop* hostTemps = nullptr;
-  std::uint32_t hostTempCount = 0;
+  // SPEC §3.4 abort: a non-local return with no home. Only abortEvaluation sets it; the
+  // outermost entry reads the reason (a static string) and clears it.
+  bool aborting = false;
+  const char* abortReason = nullptr;
+  // Stack guard (SPEC §3.4) of the thread that last applied a method: a method may be applied
+  // at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them, and
+  // every outermost entry refreshes them too (a new thread may reuse an old thread's stack).
+  // While an ensure: cleanup runs (cleanupDepth > 0) the lower stackCleanupLimit applies, so a
+  // cleanup still runs during a stack overflow abort.
+  std::uintptr_t stackLimit = 0;
+  std::uintptr_t stackHigh = 0;
+  std::uintptr_t stackCleanupLimit = 0;
+  std::uint32_t cleanupDepth = 0;
+  // Boxes LitKind::Binding literals (SPEC §3.10). Null outside a session: such literals fail.
+  BindingHook bindingHook = nullptr;
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, const Oop& receiver, const Oop* args,

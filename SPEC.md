@@ -216,24 +216,81 @@ lookup(receiver, selector)
 v1 の実行モデル:
 
 - ユーザーメソッドは `MethodContext`（Blue Book `Context` / `MethodContext` 相当）。
-- ブロックは `BlockContext` 相当。外側コンテキストとコピーされた値、および後続フェーズではフルクロージャ（コピー + 共有テンプ）へ拡張できる構造にする。
 - プロセスは協調的。`ProcessorScheduler` / `Process` / `Semaphore` を Kernel に含める。
 - ホストのプリエンプションは使わない。長時間ネイティブメソッドは safepoint を自ら発行する。
+
+#### クロージャと共有 temp
+
+- ブロック式を評価すると、クロージャ（`BlockContext` の形のオブジェクト）ができる。クロージャは、メソッド、レシーバ、ホーム（そのブロックを字句上含むメソッドのコンテキスト）、コピーした値の Array を持つ。sender は nil。
+- ブロックは外側の temp を共有する（Blue Book の意味論）。ブロックが捕捉した temp のうち、どこかで代入されるものは、コンパイラが temp ベクタ（ヒープの Array）に置く。ベクタは、その temp を宣言したスコープ（メソッド、ブロック、展開したブロック）に入るたびに新しく作る。捕捉したブロックはベクタそのものをコピーするので、外側とブロックが同じ値を読み書きする。ブロック内の代入は、外側にも、同じブロックの次の起動にも見える。
+- 代入の無い捕捉（引数、`to:do:` のループ変数、代入の無い temp）は、クロージャを作った時点の値をコピーする。
+- ブロックを起動するたびに、新しいアクティベーション（`BlockContext`）を作る。アクティベーションの sender は呼び出し元である。クロージャ自身は書き換えない。
+- コンテキストは、そのフレームを抜けるときに pc と sender を nil にする。これが死んだコンテキストの印である。
+
+#### 非局所リターン、ensure:、abort
+
+- ブロック内の `^` は、ホームのメソッドから返る（非局所リターン）。途中のフレームはネイティブも含めてすべて巻き戻す。ブロックを呼んだネイティブも、メッセージを送ったネイティブ（キーに `hash` や `=` を送る Dictionary など）も、呼んだ先から戻ったときに巻き戻しの最中なら、直ちに空 OOP を返す。残りの反復も、続く送信も、副作用も行わない。
+- ホームが死んでいれば、ブロックのアクティベーションに `cannotReturn: 値` を送り、その答えをブロックの値として呼び出し元に返す。無関係な呼び出し元は巻き込まない。`BlockContext>>cannotReturn:` の既定は `self error: 'cannot return'` と同じ答えである。
+- `ensure: aBlock` は、レシーバのブロックを評価したあと、正常に終わっても巻き戻しの途中でも `aBlock` を評価する。後始末の間は巻き戻しを止め、終わったら続ける。後始末が自分で巻き戻しを始めたら、そちらを優先する。`ifCurtailed: aBlock` は、レシーバのブロックが巻き戻ったときだけ `aBlock` を評価する。
+- abort は評価の中断である。ホームの無い非局所リターンとして扱い、どのフレームでも止まらずに最外（`ao_eval` の 1 回、`ao --test` の 1 ファイル）まで戻る。途中の `ensure:` は実行する。abort は理由の文字列を持つ。abort を始めるのは `abortEvaluation` だけである。
+- abort の状態は最外で読んで消す。前の評価の abort を次の評価に持ち越さない。
+- スタックガード: メソッド（ネイティブを含む）を適用する前に、C スタックの残りが予約分（`min(512 KiB, スタックの大きさの 1/4)`）を下回っていれば、「stack overflow」で abort する。無限再帰でプロセスは落ちない。
+  - スタックの範囲は、最外の入口（`ao_eval`、`ao --test` の 1 ファイル、最外の `Interpreter::run`）で必ず取り直す。前のスレッドの範囲を使い続けない。
+  - `ensure:` / `ifCurtailed:` の後始末の間は、予約分の半分まで使ってよい。stack overflow の abort の途中でも、限界近くの後始末が走る。
 
 ### 3.5 バイトコード（ユーザーメソッド）
 
 Blue Book 第 28 章の集合を現代化した **Ao バイトコード** を定義する。意味は対応づけ、エンコーディングは 8-bit opcode + 必要なら 1–2 オペランド。
 
-必須グループ:
+オペコード表（番号は追記だけで増やし、既存の番号を変えない）:
 
-- stack: push receiver / temp / lit / special const、pop、dup
-- send: 普通送信、super 送信、算術特殊送信
-- jump: 無条件、true/false
-- return: メソッド、ブロック
-- block: ブロック作成（クロージャ作成）
-- primitive: 先頭プリミティブ番号（失敗時はバイトコード本文へ）
+| # | Op | オペランド | 意味 |
+|---|---|---|---|
+| 0–8 | PushReceiver, PushTrue, PushFalse, PushNil, PushThisContext, PushMinusOne, PushZero, PushOne, PushTwo | — | 定数を積む |
+| 9 | PushTemp | i | temp i を積む |
+| 10 | PushInstVar | i | インスタンス変数 i を積む |
+| 11 | PushLiteral | lit | リテラルを積む |
+| 12 | PushGlobal | lit（Symbol） | その名前のグローバルを積む（無ければ nil） |
+| 13 / 14 | Pop / Dup | — | |
+| 15 / 16 | StoreTemp / StoreInstVar | i | 積んだまま書く |
+| 17 / 18 | PopStoreTemp / PopStoreInstVar | i | 降ろして書く |
+| 19 | Send | lit argc | 通常送信 |
+| 20 | SendSuper | lit argc | super 送信 |
+| 21 | SendSpecial | k argc | 特殊セレクタ表の k 番を送る |
+| 22 | Jump | rel16 | 無条件ジャンプ |
+| 23 / 24 | JumpTrue / JumpFalse | rel16 | 降ろした値が true / false ならジャンプ |
+| 25–29 | ReturnReceiver, ReturnTrue, ReturnFalse, ReturnNil, ReturnTop | — | メソッドから返る |
+| 30 | ReturnBlock | — | ブロックの `^`（非局所リターン） |
+| 31 | CreateBlock | lit n | 積んだ n 個をコピーしてクロージャを作る |
+| 32 | Primitive | u16 | 先頭のプリミティブ番号 |
+| 33 | PushNewArray | n | nil で埋めた大きさ n の Array を積む |
+| 34 / 35 / 36 | PushRemoteTemp / StoreRemoteTemp / PopStoreRemoteTemp | i t | temp t の Array（temp ベクタ）の i 番を読み書きする |
+| 37 / 38 / 39 | PushLitVar / StoreLitVar / PopStoreLitVar | lit（Association） | 束縛の値を読み書きする |
+
+- ジャンプのオフセットは符号付き 16 bit（リトルエンディアン）で、基点は次の命令の先頭である。後方ジャンプは、条件ジャンプも含めて safepoint を通る。
+- JumpTrue / JumpFalse で降ろした値が Boolean でなければ、その値に `mustBeBoolean` を送る。答えが Boolean ならそれで分岐し、Boolean でなければ「NonBoolean receiver」で abort する。`Object>>mustBeBoolean` の既定は、同じ理由の abort である。
+- LitVar 系のリテラルは Association（値のスロットを持つポインタオブジェクト）でなければならない。ワークスペースの束縛（§3.10）とクラス変数が使う。
+- SendSpecial の `+` `-` `*` `<` `>` `<=` `>=` `=` は、レシーバと引数がともに SmallInteger なら、送信せずに計算して積む（Blue Book の特殊セレクタと同じ）。比較は常にそうする。`+` `-` `*` は、答えが SmallInteger に収まるときだけそうする。それ以外（桁あふれ、SmallInteger でない値、ほかの特殊セレクタ）は通常の送信にする。
+  - SmallInteger から引いたこれらのセレクタはネイティブに当たる。accept（§3.10）でも file-in（§3.12）でも、これを隠せない。したがって答えは、送信したときと同じである。
+  - ロードしたイメージで、SmallInteger から引いたどれか 1 つがネイティブに当たらないことがある。隠すメソッドを入れられた古いイメージである。そのセッションでは高速路を使わない。
+  - 反射（`instVarAt:put:` でメソッド辞書やスーパークラスを書き換えること）による変更は、Blue Book と同じく高速路に反映しない。
 
 コンパイラが生成し、インタプリタが実行する。Kernel はこれを使わない。
+
+インライン展開: 次の送信は、送信せずにジャンプへ展開する。展開するのは、コンパイラがレシーバ自身をコンパイルする送信（カスケードのパートでも super 送信でもない）で、ブロック引数がリテラルのときだけである。それ以外は通常の送信にする。Boolean などのネイティブは残り、展開しない送信で使う。
+
+| 送信 | 条件 | 値 |
+|---|---|---|
+| `ifTrue:` `ifFalse:` `ifTrue:ifFalse:` `ifFalse:ifTrue:` | 全引数が 0 引数のリテラルブロック | 選んだブロックの値。選ぶ分岐が無ければ nil |
+| `and:` `or:` | 引数が 0 引数のリテラルブロック | `and:` はレシーバが false なら false、`or:` は true なら true。それ以外は引数ブロックの値 |
+| `whileTrue:` `whileFalse:` | レシーバと引数が 0 引数のリテラルブロック | nil |
+| `whileTrue` `whileFalse` | レシーバが 0 引数のリテラルブロック | nil |
+| `to:do:` | 最後の引数が 1 引数のリテラルブロック | レシーバ |
+| `to:by:do:` | 上に加えて、刻みが 0 でない数値リテラル | レシーバ |
+
+- `to:do:` の上限は 1 回だけ評価する。反復は、判定 → 本体 → 増分 → 判定の順である。判定の `<=`（刻みが負なら `>=`）と増分の `+` は、SendSpecial で送る。SmallInteger 同士なら、上の規則で送信せずに計算する。レシーバは SmallInteger でなくてよい。刻みの `0.0` も 0 とみなし、展開しない。
+- 展開したブロックの temp は、そのブロックに入るたびに（ループなら反復ごとに）nil から始まる。ループ変数を捕捉したクロージャは、作った反復の値を持つ。
+- 展開したブロック内の `^` と `thisContext` は、そのブロックを含む実スコープ（メソッドか、展開しないブロック）のものと同じ意味である。
 
 JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し、v1 では常に `nil`。
 
@@ -249,7 +306,7 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 
 必須セレクタ（最小。実装時に Blue Book プロトコルを充足して増やす）:
 
-`Object`: `class`, `==`, `~~`, `=`, `hash`, `identityHash`, `yourself`, `isNil`, `notNil`, `ifNil:`, `ifNotNil:`, `perform:`, `perform:with:`, `perform:withArguments:`, `doesNotUnderstand:`, `error:`, `subclassResponsibility`, `shouldNotImplement`, `isKindOf:`, `isMemberOf:`, `respondsTo:`, `copy`, `shallowCopy`, `instVarAt:`, `instVarAt:put:`, `instVarNamed:`, `basicSize`, `basicAt:`, `basicAt:put:`, `printString`, `printOn:`, `storeOn:`, `inspect`（ホスト Inspector を開くブリッジ）
+`Object`: `class`, `==`, `~~`, `=`, `hash`, `identityHash`, `yourself`, `isNil`, `notNil`, `ifNil:`, `ifNotNil:`, `perform:`, `perform:with:`, `perform:withArguments:`, `doesNotUnderstand:`, `error:`, `subclassResponsibility`, `shouldNotImplement`, `isKindOf:`, `isMemberOf:`, `respondsTo:`, `copy`, `shallowCopy`, `instVarAt:`, `instVarAt:put:`, `instVarNamed:`, `basicSize`, `basicAt:`, `basicAt:put:`, `printString`, `printOn:`, `storeOn:`, `inspect`（ホスト Inspector を開くブリッジ）, `mustBeBoolean`
 
 `Boolean`: `ifTrue:`, `ifFalse:`, `ifTrue:ifFalse:`, `ifFalse:ifTrue:`, `and:`, `or:`, `not`, `&`, `|`, `eqv:`, `xor:`
 
@@ -284,6 +341,12 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 - `MethodDictionary`
 - `BlockContext` / `MethodContext`（または統一 `Context` + フラグ）
 
+必須セレクタ:
+
+`BlockContext`: `value`, `value:`, `value:value:`, `value:value:value:`, `value:value:value:value:`, `valueWithArguments:`（引数は Array とそのサブクラスだけ）, `numArgs`, `whileTrue:`, `whileFalse:`, `whileTrue`, `whileFalse`, `repeat`, `ensure:`, `ifCurtailed:`, `cannotReturn:`
+
+ブロックを呼ぶネイティブは、ブロックを呼ぶたびに巻き戻しを確かめる（§3.4）。ネイティブのループは 64K 回ごとに safepoint を通る。
+
 #### Kernel-Processes
 
 - `Process`
@@ -313,7 +376,7 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 - `Character`
 - `Date` / `Time` は P9 までスタブ可
 
-`SmallInteger` の `+ - * // \\ quo: rem: bitAnd: bitOr: bitXor: bitShift: = < > <= >=` はネイティブ。オーバーフローは `LargeInteger` へ透過。
+`SmallInteger` の `+ - * // \\ quo: rem: bitAnd: bitOr: bitXor: bitShift: = < > <= >=` はネイティブ。オーバーフローは `LargeInteger` へ透過。`Integer>>timesRepeat:` もネイティブ。
 
 #### Graphics-min
 
@@ -359,6 +422,10 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - リテラル: 数、文字列、シンボル、文字、配列 `#( )`、バイト配列
 - 擬変数 `self` `super` `thisContext` `nil` `true` `false`
 - 代入 `:=` および `_`（入力は受け付けるが、ソース保存は `:=`）
+- 捕捉解析: コードを生成する前に、変数ごとに、宣言したスコープ、展開しないブロックからの捕捉、代入の有無を調べ、temp ベクタに置く temp を決める（§3.4）。
+- インライン展開（§3.5）
+- 引数（メソッドとブロック）と `to:do:` のループ変数への代入は、コンパイルエラー `cannot assign to argument` にする。
+- temp の上限は 255 である。引数、temp、持ち上げた temp（展開したブロックの temp、`to:do:` のループ変数と上限）、temp ベクタを入れるスロット、コピーした値を合わせて数える。
 
 エラーはソース区間付き。Browser の accept は失敗時にテキストを壊さずエラーを表示する。
 
@@ -381,7 +448,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
   - Do it（選択範囲を評価、結果は捨てる）
   - Print it（評価して結果の `printString` を挿入）
   - Inspect it（結果を Inspector 相当のウィンドウへ。v1 は簡易オブジェクトビューで可）
-- 評価コンテキストの `self` は `nil`。ワークスペース変数（未定義識別子を temps にする）は v1 で実装する。
+- 評価コンテキストの `self` は `nil`。ワークスペース変数（未定義識別子を束縛にする。§3.10）は v1 で実装する。
 
 #### System Browser
 
@@ -431,7 +498,7 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 
 中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。既定の初期容量（nursery 1 MiB×2、old 4 MiB）は変えない。old は上限まで伸びる。`ao_image_load` はヘッダの heapBytes に合わせてコミットする。
 
-`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureTranscriptClassMethods` を呼び、メタクラスに `show:` が無ければクラス側ネイティブを `putNative` する。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。探針に失敗したセッションはシャットダウンしない。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めなければ `AO_ERR`。
+`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureKernelNatives` を呼ぶ。これは、Kernel のネイティブ（Transcript のクラス側の転送を含む）のうち、ロードしたイメージのメソッド辞書に無いセレクタだけを `putNative` する。既にあるセレクタは上書きしない。後から足したネイティブが、古いイメージにも入る。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。探針に失敗したセッションはシャットダウンしない。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めなければ `AO_ERR`。
 
 #### C ABI
 
@@ -482,6 +549,8 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 `meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
 
+`ao_accept_method` は `NativeMethod` を CompiledMethod で置き換えない。対象の側のメソッド辞書にネイティブがあるセレクタに加えて、Kernel クラス（§3.6）では、そのクラスから引くとネイティブに当たるセレクタ（上位クラスから継承したネイティブ）も拒む。例えば `SmallInteger>><=` は `Magnitude>><=` のネイティブを隠すので拒む。どちらも `AO_ERR_COMPILE` で、メッセージは `native selector overwrite refused: <selector>` である。Kernel でないクラスは、継承したネイティブを上書きできる。Kernel クラスかどうかは、名前で引いた先のクラスそのもので決める（クラス側でも、名前で引いたクラスで決める。引いた先が Kernel クラスのメタクラスなら、Kernel クラスとみなす）。`Smalltalk at: #IntegerAlias put: SmallInteger` のような別名で指しても、Kernel クラスの名前で指したときと同じに拒む。
+
 #### ソースはイメージに書かない
 
 メソッドソースはセッションのルート表（`(Oop method, Oop string)` を `Roots` に登録したベクタ）だけが持つ。`.aoimage` には書かない。上書きした古い対はルートから外す。`ao_runtime_boot` と `ao_image_load` は表を空にする。
@@ -496,7 +565,13 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 #### ワークスペース変数
 
-ワークスペースはセッションに 1 つ。`IdentityDictionary` ではなく、名前文字列をキーにした `Dictionary` をルートする。`ao_workspace_reset` は空の辞書に戻す。`knownGlobals` は `Globals::nameAt` の 57 名、`eachExtra` の名、`eachClass` のクラス名バイト。`workspaceTemps` は辞書のキーを UTF-8 でソートしたもの。未定義名はテンプ、既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。テンプが 255 を超えたら `too many temporaries`。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。空 OOP は `AO_ERR_EVAL`。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。
+ワークスペースはセッションに 1 つ。`IdentityDictionary` ではなく、名前文字列をキーにした `Dictionary` をルートする。値は束縛（`Association`。キーは名前の文字列、値は変数の値）である。`ao_workspace_reset` は空の辞書に戻す。
+
+- 名前の解決順は、ローカル（引数と temp）→ インスタンス変数 → 擬変数 → `knownGlobals` → 束縛。宣言した temp（`| q |`）は同じ名前の束縛と関係しない。
+- `knownGlobals` は `Globals::nameAt` の 57 名、`Smalltalk`、`eachExtra` の名、`eachClass` のクラス名バイト。`Smalltalk` はグローバル表そのもので、クラスは `SmalltalkImage` である（`at:` と `at:put:` を受ける）。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
+- どれにも当たらない名前は束縛である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar`。束縛が辞書に無ければ、メソッドを作るとき（リテラルを箱に入れるとき）に値 nil で作って辞書に入れる。同じ名前の束縛は評価をまたいで同じ Association なので、ブロックに捕捉した束縛への代入も辞書に残る。束縛の数に上限は無い（temp の 255 に数えない）。
+
+Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。空 OOP は `AO_ERR_EVAL`。abort（§3.4）も `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。
 
 #### printString
 
@@ -523,7 +598,7 @@ LargeInteger とそれ以外はクラス名のまま。
 - グローバル辞書
 - 起動時に再配置し、NativeMethod の関数ポインタは **ロード時にシンボル名で結び直す**（ポインタをファイルに書かない）
 
-`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。
+`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。古いイメージのコンパイル済みブロックは、再 Accept するまでコピーの意味論のまま動く。
 
 ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
 
@@ -553,7 +628,7 @@ LargeInteger とそれ以外はクラス名のまま。
 #### 載せ方
 
 1. upstream の `.st`（またはチェンク書き出し）を `image/vendor/<origin>/` に置く。
-2. Kernel と衝突するメソッド（`Object>>#==` などネイティブ必須）は file-in しない。すでに `NativeMethod` があるセレクタは上書き禁止。
+2. Kernel と衝突するメソッド（`Object>>#==` などネイティブ必須）は file-in しない。すでに `NativeMethod` があるセレクタは上書き禁止。Kernel クラス（§3.6）への `methodsFor:` チャンクは丸ごと拒む。Kernel クラスかどうかは accept（§3.10）と同じく、名前で引いた先のクラスそのもので決める。別名で指しても拒む。
 3. ホストに移した機能（描画、ファイルダイアログ、Browser ビュー）を参照するメソッドは `image/patches/` でスタブか削除する。
 4. P5 以降、`ao filein image/vendor/...` で `CompiledMethod` として載せる。
 5. ロード順は `image/vendor/LOAD_ORDER` に固定する。
@@ -595,7 +670,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `smallinteger_arith_test`: オーバーフローで LargeInteger へ
 - `collection_do_test`: Array/String/Dictionary の中核プロトコル
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
-- `block_test`: 引数、返り値、外側 temps
+- `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果
 - `transcript_model_test`: コールバックが呼ばれる
 
@@ -659,6 +734,7 @@ v1 は次をすべて満たす。
 - [x] `Object superclass` は `nil`（または明示したルート方針に一致。採用したら SPEC を更新）
 - [ ] 未定義セレクタは `doesNotUnderstand:` に入り、デフォルトはエラーオブジェクトを返す
 - [x] `#(1 2 3) collect: [:x | x * 2]` が `#(2 4 6)`
+- [x] ブロックが外側の temp を共有する（`| y | y := 0. 3 > 1 ifTrue: [y := 1]. y` が `1`、`#(1 2 3) do: [:e | sum := sum + e]` のあと `sum` が `6`）
 - [x] ユーザーが Browser から `Object>>foo` を追加し、Workspace から `Object new foo` を評価できる
 - [x] `.aoimage` を保存して再起動し、追加したメソッドが残る
 - [x] `image/vendor` から file-in した非 Kernel メソッドが `CompiledMethod` として評価できる

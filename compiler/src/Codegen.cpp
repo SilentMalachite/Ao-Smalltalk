@@ -3,9 +3,12 @@
 #include "ao/Bytecode.hpp"
 
 #include <cstdint>
+#include <deque>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -47,7 +50,9 @@ int specialIndex(std::string_view sel) {
   return -1;
 }
 
-bool internable(LitKind k) { return k == LitKind::Int || k == LitKind::Symbol; }
+bool internable(LitKind k) {
+  return k == LitKind::Int || k == LitKind::Symbol || k == LitKind::Binding;
+}
 
 bool sameIntern(const Literal& a, const Literal& b) {
   if (a.kind != b.kind) {
@@ -56,19 +61,420 @@ bool sameIntern(const Literal& a, const Literal& b) {
   if (a.kind == LitKind::Int) {
     return a.intValue == b.intValue;
   }
-  if (a.kind == LitKind::Symbol) {
+  if (a.kind == LitKind::Symbol || a.kind == LitKind::Binding) {
     return a.text == b.text;
   }
   return false;
 }
 
-struct Scope {
-  Scope* parent = nullptr;
-  bool isBlock = false;
-  std::vector<std::string> args;
-  std::vector<std::string> temps;
-  std::vector<std::string> copied;
+// Capture analysis (SPEC §3.4, §3.8). A real scope is a method or a block that is not inlined; it
+// becomes one CompiledMethod. Each variable belongs to one real scope. A temp that a nested real
+// scope captures and that is assigned anywhere lives in a temp vector made on entry to the node
+// that declares it; every other capture copies the value when the closure is made.
+enum class VarKind : std::uint8_t { Arg, LoopVar, Temp, Hidden };
+
+struct RealScope;
+
+struct Var {
+  std::string name;
+  VarKind kind = VarKind::Temp;
+  RealScope* real = nullptr;
+  const Ast* decl = nullptr;  // the method or block that declares it
+  bool captured = false;
+  bool assigned = false;
+  bool boxed = false;
+  std::uint32_t slot = 0;      // temp index in real, when not boxed
+  std::uint32_t vecIndex = 0;  // index in decl's temp vector, when boxed
 };
+
+struct LexScope {
+  LexScope* parent = nullptr;
+  RealScope* real = nullptr;
+  std::vector<Var*> vars;
+};
+
+// What a real scope copies from the one that makes its closure: a variable's value, or the temp
+// vector of a declaring node (owned by `owner`).
+struct Capture {
+  Var* var = nullptr;
+  const Ast* vector = nullptr;
+  RealScope* owner = nullptr;
+  bool same(const Capture& o) const { return var == o.var && vector == o.vector; }
+};
+
+struct TempVector {
+  const Ast* decl = nullptr;
+  std::uint32_t size = 0;
+  std::uint32_t slot = 0;
+};
+
+// Temp layout: [args][plain temps][temp vector slots][copied]. Copied stays last, where the
+// interpreter puts the closure's copied values.
+struct RealScope {
+  RealScope* parent = nullptr;
+  const Ast* node = nullptr;
+  bool isBlock = false;
+  std::uint32_t numArgs = 0;
+  std::uint32_t numTemps = 0;
+  std::uint32_t copiedBase = 0;
+  std::vector<Var*> vars;
+  std::vector<TempVector> vectors;
+  std::vector<Capture> copied;
+};
+
+struct Analysis {
+  std::deque<Var> vars;
+  std::deque<LexScope> lexes;
+  std::deque<RealScope> reals;
+  std::unordered_map<const Ast*, RealScope*> realOf;             // method and real blocks
+  std::unordered_map<const Ast*, Var*> localOf;                  // Variable / Assign nodes
+  std::unordered_map<const Ast*, std::vector<Var*>> declared;    // declaring node -> its vars
+  std::vector<std::pair<RealScope*, Var*>> outerRefs;            // uses from a nested real scope
+  bool failed = false;
+  CompileError error;
+};
+
+bool hasReceiverChild(const Ast& send) {
+  return send.kids.size() == static_cast<std::size_t>(send.argc) + 1;
+}
+
+// Inline expansion (SPEC §3.5).
+enum class Inline : std::uint8_t {
+  None,
+  IfTrue,
+  IfFalse,
+  IfTrueIfFalse,
+  IfFalseIfTrue,
+  And,
+  Or,
+  WhileTrue,
+  WhileFalse,
+  WhileTrueUnary,
+  WhileFalseUnary,
+  ToDo,
+  ToByDo,
+};
+
+bool literalBlock(const Ast& n, std::size_t params) {
+  return n.kind == Ast::Kind::Block && n.params.size() == params;
+}
+
+// Number literals are the Literal nodes without a name.
+bool numberLiteral(const Ast& n) { return n.kind == Ast::Kind::Literal && n.name.empty(); }
+
+bool negativeNumber(const Ast& n) { return n.isFloat ? n.floatValue < 0 : n.intValue < 0; }
+
+// The one decision on inlining: the analysis and the code generator both ask it, so they agree
+// on which blocks are real scopes. Only a send compiled with its own receiver is inlined; the
+// cascade code never asks.
+Inline inlinePlan(const Ast& send) {
+  if (send.kind != Ast::Kind::Send || send.isSuper || !hasReceiverChild(send)) {
+    return Inline::None;
+  }
+  const std::string& sel = send.name;
+  const Ast& rcvr = send.kids[0];
+  const std::size_t nargs = send.kids.size() - 1;
+  const auto arg = [&](std::size_t i, std::size_t params) {
+    return literalBlock(send.kids[i + 1], params);
+  };
+  if (nargs == 0) {
+    if (sel == "whileTrue" && literalBlock(rcvr, 0)) {
+      return Inline::WhileTrueUnary;
+    }
+    if (sel == "whileFalse" && literalBlock(rcvr, 0)) {
+      return Inline::WhileFalseUnary;
+    }
+    return Inline::None;
+  }
+  if (nargs == 1) {
+    if (sel == "ifTrue:" && arg(0, 0)) {
+      return Inline::IfTrue;
+    }
+    if (sel == "ifFalse:" && arg(0, 0)) {
+      return Inline::IfFalse;
+    }
+    if (sel == "and:" && arg(0, 0)) {
+      return Inline::And;
+    }
+    if (sel == "or:" && arg(0, 0)) {
+      return Inline::Or;
+    }
+    if (sel == "whileTrue:" && literalBlock(rcvr, 0) && arg(0, 0)) {
+      return Inline::WhileTrue;
+    }
+    if (sel == "whileFalse:" && literalBlock(rcvr, 0) && arg(0, 0)) {
+      return Inline::WhileFalse;
+    }
+    return Inline::None;
+  }
+  if (nargs == 2) {
+    if (sel == "ifTrue:ifFalse:" && arg(0, 0) && arg(1, 0)) {
+      return Inline::IfTrueIfFalse;
+    }
+    if (sel == "ifFalse:ifTrue:" && arg(0, 0) && arg(1, 0)) {
+      return Inline::IfFalseIfTrue;
+    }
+    if (sel == "to:do:" && arg(1, 1)) {
+      return Inline::ToDo;
+    }
+    return Inline::None;
+  }
+  if (nargs == 3 && sel == "to:by:do:" && arg(2, 1)) {
+    const Ast& step = send.kids[2];
+    const bool nonzero = step.isFloat ? step.floatValue != 0 : step.intValue != 0;
+    if (numberLiteral(step) && nonzero) {
+      return Inline::ToByDo;
+    }
+  }
+  return Inline::None;
+}
+
+class Analyzer {
+ public:
+  explicit Analyzer(Analysis& an) : an_(an) {}
+
+  void method(const Ast& m) {
+    RealScope* real = newReal(nullptr, &m, false);
+    LexScope* lex = newLex(nullptr, real);
+    for (const std::string& p : m.params) {
+      declare(lex, &m, p, VarKind::Arg);
+    }
+    for (const std::string& t : m.temps) {
+      declare(lex, &m, t, VarKind::Temp);
+    }
+    for (const Ast& k : m.kids) {
+      walk(k, lex);
+    }
+    layout();
+  }
+
+ private:
+  Analysis& an_;
+
+  void fail(SourceSpan span, const char* message) {
+    if (an_.failed) {
+      return;
+    }
+    an_.failed = true;
+    an_.error.span = span;
+    an_.error.message = message;
+  }
+
+  RealScope* newReal(RealScope* parent, const Ast* node, bool isBlock) {
+    RealScope& r = an_.reals.emplace_back();
+    r.parent = parent;
+    r.node = node;
+    r.isBlock = isBlock;
+    an_.realOf[node] = &r;
+    return &r;
+  }
+
+  LexScope* newLex(LexScope* parent, RealScope* real) {
+    LexScope& l = an_.lexes.emplace_back();
+    l.parent = parent;
+    l.real = real;
+    return &l;
+  }
+
+  Var* declare(LexScope* lex, const Ast* decl, const std::string& name, VarKind kind) {
+    Var& v = an_.vars.emplace_back();
+    v.name = name;
+    v.kind = kind;
+    v.real = lex->real;
+    v.decl = decl;
+    lex->vars.push_back(&v);
+    lex->real->vars.push_back(&v);
+    an_.declared[decl].push_back(&v);
+    return &v;
+  }
+
+  // A use of a name. Names that are not local are left to the code generator.
+  void reference(const Ast& node, LexScope* lex, bool write) {
+    for (LexScope* s = lex; s != nullptr; s = s->parent) {
+      for (Var* v : s->vars) {
+        if (v->name != node.name) {
+          continue;
+        }
+        an_.localOf[&node] = v;
+        if (write) {
+          if (v->kind == VarKind::Arg || v->kind == VarKind::LoopVar) {
+            fail(node.span, "cannot assign to argument");
+            return;
+          }
+          v->assigned = true;
+        }
+        if (v->real != lex->real) {
+          v->captured = true;
+          an_.outerRefs.emplace_back(lex->real, v);
+        }
+        return;
+      }
+    }
+  }
+
+  void walk(const Ast& n, LexScope* lex) {
+    switch (n.kind) {
+      case Ast::Kind::Variable:
+        reference(n, lex, false);
+        return;
+      case Ast::Kind::Assign:
+        for (const Ast& k : n.kids) {
+          walk(k, lex);
+        }
+        reference(n, lex, true);
+        return;
+      case Ast::Kind::Cascade:
+        // Cascade parts are always real sends; only their receiver and arguments are walked.
+        for (const Ast& part : n.kids) {
+          for (const Ast& k : part.kids) {
+            walk(k, lex);
+          }
+        }
+        return;
+      case Ast::Kind::Block:
+        realBlock(n, lex);
+        return;
+      case Ast::Kind::Send: {
+        const Inline plan = inlinePlan(n);
+        if (plan != Inline::None) {
+          inlinedSend(n, plan, lex);
+          return;
+        }
+        for (const Ast& k : n.kids) {
+          walk(k, lex);
+        }
+        return;
+      }
+      default:
+        for (const Ast& k : n.kids) {
+          walk(k, lex);
+        }
+        return;
+    }
+  }
+
+  // An inlined block is a lexical scope of the enclosing real scope; its variables take slots
+  // there (to:do:'s parameter as the loop variable).
+  void inlinedBlock(const Ast& blk, LexScope* lex, VarKind paramKind) {
+    LexScope* inner = newLex(lex, lex->real);
+    for (const std::string& p : blk.params) {
+      declare(inner, &blk, p, paramKind);
+    }
+    for (const std::string& t : blk.temps) {
+      declare(inner, &blk, t, VarKind::Temp);
+    }
+    for (const Ast& k : blk.kids) {
+      walk(k, inner);
+    }
+  }
+
+  void inlinedSend(const Ast& send, Inline plan, LexScope* lex) {
+    const Ast& rcvr = send.kids[0];
+    switch (plan) {
+      case Inline::WhileTrue:
+      case Inline::WhileFalse:
+      case Inline::WhileTrueUnary:
+      case Inline::WhileFalseUnary:
+        for (const Ast& k : send.kids) {
+          inlinedBlock(k, lex, VarKind::Temp);
+        }
+        return;
+      case Inline::ToDo:
+      case Inline::ToByDo:
+        // The limit (and the step) are read before the loop variable exists.
+        for (std::size_t i = 0; i + 1 < send.kids.size(); ++i) {
+          walk(send.kids[i], lex);
+        }
+        declare(lex, &send, "", VarKind::Hidden);
+        inlinedBlock(send.kids.back(), lex, VarKind::LoopVar);
+        return;
+      default:
+        walk(rcvr, lex);
+        for (std::size_t i = 1; i < send.kids.size(); ++i) {
+          inlinedBlock(send.kids[i], lex, VarKind::Temp);
+        }
+        return;
+    }
+  }
+
+  void realBlock(const Ast& blk, LexScope* lex) {
+    RealScope* real = newReal(lex->real, &blk, true);
+    LexScope* inner = newLex(lex, real);
+    for (const std::string& p : blk.params) {
+      declare(inner, &blk, p, VarKind::Arg);
+    }
+    for (const std::string& t : blk.temps) {
+      declare(inner, &blk, t, VarKind::Temp);
+    }
+    for (const Ast& k : blk.kids) {
+      walk(k, inner);
+    }
+  }
+
+  void layout() {
+    for (Var& v : an_.vars) {
+      v.boxed = v.kind == VarKind::Temp && v.captured && v.assigned;
+    }
+    for (RealScope& r : an_.reals) {
+      std::uint32_t slot = 0;
+      for (Var* v : r.vars) {
+        if (v->kind == VarKind::Arg) {
+          v->slot = slot++;
+        }
+      }
+      r.numArgs = slot;
+      for (Var* v : r.vars) {
+        if (v->kind != VarKind::Arg && !v->boxed) {
+          v->slot = slot++;
+        }
+      }
+      for (Var* v : r.vars) {
+        if (!v->boxed) {
+          continue;
+        }
+        TempVector* vec = nullptr;
+        for (TempVector& each : r.vectors) {
+          if (each.decl == v->decl) {
+            vec = &each;
+          }
+        }
+        if (vec == nullptr) {
+          vec = &r.vectors.emplace_back();
+          vec->decl = v->decl;
+        }
+        v->vecIndex = vec->size++;
+      }
+      for (TempVector& vec : r.vectors) {
+        vec.slot = slot++;
+      }
+      r.copiedBase = slot;
+    }
+    // Every real scope between a use and the variable's own scope copies the value or vector,
+    // so the closure that needs it can copy it in turn.
+    for (const auto& [from, v] : an_.outerRefs) {
+      const Capture cap = v->boxed ? Capture{nullptr, v->decl, v->real} : Capture{v, nullptr, v->real};
+      for (RealScope* s = from; s != nullptr && s != v->real; s = s->parent) {
+        bool present = false;
+        for (const Capture& each : s->copied) {
+          present = present || each.same(cap);
+        }
+        if (!present) {
+          s->copied.push_back(cap);
+        }
+      }
+    }
+    for (RealScope& r : an_.reals) {
+      r.numTemps = r.copiedBase + static_cast<std::uint32_t>(r.copied.size());
+      bool fits = r.numTemps <= 255;
+      for (const TempVector& vec : r.vectors) {
+        fits = fits && vec.size <= 255;
+      }
+      if (!fits) {
+        fail(r.node->span, "too many temporaries");
+      }
+    }
+  }
+};;
 
 bool nameIn(const std::vector<std::string>& names, std::string_view name) {
   for (const std::string& each : names) {
@@ -81,45 +487,17 @@ bool nameIn(const std::vector<std::string>& names, std::string_view name) {
 
 class Emitter {
  public:
-  Emitter(MethodImage& image, const CompileEnv& env, CompileError& error)
-      : image_(image), bindingsImage_(&image), env_(env), error_(error) {}
+  // Emits the code of one real scope into image, using the capture analysis.
+  Emitter(MethodImage& image, const CompileEnv& env, CompileError& error, const Analysis& an,
+          const RealScope* real)
+      : image_(image), env_(env), error_(error), an_(an), real_(real) {}
 
   bool failed() const { return failed_; }
 
   void compileMethod(const Ast& method) {
-    scope_.parent = nullptr;
-    scope_.isBlock = false;
-    scope_.args = method.params;
-    scope_.temps.clear();
-    scope_.copied.clear();
-    image_.tempBindings.clear();
-    if (env_.undeclaredAreTemps) {
-      for (const std::string& name : env_.workspaceTemps) {
-        if (nameIn(scope_.args, name) || nameIn(scope_.temps, name)) {
-          continue;
-        }
-        scope_.temps.push_back(name);
-        image_.tempBindings.push_back(MethodImage::TempBinding{name, true});
-      }
-      for (const std::string& name : method.temps) {
-        if (nameIn(scope_.args, name) || nameIn(scope_.temps, name)) {
-          continue;
-        }
-        scope_.temps.push_back(name);
-        image_.tempBindings.push_back(MethodImage::TempBinding{name, false});
-      }
-    } else {
-      scope_.temps = method.temps;
-    }
-    const std::size_t ntemps = scope_.args.size() + scope_.temps.size();
-    if (scope_.args.size() > 255 || scope_.temps.size() > 255 || ntemps > 255) {
-      fail(method.span, env_.undeclaredAreTemps ? "too many temporaries"
-                                                : "too many arguments or temporaries");
-      return;
-    }
     image_.selector = method.name;
-    image_.numArgs = static_cast<std::uint8_t>(method.params.size());
-    image_.numTemps = static_cast<std::uint8_t>(ntemps);
+    image_.numArgs = static_cast<std::uint8_t>(real_->numArgs);
+    image_.numTemps = static_cast<std::uint8_t>(real_->numTemps);
     image_.primitive = 0;
 
     std::size_t body = 0;
@@ -133,29 +511,34 @@ class Emitter {
       emitU16(Op::Primitive, image_.primitive);
       body = 1;
     }
+    emitEntry(method, false);
     if (body < method.kids.size()) {
       compileMethodBody(method.kids[body]);
     } else {
       emit(Op::ReturnReceiver);
     }
-    if (failed_ || !env_.undeclaredAreTemps) {
+  }
+
+  // The CompiledMethod of a block that is not inlined.
+  void compileBlockMethod(const Ast& blk) {
+    image_.selector = "";
+    image_.numArgs = static_cast<std::uint8_t>(real_->numArgs);
+    image_.numTemps = static_cast<std::uint8_t>(real_->numTemps);
+    emitEntry(blk, false);
+    if (blk.kids.empty()) {
+      emit(Op::PushNil);
+      emit(Op::ReturnTop);
       return;
     }
-    const std::size_t finalCount = scope_.args.size() + scope_.temps.size() + scope_.copied.size();
-    if (finalCount > 255) {
-      fail(method.span, "too many temporaries");
-      return;
-    }
-    image_.numTemps = static_cast<std::uint8_t>(finalCount);
+    compileBlockBody(blk.kids[0]);
   }
 
  private:
   MethodImage& image_;
-  MethodImage* bindingsImage_;
   const CompileEnv& env_;
   CompileError& error_;
-  Scope scope_{};
-  Scope* cur_ = &scope_;
+  const Analysis& an_;
+  const RealScope* real_;
   bool failed_ = false;
 
   void fail(SourceSpan span, const char* message) {
@@ -243,46 +626,84 @@ class Emitter {
     return -1;
   }
 
-  bool localIndex(Scope* s, std::string_view name, std::uint8_t* index) const {
-    for (std::size_t i = 0; i < s->args.size(); ++i) {
-      if (s->args[i] == name) {
-        *index = static_cast<std::uint8_t>(i);
-        return true;
-      }
-    }
-    for (std::size_t i = 0; i < s->temps.size(); ++i) {
-      if (s->temps[i] == name) {
-        *index = static_cast<std::uint8_t>(s->args.size() + i);
-        return true;
-      }
-    }
-    for (std::size_t i = 0; i < s->copied.size(); ++i) {
-      if (s->copied[i] == name) {
-        *index = static_cast<std::uint8_t>(s->args.size() + s->temps.size() + i);
-        return true;
-      }
-    }
-    return false;
+  // The local variable a Variable or Assign node names, or null for a non-local name.
+  Var* local(const Ast& node) const {
+    const auto it = an_.localOf.find(&node);
+    return it == an_.localOf.end() ? nullptr : it->second;
   }
 
-  bool bindTemp(Scope* s, std::string_view name, std::uint8_t* index, SourceSpan span) {
-    if (localIndex(s, name, index)) {
-      return true;
+  // Where this real scope keeps a copied value or vector (the analysis made sure it has it).
+  std::uint8_t copiedIndex(const Capture& cap) const {
+    for (std::size_t i = 0; i < real_->copied.size(); ++i) {
+      if (real_->copied[i].same(cap)) {
+        return static_cast<std::uint8_t>(real_->copiedBase + i);
+      }
     }
-    if (s->parent == nullptr) {
-      return false;
+    return 0;
+  }
+
+  // The temp that holds decl's temp vector in this real scope: its own slot, or a copy.
+  std::uint8_t vectorTemp(const Ast* decl, const RealScope* owner) const {
+    if (owner == real_) {
+      for (const TempVector& vec : real_->vectors) {
+        if (vec.decl == decl) {
+          return static_cast<std::uint8_t>(vec.slot);
+        }
+      }
     }
-    std::uint8_t outer = 0;
-    if (!bindTemp(s->parent, name, &outer, span)) {
-      return false;
+    return copiedIndex(Capture{nullptr, decl, nullptr});
+  }
+
+  // Pushes what the closure of a nested real scope copies (CreateBlock's operands).
+  void pushCapture(const Capture& cap) {
+    if (cap.var != nullptr) {
+      const Var* v = cap.var;
+      emitU8(Op::PushTemp, v->real == real_ ? static_cast<std::uint8_t>(v->slot)
+                                            : copiedIndex(cap));
+      return;
     }
-    if (s->args.size() + s->temps.size() + s->copied.size() >= 256) {
-      fail(span, "too many temporaries");
-      return false;
+    emitU8(Op::PushTemp, vectorTemp(cap.vector, cap.owner));
+  }
+
+  void emitLoad(const Var* v) {
+    if (v->boxed) {
+      emitU8U8(Op::PushRemoteTemp, static_cast<std::uint8_t>(v->vecIndex),
+               vectorTemp(v->decl, v->real));
+      return;
     }
-    s->copied.emplace_back(name);
-    *index = static_cast<std::uint8_t>(s->args.size() + s->temps.size() + s->copied.size() - 1);
-    return true;
+    emitU8(Op::PushTemp, v->real == real_ ? static_cast<std::uint8_t>(v->slot)
+                                          : copiedIndex(Capture{const_cast<Var*>(v), nullptr,
+                                                                nullptr}));
+  }
+
+  // Only boxed temps are written from a nested real scope; arguments are never written.
+  void emitStore(const Var* v, bool pop) {
+    if (v->boxed) {
+      emitU8U8(pop ? Op::PopStoreRemoteTemp : Op::StoreRemoteTemp,
+               static_cast<std::uint8_t>(v->vecIndex), vectorTemp(v->decl, v->real));
+      return;
+    }
+    emitU8(pop ? Op::PopStoreTemp : Op::StoreTemp, static_cast<std::uint8_t>(v->slot));
+  }
+
+  // On entry to a declaring node: fresh temp vectors, and nil in an inlined block's plain temps
+  // (a loop body starts each iteration with nil temps; SPEC §3.5).
+  void emitEntry(const Ast& decl, bool inlined) {
+    const auto it = an_.declared.find(&decl);
+    if (inlined && it != an_.declared.end()) {
+      for (const Var* v : it->second) {
+        if (v->kind == VarKind::Temp && !v->boxed) {
+          emit(Op::PushNil);
+          emitU8(Op::PopStoreTemp, static_cast<std::uint8_t>(v->slot));
+        }
+      }
+    }
+    for (const TempVector& vec : real_->vectors) {
+      if (vec.decl == &decl) {
+        emitU8(Op::PushNewArray, static_cast<std::uint8_t>(vec.size));
+        emitU8(Op::PopStoreTemp, static_cast<std::uint8_t>(vec.slot));
+      }
+    }
   }
 
   bool isPseudo(std::string_view name) const {
@@ -292,28 +713,16 @@ class Emitter {
 
   bool isKnownGlobal(std::string_view name) const { return nameIn(env_.knownGlobals, name); }
 
-  Scope* methodScope() const {
-    Scope* s = cur_;
-    while (s->parent != nullptr) {
-      s = s->parent;
+  // A workspace binding (SPEC §3.10): the literal names it; the runtime boxes the Association.
+  void emitLitVar(Op op, const std::string& name, SourceSpan span) {
+    Literal lit;
+    lit.kind = LitKind::Binding;
+    lit.text = name;
+    const std::uint8_t li = intern(std::move(lit), span);
+    if (failed_) {
+      return;
     }
-    return s;
-  }
-
-  bool addWorkspaceTemp(std::string_view name, SourceSpan span) {
-    Scope* method = methodScope();
-    std::uint8_t existing = 0;
-    if (localIndex(method, name, &existing)) {
-      return true;
-    }
-    const std::size_t n = method->args.size() + method->temps.size() + method->copied.size();
-    if (n >= 255) {
-      fail(span, "too many temporaries");
-      return false;
-    }
-    method->temps.emplace_back(name);
-    bindingsImage_->tempBindings.push_back(MethodImage::TempBinding{std::string(name), true});
-    return true;
+    emitU8(op, li);
   }
 
   void emitPushGlobal(const Ast& n) {
@@ -361,7 +770,7 @@ class Emitter {
   }
 
   void compileMethodBody(const Ast& body) {
-    if (env_.undeclaredAreTemps) {
+    if (env_.undeclaredAreBindings) {
       compileWorkspaceMethodBody(body);
       return;
     }
@@ -423,7 +832,7 @@ class Emitter {
       return;
     }
     if (n.kind == Ast::Kind::Return) {
-      compileReturn(n, cur_->isBlock);
+      compileReturn(n, real_->isBlock);
       return;
     }
     if (n.kind == Ast::Kind::Assign) {
@@ -474,7 +883,7 @@ class Emitter {
         compileExpr(n.kids.back());
         return;
       case Ast::Kind::Return:
-        compileReturn(n, cur_->isBlock);
+        compileReturn(n, real_->isBlock);
         return;
       case Ast::Kind::Method:
       case Ast::Kind::Primitive:
@@ -539,11 +948,11 @@ class Emitter {
     if (failed_) {
       return;
     }
-    std::uint8_t idx = 0;
-    if (bindTemp(cur_, n.name, &idx, n.span)) {
-      emitU8(asStmt ? Op::PopStoreTemp : Op::StoreTemp, idx);
+    if (const Var* v = local(n)) {
+      emitStore(v, asStmt);
       return;
     }
+    std::uint8_t idx = 0;
     const int iv = instVarIndex(n.name);
     if (iv >= 0) {
       if (!fitU8(static_cast<std::size_t>(iv), &idx, n.span)) {
@@ -552,22 +961,20 @@ class Emitter {
       emitU8(asStmt ? Op::PopStoreInstVar : Op::StoreInstVar, idx);
       return;
     }
-    if (env_.undeclaredAreTemps && !isPseudo(n.name) && !isKnownGlobal(n.name)) {
-      if (!addWorkspaceTemp(n.name, n.span) || !bindTemp(cur_, n.name, &idx, n.span)) {
-        return;
-      }
-      emitU8(asStmt ? Op::PopStoreTemp : Op::StoreTemp, idx);
+    if (env_.undeclaredAreBindings && !isPseudo(n.name) && !isKnownGlobal(n.name)) {
+      emitLitVar(asStmt ? Op::PopStoreLitVar : Op::StoreLitVar, n.name, n.span);
       return;
     }
     fail(n.span, "cannot assign");
   }
 
-  bool hasReceiverChild(const Ast& send) const {
-    return send.kids.size() == static_cast<std::size_t>(send.argc) + 1;
-  }
-
   void compileSend(const Ast& send, bool skipReceiver) {
     if (!skipReceiver) {
+      const Inline plan = inlinePlan(send);
+      if (plan != Inline::None) {
+        compileInlined(send, plan);
+        return;
+      }
       if (send.isSuper) {
         emit(Op::PushReceiver);
       } else if (hasReceiverChild(send)) {
@@ -594,6 +1001,139 @@ class Emitter {
     lit.text = send.name;
     const std::uint8_t li = intern(std::move(lit), send.span);
     emitU8U8(send.isSuper ? Op::SendSuper : Op::Send, li, send.argc);
+  }
+
+  // A backward jump to target, an offset in the instruction stream (base: the next instruction).
+  void emitJumpBack(Op op, std::size_t target) {
+    const std::int64_t off = static_cast<std::int64_t>(target) -
+                             static_cast<std::int64_t>(image_.bytes.size() + 3);
+    if (off < -32768) {
+      fail(SourceSpan{}, "jump offset out of range");
+      return;
+    }
+    emitI16(op, static_cast<std::int16_t>(off));
+  }
+
+  // The statements of an inlined block, leaving the last one's value (nil when empty).
+  void compileInlinedValue(const Ast& blk) {
+    emitEntry(blk, true);
+    if (blk.kids.empty() || blk.kids[0].kids.empty()) {
+      emit(Op::PushNil);
+      return;
+    }
+    const Ast& body = blk.kids[0];
+    for (std::size_t i = 0; i + 1 < body.kids.size(); ++i) {
+      compileStmt(body.kids[i]);
+    }
+    compileExpr(body.kids.back());
+  }
+
+  // The statements of an inlined block, leaving nothing.
+  void compileInlinedEffect(const Ast& blk) {
+    emitEntry(blk, true);
+    if (!blk.kids.empty()) {
+      compileStmt(blk.kids[0]);
+    }
+  }
+
+  const Var* declaredVar(const Ast& decl, std::size_t i) const {
+    const auto it = an_.declared.find(&decl);
+    return it == an_.declared.end() || i >= it->second.size() ? nullptr : it->second[i];
+  }
+
+  void emitSpecial(const char* selector) {
+    emitU8U8(Op::SendSpecial, static_cast<std::uint8_t>(specialIndex(selector)), 1);
+  }
+
+  // SPEC §3.5. Each form leaves one value, like the send it replaces.
+  void compileInlined(const Ast& send, Inline plan) {
+    const Ast& rcvr = send.kids[0];
+    switch (plan) {
+      case Inline::IfTrue:
+      case Inline::IfFalse:
+      case Inline::And:
+      case Inline::Or: {
+        compileExpr(rcvr);
+        const bool onTrue = plan == Inline::IfFalse || plan == Inline::Or;
+        const std::size_t skip = emitJump(onTrue ? Op::JumpTrue : Op::JumpFalse);
+        compileInlinedValue(send.kids[1]);
+        const std::size_t done = emitJump(Op::Jump);
+        patchJump(skip);
+        emit(plan == Inline::And ? Op::PushFalse : plan == Inline::Or ? Op::PushTrue : Op::PushNil);
+        patchJump(done);
+        return;
+      }
+      case Inline::IfTrueIfFalse:
+      case Inline::IfFalseIfTrue: {
+        compileExpr(rcvr);
+        const std::size_t other =
+            emitJump(plan == Inline::IfTrueIfFalse ? Op::JumpFalse : Op::JumpTrue);
+        compileInlinedValue(send.kids[1]);
+        const std::size_t done = emitJump(Op::Jump);
+        patchJump(other);
+        compileInlinedValue(send.kids[2]);
+        patchJump(done);
+        return;
+      }
+      case Inline::WhileTrue:
+      case Inline::WhileFalse: {
+        const std::size_t top = image_.bytes.size();
+        compileInlinedValue(rcvr);
+        const std::size_t exit = emitJump(plan == Inline::WhileTrue ? Op::JumpFalse : Op::JumpTrue);
+        compileInlinedEffect(send.kids[1]);
+        emitJumpBack(Op::Jump, top);
+        patchJump(exit);
+        emit(Op::PushNil);
+        return;
+      }
+      case Inline::WhileTrueUnary:
+      case Inline::WhileFalseUnary: {
+        const std::size_t top = image_.bytes.size();
+        compileInlinedValue(rcvr);
+        emitJumpBack(plan == Inline::WhileTrueUnary ? Op::JumpTrue : Op::JumpFalse, top);
+        emit(Op::PushNil);
+        return;
+      }
+      case Inline::ToDo:
+      case Inline::ToByDo:
+        compileToDo(send, plan == Inline::ToByDo);
+        return;
+      case Inline::None:
+        return;
+    }
+  }
+
+  // receiver to: limit [by: step] do: [:i | ...]. The receiver stays on the stack as the value.
+  void compileToDo(const Ast& send, bool hasStep) {
+    const Ast& body = send.kids.back();
+    const Var* loopVar = declaredVar(body, 0);
+    const Var* limit = declaredVar(send, 0);
+    if (loopVar == nullptr || limit == nullptr) {
+      fail(send.span, "to:do: missing from the analysis");
+      return;
+    }
+    const bool down = hasStep && negativeNumber(send.kids[2]);
+    compileExpr(send.kids[0]);
+    emit(Op::Dup);
+    emitStore(loopVar, true);
+    compileExpr(send.kids[1]);
+    emitStore(limit, true);
+    const std::size_t top = image_.bytes.size();
+    emitLoad(loopVar);
+    emitLoad(limit);
+    emitSpecial(down ? ">=" : "<=");
+    const std::size_t exit = emitJump(Op::JumpFalse);
+    compileInlinedEffect(body);
+    emitLoad(loopVar);
+    if (hasStep) {
+      compileExpr(send.kids[2]);
+    } else {
+      emit(Op::PushOne);
+    }
+    emitSpecial("+");
+    emitStore(loopVar, true);
+    emitJumpBack(Op::Jump, top);
+    patchJump(exit);
   }
 
   void compileCascade(const Ast& casc) {
@@ -623,11 +1163,11 @@ class Emitter {
   }
 
   void compileVariable(const Ast& n) {
-    std::uint8_t idx = 0;
-    if (bindTemp(cur_, n.name, &idx, n.span)) {
-      emitU8(Op::PushTemp, idx);
+    if (const Var* v = local(n)) {
+      emitLoad(v);
       return;
     }
+    std::uint8_t idx = 0;
     const int iv = instVarIndex(n.name);
     if (iv >= 0) {
       if (!fitU8(static_cast<std::size_t>(iv), &idx, n.span)) {
@@ -660,11 +1200,8 @@ class Emitter {
       emit(Op::PushFalse);
       return;
     }
-    if (env_.undeclaredAreTemps && !isKnownGlobal(n.name)) {
-      if (!addWorkspaceTemp(n.name, n.span) || !bindTemp(cur_, n.name, &idx, n.span)) {
-        return;
-      }
-      emitU8(Op::PushTemp, idx);
+    if (env_.undeclaredAreBindings && !isKnownGlobal(n.name)) {
+      emitLitVar(Op::PushLitVar, n.name, n.span);
       return;
     }
     emitPushGlobal(n);
@@ -749,57 +1286,30 @@ class Emitter {
     emitU8(Op::PushLiteral, li);
   }
 
+  // A block that is not inlined: its own CompiledMethod, and a closure over what it copies.
   void compileBlock(const Ast& blk) {
-    if (blk.params.size() > 255 || blk.temps.size() > 255 ||
-        blk.params.size() + blk.temps.size() > 255) {
-      fail(blk.span, "too many block arguments or temporaries");
+    const auto it = an_.realOf.find(&blk);
+    if (it == an_.realOf.end()) {
+      fail(blk.span, "block missing from the analysis");
       return;
     }
-    MethodImage inner;
-    inner.selector = "";
-    inner.numArgs = static_cast<std::uint8_t>(blk.params.size());
-    Scope innerScope;
-    innerScope.parent = cur_;
-    innerScope.isBlock = true;
-    innerScope.args = blk.params;
-    innerScope.temps = blk.temps;
-    Emitter innerEm(inner, env_, error_);
-    innerEm.bindingsImage_ = bindingsImage_;
-    innerEm.cur_ = &innerScope;
+    const RealScope* inner = it->second;
+    MethodImage image;
+    Emitter innerEm(image, env_, error_, an_, inner);
     innerEm.failed_ = failed_;
-    if (blk.kids.empty()) {
-      innerEm.emit(Op::PushNil);
-      innerEm.emit(Op::ReturnTop);
-    } else {
-      innerEm.compileBlockBody(blk.kids[0]);
-    }
+    innerEm.compileBlockMethod(blk);
     failed_ = innerEm.failed_;
     if (failed_) {
       return;
     }
-    const std::size_t ntemps = innerScope.args.size() + innerScope.temps.size() + innerScope.copied.size();
-    if (ntemps > 255) {
-      fail(blk.span, "too many temporaries");
-      return;
-    }
-    inner.numTemps = static_cast<std::uint8_t>(ntemps);
-    for (const std::string& name : innerScope.copied) {
-      std::uint8_t idx = 0;
-      if (!bindTemp(cur_, name, &idx, blk.span)) {
-        fail(blk.span, "cannot copy outer temporary");
-        return;
-      }
-      emitU8(Op::PushTemp, idx);
-    }
-    if (innerScope.copied.size() > 255) {
-      fail(blk.span, "too many copied values");
-      return;
+    for (const Capture& cap : inner->copied) {
+      pushCapture(cap);
     }
     Literal lit;
     lit.kind = LitKind::Method;
-    lit.method = std::make_unique<MethodImage>(std::move(inner));
+    lit.method = std::make_unique<MethodImage>(std::move(image));
     const std::uint8_t li = intern(std::move(lit), blk.span);
-    emitU8U8(Op::CreateBlock, li, static_cast<std::uint8_t>(innerScope.copied.size()));
+    emitU8U8(Op::CreateBlock, li, static_cast<std::uint8_t>(inner->copied.size()));
   }
 };
 
@@ -871,6 +1381,20 @@ const char* opName(Op op) {
       return "CreateBlock";
     case Op::Primitive:
       return "Primitive";
+    case Op::PushNewArray:
+      return "PushNewArray";
+    case Op::PushRemoteTemp:
+      return "PushRemoteTemp";
+    case Op::StoreRemoteTemp:
+      return "StoreRemoteTemp";
+    case Op::PopStoreRemoteTemp:
+      return "PopStoreRemoteTemp";
+    case Op::PushLitVar:
+      return "PushLitVar";
+    case Op::StoreLitVar:
+      return "StoreLitVar";
+    case Op::PopStoreLitVar:
+      return "PopStoreLitVar";
   }
   return "Unknown";
 }
@@ -902,6 +1426,8 @@ std::string formatLit(const Literal& lit) {
       return "#[";
     case LitKind::Method:
       return "[method]";
+    case LitKind::Binding:
+      return "{" + lit.text + "}";
   }
   return "?";
 }
@@ -917,7 +1443,13 @@ void codegen(const Ast& method, const CompileEnv& env, CompileResult& out) {
     out.error.message = "expected method";
     return;
   }
-  Emitter em(out.image, env, out.error);
+  Analysis an;
+  Analyzer(an).method(method);
+  if (an.failed) {
+    out.error = an.error;
+    return;
+  }
+  Emitter em(out.image, env, out.error, an, an.realOf.at(&method));
   em.compileMethod(method);
   if (!em.failed()) {
     out.ok = true;

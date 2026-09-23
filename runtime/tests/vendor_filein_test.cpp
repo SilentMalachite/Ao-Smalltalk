@@ -40,3 +40,17 @@ TEST(VendorFileIn, LoadOrderEvaluatesLinkRoundTrip) {
   auto bag = send0(b, b.wk.bagClass, "new");
   EXPECT_TRUE(send0(b, bag, "contents").isNil());
 }
+
+// 既知のコンパイルエラー（`,`、ブロックの temp 構文、クラス変数など。B4 と B7 で直す）は 17 件。
+// これを超えたら、コンパイラの変更で新しいエラーが混ざった。
+TEST(VendorFileIn, CompileErrorsDoNotGrow) {
+  Boot b;
+  const std::string order = std::string(AO_SOURCE_DIR) + "/image/vendor/LOAD_ORDER";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInLoadOrder(b.ctx, order, errs));
+  EXPECT_LE(errs.size(), 17u);
+  for (const auto& e : errs) {
+    EXPECT_NE("cannot assign to argument", e.message);
+    EXPECT_NE("too many temporaries", e.message);
+  }
+}

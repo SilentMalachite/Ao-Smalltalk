@@ -7,8 +7,11 @@
 namespace ao {
 namespace {
 
+// The block's value, or the empty Oop when it unwound (SPEC §3.4).
 Oop sendValue(CallContext& ctx, Oop block) {
-  return send(ctx, block, ctx.wk.selValue, nullptr, 0, nullptr);
+  Oop out;
+  callBlock(ctx, block, nullptr, 0, &out);
+  return out;
 }
 
 Oop asBool(bool v) { return v ? Oop::true_() : Oop::false_(); }

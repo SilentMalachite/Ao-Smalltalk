@@ -16,6 +16,9 @@ const char* nameAt(std::uint32_t index);
 void install(Heap& heap, Roots& roots, WellKnown& wk);
 Oop at(const WellKnown& wk, std::string_view name);
 void atPut(WellKnown& wk, std::string_view name, Oop value);
+// Images saved before the global table became a SmalltalkImage keep a nil class there. Gives it
+// the class, so Smalltalk at: and at:put: work after such a load (SPEC §3.10).
+void adoptImageClass(Heap& heap, WellKnown& wk);
 
 }  // namespace Globals
 }  // namespace ao

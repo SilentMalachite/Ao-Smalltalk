@@ -17,9 +17,13 @@ struct Session {
   WellKnown wk;
   std::unique_ptr<ClassMethodCache> cache;
   std::unique_ptr<CallContext> ctx;
-  // Session Dictionary of workspace name strings. Not part of the image.
+  // Session Dictionary of workspace name strings to bindings (Associations). Not part of the image.
   Oop workspace = Oop::nil();
   bool workspaceRooted = false;
+  // knownGlobals for workspace compiles, rebuilt when wk.globalsVersion() moves (SPEC §3.10).
+  std::vector<std::string> knownGlobals;
+  std::uint64_t knownGlobalsVersion = 0;
+  bool knownGlobalsCached = false;
 
   // Method source text. unique_ptr keeps the rooted slots stable when the table grows.
   // Not part of the image.
@@ -47,7 +51,7 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
 void rememberMethodSource(Oop method, Oop text, Oop replaced);
 bool methodSource(Oop method, std::string& utf8);
 void clearMethodSources();
-void ensureTranscriptClassMethods();
+void ensureKernelNatives();
 
 int browserClassCount();
 int browserClassAt(int index, char* name, int nameLen, char* category, int categoryLen);

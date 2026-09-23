@@ -105,6 +105,9 @@ Oop ao_Array_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
     Root a(ctx.roots, ctx.heap.slotAt(left.slot, i));
     Root b(ctx.roots, ctx.heap.slotAt(right.slot, i));
     const Oop eq = send(ctx, a.slot, sel.slot, &b.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     if (!eq.isTrue()) {
       return Oop::false_();
     }

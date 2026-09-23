@@ -17,8 +17,11 @@
 namespace ao {
 namespace {
 
+// The block's value, or the empty Oop when it unwound (SPEC §3.4).
 Oop sendValue(CallContext& ctx, Oop block) {
-  return send(ctx, block, ctx.wk.selValue, nullptr, 0, nullptr);
+  Oop out;
+  callBlock(ctx, block, nullptr, 0, &out);
+  return out;
 }
 
 // receiver はネイティブが受け取ったルート済みスロット。メッセージの割り当てで GC が走っても正しい。
@@ -176,6 +179,12 @@ Oop ao_Object_doesNotUnderstand_(CallContext&, const Oop&, const Oop* args, std:
 Oop ao_Object_error_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return args[0];
+}
+
+// SPEC §3.5: sent when a jump finds a non-Boolean. The default aborts the evaluation.
+Oop ao_Object_mustBeBoolean(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
+  if (argc != 0) return Oop{};
+  return abortEvaluation(ctx, "NonBoolean receiver");
 }
 
 Oop ao_Object_subclassResponsibility(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
@@ -440,6 +449,7 @@ void installObject(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, cls, "doesNotUnderstand:", 1, "ao_Object_doesNotUnderstand_",
             ao_Object_doesNotUnderstand_);
   putNative(heap, wk, cls, "error:", 1, "ao_Object_error_", ao_Object_error_);
+  putNative(heap, wk, cls, "mustBeBoolean", 0, "ao_Object_mustBeBoolean", ao_Object_mustBeBoolean);
   putNative(heap, wk, cls, "subclassResponsibility", 0, "ao_Object_subclassResponsibility",
             ao_Object_subclassResponsibility);
   putNative(heap, wk, cls, "shouldNotImplement", 0, "ao_Object_shouldNotImplement",

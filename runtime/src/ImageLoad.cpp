@@ -341,6 +341,10 @@ bool bindAll(Heap& heap, WellKnown& wk, const std::vector<ImageRecord>& wellKnow
       return false;
     }
   }
+  // After the image's Symbols are remembered, so intern finds them instead of making copies.
+  if (!wk.internSpecialSelectors()) {
+    return false;
+  }
   for (std::uint64_t off : offsets) {
     const Oop obj = Oop::fromHeap(base + static_cast<std::size_t>(off));
     if (heap.klass(obj) != wk.nativeMethodClass) {
@@ -445,7 +449,12 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   if (!bindAll(heap, wk, wellKnown, extra, offsets)) {
     return false;
   }
-  return checkGlobals(heap, wk, globals);
+  if (!checkGlobals(heap, wk, globals)) {
+    return false;
+  }
+  // SPEC §3.5: an old image may hide one of the eight SmallInteger natives.
+  wk.checkSmallIntegerFastPath();
+  return true;
 }
 
 }  // namespace ao
