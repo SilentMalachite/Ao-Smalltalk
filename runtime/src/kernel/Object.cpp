@@ -55,6 +55,20 @@ bool nameEquals(Heap& heap, Oop a, Oop b) {
   return std::memcmp(heap.header(a) + 1, heap.header(b) + 1, heap.size(a)) == 0;
 }
 
+// obj のクラスが Array か、そのサブクラスか。
+bool isKindOfArray(CallContext& ctx, Oop obj) {
+  if (!obj.isHeap()) {
+    return false;
+  }
+  for (Oop cls = ctx.wk.classOf(obj); cls.isHeap();
+       cls = ctx.heap.slotAt(cls, kClassSlotSuperclass)) {
+    if (cls == ctx.wk.arrayClass) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 Oop ao_Object_identityEquals(CallContext&, const Oop& receiver, const Oop* args,
@@ -144,14 +158,16 @@ Oop ao_Object_perform_with_(CallContext& ctx, const Oop& receiver, const Oop* ar
 Oop ao_Object_perform_withArguments_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                      std::uint32_t argc) {
   if (argc != 2) return Oop{};
-  const Oop arr = args[1];
-  if (!arr.isHeap() || (ctx.heap.flags(arr) & kFlagBytes) != 0) {
-    return fail(ctx, receiver, "perform:withArguments: expects pointer slots");
+  if (!isKindOfArray(ctx, args[1])) {
+    return fail(ctx, receiver, "perform:withArguments: expects an Array");
   }
-  const auto n = ctx.heap.size(arr);
+  // サブクラスが足した名前付き変数は飛ばし、添字付きの要素だけを引数にする。
+  const auto named = static_cast<std::uint32_t>(namedInstSize(ctx, args[1]));
+  const auto size = ctx.heap.size(args[1]);
+  const auto n = size > named ? size - named : 0;
   RootedArray unpacked(ctx.roots, n);
   for (std::uint32_t i = 0; i < n; ++i) {
-    unpacked[i] = ctx.heap.slotAt(arr, i);
+    unpacked[i] = ctx.heap.slotAt(args[1], named + i);
   }
   return send(ctx, receiver, args[0], unpacked.ptr(), n, nullptr);
 }

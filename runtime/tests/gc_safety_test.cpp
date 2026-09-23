@@ -366,3 +366,38 @@ TEST(GcSafety, LargeLiteralWithFullNursery) {
   EXPECT_EQ(std::int64_t{1} << 62, ao::LargeInteger::asInt64IfFits(b.heap, b.wk, r, &fits));
   EXPECT_TRUE(fits);
 }
+
+// 04 Low: `3 perform: #+ withArguments: (OrderedCollection new add: 4; yourself)` は、内部配列と
+// 添字の 3 つを引数にして + を呼んでいた。引数は Array（とそのサブクラス）だけを受け付け、
+// それ以外は error: の慣習どおりメッセージ文字列で失敗する。
+TEST(GcSafety, PerformWithArgumentsRejectsOrderedCollection) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Array subclass: #GcSafetyArgs\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'GcSafety'!\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root plus(b.roots, b.wk.intern("+"));
+  ao::Root oc(b.roots, send0(b, b.wk.orderedCollectionClass, "new"));
+  ASSERT_TRUE(oc.slot.isHeap());
+  send1(b, oc.slot, "add:", smi(4));
+  ASSERT_EQ(smi(1), send0(b, oc.slot, "size"));
+
+  const ao::Oop rejected = send2(b, smi(3), "perform:withArguments:", plus.slot, oc.slot);
+  ASSERT_TRUE(rejected.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(rejected));
+  EXPECT_EQ("perform:withArguments: expects an Array", ao::Str::toUtf8(b.heap, rejected));
+
+  ao::Root arr(b.roots, send1(b, b.wk.arrayClass, "new:", smi(1)));
+  send2(b, arr.slot, "at:put:", smi(1), smi(4));
+  EXPECT_EQ(smi(7), send2(b, smi(3), "perform:withArguments:", plus.slot, arr.slot));
+
+  ao::Root sub(b.roots, send1(b, b.wk.named("GcSafetyArgs"), "new:", smi(1)));
+  ASSERT_TRUE(sub.slot.isHeap());
+  send2(b, sub.slot, "at:put:", smi(1), smi(5));
+  EXPECT_EQ(smi(8), send2(b, smi(3), "perform:withArguments:", plus.slot, sub.slot));
+}
