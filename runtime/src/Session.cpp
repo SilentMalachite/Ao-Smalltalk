@@ -62,6 +62,25 @@ bool loadedImageProbes(Session& session) {
   return three.isSmallInteger() && three.smallIntegerValue() == 3 && isNil.isTrue();
 }
 
+void unrootMethodSources(Session& session) {
+  for (auto& pair : session.methodSources) {
+    session.roots.remove(&pair->method);
+    session.roots.remove(&pair->text);
+  }
+}
+
+void rerootMethodSources(Session& session) {
+  for (auto& pair : session.methodSources) {
+    session.roots.add(&pair->method);
+    session.roots.add(&pair->text);
+  }
+}
+
+void releaseMethodSources(Session& session) {
+  unrootMethodSources(session);
+  session.methodSources.clear();
+}
+
 }  // namespace
 
 Session::Session(bool bootstrap) : wk(heap, roots) {
@@ -71,6 +90,8 @@ Session::Session(bool bootstrap) : wk(heap, roots) {
   installEmptyCache(*this, nullptr, nullptr);
   Bootstrap::run(heap, roots, wk);
 }
+
+Session::~Session() { releaseMethodSources(*this); }
 
 Session* session() { return g_session.get(); }
 
@@ -83,6 +104,7 @@ int sessionBoot() {
     g_session.reset();
     return 1;
   }
+  clearMethodSources();
   return 0;
 }
 
@@ -111,6 +133,20 @@ int sessionImageSave(const char* path) {
       }
     }
   } hide(g_session.get());
+  // Source text is session state. Drop the roots so Image::save does not trace it.
+  struct HideMethodSources {
+    Session* session = nullptr;
+    explicit HideMethodSources(Session* s) : session(s) {
+      if (session != nullptr) {
+        unrootMethodSources(*session);
+      }
+    }
+    ~HideMethodSources() {
+      if (session != nullptr) {
+        rerootMethodSources(*session);
+      }
+    }
+  } hideSources(g_session.get());
   return Image::save(g_session->heap, g_session->roots, g_session->wk, path) ? 0 : 1;
 }
 
@@ -137,6 +173,7 @@ int sessionImageLoad(const char* path) {
   if (!loadedImageProbes(*g_session)) {
     return 1;
   }
+  clearMethodSources();
   return 0;
 }
 
@@ -424,7 +461,10 @@ std::string sourceOf(Session& s, const ListedMethod& method) {
     text += "\"\n";
     return text;
   }
-  // No session source table yet, so every CompiledMethod uses the template.
+  std::string stored;
+  if (methodSource(method.method, stored)) {
+    return stored;
+  }
   std::string text = method.selector;
   text += "\n  \"CompiledMethod\"\n";
   return text;
@@ -764,6 +804,57 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser) {
   return evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser);
+}
+
+void rememberMethodSource(Oop method, Oop text, Oop replaced) {
+  Session* s = session();
+  if (s == nullptr || !method.isHeap() || !text.isHeap()) {
+    return;
+  }
+  if (replaced.isHeap()) {
+    for (auto it = s->methodSources.begin(); it != s->methodSources.end(); ++it) {
+      if ((*it)->method == replaced) {
+        s->roots.remove(&(*it)->method);
+        s->roots.remove(&(*it)->text);
+        s->methodSources.erase(it);
+        break;
+      }
+    }
+  }
+  for (auto& pair : s->methodSources) {
+    if (pair->method == method) {
+      s->roots.remove(&pair->text);
+      pair->text = text;
+      s->roots.add(&pair->text);
+      return;
+    }
+  }
+  auto pair = std::make_unique<Session::MethodSource>();
+  pair->method = method;
+  pair->text = text;
+  s->roots.add(&pair->method);
+  s->roots.add(&pair->text);
+  s->methodSources.push_back(std::move(pair));
+}
+
+bool methodSource(Oop method, std::string& utf8) {
+  Session* s = session();
+  if (s == nullptr || !method.isHeap()) {
+    return false;
+  }
+  for (const auto& pair : s->methodSources) {
+    if (pair->method == method && pair->text.isHeap()) {
+      utf8 = Str::toUtf8(s->heap, pair->text);
+      return true;
+    }
+  }
+  return false;
+}
+
+void clearMethodSources() {
+  if (Session* s = session()) {
+    releaseMethodSources(*s);
+  }
 }
 
 int browserClassCount() {

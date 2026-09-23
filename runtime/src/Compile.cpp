@@ -1,5 +1,6 @@
 #include "ao/Compile.hpp"
 
+#include "Session.hpp"
 #include "ao/CompiledMethod.hpp"
 
 #include "ao/Bootstrap.hpp"
@@ -350,6 +351,99 @@ bool fileInLoadOrder(CallContext& ctx, const std::filesystem::path& loadOrder,
     return false;
   }
   return true;
+}
+
+void assignError(compiler::CompileError* error, std::string message) {
+  if (error == nullptr) {
+    return;
+  }
+  error->span = {};
+  error->message = std::move(message);
+}
+
+bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
+                        std::string_view source, compiler::CompileError* error) {
+  if (error != nullptr) {
+    *error = {};
+  }
+  Root cls(ctx.roots, ctx.wk.named(className));
+  if (!cls.slot.isHeap()) {
+    assignError(error, "missing class: " + std::string(className));
+    return false;
+  }
+  const Oop side = meta ? ctx.heap.klass(cls.slot) : cls.slot;
+  if (!side.isHeap()) {
+    assignError(error, "missing class: " + std::string(className));
+    return false;
+  }
+  Root tgt(ctx.roots, side);
+  compiler::CompileEnv env;
+  fillInstVars(ctx, tgt.slot, env);
+  compiler::CompileResult cr = compiler::compileMethod(source, env);
+  if (!cr.ok) {
+    if (error != nullptr) {
+      *error = std::move(cr.error);
+    }
+    return false;
+  }
+
+  Root old(ctx.roots, Oop::nil());
+  {
+    const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
+    if (dict.isHeap()) {
+      const Oop sel = ctx.wk.intern(cr.image.selector);
+      if (sel.isHeap()) {
+        old.slot = MethodDictionary::at(ctx.heap, dict, sel);
+      }
+    }
+  }
+  if (old.slot.isHeap() && ctx.heap.klass(old.slot) == ctx.wk.nativeMethodClass) {
+    assignError(error, "native selector overwrite refused: " + cr.image.selector);
+    return false;
+  }
+
+  Root text(ctx.roots, boxUtf8(ctx, source));
+  if (!text.slot.isHeap()) {
+    assignError(error, "method source allocation failed");
+    return false;
+  }
+  Root kept(ctx.roots, installMethod(ctx, tgt.slot, cr.image));
+  if (!kept.slot.isHeap()) {
+    assignError(error, "install failed");
+    return false;
+  }
+  const Oop selNow = ctx.heap.slotAt(kept.slot, kCmSlotSelector);
+  const Oop dictNow = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
+  if (!dictNow.isHeap() || !selNow.isHeap() ||
+      MethodDictionary::at(ctx.heap, dictNow, selNow) != kept.slot) {
+    assignError(error, "install failed");
+    return false;
+  }
+  if (ctx.cache != nullptr) {
+    ctx.cache->forget(ctx.heap, tgt.slot, selNow);
+  }
+  const Oop replaced = old.slot.isHeap() ? old.slot : Oop{};
+  rememberMethodSource(kept.slot, text.slot, replaced);
+  return true;
+}
+
+bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::CompileError* error) {
+  if (error != nullptr) {
+    *error = {};
+  }
+  std::vector<compiler::CompileError> errors;
+  const bool ok = fileInString(ctx, source, errors);
+  if (ok && errors.empty()) {
+    return true;
+  }
+  if (error != nullptr) {
+    if (!errors.empty()) {
+      *error = std::move(errors.front());
+    } else {
+      error->message = "class definition failed";
+    }
+  }
+  return false;
 }
 
 }  // namespace ao

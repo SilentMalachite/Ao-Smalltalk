@@ -1,6 +1,10 @@
 #include "ao_abi.h"
+#include "ao/Compile.hpp"
 #include "ao/Runtime.hpp"
 #include "Session.hpp"
+
+#include <algorithm>
+#include <cstring>
 
 extern "C" int ao_version(char* buf, int buf_len) {
   return ao::version_string(buf, buf_len) == 0 ? AO_OK : AO_ERR;
@@ -62,6 +66,28 @@ int encodeTranscriptUtf8(char32_t cp, char out[4]) {
   return 0;
 }
 
+void clearSpan(AoSpan* err) {
+  if (err == nullptr) {
+    return;
+  }
+  err->start = 0;
+  err->end = 0;
+  err->message[0] = '\0';
+}
+
+void fillSpan(AoSpan* err, const ao::compiler::CompileError& error) {
+  if (err == nullptr) {
+    return;
+  }
+  err->start = error.span.start;
+  err->end = error.span.end;
+  const std::size_t n = std::min(error.message.size(), sizeof(err->message) - 1);
+  if (n != 0) {
+    std::memcpy(err->message, error.message.data(), n);
+  }
+  err->message[n] = '\0';
+}
+
 void deliverTranscript(ao::CallContext& ctx, ao::Oop value) {
   if (g_transcriptFn == nullptr) {
     return;
@@ -103,6 +129,35 @@ extern "C" int ao_workspace_reset(void) {
 extern "C" int ao_eval(const char* source, int source_len, int mode, char* out, int out_len,
                        AoSpan* err) {
   return ao::sessionEval(source, source_len, mode, out, out_len, err, g_inspectFn, g_inspectUser);
+}
+
+extern "C" int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err) {
+  clearSpan(err);
+  ao::Session* s = ao::session();
+  if (s == nullptr || s->ctx == nullptr || class_name == nullptr || source == nullptr ||
+      (meta != 0 && meta != 1)) {
+    return AO_ERR;
+  }
+  ao::compiler::CompileError error;
+  if (!ao::acceptMethodSource(*s->ctx, class_name, meta == 1, source, &error)) {
+    fillSpan(err, error);
+    return AO_ERR_COMPILE;
+  }
+  return AO_OK;
+}
+
+extern "C" int ao_accept_class(const char* source, AoSpan* err) {
+  clearSpan(err);
+  ao::Session* s = ao::session();
+  if (s == nullptr || s->ctx == nullptr || source == nullptr) {
+    return AO_ERR;
+  }
+  ao::compiler::CompileError error;
+  if (!ao::acceptClassSource(*s->ctx, source, &error)) {
+    fillSpan(err, error);
+    return AO_ERR_COMPILE;
+  }
+  return AO_OK;
 }
 
 extern "C" void ao_set_transcript_hook(AoTranscriptFn fn, void* user) {

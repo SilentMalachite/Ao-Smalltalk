@@ -5,6 +5,8 @@
 #include "ao_abi.h"
 
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace ao {
 
@@ -19,8 +21,17 @@ struct Session {
   Oop workspace = Oop::nil();
   bool workspaceRooted = false;
 
+  // Method source text. unique_ptr keeps the rooted slots stable when the table grows.
+  // Not part of the image.
+  struct MethodSource {
+    Oop method = Oop::nil();
+    Oop text = Oop::nil();
+  };
+  std::vector<std::unique_ptr<MethodSource>> methodSources;
+
   // true: Bootstrap::run. false: empty old space for Image::load.
   explicit Session(bool bootstrap);
+  ~Session();
 };
 
 Session* session();
@@ -32,6 +43,10 @@ int sessionFileInLoadOrder(const char* path);
 int sessionWorkspaceReset();
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser);
+// `replaced`, when a heap object, is dropped from the rooted table before `method` is stored.
+void rememberMethodSource(Oop method, Oop text, Oop replaced);
+bool methodSource(Oop method, std::string& utf8);
+void clearMethodSources();
 void ensureTranscriptClassMethods();
 
 int browserClassCount();

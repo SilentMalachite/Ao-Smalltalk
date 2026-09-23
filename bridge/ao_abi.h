@@ -52,6 +52,8 @@ int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len
 
 int ao_workspace_reset(void);
 int ao_eval(const char* source, int source_len, int mode, char* out, int out_len, AoSpan* err);
+int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);
+int ao_accept_class(const char* source, AoSpan* err);
 
 #ifdef __cplusplus
 }
