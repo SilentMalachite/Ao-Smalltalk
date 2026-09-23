@@ -2,6 +2,7 @@
 
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/Oop.hpp"
 #include "ao/Send.hpp"
@@ -213,30 +214,32 @@ static void expectNormalizedLarge(ao::Heap& heap, ao::Oop o) {
 
 TEST(SmallIntegerArith, SchoolbookAddMulBeyondInt64) {
   Boot b;
-  auto two63 = send1(b, ao::Oop::fromSmallInteger(1), "bitShift:", ao::Oop::fromSmallInteger(63));
-  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, two63));
+  // LargeInteger の箱詰めは allocateRetry を通るので、send をまたぐ値はルートしておく。
+  ao::Root two63(b.roots, send1(b, ao::Oop::fromSmallInteger(1), "bitShift:",
+                                ao::Oop::fromSmallInteger(63)));
+  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, two63.slot));
   bool fits = true;
-  ao::LargeInteger::asInt64IfFits(b.heap, b.wk, two63, &fits);
+  ao::LargeInteger::asInt64IfFits(b.heap, b.wk, two63.slot, &fits);
   EXPECT_FALSE(fits);
-  expectNormalizedLarge(b.heap, two63);
+  expectNormalizedLarge(b.heap, two63.slot);
 
-  auto sum = send1(b, two63, "+", two63);
-  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, sum));
-  expectNormalizedLarge(b.heap, sum);
+  ao::Root sum(b.roots, send1(b, two63.slot, "+", two63.slot));
+  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, sum.slot));
+  expectNormalizedLarge(b.heap, sum.slot);
   bool sumFits = true;
-  ao::LargeInteger::asInt64IfFits(b.heap, b.wk, sum, &sumFits);
+  ao::LargeInteger::asInt64IfFits(b.heap, b.wk, sum.slot, &sumFits);
   EXPECT_FALSE(sumFits);
   auto two64 = send1(b, ao::Oop::fromSmallInteger(1), "bitShift:", ao::Oop::fromSmallInteger(64));
-  EXPECT_TRUE(send1(b, sum, "=", two64).isTrue());
+  EXPECT_TRUE(send1(b, sum.slot, "=", two64).isTrue());
 
-  auto prod = send1(b, two63, "*", two63);
-  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, prod));
-  expectNormalizedLarge(b.heap, prod);
+  ao::Root prod(b.roots, send1(b, two63.slot, "*", two63.slot));
+  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, prod.slot));
+  expectNormalizedLarge(b.heap, prod.slot);
   auto two126 = send1(b, ao::Oop::fromSmallInteger(1), "bitShift:", ao::Oop::fromSmallInteger(126));
-  EXPECT_TRUE(send1(b, prod, "=", two126).isTrue());
+  EXPECT_TRUE(send1(b, prod.slot, "=", two126).isTrue());
 
-  auto neg = send1(b, ao::Oop::fromSmallInteger(0), "-", two63);
-  auto z = send1(b, two63, "+", neg);
+  auto neg = send1(b, ao::Oop::fromSmallInteger(0), "-", two63.slot);
+  auto z = send1(b, two63.slot, "+", neg);
   ASSERT_TRUE(z.isSmallInteger());
   EXPECT_EQ(0, z.smallIntegerValue());
 }
@@ -258,13 +261,13 @@ TEST(SmallIntegerArith, OverflowAfterNurseryCollectKeepsClass) {
 TEST(SmallIntegerArith, LargeReceiverAddViaIntegerMethod) {
   Boot b;
   auto max = ao::Oop::fromSmallInteger((std::int64_t{1} << 62) - 1);
-  auto large = send1(b, max, "+", ao::Oop::fromSmallInteger(1));
-  ASSERT_TRUE(large.isHeap());
-  auto r = send1(b, large, "+", ao::Oop::fromSmallInteger(1));
+  ao::Root large(b.roots, send1(b, max, "+", ao::Oop::fromSmallInteger(1)));
+  ASSERT_TRUE(large.slot.isHeap());
+  auto r = send1(b, large.slot, "+", ao::Oop::fromSmallInteger(1));
   bool fits = false;
   EXPECT_EQ((std::int64_t{1} << 62) + 1, ao::LargeInteger::asInt64IfFits(b.heap, b.wk, r, &fits));
   EXPECT_TRUE(fits);
-  EXPECT_TRUE(send1(b, large, ">", max).isTrue());
+  EXPECT_TRUE(send1(b, large.slot, ">", max).isTrue());
 }
 
 TEST(SmallIntegerArith, FractionMulDiv) {
@@ -299,20 +302,20 @@ TEST(LargeIntegerApi, FromInt64AndAdd) {
   ASSERT_TRUE(smi.isSmallInteger());
   EXPECT_FALSE(ao::LargeInteger::isLarge(b.wk, smi));
   const auto mag = std::int64_t{1} << 62;
-  auto large = ao::LargeInteger::fromInt64(b.heap, b.wk, mag);
-  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, large));
-  EXPECT_EQ(b.wk.largePositiveIntegerClass, b.heap.klass(large));
+  ao::Root large(b.roots, ao::LargeInteger::fromInt64(b.heap, b.wk, mag));
+  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, large.slot));
+  EXPECT_EQ(b.wk.largePositiveIntegerClass, b.heap.klass(large.slot));
   bool fits = false;
-  EXPECT_EQ(mag, ao::LargeInteger::asInt64IfFits(b.heap, b.wk, large, &fits));
+  EXPECT_EQ(mag, ao::LargeInteger::asInt64IfFits(b.heap, b.wk, large.slot, &fits));
   EXPECT_TRUE(fits);
-  auto sum = ao::LargeInteger::add(b.ctx, large, ao::Oop::fromSmallInteger(1));
+  ao::Root sum(b.roots, ao::LargeInteger::add(b.ctx, large.slot, ao::Oop::fromSmallInteger(1)));
   bool sumFits = true;
-  ao::LargeInteger::asInt64IfFits(b.heap, b.wk, sum, &sumFits);
-  EXPECT_TRUE(sum.isHeap());
-  auto back = ao::LargeInteger::sub(b.ctx, sum, large);
+  ao::LargeInteger::asInt64IfFits(b.heap, b.wk, sum.slot, &sumFits);
+  EXPECT_TRUE(sum.slot.isHeap());
+  auto back = ao::LargeInteger::sub(b.ctx, sum.slot, large.slot);
   ASSERT_TRUE(back.isSmallInteger());
   EXPECT_EQ(1, back.smallIntegerValue());
-  auto prod = ao::LargeInteger::mul(b.ctx, large, ao::Oop::fromSmallInteger(2));
+  auto prod = ao::LargeInteger::mul(b.ctx, large.slot, ao::Oop::fromSmallInteger(2));
   ASSERT_TRUE(prod.isHeap());
 }
 
