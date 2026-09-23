@@ -296,6 +296,10 @@ TEST(Interpreter, SendSpecialNonSmallIntegerFallsBack) {
     const std::uint64_t sends = b.ctx.interpretedSends;
     const ao::Oop got = runBinary(b, cm.slot, ra.slot, rx.slot);
     EXPECT_EQ(1u, b.ctx.interpretedSends - sends) << sel;
+    // SPEC §3.3: a send whose native fails aborts with its selector instead of answering.
+    if (got.isEmpty()) {
+      EXPECT_EQ(std::string("failed: #") + sel, takeAbortReason(b));
+    }
     EXPECT_FALSE(b.ctx.aborting) << sel;
     return got;
   };

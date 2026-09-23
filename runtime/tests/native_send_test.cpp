@@ -23,6 +23,13 @@ static ao::Oop trueDnuSentinel(ao::CallContext&, const ao::Oop&, const ao::Oop*,
   return ao::Oop::fromSmallInteger(99);
 }
 
+// A doesNotUnderstand: override that answers the Message it gets. The default aborts (SPEC §3.3),
+// so the Message's shape is checked through an override.
+static ao::Oop answerMessage(ao::CallContext&, const ao::Oop&, const ao::Oop* args,
+                             std::uint32_t argc) {
+  return argc == 1 ? args[0] : ao::Oop{};
+}
+
 static ao::Oop install(ao::WellKnown& wk, ao::Oop cls, const char* selector, ao::NativeFn fn,
                        std::uint32_t argc, const char* cName) {
   ao::Heap& heap = wk.heap();
@@ -71,7 +78,7 @@ TEST(NativeSend, StubSmallIntegerAdd) {
   EXPECT_EQ(3, r.smallIntegerValue());
 }
 
-TEST(NativeSend, DoesNotUnderstandReturnsMessage) {
+TEST(NativeSend, DoesNotUnderstandPassesMessage) {
   ao::Heap heap;
   ao::Roots roots;
   ao::WellKnown wk(heap, roots);
@@ -80,6 +87,8 @@ TEST(NativeSend, DoesNotUnderstandReturnsMessage) {
   cache.addRoots(roots);
   ao::CallContext ctx{heap, roots, wk, &cache};
   ao::InlineCache ic;
+  install(wk, wk.smallIntegerClass, "doesNotUnderstand:", answerMessage, 1,
+          "ao_SmallInteger_doesNotUnderstand_");
   // Building the Message may collect, so the selector is held in a root.
   ao::Root selRoot(roots, ao::Symbol::intern(wk, "noSuchSelector"));
   const ao::Oop& sel = selRoot.slot;
@@ -164,7 +173,7 @@ ao::Oop pairAfterAlloc(ao::CallContext& ctx, const ao::Oop& receiver, const ao::
 
 }  // namespace
 
-TEST(NativeSend, DnuWithFullNurseryReturnsMessage) {
+TEST(NativeSend, DnuWithFullNurseryPassesMessage) {
   ao::Heap heap;
   ao::Roots roots;
   ao::WellKnown wk(heap, roots);
@@ -172,6 +181,8 @@ TEST(NativeSend, DnuWithFullNurseryReturnsMessage) {
   ao::ClassMethodCache cache;
   cache.addRoots(roots);
   ao::CallContext ctx{heap, roots, wk, &cache};
+  install(wk, wk.smallIntegerClass, "doesNotUnderstand:", answerMessage, 1,
+          "ao_SmallInteger_doesNotUnderstand_");
   ao::Root sel(roots, ao::Symbol::intern(wk, "zork:"));
   const ao::Oop arg = unrootedBox(heap, wk, 7);
   while (heap.allocate(ao::Oop::nil(), 0, 0).isHeap()) {

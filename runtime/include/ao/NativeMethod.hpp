@@ -56,9 +56,13 @@ struct CallContext {
   Oop nonlocalHome{};
   Oop nonlocalValue{};
   // SPEC §3.4 abort: a non-local return with no home. Only abortEvaluation sets it; the
-  // outermost entry reads the reason (a static string) and clears it.
+  // outermost entry reads the reason (abortReasonText) and clears it. The reason is either a
+  // static string (abortReason, set without allocating) or a heap String held in the roots'
+  // handle table (abortReasonHandle), so it survives GCs until it is cleared.
+  static constexpr std::uint32_t kNoAbortReasonHandle = 0xFFFFFFFFu;
   bool aborting = false;
   const char* abortReason = nullptr;
+  std::uint32_t abortReasonHandle = kNoAbortReasonHandle;
   // Stack guard (SPEC §3.4) of the thread that last applied a method: a method may be applied
   // at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them, and
   // every outermost entry refreshes them too (a new thread may reuse an old thread's stack).

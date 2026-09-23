@@ -778,7 +778,7 @@ v1 は次をすべて満たす。
 - [x] `Object class class == Metaclass`
 - [x] `Metaclass class class == Metaclass`
 - [x] `Object superclass` は `nil`（または明示したルート方針に一致。採用したら SPEC を更新）
-- [ ] 未定義セレクタは `doesNotUnderstand:` に入り、デフォルトは評価を中断して `doesNotUnderstand: #sel` を返す（`nil foo` の Print it は `AO_ERR_EVAL` と `doesNotUnderstand: #foo`）
+- [x] 未定義セレクタは `doesNotUnderstand:` に入り、デフォルトは評価を中断して `doesNotUnderstand: #sel` を返す（`nil foo` の Print it は `AO_ERR_EVAL` と `doesNotUnderstand: #foo`）
 - [x] `#(1 2 3) collect: [:x | x * 2]` が `#(2 4 6)`
 - [x] ブロックが外側の temp を共有する（`| y | y := 0. 3 > 1 ifTrue: [y := 1]. y` が `1`、`#(1 2 3) do: [:e | sum := sum + e]` のあと `sum` が `6`）
 - [x] ユーザーが Browser から `Object>>foo` を追加し、Workspace から `Object new foo` を評価できる

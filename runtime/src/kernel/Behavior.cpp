@@ -6,6 +6,7 @@
 #include "ao/HandleScope.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
+#include "ao/Send.hpp"
 
 #include <cstdint>
 #include <string>
@@ -273,9 +274,10 @@ Oop ao_Metaclass_thisClass(CallContext& ctx, const Oop& receiver, const Oop*, st
   return ctx.heap.slotAt(receiver, kClassSlotThisClass);
 }
 
+// SPEC §3.3: a metaclass makes no instances; new aborts like shouldNotImplement.
 Oop ao_Metaclass_newForbidden(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx, "shouldNotImplement");
+  return abortEvaluation(ctx, "shouldNotImplement");
 }
 
 namespace kernel {

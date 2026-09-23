@@ -109,11 +109,12 @@ TEST(SmallIntegerArith, QuoRemTowardZero) {
   EXPECT_EQ(-1, r.smallIntegerValue());
 }
 
-TEST(SmallIntegerArith, DivisionByZeroReturnsErrorString) {
+// SPEC §3.3: the error: does not answer its message; it aborts with it.
+TEST(SmallIntegerArith, DivisionByZeroAbortsWithReason) {
   Boot b;
   auto r = send1(b, ao::Oop::fromSmallInteger(1), "//", ao::Oop::fromSmallInteger(0));
-  ASSERT_TRUE(r.isHeap());
-  EXPECT_EQ("division by zero", ao::Str::toUtf8(b.heap, r));
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("division by zero", takeAbortReason(b));
 }
 
 TEST(SmallIntegerArith, BitOpsAndShift) {

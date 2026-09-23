@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <gtest/gtest.h>
+#include <string>
 #include <string_view>
 
 struct Boot {
@@ -42,6 +43,17 @@ inline ao::Oop send2(Boot& b, ao::Oop rcvr, const char* sel, ao::Oop a0, ao::Oop
   auto s = ao::Symbol::intern(b.wk, sel);
   ao::Oop args[2] = {a0, a1};
   return ao::send(b.ctx, rcvr, s, args, 2, nullptr);
+}
+
+// SPEC §3.3: a failure aborts the evaluation instead of answering a value. Answers the reason of
+// the abort in progress and clears it, so the test can go on with the same Boot, or "<no abort>".
+inline std::string takeAbortReason(Boot& b) {
+  if (!b.ctx.aborting) {
+    return "<no abort>";
+  }
+  std::string reason = ao::abortReasonText(b.ctx);
+  ao::clearUnwinding(b.ctx);
+  return reason;
 }
 
 // Runs fn on a thread with a small stack and waits for it. A test that recurses until the stack

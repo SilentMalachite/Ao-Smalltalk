@@ -435,11 +435,11 @@ TEST(BlockNatives, IfCurtailedRunsOnlyOnUnwind) {
 // 02 Low: OrderedCollection の内部スロットを引数に展開しない。
 TEST(BlockNatives, ValueWithArgumentsRejectsNonArray) {
   Boot b;
+  // SPEC §3.3: the rejection aborts with error:'s message instead of answering it.
   const ao::Oop rejected =
       evalExpr(b, "^[:a :b :c | c] valueWithArguments: (OrderedCollection new add: 7; yourself)");
-  ASSERT_TRUE(rejected.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(rejected));
-  EXPECT_EQ("valueWithArguments: expects an Array", ao::Str::toUtf8(b.heap, rejected));
+  EXPECT_TRUE(rejected.isEmpty());
+  EXPECT_EQ("valueWithArguments: expects an Array", takeAbortReason(b));
   EXPECT_EQ(9, evalExpr(b, "^[:a :b | a + b] valueWithArguments: #(4 5)").smallIntegerValue());
 }
 
@@ -503,20 +503,13 @@ TEST(BlockActivation, RecursiveBlockKeepsOwnSender) {
   EXPECT_EQ(b.wk.blockContextClass, b.heap.klass(innerBefore));
 }
 
-// 02 Medium: ホームが返ったあとの ^ は cannotReturn: の答えをブロックの値にし、呼び出し元は続く。
-TEST(BlockActivation, DeadHomeReturnAnswersErrorAndContinues) {
+// 02 Medium: ホームが返ったあとの ^ はホームを探して巻き戻さず、cannotReturn: を送る。SPEC §3.3 /
+// §3.4: その既定は error: と同じで、理由のある「cannot return」で評価を中断する。
+TEST(BlockActivation, DeadHomeReturnAbortsWithCannotReturn) {
   Boot b;
-  ao::Root log(b.roots, runActivationProbe(b, "useDeadHome"));
-  ASSERT_TRUE(log.slot.isHeap());
-  ASSERT_EQ(3, send0(b, log.slot, "size").smallIntegerValue());
-  EXPECT_EQ(b.wk.intern("before"), ocAt(b, log.slot, 1));
-  const ao::Oop answer = ocAt(b, log.slot, 2);
-  ASSERT_TRUE(answer.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(answer));
-  EXPECT_EQ("cannot return", ao::Str::toUtf8(b.heap, answer));
-  EXPECT_EQ(b.wk.intern("after"), ocAt(b, log.slot, 3));
+  EXPECT_TRUE(runActivationProbe(b, "useDeadHome").isEmpty());
   EXPECT_FALSE(b.ctx.nonlocalReturn);
-  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_EQ("cannot return", takeAbortReason(b));
 }
 
 // SPEC §3.4: フレームを抜けたコンテキストは pc と sender が nil になる。

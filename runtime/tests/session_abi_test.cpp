@@ -306,8 +306,9 @@ TEST_F(SessionAbi, SmalltalkIsKnownGlobal) {
   ao_runtime_shutdown();
 }
 
-// 02 Medium: 前の Do it で作ったブロックの ^ は、その評価の呼び出し元を巻き込まない。
-TEST_F(SessionAbi, DeadHomeBlockDoesNotAbortLaterEval) {
+// 02 Medium: 前の Do it で作ったブロックの ^ は、ホームを探して評価を理由なしに打ち切らない。
+// SPEC §3.4: cannotReturn: の既定で「cannot return」と理由を返して中断し、次の評価は使える。
+TEST_F(SessionAbi, DeadHomeBlockAbortsWithReason) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   char out[64];
   AoSpan err{};
@@ -318,8 +319,11 @@ TEST_F(SessionAbi, DeadHomeBlockDoesNotAbortLaterEval) {
       "log add: (b value: 3).\n"
       "log add: #after.\n"
       "log size";
-  ASSERT_EQ(AO_OK, evalPrint(src, out, 64, &err)) << err.message;
-  EXPECT_STREQ("3", out);
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint(src, out, 64, &err));
+  EXPECT_STREQ("cannot return", err.message);
+  AoSpan err2{};
+  ASSERT_EQ(AO_OK, evalPrint("log size", out, 64, &err2)) << err2.message;
+  EXPECT_STREQ("1", out);
   ao_runtime_shutdown();
 }
 

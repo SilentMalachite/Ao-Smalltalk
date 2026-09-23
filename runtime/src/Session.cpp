@@ -722,26 +722,31 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   if (g_session == nullptr || g_session->ctx == nullptr) {
     return rc;
   }
-  // SPEC §3.4: abort は最外で理由を読んで消す。SPEC §3.2: old の上限で割り当てられなければ
-  // 評価エラー「out of memory」（巻き戻しは B3 まで無いので、走り切った後にフラグで判定する）。
+  // SPEC §3.4: abort は最外で理由を読んで消す。SPEC §3.2: old の上限で割り当てられず、それが
+  // abort にならずに走り切ったときも「out of memory」。SPEC §3.10: AO_ERR_EVAL の理由は空にしない。
   CallContext& ctx = *g_session->ctx;
-  const char* reason = nullptr;
+  std::string reason;
   if (ctx.aborting) {
-    reason = ctx.abortReason != nullptr ? ctx.abortReason : "evaluation aborted";
+    reason = abortReasonText(ctx);
+    if (reason.empty()) {
+      reason = "evaluation aborted";
+    }
   } else if (g_session->heap.outOfMemory()) {
     reason = "out of memory";
+  } else if (rc == AO_ERR_EVAL) {
+    reason = "evaluation failed";
   }
   clearUnwinding(ctx);
-  if (reason == nullptr) {
+  if (reason.empty()) {
     return rc;
   }
   g_session->heap.clearOutOfMemory();
   blankOut(out, outLen);
   if (err != nullptr) {
-    const std::size_t n = std::min(std::strlen(reason), sizeof(err->message) - 1);
+    const std::size_t n = std::min(reason.size(), sizeof(err->message) - 1);
     err->start = 0;
     err->end = 0;
-    std::memcpy(err->message, reason, n);
+    std::memcpy(err->message, reason.data(), n);
     err->message[n] = '\0';
   }
   return AO_ERR_EVAL;

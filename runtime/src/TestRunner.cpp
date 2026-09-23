@@ -35,7 +35,7 @@ Oop ao_AoTest_assert_equals_(CallContext& ctx, const Oop& receiver, const Oop* a
   if (same.isTrue()) {
     return self.slot;
   }
-  ctx.testFailures += 1;
+  // SPEC §4.4: 不一致は error: で abort し、ファイルの失敗として runSmalltalkTests が 1 回数える。
   // 1 回目の printString が full GC を起こすと Symbol も動く。セレクタはルートに載せる。
   Root printSel(ctx.roots, ctx.wk.intern("printString"));
   Root left(ctx.roots, send(ctx, actual.slot, printSel.slot, nullptr, 0, nullptr));
@@ -160,8 +160,9 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     const bool ran = runFile(ctx, cls, doIt, body);
     // SPEC §3.4: abort（stack overflow など）はファイルの失敗。理由を出して消す。
     if (ctx.aborting) {
+      const std::string reason = abortReasonText(ctx);
       std::fprintf(stderr, "ao --test: %s: %s\n", file.string().c_str(),
-                   ctx.abortReason != nullptr ? ctx.abortReason : "evaluation aborted");
+                   reason.empty() ? "evaluation aborted" : reason.c_str());
       clearUnwinding(ctx);
       ctx.heap.clearOutOfMemory();
       ctx.testFailures += 1;

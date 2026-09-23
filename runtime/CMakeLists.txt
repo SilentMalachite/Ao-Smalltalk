@@ -104,6 +104,7 @@ add_executable(ao_runtime_tests
   tests/session_abi_test.cpp
   tests/browser_abi_test.cpp
   tests/accept_abi_test.cpp
+  tests/failure_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
 target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
