@@ -51,7 +51,7 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
 void rememberMethodSource(Oop method, Oop text, Oop replaced);
 bool methodSource(Oop method, std::string& utf8);
 void clearMethodSources();
-void ensureTranscriptClassMethods();
+void ensureKernelNatives();
 
 int browserClassCount();
 int browserClassAt(int index, char* name, int nameLen, char* category, int categoryLen);

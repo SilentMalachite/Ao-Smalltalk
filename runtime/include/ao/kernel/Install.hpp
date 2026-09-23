@@ -31,6 +31,9 @@ void installProcess(Heap& heap, WellKnown& wk);
 void installGeometry(Heap& heap, WellKnown& wk);
 void installCompiledMethod(Heap& heap, WellKnown& wk);
 void installAll(Heap& heap, Roots& roots, WellKnown& wk);
+// installAll for a loaded image (SPEC §3.10): adds only the selectors a dictionary lacks and
+// leaves every method already there, native or not.
+void installMissing(Heap& heap, Roots& roots, WellKnown& wk);
 
 }  // namespace kernel
 }  // namespace ao

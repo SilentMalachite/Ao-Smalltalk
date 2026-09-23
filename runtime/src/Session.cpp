@@ -174,7 +174,7 @@ int sessionImageLoad(const char* path) {
     return 1;
   }
   g_session = std::move(next);
-  ensureTranscriptClassMethods();
+  ensureKernelNatives();
   if (!loadedImageProbes(*g_session)) {
     return 1;
   }
@@ -197,50 +197,22 @@ int sessionFileInLoadOrder(const char* path) {
   return fileInLoadOrder(*g_session->ctx, path, errors) ? 0 : 1;
 }
 
-Oop ao_Transcript_class_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
-                                 std::uint32_t argc);
-Oop ao_Transcript_class_nextPutAll_(CallContext& ctx, const Oop& receiver, const Oop* args,
-                                    std::uint32_t argc);
-Oop ao_Transcript_class_show_(CallContext& ctx, const Oop& receiver, const Oop* args,
-                              std::uint32_t argc);
-Oop ao_Transcript_class_cr(CallContext& ctx, const Oop& receiver, const Oop* args,
-                           std::uint32_t argc);
-Oop ao_Transcript_class_clear(CallContext& ctx, const Oop& receiver, const Oop* args,
-                              std::uint32_t argc);
-
-void ensureTranscriptClassMethods() {
+void ensureKernelNatives() {
   if (g_session == nullptr) {
     return;
   }
   Session& s = *g_session;
+  // An image may have a Transcript metaclass without a dictionary; the class-side natives need one.
   const Oop meta = s.wk.transcriptMetaclass;
-  if (!meta.isHeap()) {
-    return;
-  }
-  Oop dict = s.heap.slotAt(meta, kClassSlotMethodDict);
-  if (!dict.isHeap()) {
-    dict = MethodDictionary::create(s.heap, s.wk, 8);
-    if (!dict.isHeap()) {
-      return;
+  if (meta.isHeap() && !s.heap.slotAt(meta, kClassSlotMethodDict).isHeap()) {
+    const Oop dict = MethodDictionary::create(s.heap, s.wk, 8);
+    if (dict.isHeap()) {
+      s.heap.slotAtPut(meta, kClassSlotMethodDict, dict);
     }
-    s.heap.slotAtPut(meta, kClassSlotMethodDict, dict);
   }
-  s.roots.add(&dict);
-  const Oop show = s.wk.intern("show:");
-  const bool present = MethodDictionary::at(s.heap, dict, show).isHeap();
-  s.roots.remove(&dict);
-  if (present) {
-    return;
-  }
-  kernel::putNative(s.heap, s.wk, meta, "nextPut:", 1, "ao_Transcript_class_nextPut_",
-                    ao_Transcript_class_nextPut_);
-  kernel::putNative(s.heap, s.wk, meta, "nextPutAll:", 1, "ao_Transcript_class_nextPutAll_",
-                    ao_Transcript_class_nextPutAll_);
-  kernel::putNative(s.heap, s.wk, meta, "show:", 1, "ao_Transcript_class_show_",
-                    ao_Transcript_class_show_);
-  kernel::putNative(s.heap, s.wk, meta, "cr", 0, "ao_Transcript_class_cr", ao_Transcript_class_cr);
-  kernel::putNative(s.heap, s.wk, meta, "clear", 0, "ao_Transcript_class_clear",
-                    ao_Transcript_class_clear);
+  // SPEC §3.10: add the Kernel natives the image lacks (those added after it was saved) and keep
+  // every method it has.
+  kernel::installMissing(s.heap, s.roots, s.wk);
 }
 
 namespace {

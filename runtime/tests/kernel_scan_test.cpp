@@ -9,6 +9,7 @@
 #include "ao/Oop.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -129,4 +130,26 @@ TEST(KernelBench, TenMillionToDo) {
   EXPECT_LT(ms, 30000);
   std::printf("P4 to:do: 10000000 native %lld ms\n", static_cast<long long>(ms));
   EXPECT_EQ(0u, b.ctx.interpretedBytecodes);
+}
+
+// SPEC §3.10: ロードしたイメージに無い Kernel ネイティブだけを足し、あるものは上書きしない。
+TEST(KernelInstall, InstallMissingAddsAbsentAndKeepsPresent) {
+  Boot b;
+  const ao::Oop dict = b.heap.slotAt(b.wk.blockContextClass, ao::kClassSlotMethodDict);
+  const ao::Oop numArgs = b.wk.intern("numArgs");
+  const ao::Oop whileTrue = b.wk.intern("whileTrue:");
+  const ao::Oop marker = b.wk.intern("r2Marker");
+  // 古いイメージを真似る: numArgs は無く、whileTrue: はネイティブ以外が入っている。
+  ASSERT_TRUE(ao::MethodDictionary::atPut(b.heap, dict, numArgs, ao::Oop::nil()));
+  ASSERT_TRUE(ao::MethodDictionary::atPut(b.heap, dict, whileTrue, marker));
+  ao::kernel::installMissing(b.heap, b.roots, b.wk);
+  const ao::Oop added = ao::MethodDictionary::at(b.heap, dict, numArgs);
+  ASSERT_TRUE(added.isHeap());
+  EXPECT_EQ(b.wk.nativeMethodClass, b.heap.klass(added));
+  EXPECT_EQ(marker, ao::MethodDictionary::at(b.heap, dict, whileTrue));
+  // installMissing のあとも、ふつうの putNative は上書きする。
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, b.wk.blockContextClass, "whileTrue:", 1,
+                                    "ao_BlockContext_whileTrue_", ao::ao_BlockContext_whileTrue_));
+  EXPECT_EQ(b.wk.nativeMethodClass,
+            b.heap.klass(ao::MethodDictionary::at(b.heap, dict, whileTrue)));
 }
