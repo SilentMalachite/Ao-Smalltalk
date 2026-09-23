@@ -13,3 +13,5 @@ CMakeCache.txt
 CMakeFiles/
 
 .worktrees/
+/.cache/
+.serena/logs/
