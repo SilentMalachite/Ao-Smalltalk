@@ -2,6 +2,7 @@
 
 #include "ao/Format.hpp"
 #include "ao/Globals.hpp"
+#include "ao/HandleScope.hpp"
 
 #include <gtest/gtest.h>
 
@@ -146,15 +147,16 @@ TEST(ObjectBoolean, NilIsNilAndObjectNewIsNot) {
 
 TEST(ObjectBoolean, TrueIfTrueIfFalseReturnsOkBlock) {
   Boot b;
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
   auto okFn = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Str::fromUtf8(ctx.heap, ctx.wk, "ok");
   };
   auto ngFn = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Str::fromUtf8(ctx.heap, ctx.wk, "ng");
   };
-  auto ok = ao::makeNativeBlock(b.ctx, okFn, 0);
-  auto ng = ao::makeNativeBlock(b.ctx, ngFn, 0);
-  ao::Oop args[2] = {ok, ng};
+  ao::Root ok(b.roots, ao::makeNativeBlock(b.ctx, okFn, 0));
+  ao::Root ng(b.roots, ao::makeNativeBlock(b.ctx, ngFn, 0));
+  ao::Oop args[2] = {ok.slot, ng.slot};
   auto sel = ao::Symbol::intern(b.wk, "ifTrue:ifFalse:");
   auto r = ao::send(b.ctx, ao::Oop::true_(), sel, args, 2, nullptr);
   ASSERT_TRUE(r.isHeap());
@@ -171,15 +173,16 @@ TEST(ObjectBoolean, IdentityEqualsAndYourself) {
 
 TEST(ObjectBoolean, FalseIfTrueIfFalseReturnsNgBlock) {
   Boot b;
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
   auto okFn = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Str::fromUtf8(ctx.heap, ctx.wk, "ok");
   };
   auto ngFn = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Str::fromUtf8(ctx.heap, ctx.wk, "ng");
   };
-  auto ok = ao::makeNativeBlock(b.ctx, okFn, 0);
-  auto ng = ao::makeNativeBlock(b.ctx, ngFn, 0);
-  ao::Oop args[2] = {ok, ng};
+  ao::Root ok(b.roots, ao::makeNativeBlock(b.ctx, okFn, 0));
+  ao::Root ng(b.roots, ao::makeNativeBlock(b.ctx, ngFn, 0));
+  ao::Oop args[2] = {ok.slot, ng.slot};
   auto sel = ao::Symbol::intern(b.wk, "ifTrue:ifFalse:");
   auto r = ao::send(b.ctx, ao::Oop::false_(), sel, args, 2, nullptr);
   ASSERT_TRUE(r.isHeap());

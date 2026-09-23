@@ -28,18 +28,22 @@ Oop applyBlock(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint
 }  // namespace
 
 Oop makeNativeBlock(CallContext& ctx, NativeFn fn, std::uint32_t argc) {
-  Oop sel = (argc == 0) ? ctx.wk.selValue : ctx.wk.selValue_;
   auto idx = NativeRegistry::add(fn);
-  auto meth = NativeMethod::create(ctx.heap, ctx.wk, sel, argc, "ao_NativeBlock_thunk", idx,
-                                   ctx.wk.blockContextClass);
-  auto blk = ctx.heap.allocate(ctx.wk.blockContextClass, kBlockSlotCount, 0);
-  if (!blk.isHeap() || !meth.isHeap()) {
+  // The block may run the GC; the method is made after it without one (NativeMethod::create).
+  Root blk(ctx.roots, allocateRetry(ctx, ctx.wk.blockContextClass, kBlockSlotCount, 0));
+  if (!blk.slot.isHeap()) {
     return Oop{};
   }
-  ctx.heap.slotAtPut(blk, kCtxMethod, meth);
-  ctx.heap.slotAtPut(blk, kCtxArgc, Oop::fromSmallInteger(static_cast<std::int64_t>(argc)));
-  ctx.heap.slotAtPut(blk, kCtxReceiver, blk);
-  return blk;
+  const Oop sel = (argc == 0) ? ctx.wk.selValue : ctx.wk.selValue_;
+  const Oop meth = NativeMethod::create(ctx.heap, ctx.wk, sel, argc, "ao_NativeBlock_thunk", idx,
+                                        ctx.wk.blockContextClass);
+  if (!meth.isHeap()) {
+    return Oop{};
+  }
+  ctx.heap.slotAtPut(blk.slot, kCtxMethod, meth);
+  ctx.heap.slotAtPut(blk.slot, kCtxArgc, Oop::fromSmallInteger(static_cast<std::int64_t>(argc)));
+  ctx.heap.slotAtPut(blk.slot, kCtxReceiver, blk.slot);
+  return blk.slot;
 }
 
 Oop ao_BlockContext_value(CallContext& ctx, const Oop& receiver, const Oop* args,

@@ -647,3 +647,55 @@ TEST(GcSafety, StringIndexErrorWithFullNursery) {
   const ao::Oop index = smi(9);
   expectErrorWithFullNursery(b, str.slot, "at:", &index, 1, "at: index out of range");
 }
+
+namespace {
+
+ao::Oop doubleIt(ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+  ao::Oop two = ao::Oop::fromSmallInteger(2);
+  return ao::send(ctx, args[0], ctx.wk.intern("*"), &two, 1, nullptr);
+}
+
+ao::Oop isOdd(ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+  if (!args[0].isSmallInteger()) {
+    return ao::Oop::false_();
+  }
+  return (args[0].smallIntegerValue() % 2) != 0 ? ao::Oop::true_() : ao::Oop::false_();
+}
+
+}  // namespace
+
+// collect: が内部で作る thunk（makeNativeBlock）は GC しない割り当てだったので、nursery が満杯だと
+// 結果の Array が nil のまま返った。結果の Array はちょうど入り、thunk は入らないようにする。
+TEST(GcSafety, CollectWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // nursery を満杯にしておくため、途中で GC を走らせない
+  ao::Oop slots[3] = {smi(1), smi(2), smi(3)};
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 3));
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, doubleIt, 1));
+  ASSERT_TRUE(blk.slot.isHeap());
+  fillNurseryTo(b, sizeof(ao::ObjectHeader) + 8 * 3);
+  ao::Root r(b.roots, send1(b, arr.slot, "collect:", blk.slot));
+  ASSERT_TRUE(r.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(r.slot));
+  ASSERT_EQ(3u, b.heap.size(r.slot));
+  EXPECT_EQ(smi(2), b.heap.slotAt(r.slot, 0));
+  EXPECT_EQ(smi(4), b.heap.slotAt(r.slot, 1));
+  EXPECT_EQ(smi(6), b.heap.slotAt(r.slot, 2));
+}
+
+// select: も最初に thunk を作る。nursery が満杯でも GC してから作り、正しい結果を返す。
+TEST(GcSafety, SelectWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // nursery を満杯にしておくため、途中で GC を走らせない
+  ao::Oop slots[3] = {smi(1), smi(2), smi(3)};
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 3));
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, isOdd, 1));
+  ASSERT_TRUE(blk.slot.isHeap());
+  fillNursery(b);
+  ao::Root r(b.roots, send1(b, arr.slot, "select:", blk.slot));
+  ASSERT_TRUE(r.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(r.slot));
+  ASSERT_EQ(2u, b.heap.size(r.slot));
+  EXPECT_EQ(smi(1), b.heap.slotAt(r.slot, 0));
+  EXPECT_EQ(smi(3), b.heap.slotAt(r.slot, 1));
+}

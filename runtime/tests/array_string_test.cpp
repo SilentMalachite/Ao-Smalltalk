@@ -111,13 +111,14 @@ TEST(ArrayString, AsSymbolAndAsString) {
 
 TEST(ArrayString, FromSlotsAndDo) {
   Boot b;
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
   ao::Oop slots[3] = {ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(2),
                       ao::Oop::fromSmallInteger(3)};
-  auto arr = ao::Arr::fromSlots(b.heap, b.wk, slots, 3);
-  ASSERT_TRUE(arr.isHeap());
-  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(arr));
-  EXPECT_EQ(3, send0(b, arr, "size").smallIntegerValue());
-  EXPECT_EQ(2, send1(b, arr, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 3));
+  ASSERT_TRUE(arr.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(arr.slot));
+  EXPECT_EQ(3, send0(b, arr.slot, "size").smallIntegerValue());
+  EXPECT_EQ(2, send1(b, arr.slot, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
 
   static std::int64_t sum;
   sum = 0;
@@ -127,15 +128,16 @@ TEST(ArrayString, FromSlotsAndDo) {
     }
     return args[0];
   };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  ASSERT_TRUE(blk.isHeap());
-  EXPECT_EQ(arr, send1(b, arr, "do:", blk));
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  ASSERT_TRUE(blk.slot.isHeap());
+  EXPECT_EQ(arr.slot, send1(b, arr.slot, "do:", blk.slot));
   EXPECT_EQ(6, sum);
 }
 
 TEST(ArrayString, StringDoYieldsCharacters) {
   Boot b;
-  auto s = ao::Str::fromUtf8(b.heap, b.wk, "Aあ");
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root s(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "Aあ"));
   static char32_t seen[2];
   static int nseen;
   nseen = 0;
@@ -145,8 +147,8 @@ TEST(ArrayString, StringDoYieldsCharacters) {
     }
     return args[0];
   };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  send1(b, s, "do:", blk);
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  send1(b, s.slot, "do:", blk.slot);
   EXPECT_EQ(2, nseen);
   EXPECT_EQ(U'A', seen[0]);
   EXPECT_EQ(U'あ', seen[1]);

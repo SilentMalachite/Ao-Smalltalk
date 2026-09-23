@@ -71,12 +71,13 @@ namespace NativeMethod {
 
 Oop create(Heap& heap, WellKnown& wk, Oop selector, std::uint32_t argc, std::string_view name,
            std::uint32_t registryIndex, Oop methodClass) {
-  auto meth = heap.allocate(wk.nativeMethodClass, kNativeSlotCount, 0);
+  // Does not GC: the nursery first, then old when it is full.
+  auto meth = heap.allocateNoGc(wk.nativeMethodClass, kNativeSlotCount, 0);
   if (!meth.isHeap()) {
     return Oop{};
   }
   const auto n = static_cast<std::uint32_t>(name.size());
-  auto nameObj = heap.allocate(Oop::nil(), n, kFlagBytes);
+  auto nameObj = heap.allocateNoGc(Oop::nil(), n, kFlagBytes);
   if (!nameObj.isHeap()) {
     return Oop{};
   }

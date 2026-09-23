@@ -11,19 +11,20 @@
 
 TEST(CollectionDo, ArrayCollectDoublesViaNativeBlock) {
   Boot b;
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
   ao::Oop slots[3] = {ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(2),
                       ao::Oop::fromSmallInteger(3)};
-  auto arr = ao::Arr::fromSlots(b.heap, b.wk, slots, 3);
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 3));
   auto body = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     ao::Oop two = ao::Oop::fromSmallInteger(2);
     return ao::send(ctx, args[0], ctx.wk.intern("*"), &two, 1, nullptr);
   };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  auto r = send1(b, arr, "collect:", blk);
-  ASSERT_TRUE(r.isHeap());
-  EXPECT_EQ(2, b.heap.slotAt(r, 0).smallIntegerValue());
-  EXPECT_EQ(4, b.heap.slotAt(r, 1).smallIntegerValue());
-  EXPECT_EQ(6, b.heap.slotAt(r, 2).smallIntegerValue());
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  ao::Root r(b.roots, send1(b, arr.slot, "collect:", blk.slot));
+  ASSERT_TRUE(r.slot.isHeap());
+  EXPECT_EQ(2, b.heap.slotAt(r.slot, 0).smallIntegerValue());
+  EXPECT_EQ(4, b.heap.slotAt(r.slot, 1).smallIntegerValue());
+  EXPECT_EQ(6, b.heap.slotAt(r.slot, 2).smallIntegerValue());
 }
 
 TEST(CollectionDo, DictionaryAtPut) {
@@ -89,29 +90,30 @@ TEST(CollectionDo, ArraySelectRejectDetectInjectIncludesIsEmpty) {
 
 TEST(CollectionDo, DictionaryEqualsLookupAndCollectValues) {
   Boot b;
-  auto d = send0(b, b.wk.dictionaryClass, "new");
-  ASSERT_TRUE(d.isHeap());
-  auto k1 = ao::Str::fromUtf8(b.heap, b.wk, "a");
-  auto k2 = ao::Str::fromUtf8(b.heap, b.wk, "a");
-  EXPECT_NE(k1, k2);
-  send2(b, d, "at:put:", k1, ao::Oop::fromSmallInteger(9));
-  EXPECT_EQ(9, send1(b, d, "at:", k2).smallIntegerValue());
-  EXPECT_TRUE(send1(b, d, "includesKey:", k2).isTrue());
-  send2(b, d, "at:put:", ao::Str::fromUtf8(b.heap, b.wk, "b"), ao::Oop::fromSmallInteger(4));
-  EXPECT_EQ(2, send0(b, d, "size").smallIntegerValue());
-  EXPECT_TRUE(send1(b, d, "includes:", ao::Oop::fromSmallInteger(9)).isTrue());
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root d(b.roots, send0(b, b.wk.dictionaryClass, "new"));
+  ASSERT_TRUE(d.slot.isHeap());
+  ao::Root k1(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "a"));
+  ao::Root k2(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "a"));
+  EXPECT_NE(k1.slot, k2.slot);
+  send2(b, d.slot, "at:put:", k1.slot, ao::Oop::fromSmallInteger(9));
+  EXPECT_EQ(9, send1(b, d.slot, "at:", k2.slot).smallIntegerValue());
+  EXPECT_TRUE(send1(b, d.slot, "includesKey:", k2.slot).isTrue());
+  send2(b, d.slot, "at:put:", ao::Str::fromUtf8(b.heap, b.wk, "b"), ao::Oop::fromSmallInteger(4));
+  EXPECT_EQ(2, send0(b, d.slot, "size").smallIntegerValue());
+  EXPECT_TRUE(send1(b, d.slot, "includes:", ao::Oop::fromSmallInteger(9)).isTrue());
 
   auto body = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     ao::Oop two = ao::Oop::fromSmallInteger(2);
     return ao::send(ctx, args[0], ctx.wk.intern("*"), &two, 1, nullptr);
   };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  auto r = send1(b, d, "collect:", blk);
-  ASSERT_TRUE(r.isHeap());
-  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(r));
-  EXPECT_EQ(2, send0(b, r, "size").smallIntegerValue());
-  EXPECT_EQ(18, b.heap.slotAt(r, 0).smallIntegerValue());
-  EXPECT_EQ(8, b.heap.slotAt(r, 1).smallIntegerValue());
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  ao::Root r(b.roots, send1(b, d.slot, "collect:", blk.slot));
+  ASSERT_TRUE(r.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(r.slot));
+  EXPECT_EQ(2, send0(b, r.slot, "size").smallIntegerValue());
+  EXPECT_EQ(18, b.heap.slotAt(r.slot, 0).smallIntegerValue());
+  EXPECT_EQ(8, b.heap.slotAt(r.slot, 1).smallIntegerValue());
 
   static std::vector<std::int64_t> keys;
   keys.clear();
@@ -124,8 +126,8 @@ TEST(CollectionDo, DictionaryEqualsLookupAndCollectValues) {
     (void)k;
     return args[0];
   };
-  auto doBlk = ao::makeNativeBlock(b.ctx, assocDo, 1);
-  EXPECT_EQ(d, send1(b, d, "do:", doBlk));
+  ao::Root doBlk(b.roots, ao::makeNativeBlock(b.ctx, assocDo, 1));
+  EXPECT_EQ(d.slot, send1(b, d.slot, "do:", doBlk.slot));
   ASSERT_EQ(2u, keys.size());
   EXPECT_EQ(9, keys[0]);
   EXPECT_EQ(4, keys[1]);
@@ -166,16 +168,17 @@ TEST(CollectionDo, SetAndIdentitySet) {
 
 TEST(CollectionDo, OrderedCollectionAddAtDo) {
   Boot b;
-  auto oc = send0(b, b.wk.orderedCollectionClass, "new");
-  ASSERT_TRUE(oc.isHeap());
-  EXPECT_EQ(0, send0(b, oc, "size").smallIntegerValue());
-  EXPECT_EQ(ao::Oop::fromSmallInteger(1), send1(b, oc, "add:", ao::Oop::fromSmallInteger(1)));
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root oc(b.roots, send0(b, b.wk.orderedCollectionClass, "new"));
+  ASSERT_TRUE(oc.slot.isHeap());
+  EXPECT_EQ(0, send0(b, oc.slot, "size").smallIntegerValue());
+  EXPECT_EQ(ao::Oop::fromSmallInteger(1), send1(b, oc.slot, "add:", ao::Oop::fromSmallInteger(1)));
   for (std::int64_t i = 2; i <= 10; ++i) {
-    send1(b, oc, "add:", ao::Oop::fromSmallInteger(i));
+    send1(b, oc.slot, "add:", ao::Oop::fromSmallInteger(i));
   }
-  EXPECT_EQ(10, send0(b, oc, "size").smallIntegerValue());
-  EXPECT_EQ(2, send1(b, oc, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
-  EXPECT_EQ(10, send1(b, oc, "at:", ao::Oop::fromSmallInteger(10)).smallIntegerValue());
+  EXPECT_EQ(10, send0(b, oc.slot, "size").smallIntegerValue());
+  EXPECT_EQ(2, send1(b, oc.slot, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+  EXPECT_EQ(10, send1(b, oc.slot, "at:", ao::Oop::fromSmallInteger(10)).smallIntegerValue());
   static std::int64_t sum;
   sum = 0;
   auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
@@ -184,19 +187,21 @@ TEST(CollectionDo, OrderedCollectionAddAtDo) {
     }
     return args[0];
   };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  EXPECT_EQ(oc, send1(b, oc, "do:", blk));
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  EXPECT_EQ(oc.slot, send1(b, oc.slot, "do:", blk.slot));
   EXPECT_EQ(55, sum);
 }
 
 TEST(CollectionDo, IntervalFromToByAndIntegerTo) {
   Boot b;
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
   ao::Oop args[3] = {ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(5),
                      ao::Oop::fromSmallInteger(2)};
-  auto iv = ao::send(b.ctx, b.wk.intervalClass, b.wk.intern("from:to:by:"), args, 3, nullptr);
-  ASSERT_TRUE(iv.isHeap());
-  EXPECT_EQ(b.wk.intervalClass, b.heap.klass(iv));
-  EXPECT_EQ(3, send0(b, iv, "size").smallIntegerValue());
+  ao::Root iv(b.roots,
+              ao::send(b.ctx, b.wk.intervalClass, b.wk.intern("from:to:by:"), args, 3, nullptr));
+  ASSERT_TRUE(iv.slot.isHeap());
+  EXPECT_EQ(b.wk.intervalClass, b.heap.klass(iv.slot));
+  EXPECT_EQ(3, send0(b, iv.slot, "size").smallIntegerValue());
   static std::vector<std::int64_t> seen;
   seen.clear();
   auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
@@ -205,32 +210,33 @@ TEST(CollectionDo, IntervalFromToByAndIntegerTo) {
     }
     return args[0];
   };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  send1(b, iv, "do:", blk);
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  send1(b, iv.slot, "do:", blk.slot);
   ASSERT_EQ(3u, seen.size());
   EXPECT_EQ(1, seen[0]);
   EXPECT_EQ(3, seen[1]);
   EXPECT_EQ(5, seen[2]);
 
-  auto to = send1(b, ao::Oop::fromSmallInteger(1), "to:", ao::Oop::fromSmallInteger(3));
-  EXPECT_EQ(b.wk.intervalClass, b.heap.klass(to));
-  EXPECT_EQ(3, send0(b, to, "size").smallIntegerValue());
+  ao::Root to(b.roots, send1(b, ao::Oop::fromSmallInteger(1), "to:", ao::Oop::fromSmallInteger(3)));
+  EXPECT_EQ(b.wk.intervalClass, b.heap.klass(to.slot));
+  EXPECT_EQ(3, send0(b, to.slot, "size").smallIntegerValue());
 }
 
 TEST(CollectionDo, StringCollectYieldsCharacters) {
   Boot b;
-  auto s = ao::Str::fromUtf8(b.heap, b.wk, "Aあ");
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root s(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "Aあ"));
   auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args,
                  std::uint32_t) { return args[0]; };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  auto r = send1(b, s, "collect:", blk);
-  ASSERT_TRUE(r.isHeap());
-  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(r));
-  EXPECT_EQ(2, send0(b, r, "size").smallIntegerValue());
-  ASSERT_TRUE(b.heap.slotAt(r, 0).isCharacter());
-  ASSERT_TRUE(b.heap.slotAt(r, 1).isCharacter());
-  EXPECT_EQ(U'A', b.heap.slotAt(r, 0).characterValue());
-  EXPECT_EQ(U'あ', b.heap.slotAt(r, 1).characterValue());
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  ao::Root r(b.roots, send1(b, s.slot, "collect:", blk.slot));
+  ASSERT_TRUE(r.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(r.slot));
+  EXPECT_EQ(2, send0(b, r.slot, "size").smallIntegerValue());
+  ASSERT_TRUE(b.heap.slotAt(r.slot, 0).isCharacter());
+  ASSERT_TRUE(b.heap.slotAt(r.slot, 1).isCharacter());
+  EXPECT_EQ(U'A', b.heap.slotAt(r.slot, 0).characterValue());
+  EXPECT_EQ(U'あ', b.heap.slotAt(r.slot, 1).characterValue());
 }
 
 TEST(CollectionDo, CollectDoesNotGrowNativeRegistry) {
