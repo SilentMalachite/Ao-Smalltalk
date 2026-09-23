@@ -2,7 +2,8 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Symbol.hpp"
 
@@ -11,15 +12,6 @@
 
 namespace ao {
 namespace {
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 struct Utf8Step {
   char32_t cp;
@@ -102,35 +94,13 @@ bool isStringy(CallContext& ctx, Oop obj) {
   if (!obj.isHeap()) {
     return false;
   }
-  Oop cls = ctx.wk.classOf(obj);
-  while (cls.isHeap()) {
-    if (cls == ctx.wk.stringClass) {
-      return true;
-    }
-    cls = ctx.heap.slotAt(cls, kClassSlotSuperclass);
-  }
-  return false;
+  return chainIncludes(ctx.heap, ctx.wk.classOf(obj), ctx.wk.stringClass);
 }
 
-Oop fail(CallContext& ctx, Oop receiver, std::string_view msg) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, msg);
-  return ao_Object_error_(ctx, receiver, &s, 1);
-}
-
-Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags) {
-  if (ctx.heap.gcStress() != 0) {
-    Root stressed(ctx.roots, cls);
-    Gc(ctx.heap, ctx.roots).stressPoint();
-    cls = stressed.slot;
-  }
-  Oop obj = ctx.heap.allocate(cls, size, flags);
-  if (obj.isHeap()) {
-    return obj;
-  }
-  Root held(ctx.roots, cls);
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return ctx.heap.allocate(held.slot, size, flags);
+// receiver はルート済みスロット。メッセージの割り当てで GC が走っても正しい。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
 }  // namespace
@@ -180,14 +150,14 @@ Oop at(Heap& heap, Oop str, std::int64_t oneBased) {
 
 }  // namespace Str
 
-Oop ao_String_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_String_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return Oop::fromSmallInteger(static_cast<std::int64_t>(Str::codePointCount(ctx.heap, receiver)));
 }
 
-Oop ao_String_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_String_at_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -201,7 +171,7 @@ Oop ao_String_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t
   return ch;
 }
 
-Oop ao_String_at_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_String_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
@@ -248,7 +218,7 @@ Oop ao_String_at_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return fail(ctx, receiver, "at:put: index out of range");
 }
 
-Oop ao_String_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_String_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -270,14 +240,19 @@ Oop ao_String_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint3
              : Oop::false_();
 }
 
-Oop ao_String_asSymbol(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_String_asSymbol(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isBytes(ctx.heap, receiver)) {
     return Oop{};
   }
-  return Symbol::intern(ctx.wk, Str::toUtf8(ctx.heap, receiver));
+  // Symbol は intern 表から外れないので、nursery を通さず old に置く（GC しない）。
+  const Oop sym = ctx.wk.internTenured(Str::toUtf8(ctx.heap, receiver));
+  if (!sym.isHeap()) {
+    ctx.heap.setOutOfMemory();
+  }
+  return sym;
 }
 
-Oop ao_Symbol_asString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Symbol_asString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isBytes(ctx.heap, receiver)) {
     return Oop{};
   }
@@ -292,21 +267,21 @@ Oop ao_Symbol_asString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
   return s;
 }
 
-Oop ao_Symbol_at_put_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Symbol_at_put_(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
   return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
 }
 
-Oop ao_Symbol_basicAt_put_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Symbol_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
   return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
 }
 
-Oop ao_String_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_String_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -325,7 +300,7 @@ Oop ao_String_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint3
     }
   }
   out.push_back('\'');
-  return Str::fromUtf8(ctx.heap, ctx.wk, out);
+  return Str::fromUtf8(ctx, out);
 }
 
 namespace kernel {

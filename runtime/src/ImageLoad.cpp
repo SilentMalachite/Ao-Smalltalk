@@ -435,7 +435,7 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
       !precheck(section, heapBytes, starts, offsets, wellKnown, extra, globals)) {
     return false;
   }
-  if (heapBytes > heap.oldCapacity() || heap.oldUsed() != 0) {
+  if (heapBytes > heap.oldMaxBytes() || heap.oldUsed() != 0) {
     return false;
   }
   if (!heap.adoptOldBytes(section, heapBytes, header.nextHash)) {

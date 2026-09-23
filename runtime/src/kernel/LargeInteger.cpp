@@ -1,7 +1,7 @@
 #include "ao/LargeInteger.hpp"
 
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -13,15 +13,6 @@ namespace LargeInteger {
 namespace {
 
 using Digits = std::vector<std::uint32_t>;
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 struct Big {
   bool neg = false;
@@ -386,14 +377,8 @@ Oop box(CallContext& ctx, const Big& b) {
     return Oop::fromSmallInteger(v);
   }
   const auto n = static_cast<std::uint32_t>(b.d.size() * 4);
-  Root cls(ctx.roots,
-           b.neg ? ctx.wk.largeNegativeIntegerClass : ctx.wk.largePositiveIntegerClass);
-  Oop o = ctx.heap.allocate(cls.slot, n, kFlagBytes);
-  if (!o.isHeap()) {
-    Gc gc(ctx.heap, ctx.roots);
-    gc.collectNursery();
-    o = ctx.heap.allocate(cls.slot, n, kFlagBytes);
-  }
+  const Oop cls = b.neg ? ctx.wk.largeNegativeIntegerClass : ctx.wk.largePositiveIntegerClass;
+  const Oop o = allocateRetry(ctx, cls, n, kFlagBytes);
   if (!o.isHeap()) {
     return Oop{};
   }
@@ -516,6 +501,8 @@ Oop fromInt64(Heap& heap, WellKnown& wk, std::int64_t value) {
   digitsFromU64(mag, b.d);
   return box(heap, wk, b);
 }
+
+Oop fromInt64(CallContext& ctx, std::int64_t value) { return fromInt128(ctx, value); }
 
 bool isLarge(const WellKnown& wk, Oop o) {
   if (!o.isHeap()) {

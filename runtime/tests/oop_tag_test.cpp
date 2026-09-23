@@ -64,3 +64,16 @@ TEST(OopTag, IdentityEqualsIsBits) {
   EXPECT_EQ(ao::Oop::fromSmallInteger(3), ao::Oop::fromSmallInteger(3));
   EXPECT_NE(ao::Oop::fromSmallInteger(3), ao::Oop::fromSmallInteger(4));
 }
+
+// 01 テストの穴: 範囲外の値を黙って折り返さず、debug ビルドの assert で止まる。
+TEST(OopTag, FromSmallIntegerOutOfRangeDies) {
+#ifdef NDEBUG
+  GTEST_SKIP() << "assert is compiled out under NDEBUG";
+#else
+  EXPECT_EQ(ao::kSmiMax, ao::Oop::fromSmallInteger(ao::kSmiMax).smallIntegerValue());
+  EXPECT_EQ(ao::kSmiMin, ao::Oop::fromSmallInteger(ao::kSmiMin).smallIntegerValue());
+  EXPECT_DEATH((void)ao::Oop::fromSmallInteger(ao::kSmiMax + 1), "out of range");
+  EXPECT_DEATH((void)ao::Oop::fromSmallInteger(ao::kSmiMin - 1), "out of range");
+  EXPECT_DEATH((void)ao::Oop::fromSmallInteger(INT64_MAX), "out of range");
+#endif
+}

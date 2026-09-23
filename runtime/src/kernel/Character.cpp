@@ -7,39 +7,41 @@
 
 namespace ao {
 
-Oop ao_Character_equals(CallContext&, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Character_equals(CallContext&, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return receiver == args[0] ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Character_lessThan(CallContext&, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Character_lessThan(CallContext&, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !receiver.isCharacter() || !args[0].isCharacter()) {
     return Oop{};
   }
   return receiver.characterValue() < args[0].characterValue() ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Character_asciiValue(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Character_asciiValue(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isCharacter()) {
     return Oop{};
   }
   return Oop::fromSmallInteger(static_cast<std::int64_t>(receiver.characterValue()));
 }
 
-Oop ao_Character_asInteger(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Character_asInteger(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
   return ao_Character_asciiValue(ctx, receiver, args, argc);
 }
 
-Oop ao_Character_asCharacter(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Character_asCharacter(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return receiver;
 }
 
-Oop ao_Character_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Character_printString(CallContext& ctx, const Oop& receiver, const Oop*,
+                             std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -51,7 +53,7 @@ Oop ao_Character_printString(CallContext& ctx, Oop receiver, const Oop*, std::ui
     return ao_Object_printString(ctx, receiver, nullptr, 0);
   }
   const char bytes[2] = {'$', static_cast<char>(scalar)};
-  return Str::fromUtf8(ctx.heap, ctx.wk, std::string_view(bytes, 2));
+  return Str::fromUtf8(ctx, std::string_view(bytes, 2));
 }
 
 namespace kernel {

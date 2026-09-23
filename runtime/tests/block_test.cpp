@@ -103,3 +103,50 @@ TEST(AoTestRunner, SecondFileIsNotFirstDoIt) {
   EXPECT_EQ(1, code);
   EXPECT_GT(b.ctx.testFailures, 0);
 }
+
+namespace {
+
+// dir を作り直し、files（名前と本文）を書く。テストの終わりに消す。
+struct TestDir {
+  std::filesystem::path path;
+  explicit TestDir(const char* name) : path(std::filesystem::temp_directory_path() / name) {
+    std::error_code ec;
+    std::filesystem::remove_all(path, ec);
+    std::filesystem::create_directories(path);
+  }
+  ~TestDir() {
+    std::error_code ignore;
+    std::filesystem::remove_all(path, ignore);
+  }
+  bool write(const char* file, const char* body) const {
+    std::ofstream out(path / file);
+    out << body;
+    return static_cast<bool>(out);
+  }
+};
+
+}  // namespace
+
+// SPEC §3.2: out of memory は評価エラー。途中の文で out of memory になり、捨てられた結果の後の
+// assert が通っても、そのファイルは失敗として数える。old の上限を超える要求は GC せずに即座に
+// 失敗するので、実際には何もコミットしない。
+TEST(AoTestRunner, OutOfMemoryMidFileFails) {
+  const TestDir dir("ao-test-runner-oom");
+  ASSERT_TRUE(dir.write("oom.st", "Array new: 600000000.\nself assert: 1 equals: 1.\n"));
+  Boot b;
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  EXPECT_EQ(1, code);
+  EXPECT_EQ(1, b.ctx.testFailures);
+  EXPECT_FALSE(b.heap.outOfMemory());
+}
+
+// 評価の前から立っていたフラグ（前の評価のもの）は、そのファイルのせいにしない。
+TEST(AoTestRunner, EarlierOutOfMemoryIsNotBlamedOnFile) {
+  const TestDir dir("ao-test-runner-stale-oom");
+  ASSERT_TRUE(dir.write("pass.st", "self assert: 1 equals: 1.\n"));
+  Boot b;
+  b.heap.setOutOfMemory();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  EXPECT_EQ(0, code);
+  EXPECT_EQ(0, b.ctx.testFailures);
+}

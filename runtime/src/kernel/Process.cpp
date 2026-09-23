@@ -2,19 +2,14 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
+#include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
+
+#include <string_view>
 
 namespace ao {
 namespace {
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 constexpr std::uint32_t kProcNextLink = 0;
 constexpr std::uint32_t kProcContext  = 1;
@@ -37,6 +32,12 @@ constexpr std::uint32_t kOcLast  = 2;
 
 bool hasSlots(Heap& heap, Oop obj, std::uint32_t n) {
   return obj.isHeap() && (heap.flags(obj) & kFlagBytes) == 0 && heap.size(obj) > n;
+}
+
+// error: の慣習どおりメッセージ文字列で失敗する。receiver はルート済みスロット（GC しても正しい）。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
 std::int64_t ocSize(Heap& heap, Oop oc) {
@@ -160,33 +161,34 @@ Oop ctxSlot(CallContext& ctx, Oop receiver, std::uint32_t slot) {
 
 }  // namespace
 
-Oop ao_Process_resume(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc);
-Oop ao_Process_suspend(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc);
-Oop ao_Semaphore_signal(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc);
-Oop ao_Semaphore_wait(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc);
+Oop ao_Process_resume(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc);
+Oop ao_Process_suspend(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc);
+Oop ao_Semaphore_signal(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc);
+Oop ao_Semaphore_wait(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc);
 
-Oop ao_MethodContext_sender(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_MethodContext_sender(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return ctxSlot(ctx, receiver, kCtxSender);
 }
 
-Oop ao_MethodContext_method(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_MethodContext_method(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return ctxSlot(ctx, receiver, kCtxMethod);
 }
 
-Oop ao_MethodContext_receiver(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_MethodContext_receiver(CallContext& ctx, const Oop& receiver, const Oop*,
+                              std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return ctxSlot(ctx, receiver, kCtxReceiver);
 }
 
-Oop ao_ProcessorScheduler_activeProcess(CallContext& ctx, Oop receiver, const Oop*,
+Oop ao_ProcessorScheduler_activeProcess(CallContext& ctx, const Oop& receiver, const Oop*,
                                         std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
@@ -194,7 +196,8 @@ Oop ao_ProcessorScheduler_activeProcess(CallContext& ctx, Oop receiver, const Oo
   return ctxSlot(ctx, receiver, kSchedActive);
 }
 
-Oop ao_Process_priority_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Process_priority_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1 || !hasSlots(ctx.heap, receiver, kProcPriority)) {
     return Oop{};
   }
@@ -202,7 +205,7 @@ Oop ao_Process_priority_(CallContext& ctx, Oop receiver, const Oop* args, std::u
   return receiver;
 }
 
-Oop ao_Process_resume(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Process_resume(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kProcMyList)) {
     return Oop{};
   }
@@ -232,7 +235,7 @@ Oop ao_Process_resume(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t 
   return proc.slot;
 }
 
-Oop ao_Process_suspend(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Process_suspend(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kProcMyList)) {
     return Oop{};
   }
@@ -261,7 +264,8 @@ Oop ao_Process_suspend(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
   return proc.slot;
 }
 
-Oop ao_ProcessorScheduler_yield(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_ProcessorScheduler_yield(CallContext& ctx, const Oop& receiver, const Oop*,
+                                std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kSchedActive)) {
     return Oop{};
   }
@@ -285,7 +289,7 @@ Oop ao_ProcessorScheduler_yield(CallContext& ctx, Oop receiver, const Oop*, std:
   return sched.slot;
 }
 
-Oop ao_Semaphore_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Semaphore_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -301,7 +305,7 @@ Oop ao_Semaphore_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t a
   return sem.slot;
 }
 
-Oop ao_Semaphore_signal(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Semaphore_signal(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kSemList)) {
     return Oop{};
   }
@@ -310,6 +314,10 @@ Oop ao_Semaphore_signal(CallContext& ctx, Oop receiver, const Oop*, std::uint32_
   if (ocSize(ctx.heap, list) == 0) {
     const Oop excess = ctx.heap.slotAt(sem.slot, kSemExcess);
     const auto n = excess.isSmallInteger() ? excess.smallIntegerValue() : 0;
+    // excessSignals は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら失敗する。
+    if (n >= kSmiMax) {
+      return fail(ctx, sem.slot, "signal: excess signals out of range");
+    }
     ctx.heap.slotAtPut(sem.slot, kSemExcess, Oop::fromSmallInteger(n + 1));
     return sem.slot;
   }
@@ -317,11 +325,11 @@ Oop ao_Semaphore_signal(CallContext& ctx, Oop receiver, const Oop*, std::uint32_
   if (hasSlots(ctx.heap, waiter, kProcMyList)) {
     ctx.heap.slotAtPut(waiter, kProcMyList, Oop::nil());
   }
-  ao_Process_resume(ctx, waiter, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Process_resume, waiter, nullptr, 0);
   return sem.slot;
 }
 
-Oop ao_Semaphore_wait(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Semaphore_wait(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kSemList)) {
     return Oop{};
   }
@@ -339,7 +347,7 @@ Oop ao_Semaphore_wait(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t 
                              : Oop{});
   if (active.slot.isHeap()) {
     ocAdd(ctx, list.slot, active.slot);
-    ao_Process_suspend(ctx, active.slot, nullptr, 0);
+    NativeMethod::invoke(ctx, ao_Process_suspend, active.slot, nullptr, 0);
     if (hasSlots(ctx.heap, active.slot, kProcMyList)) {
       ctx.heap.slotAtPut(active.slot, kProcMyList, list.slot);
     }
@@ -347,7 +355,7 @@ Oop ao_Semaphore_wait(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t 
   return sem.slot;
 }
 
-Oop ao_SharedQueue_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_SharedQueue_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -363,40 +371,42 @@ Oop ao_SharedQueue_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
   ctx.heap.slotAtPut(q.slot, kSqRead, read);
   Oop write = send(ctx, ctx.wk.semaphoreClass, ctx.wk.selNew, nullptr, 0, nullptr);
   ctx.heap.slotAtPut(q.slot, kSqWrite, write);
-  ao_Semaphore_signal(ctx, write, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_signal, write, nullptr, 0);
   return q.slot;
 }
 
-Oop ao_SharedQueue_nextPut_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_SharedQueue_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1 || !hasSlots(ctx.heap, receiver, kSqWrite)) {
     return Oop{};
   }
   Root q(ctx.roots, receiver);
   Root value(ctx.roots, args[0]);
   Oop write = ctx.heap.slotAt(q.slot, kSqWrite);
-  ao_Semaphore_wait(ctx, write, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_wait, write, nullptr, 0);
   Oop contents = ensureOc(ctx, q, kSqContents);
   ocAdd(ctx, contents, value.slot);
   Oop read = ctx.heap.slotAt(q.slot, kSqRead);
-  ao_Semaphore_signal(ctx, read, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_signal, read, nullptr, 0);
   return value.slot;
 }
 
-Oop ao_SharedQueue_next(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_SharedQueue_next(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kSqWrite)) {
     return Oop{};
   }
   Root q(ctx.roots, receiver);
   Oop read = ctx.heap.slotAt(q.slot, kSqRead);
-  ao_Semaphore_wait(ctx, read, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_wait, read, nullptr, 0);
   Oop contents = ctx.heap.slotAt(q.slot, kSqContents);
-  Oop value = ocRemoveFirst(ctx.heap, contents);
+  // 取り出した値はキューから外れ、signal の resume が GC を走らせる。ルートに載せて返す。
+  Root value(ctx.roots, ocRemoveFirst(ctx.heap, contents));
   Oop write = ctx.heap.slotAt(q.slot, kSqWrite);
-  ao_Semaphore_signal(ctx, write, nullptr, 0);
-  return value;
+  NativeMethod::invoke(ctx, ao_Semaphore_signal, write, nullptr, 0);
+  return value.slot;
 }
 
-Oop ao_BlockContext_fork(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_BlockContext_fork(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -409,7 +419,7 @@ Oop ao_BlockContext_fork(CallContext& ctx, Oop receiver, const Oop*, std::uint32
   ctx.heap.slotAtPut(proc.slot, kProcContext, blk.slot);
   ctx.heap.slotAtPut(proc.slot, kProcPriority, Oop::fromSmallInteger(0));
   ctx.heap.slotAtPut(proc.slot, kProcNextLink, Oop::nil());
-  ao_Process_resume(ctx, proc.slot, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Process_resume, proc.slot, nullptr, 0);
   return proc.slot;
 }
 

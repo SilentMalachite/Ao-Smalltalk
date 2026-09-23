@@ -8,6 +8,7 @@
 #include "ao/Symbol.hpp"
 #include "ao/WellKnown.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 
@@ -17,7 +18,9 @@ struct Boot {
   ao::WellKnown wk;
   ao::ClassMethodCache cache;
   ao::CallContext ctx;
-  Boot() : wk(heap, roots), ctx{heap, roots, wk, &cache} {
+  Boot() : Boot(1 << 20, 4 << 20, ao::kOldMaxBytes) {}
+  Boot(std::size_t nurseryBytes, std::size_t oldBytes, std::size_t oldMaxBytes)
+      : heap(nurseryBytes, oldBytes, oldMaxBytes), wk(heap, roots), ctx{heap, roots, wk, &cache} {
     cache.addRoots(roots);
     ao::Bootstrap::run(heap, roots, wk);
   }

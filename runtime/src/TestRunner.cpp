@@ -3,12 +3,14 @@
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 #include "ao/kernel/Install.hpp"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -19,16 +21,8 @@
 namespace ao {
 namespace {
 
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
-
-Oop ao_AoTest_assert_equals_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_AoTest_assert_equals_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 2 || args == nullptr) {
     return Oop{};
   }
@@ -41,17 +35,17 @@ Oop ao_AoTest_assert_equals_(CallContext& ctx, Oop receiver, const Oop* args, st
     return self.slot;
   }
   ctx.testFailures += 1;
-  const Oop printSel = ctx.wk.intern("printString");
-  Root left(ctx.roots, send(ctx, actual.slot, printSel, nullptr, 0, nullptr));
-  Root right(ctx.roots, send(ctx, expected.slot, printSel, nullptr, 0, nullptr));
+  // 1 回目の printString が full GC を起こすと Symbol も動く。セレクタはルートに載せる。
+  Root printSel(ctx.roots, ctx.wk.intern("printString"));
+  Root left(ctx.roots, send(ctx, actual.slot, printSel.slot, nullptr, 0, nullptr));
+  Root right(ctx.roots, send(ctx, expected.slot, printSel.slot, nullptr, 0, nullptr));
   std::string message = Str::toUtf8(ctx.heap, left.slot);
   message.append(" ~= ");
   message += Str::toUtf8(ctx.heap, right.slot);
-  Root text(ctx.roots, Str::fromUtf8(ctx.heap, ctx.wk, message));
-  if (!text.slot.isHeap()) {
-    Gc gc(ctx.heap, ctx.roots);
-    gc.collectNursery();
-    text.slot = Str::fromUtf8(ctx.heap, ctx.wk, message);
+  const auto n = static_cast<std::uint32_t>(message.size());
+  Root text(ctx.roots, allocateRetry(ctx, ctx.wk.stringClass, n, kFlagBytes));
+  if (text.slot.isHeap() && n != 0) {
+    std::memcpy(ctx.heap.bytes(text.slot), message.data(), n);
   }
   if (!text.slot.isHeap()) {
     return Oop{};
@@ -109,6 +103,28 @@ bool listTests(const std::filesystem::path& dir, std::vector<std::filesystem::pa
   return true;
 }
 
+// body を本体とする AoTest>>doIt をコンパイルして入れ、新しいインスタンスに送る。値が得られたら true。
+bool runFile(CallContext& ctx, Root& cls, Root& doIt, const std::string& body) {
+  const std::string source = "doIt\n" + body;
+  const compiler::CompileResult compiled = compiler::compileMethod(source);
+  if (!compiled.ok) {
+    return false;
+  }
+  Root installed(ctx.roots, installMethod(ctx, cls.slot, compiled.image));
+  if (!installed.slot.isHeap()) {
+    return false;
+  }
+  Root instance(ctx.roots, send(ctx, cls.slot, ctx.wk.selNew, nullptr, 0, nullptr));
+  if (!instance.slot.isHeap()) {
+    return false;
+  }
+  // installMethod replaces the dictionary slot and leaves the global cache.
+  if (ctx.cache != nullptr) {
+    ctx.cache->forget(ctx.heap, ctx.wk.classOf(instance.slot), doIt.slot);
+  }
+  return !send(ctx, instance.slot, doIt.slot, nullptr, 0, nullptr).isEmpty();
+}
+
 }  // namespace
 
 int runSmalltalkTests(CallContext& ctx, std::string_view path) {
@@ -126,33 +142,28 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
   if (!cls.slot.isHeap()) {
     return 1;
   }
-  kernel::putNative(ctx.heap, ctx.wk, cls.slot, "assert:equals:", 2, "ao_AoTest_assert_equals_",
-                    ao_AoTest_assert_equals_);
+  if (!kernel::putNative(ctx.heap, ctx.wk, cls.slot, "assert:equals:", 2,
+                         "ao_AoTest_assert_equals_", ao_AoTest_assert_equals_)) {
+    return 1;
+  }
   Root doIt(ctx.roots, ctx.wk.intern("doIt"));
   for (const fs::path& file : files) {
     std::string body;
     if (!readFile(file, &body)) {
       return 1;
     }
-    const std::string source = "doIt\n" + body;
-    const compiler::CompileResult compiled = compiler::compileMethod(source);
-    if (!compiled.ok) {
+    // 前に立ったフラグ（起動時や前のファイルのもの）を、このファイルのせいにしない（sessionEval と同じ）。
+    ctx.heap.clearOutOfMemory();
+    const bool ran = runFile(ctx, cls, doIt, body);
+    // SPEC §3.2: out of memory は評価エラー。途中の文の空の結果は捨てられ、後の assert は通りうるので、
+    // 走り切った後にフラグで判定する。
+    if (ctx.heap.outOfMemory()) {
+      ctx.heap.clearOutOfMemory();
+      ctx.testFailures += 1;
+      std::fprintf(stderr, "ao --test: %s: out of memory\n", file.string().c_str());
       return 1;
     }
-    Root installed(ctx.roots, installMethod(ctx, cls.slot, compiled.image));
-    if (!installed.slot.isHeap()) {
-      return 1;
-    }
-    Root instance(ctx.roots, send(ctx, cls.slot, ctx.wk.selNew, nullptr, 0, nullptr));
-    if (!instance.slot.isHeap()) {
-      return 1;
-    }
-    // installMethod replaces the dictionary slot and leaves the global cache.
-    if (ctx.cache != nullptr) {
-      ctx.cache->forget(ctx.heap, ctx.wk.classOf(instance.slot), doIt.slot);
-    }
-    const Oop result = send(ctx, instance.slot, doIt.slot, nullptr, 0, nullptr);
-    if (result.isEmpty() || ctx.testFailures > 0) {
+    if (!ran || ctx.testFailures > 0) {
       return 1;
     }
   }

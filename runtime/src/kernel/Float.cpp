@@ -1,7 +1,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 
@@ -12,34 +12,10 @@
 namespace ao {
 namespace {
 
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
-
-Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags) {
-  if (ctx.heap.gcStress() != 0) {
-    Root stressed(ctx.roots, cls);
-    Gc(ctx.heap, ctx.roots).stressPoint();
-    cls = stressed.slot;
-  }
-  Oop obj = ctx.heap.allocate(cls, size, flags);
-  if (obj.isHeap()) {
-    return obj;
-  }
-  Root held(ctx.roots, cls);
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return ctx.heap.allocate(held.slot, size, flags);
-}
-
-Oop div0(CallContext& ctx, Oop receiver) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, "division by zero");
-  return ao_Object_error_(ctx, receiver, &s, 1);
+// receiver はルート済みスロット。メッセージの割り当てで GC が走っても正しい。
+Oop div0(CallContext& ctx, const Oop& receiver) {
+  Oop s = Str::fromUtf8(ctx, "division by zero");
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
 bool isFloat(const WellKnown& wk, Oop o) {
@@ -82,11 +58,11 @@ bool asFloat(CallContext& ctx, Oop o, double* out) {
 }
 
 Oop makeFraction(CallContext& ctx, Oop num, Oop den) {
-  if (LargeInteger::isZero(ctx.heap, ctx.wk, den)) {
-    return div0(ctx, num);
-  }
   Root n(ctx.roots, num);
   Root d(ctx.roots, den);
+  if (LargeInteger::isZero(ctx.heap, ctx.wk, d.slot)) {
+    return div0(ctx, n.slot);  // div0 はメッセージを割り当てる（GC する）。ルート済みの n を渡す
+  }
   Root g(ctx.roots, LargeInteger::gcd(ctx, n.slot, d.slot));
   if (!g.slot.isSmallInteger() && !LargeInteger::isLarge(ctx.wk, g.slot)) {
     return Oop{};
@@ -203,7 +179,7 @@ Oop floatOp(CallContext& ctx, Oop a, Oop b, FlOp op) {
 
 }  // namespace
 
-Oop ao_Integer_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -213,35 +189,35 @@ Oop ao_Integer_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return fracOp(ctx, receiver, args[0], FracOp::Div);
 }
 
-Oop ao_Float_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return floatOp(ctx, receiver, args[0], FlOp::Add);
 }
 
-Oop ao_Float_subtract(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_subtract(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return floatOp(ctx, receiver, args[0], FlOp::Sub);
 }
 
-Oop ao_Float_multiply(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_multiply(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return floatOp(ctx, receiver, args[0], FlOp::Mul);
 }
 
-Oop ao_Float_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return floatOp(ctx, receiver, args[0], FlOp::Div);
 }
 
-Oop ao_Float_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -252,7 +228,7 @@ Oop ao_Float_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
                                                                      : Oop::false_();
 }
 
-Oop ao_Float_lessThan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -264,35 +240,37 @@ Oop ao_Float_lessThan(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return x < y ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Fraction_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Fraction_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return fracOp(ctx, receiver, args[0], FracOp::Add);
 }
 
-Oop ao_Fraction_subtract(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Fraction_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return fracOp(ctx, receiver, args[0], FracOp::Sub);
 }
 
-Oop ao_Fraction_multiply(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Fraction_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return fracOp(ctx, receiver, args[0], FracOp::Mul);
 }
 
-Oop ao_Fraction_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Fraction_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return fracOp(ctx, receiver, args[0], FracOp::Div);
 }
 
-Oop ao_Float_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Float_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -308,7 +286,7 @@ Oop ao_Float_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32
   if (wrote <= 0 || static_cast<std::size_t>(wrote) >= sizeof(buf)) {
     return Oop{};
   }
-  return Str::fromUtf8(ctx.heap, ctx.wk, std::string_view(buf, static_cast<std::size_t>(wrote)));
+  return Str::fromUtf8(ctx, std::string_view(buf, static_cast<std::size_t>(wrote)));
 }
 
 namespace kernel {

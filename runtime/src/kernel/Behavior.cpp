@@ -3,7 +3,8 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
 #include "ao/Format.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 
 #include <cstdint>
@@ -13,31 +14,6 @@
 
 namespace ao {
 namespace {
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
-
-Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags) {
-  if (ctx.heap.gcStress() != 0) {
-    Root stressed(ctx.roots, cls);
-    Gc(ctx.heap, ctx.roots).stressPoint();
-    cls = stressed.slot;
-  }
-  Oop obj = ctx.heap.allocate(cls, size, flags);
-  if (obj.isHeap()) {
-    return obj;
-  }
-  Root held(ctx.roots, cls);
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return ctx.heap.allocate(held.slot, size, flags);
-}
 
 Oop classFormat(CallContext& ctx, Oop cls) {
   if (!cls.isHeap()) {
@@ -81,7 +57,8 @@ Oop makeInstVarNames(CallContext& ctx, std::string_view spec) {
 
 }  // namespace
 
-Oop ao_Behavior_basicNew_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Behavior_basicNew_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1) return Oop{};
   if (!receiver.isHeap() || !args[0].isSmallInteger()) {
     return Oop{};
@@ -105,37 +82,37 @@ Oop ao_Behavior_basicNew_(CallContext& ctx, Oop receiver, const Oop* args, std::
   return allocateRetry(ctx, receiver, static_cast<std::uint32_t>(total), 0);
 }
 
-Oop ao_Behavior_basicNew(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_basicNew(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   const Oop fmt = classFormat(ctx, receiver);
   if (Format::isIndexable(fmt)) {
     Oop zero = Oop::fromSmallInteger(0);
-    return ao_Behavior_basicNew_(ctx, receiver, &zero, 1);
+    return NativeMethod::invoke(ctx, ao_Behavior_basicNew_, receiver, &zero, 1);
   }
   return allocateRetry(ctx, receiver, static_cast<std::uint32_t>(Format::instSize(fmt)), 0);
 }
 
-Oop ao_Behavior_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   const Oop fmt = classFormat(ctx, receiver);
   if (Format::isIndexable(fmt)) {
     Oop zero = Oop::fromSmallInteger(0);
-    return ao_Behavior_basicNew_(ctx, receiver, &zero, 1);
+    return NativeMethod::invoke(ctx, ao_Behavior_basicNew_, receiver, &zero, 1);
   }
   return ao_Behavior_basicNew(ctx, receiver, nullptr, 0);
 }
 
-Oop ao_Behavior_superclass(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_superclass(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotSuperclass);
 }
 
-Oop ao_Behavior_methodDict(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_methodDict(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotMethodDict);
 }
 
-Oop ao_Behavior_selectors(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_selectors(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   const Oop dict = ctx.heap.slotAt(receiver, kClassSlotMethodDict);
   if (!dict.isHeap()) {
@@ -166,13 +143,13 @@ Oop ao_Behavior_selectors(CallContext& ctx, Oop receiver, const Oop*, std::uint3
   return arr.slot;
 }
 
-Oop ao_Behavior_compiledMethodAt_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Behavior_compiledMethodAt_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                   std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) return Oop{};
   return MethodDictionary::at(ctx.heap, ctx.heap.slotAt(receiver, kClassSlotMethodDict), args[0]);
 }
 
-Oop ao_Behavior_includesSelector_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Behavior_includesSelector_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                   std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) return Oop{};
   const Oop meth =
@@ -180,61 +157,58 @@ Oop ao_Behavior_includesSelector_(CallContext& ctx, Oop receiver, const Oop* arg
   return meth.isNil() ? Oop::false_() : Oop::true_();
 }
 
-Oop ao_Behavior_inheritsFrom_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Behavior_inheritsFrom_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) return Oop{};
-  Oop super = ctx.heap.slotAt(receiver, kClassSlotSuperclass);
-  while (super.isHeap()) {
-    if (super == args[0]) {
-      return Oop::true_();
-    }
-    super = ctx.heap.slotAt(super, kClassSlotSuperclass);
-  }
-  return Oop::false_();
+  const Oop super = superclassOf(ctx.heap, receiver);
+  return chainIncludes(ctx.heap, super, args[0]) ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Behavior_instSize(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_instSize(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Oop::fromSmallInteger(Format::instSize(classFormat(ctx, receiver)));
 }
 
-Oop ao_Behavior_isVariable(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_isVariable(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Format::isIndexable(classFormat(ctx, receiver)) ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Behavior_isBytes(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_isBytes(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Format::isBytes(classFormat(ctx, receiver)) ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Behavior_isPointers(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Behavior_isPointers(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Format::isPointers(classFormat(ctx, receiver)) ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Class_name(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Class_name(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotName);
 }
 
-Oop ao_Class_category(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Class_category(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotCategory);
 }
 
-Oop ao_Class_classPool(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Class_classPool(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotClassPool);
 }
 
 Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_category_(
-    CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+    CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 5 || !receiver.isHeap()) return Oop{};
-  const Oop nameArg = args[0];
-  const std::string nameBytes = Str::toUtf8(ctx.heap, nameArg);
-  if (nameBytes.empty() && !(nameArg.isHeap() && ctx.heap.size(nameArg) == 0)) {
+  // receiver と args[i] は NativeMethod::invoke がルートしたスロットを指し、GC のあとも正しい。
+  // ヒープの値はローカルにコピーして GC をまたがず、使う箇所ごとにそこから読み直す。
+  const std::string nameBytes = Str::toUtf8(ctx.heap, args[0]);
+  if (nameBytes.empty() && !(args[0].isHeap() && ctx.heap.size(args[0]) == 0)) {
     return Oop{};
   }
+  // format は SmallInteger（即値）なので、GC をまたいでも変わらない。
   const Oop superFmt = classFormat(ctx, receiver);
   const auto superInst = Format::instSize(superFmt);
   const std::string ivarSpec = Str::toUtf8(ctx.heap, args[1]);
@@ -251,19 +225,11 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   if (!meta.slot.isHeap()) return Oop{};
   ctx.heap.header(cls.slot)->klass = meta.slot;
 
+  // create は GC せず、nursery が満杯なら old に置く。失敗するのは old が上限のときだけ。
   Root dict(ctx.roots, MethodDictionary::create(ctx.heap, ctx.wk, 8));
-  if (!dict.slot.isHeap()) {
-    Gc gc(ctx.heap, ctx.roots);
-    gc.collectNursery();
-    dict.slot = MethodDictionary::create(ctx.heap, ctx.wk, 8);
-  }
   Root metaDict(ctx.roots, MethodDictionary::create(ctx.heap, ctx.wk, 8));
-  if (!metaDict.slot.isHeap()) {
-    Gc gc(ctx.heap, ctx.roots);
-    gc.collectNursery();
-    metaDict.slot = MethodDictionary::create(ctx.heap, ctx.wk, 8);
-  }
   if (!dict.slot.isHeap() || !metaDict.slot.isHeap()) {
+    ctx.heap.setOutOfMemory();
     return Oop{};
   }
 
@@ -274,19 +240,22 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
 
   std::string metaName = nameBytes;
   metaName += " class";
-  Root metaNameOop(ctx.roots, Str::fromUtf8(ctx.heap, ctx.wk, metaName));
+  Root metaNameOop(ctx.roots, Str::fromUtf8(ctx, metaName));
+  if (!metaNameOop.slot.isHeap()) {
+    return Oop{};
+  }
 
   ctx.heap.slotAtPut(cls.slot, kClassSlotSuperclass, receiver);
   ctx.heap.slotAtPut(cls.slot, kClassSlotMethodDict, dict.slot);
   ctx.heap.slotAtPut(cls.slot, kClassSlotFormat, fmt);
-  ctx.heap.slotAtPut(cls.slot, kClassSlotName, nameArg);
+  ctx.heap.slotAtPut(cls.slot, kClassSlotName, args[0]);
   ctx.heap.slotAtPut(cls.slot, kClassSlotThisClass, Oop::nil());
   ctx.heap.slotAtPut(cls.slot, kClassSlotCategory, args[4]);
   ctx.heap.slotAtPut(cls.slot, kClassSlotClassPool, Oop::nil());
   ctx.heap.slotAtPut(cls.slot, kClassSlotInstVarNames, ivarNames.slot);
 
-  const Oop metaSuper = ctx.heap.klass(receiver);
-  ctx.heap.slotAtPut(meta.slot, kClassSlotSuperclass, metaSuper);
+  // 親のメタクラスは、最後の割り当てのあとでルート済みの receiver から求める。
+  ctx.heap.slotAtPut(meta.slot, kClassSlotSuperclass, ctx.heap.klass(receiver));
   ctx.heap.slotAtPut(meta.slot, kClassSlotMethodDict, metaDict.slot);
   ctx.heap.slotAtPut(meta.slot, kClassSlotFormat, classFmt);
   ctx.heap.slotAtPut(meta.slot, kClassSlotName, metaNameOop.slot);
@@ -299,14 +268,14 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   return cls.slot;
 }
 
-Oop ao_Metaclass_thisClass(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Metaclass_thisClass(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotThisClass);
 }
 
-Oop ao_Metaclass_newForbidden(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_Metaclass_newForbidden(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "shouldNotImplement");
+  return Str::fromUtf8(ctx, "shouldNotImplement");
 }
 
 namespace kernel {

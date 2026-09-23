@@ -13,8 +13,10 @@ add_library(ao_runtime
   src/abi.cpp
   src/Oop.cpp
   src/Heap.cpp
+  src/VirtualRegion.cpp
   src/Gc.cpp
   src/Roots.cpp
+  src/HandleScope.cpp
   src/WellKnown.cpp
   src/Bootstrap.cpp
   src/Globals.cpp
@@ -70,6 +72,7 @@ add_executable(ao_runtime_tests
   tests/heap_alloc_test.cpp
   tests/gc_test.cpp
   tests/gc_stress_test.cpp
+  tests/gc_safety_test.cpp
   tests/bootstrap_test.cpp
   tests/symbol_test.cpp
   tests/method_dictionary_test.cpp
@@ -106,6 +109,18 @@ target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOU
 include(GoogleTest)
 gtest_discover_tests(ao_runtime_tests)
 
-# 全テストを GC ストレス下で回す。既知の GC 安全性バグを B1 で直してから有効にする。
-add_test(NAME gcstress COMMAND ao_runtime_tests)
-set_tests_properties(gcstress PROPERTIES ENVIRONMENT "AO_GC_STRESS=1" DISABLED TRUE)
+# runtime のスイート全体を、1 プロセスで GC ストレス下に回す（SPEC §4.1）。
+# KernelBench.* は時間計測のテストで、通常の項目として回っている。ストレス下では計測の意味がなく、
+# 1 本で十数秒かかるので除く。
+add_test(NAME gcstress COMMAND ao_runtime_tests --gtest_filter=-KernelBench.*)
+set_tests_properties(gcstress PROPERTIES ENVIRONMENT "AO_GC_STRESS=1")
+
+# CLI の vendor file-in（image/vendor/LOAD_ORDER）と Smalltalk のテスト（ao --test image/tests）を、
+# GC ストレス下で回す。ao --test は vendor を file-in しないので、先に filein を別プロセスで回す。
+# vendor の file-in には既知のメソッド単位のエラーがあり、ao filein は成功してもそれを stderr に出す。
+# ストレスなしの 1 回を基準にして、ストレス下のエラーの並びがそれと一致することを確かめる。
+add_test(NAME gcstress_vendor
+  COMMAND sh -c "AO_GC_STRESS=0 \"$0\" filein --load-order \"$1\" 2>\"$3.base\" && \"$0\" filein --load-order \"$1\" 2>\"$3.stress\" && diff \"$3.base\" \"$3.stress\" && \"$0\" --test \"$2\""
+          $<TARGET_FILE:ao> ${CMAKE_SOURCE_DIR}/image/vendor/LOAD_ORDER
+          ${CMAKE_SOURCE_DIR}/image/tests ${CMAKE_CURRENT_BINARY_DIR}/gcstress_vendor_filein)
+set_tests_properties(gcstress_vendor PROPERTIES ENVIRONMENT "AO_GC_STRESS=1")

@@ -15,128 +15,128 @@ Oop asBool(bool v) { return v ? Oop::true_() : Oop::false_(); }
 
 }  // namespace
 
-Oop ao_Boolean_subclassResponsibility(CallContext& ctx, Oop, const Oop*, std::uint32_t) {
-  return Str::fromUtf8(ctx.heap, ctx.wk, "subclassResponsibility");
+Oop ao_Boolean_subclassResponsibility(CallContext& ctx, const Oop&, const Oop*, std::uint32_t) {
+  return Str::fromUtf8(ctx, "subclassResponsibility");
 }
 
-Oop ao_True_ifTrue_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_True_ifTrue_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return sendValue(ctx, args[0]);
 }
 
-Oop ao_True_ifFalse_(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_True_ifFalse_(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return Oop::nil();
 }
 
-Oop ao_True_ifTrue_ifFalse_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_True_ifTrue_ifFalse_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 2) return Oop{};
   return sendValue(ctx, args[0]);
 }
 
-Oop ao_True_ifFalse_ifTrue_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_True_ifFalse_ifTrue_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 2) return Oop{};
   return sendValue(ctx, args[1]);
 }
 
-Oop ao_True_and_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_True_and_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return sendValue(ctx, args[0]);
 }
 
-Oop ao_True_or_(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_True_or_(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return Oop::true_();
 }
 
-Oop ao_True_not(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_True_not(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Oop::false_();
 }
 
-Oop ao_True_and(CallContext&, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_True_and(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return asBool(args[0].isTrue());
 }
 
-Oop ao_True_or(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_True_or(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return Oop::true_();
 }
 
-Oop ao_True_eqv_(CallContext&, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_True_eqv_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return asBool(args[0].isTrue());
 }
 
-Oop ao_True_xor_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_True_xor_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   const Oop eqv = ao_True_eqv_(ctx, receiver, args, argc);
   return eqv.isTrue() ? Oop::false_() : Oop::true_();
 }
 
-Oop ao_False_ifTrue_(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_False_ifTrue_(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return Oop::nil();
 }
 
-Oop ao_False_ifFalse_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_False_ifFalse_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return sendValue(ctx, args[0]);
 }
 
-Oop ao_False_ifTrue_ifFalse_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_False_ifTrue_ifFalse_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 2) return Oop{};
   return sendValue(ctx, args[1]);
 }
 
-Oop ao_False_ifFalse_ifTrue_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_False_ifFalse_ifTrue_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 2) return Oop{};
   return sendValue(ctx, args[0]);
 }
 
-Oop ao_False_and_(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_False_and_(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return Oop::false_();
 }
 
-Oop ao_False_or_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_False_or_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return sendValue(ctx, args[0]);
 }
 
-Oop ao_False_not(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_False_not(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Oop::true_();
 }
 
-Oop ao_False_and(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_False_and(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return Oop::false_();
 }
 
-Oop ao_False_or(CallContext&, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_False_or(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return asBool(args[0].isTrue());
 }
 
-Oop ao_False_eqv_(CallContext&, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_False_eqv_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return asBool(args[0].isFalse());
 }
 
-Oop ao_False_xor_(CallContext&, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_False_xor_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return asBool(args[0].isTrue());
 }
 
-Oop ao_True_printString(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_True_printString(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "true");
+  return Str::fromUtf8(ctx, "true");
 }
 
-Oop ao_False_printString(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_False_printString(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "false");
+  return Str::fromUtf8(ctx, "false");
 }
 
 namespace kernel {

@@ -285,15 +285,22 @@ Oop WellKnown::classOf(Oop obj) const {
   return Oop::nil();
 }
 
-Oop WellKnown::intern(std::string_view utf8) {
+Oop WellKnown::intern(std::string_view utf8) { return internWith(utf8, false); }
+
+Oop WellKnown::internTenured(std::string_view utf8) { return internWith(utf8, true); }
+
+Oop WellKnown::internWith(std::string_view utf8, bool tenured) {
   std::string key(utf8);
   auto it = intern_->byBytes.find(key);
   if (it != intern_->byBytes.end()) {
     return intern_->table[it->second];
   }
   const auto n = static_cast<std::uint32_t>(utf8.size());
-  Oop sym = heap_->allocate(symbolClass, n, kFlagBytes);
+  // GC しない（SPEC §3.2）。nursery が満杯なら old に置き、old の上限でだけ失敗する。
+  Oop sym = tenured ? heap_->allocateTenured(symbolClass, n, kFlagBytes)
+                    : heap_->allocateNoGc(symbolClass, n, kFlagBytes);
   if (!sym.isHeap()) {
+    heap_->setOutOfMemory();
     return Oop{};
   }
   if (n != 0) {

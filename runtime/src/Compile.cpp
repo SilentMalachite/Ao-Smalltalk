@@ -6,8 +6,9 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/MethodImage.hpp"
 #include "ao/Send.hpp"
@@ -24,31 +25,6 @@
 namespace ao {
 namespace {
 
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
-
-Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags) {
-  if (ctx.heap.gcStress() != 0) {
-    Root stressed(ctx.roots, cls);
-    Gc(ctx.heap, ctx.roots).stressPoint();
-    cls = stressed.slot;
-  }
-  Oop obj = ctx.heap.allocate(cls, size, flags);
-  if (obj.isHeap()) {
-    return obj;
-  }
-  Root held(ctx.roots, cls);
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return ctx.heap.allocate(held.slot, size, flags);
-}
-
 Oop boxBytes(CallContext& ctx, Oop cls, const std::uint8_t* p, std::uint32_t n) {
   Root o(ctx.roots, allocateRetry(ctx, cls, n, kFlagBytes));
   if (!o.slot.isHeap()) {
@@ -58,6 +34,28 @@ Oop boxBytes(CallContext& ctx, Oop cls, const std::uint8_t* p, std::uint32_t n) 
     std::memcpy(ctx.heap.bytes(o.slot), p, n);
   }
   return o.slot;
+}
+
+// boxLiteral の結果が使えるか。即値の種類はそのまま使え、それ以外はヒープ Oop でなければならない
+// （割り当てや intern の失敗は空 Oop になる）。
+bool boxedOk(const compiler::Literal& lit, Oop boxed) {
+  switch (lit.kind) {
+    case compiler::LitKind::Nil:
+    case compiler::LitKind::True:
+    case compiler::LitKind::False:
+    case compiler::LitKind::Char:
+      return true;
+    case compiler::LitKind::Int:
+      return boxed.isSmallInteger() || boxed.isHeap();
+    case compiler::LitKind::Float:
+    case compiler::LitKind::String:
+    case compiler::LitKind::Symbol:
+    case compiler::LitKind::Array:
+    case compiler::LitKind::ByteArray:
+    case compiler::LitKind::Method:
+      return boxed.isHeap();
+  }
+  return boxed.isHeap();
 }
 
 Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) {
@@ -72,7 +70,7 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
       if (lit.intValue >= kSmiMin && lit.intValue <= kSmiMax) {
         return Oop::fromSmallInteger(lit.intValue);
       }
-      return LargeInteger::fromInt64(ctx.heap, ctx.wk, lit.intValue);
+      return LargeInteger::fromInt64(ctx, lit.intValue);
     case compiler::LitKind::Float: {
       Root o(ctx.roots, allocateRetry(ctx, ctx.wk.floatClass, 8, kFlagBytes));
       if (!o.slot.isHeap()) {
@@ -83,26 +81,25 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
     }
     case compiler::LitKind::Char:
       return Oop::fromCharacter(static_cast<char32_t>(lit.intValue));
-    case compiler::LitKind::String: {
-      Oop s = Str::fromUtf8(ctx.heap, ctx.wk, lit.text);
-      if (!s.isHeap() && !lit.text.empty()) {
-        Gc gc(ctx.heap, ctx.roots);
-        gc.collectNursery();
-        s = Str::fromUtf8(ctx.heap, ctx.wk, lit.text);
-      }
-      return s;
-    }
+    case compiler::LitKind::String:
+      return boxBytes(ctx, ctx.wk.stringClass,
+                      reinterpret_cast<const std::uint8_t*>(lit.text.data()),
+                      static_cast<std::uint32_t>(lit.text.size()));
     case compiler::LitKind::Symbol:
       return ctx.wk.intern(lit.text);
     case compiler::LitKind::Array: {
       const auto n = static_cast<std::uint32_t>(lit.elements.size());
+      // methodClass は値で受けている。割り当て（GC）の前にルートに載せる。
+      Root mcls(ctx.roots, methodClass);
       Root arr(ctx.roots, allocateRetry(ctx, ctx.wk.arrayClass, n, 0));
       if (!arr.slot.isHeap()) {
         return Oop{};
       }
-      Root mcls(ctx.roots, methodClass);
       for (std::uint32_t i = 0; i < n; ++i) {
         Oop e = boxLiteral(ctx, lit.elements[i], mcls.slot);
+        if (!boxedOk(lit.elements[i], e)) {
+          return Oop{};
+        }
         ctx.heap.slotAtPut(arr.slot, i, e);
       }
       return arr.slot;
@@ -120,24 +117,13 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
 }
 
 Oop boxUtf8(CallContext& ctx, std::string_view utf8) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, utf8);
-  if (s.isHeap()) {
-    return s;
-  }
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return Str::fromUtf8(ctx.heap, ctx.wk, utf8);
+  return boxBytes(ctx, ctx.wk.stringClass, reinterpret_cast<const std::uint8_t*>(utf8.data()),
+                  static_cast<std::uint32_t>(utf8.size()));
 }
 
 void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
-  std::vector<Oop> chain;
-  Oop c = cls;
-  while (c.isHeap()) {
-    chain.push_back(c);
-    c = ctx.heap.slotAt(c, kClassSlotSuperclass);
-  }
-  for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-    const Oop names = ctx.heap.slotAt(*it, kClassSlotInstVarNames);
+  for (const Oop c : superclassChainFromRoot(ctx.heap, cls)) {
+    const Oop names = ctx.heap.slotAt(c, kClassSlotInstVarNames);
     if (!names.isHeap() || (ctx.heap.flags(names) & kFlagBytes) != 0) {
       continue;
     }
@@ -182,9 +168,10 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
     errors.push_back(compiler::CompileError{{}, "class definition allocation failed: " + action.className});
     return false;
   }
-  Oop args[5] = {name.slot, ivars.slot, cvars.slot, pools.slot, cat.slot};
   const Oop sel = Symbol::intern(
       ctx.wk, "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:");
+  // Read the rooted slots after the last allocation. The send roots its own copies on entry.
+  const Oop args[5] = {name.slot, ivars.slot, cvars.slot, pools.slot, cat.slot};
   const Oop created = send(ctx, super.slot, sel, args, 5, nullptr);
   if (!created.isHeap()) {
     errors.push_back(compiler::CompileError{{}, "subclass failed: " + action.className});
@@ -253,11 +240,21 @@ Oop boxMethodImage(CallContext& ctx, const compiler::MethodImage& image, Oop met
   }
   for (std::uint32_t i = 0; i < n; ++i) {
     Oop e = boxLiteral(ctx, image.literals[i], mcls.slot);
+    if (!boxedOk(image.literals[i], e)) {
+      return Oop{};
+    }
     ctx.heap.slotAtPut(lits.slot, i, e);
   }
   Root bytes(ctx.roots, boxBytes(ctx, ctx.wk.byteArrayClass, image.bytes.data(),
                                  static_cast<std::uint32_t>(image.bytes.size())));
+  if (!bytes.slot.isHeap()) {
+    return Oop{};
+  }
+  // intern は GC しない。old も上限なら空 Oop になり、そのセレクタのメソッドは作らない。
   Root sel(ctx.roots, image.selector.empty() ? Oop::nil() : ctx.wk.intern(image.selector));
+  if (!image.selector.empty() && !sel.slot.isHeap()) {
+    return Oop{};
+  }
   return CompiledMethod::create(ctx, image.numArgs, image.numTemps, image.primitive, lits.slot,
                                 bytes.slot, sel.slot, mcls.slot);
 }
@@ -272,9 +269,14 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
   if (!dict.isHeap()) {
     return Oop{};
   }
-  Root d(ctx.roots, dict);
   const Oop sel = ctx.heap.slotAt(cm.slot, kCmSlotSelector);
-  MethodDictionary::atPut(ctx.heap, d.slot, sel, cm.slot);
+  if (!sel.isHeap()) {
+    return Oop{};
+  }
+  // atPut は GC しない。辞書を伸ばせなければ（old が上限）登録せずに失敗を返す。
+  if (!MethodDictionary::atPut(ctx.heap, dict, sel, cm.slot)) {
+    return Oop{};
+  }
   return cm.slot;
 }
 

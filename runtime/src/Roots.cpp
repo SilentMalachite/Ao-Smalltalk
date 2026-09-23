@@ -1,6 +1,8 @@
 #include "ao/Roots.hpp"
 
 #include <algorithm>
+#include <cassert>
+#include <iterator>
 
 namespace ao {
 
@@ -19,6 +21,26 @@ void Roots::remove(Oop* slot) {
   auto it = std::find(slots_.rbegin(), slots_.rend(), slot);
   if (it != slots_.rend()) {
     slots_.erase(std::next(it).base());
+  }
+}
+
+void Roots::pushRange(Oop* first, std::size_t n) {
+  if (first == nullptr || n == 0) {
+    return;
+  }
+  ranges_.push_back(Range{first, n});
+}
+
+void Roots::popRange(Oop* first, std::size_t n) {
+  if (first == nullptr || n == 0) {
+    return;
+  }
+  assert(!ranges_.empty() && ranges_.back().first == first && ranges_.back().n == n &&
+         "root ranges must be popped LIFO");
+  auto it = std::find_if(ranges_.rbegin(), ranges_.rend(),
+                         [&](const Range& r) { return r.first == first && r.n == n; });
+  if (it != ranges_.rend()) {
+    ranges_.erase(std::next(it).base());
   }
 }
 
@@ -66,6 +88,20 @@ void Roots::visitAll(VisitFn visit, void* ctx) {
       visit(ctx, slot);
     }
   }
+  for (const Range& r : ranges_) {
+    for (std::size_t i = 0; i < r.n; ++i) {
+      visit(ctx, r.first + i);
+    }
+  }
+  for (std::size_t b = 0; b < frameBlock_; ++b) {
+    const FrameBlock& block = frameBlocks_[b];
+    for (std::size_t i = 0; i < block.used; ++i) {
+      visit(ctx, &block.slots[i]);
+    }
+  }
+  for (std::size_t i = 0; i < frameUsed_; ++i) {
+    visit(ctx, frameBase_ + i);
+  }
   for (std::size_t i = 0; i < handles_.size(); ++i) {
     if (live_[i] != 0) {
       visit(ctx, &handles_[i]);
@@ -74,6 +110,34 @@ void Roots::visitAll(VisitFn visit, void* ctx) {
   if (walker_ != nullptr) {
     walker_(walkerCtx_, visit, ctx);
   }
+}
+
+void Roots::enterNextFrameBlock(std::size_t n) {
+  if (frameBase_ != nullptr) {
+    // Leave the current block with its frames in place.
+    frameBlocks_[frameBlock_].used = frameUsed_;
+    ++frameBlock_;
+  }
+  // Blocks past the current one are empty, so a too-small one can be replaced.
+  if (frameBlock_ < frameBlocks_.size() && frameBlocks_[frameBlock_].capacity < n) {
+    frameBlocks_.resize(frameBlock_);
+  }
+  if (frameBlock_ == frameBlocks_.size()) {
+    const std::size_t cap = n > kFrameBlockSlots ? n : kFrameBlockSlots;
+    frameBlocks_.push_back(FrameBlock{std::make_unique<Oop[]>(cap), cap, 0});
+  }
+  FrameBlock& block = frameBlocks_[frameBlock_];
+  frameBase_ = block.slots.get();
+  frameCap_ = block.capacity;
+  frameUsed_ = 0;
+}
+
+void Roots::returnToPreviousFrameBlock() {
+  --frameBlock_;
+  const FrameBlock& block = frameBlocks_[frameBlock_];
+  frameBase_ = block.slots.get();
+  frameCap_ = block.capacity;
+  frameUsed_ = block.used;
 }
 
 }  // namespace ao

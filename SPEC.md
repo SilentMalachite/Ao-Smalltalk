@@ -159,6 +159,19 @@ bit 2:0 = 000      → ヒープオブジェクト。8 バイト整列ポイン�
 - 正確式。コンパイラとインタプリタはスタック上の OOP を GC に報告する。
 - ファイナライザと弱配列は v1 では `ephemeron` なしの弱スロットフラグまで。
 - スレッド: ミューテータは基本 1 本（Smalltalk プロセスはグリーンユーザースレッド）。GC は safepoint。AppKit メインスレッドとはブリッジキューで切る。
+- old は、上限 4 GiB − 1 MiB（イメージヘッダの `uint32 heapBytes` で表せる最大値を、コミット単位の 1 MiB に揃えた値）の仮想領域を 1 つ予約し、必要な分だけコミットする。old のアドレスは動かない。
+- 大きなオブジェクトは nursery を通さず old に直接置く。
+- スキャベンジは失敗しない。old に入り切らない生存物は to-space に残す（昇格失敗）。
+- スキャベンジはルートから届く old をすべてたどる。たどった量が `oldUsed` より少なければ、old に死んだオブジェクトがある。直前の full GC が動かせないオブジェクトの前に残した穴は、死んだオブジェクトに数えない。
+- full GC を走らせる契機は次の 4 つだけとする。`threshold = max(初期容量, 2×生存量)` を old の上限で頭打ちにした値。
+  - スキャベンジの後で `oldUsed > threshold` のとき。
+  - GC を走らせてよい割り当て（`allocateRetry`）が大きなオブジェクトを old に直接置く前で、`oldUsed + そのサイズ > threshold` のとき。スキャベンジを先に行う。
+  - `allocateRetry` が old の上限で失敗したとき。その呼び出しの中でまだ full GC が走っていなければ、full GC を 1 回走らせてから、割り当てを 1 回やり直す。`allocateRetry` 1 回が諦めるまでに走らせる full GC は 1 回までとする。old の上限より大きな要求は、GC せずに失敗にする。
+  - スキャベンジが昇格に失敗し、かつ old に死んだオブジェクトを見つけたとき。old が上限に近いと閾値も上限に張り付き、第 1 の契機が成り立たないまま、同じ生存物を to-space に残すスキャベンジが続く。死んだオブジェクトが無ければ走らせないので、回収 0 の full GC を繰り返さない。
+- safepoint は、nursery の空きが半面の 1/8 を下回ったときにスキャベンジする。ただし、直前のスキャベンジが昇格に失敗し、その後 nursery への割り当ても full GC も無いときは、スキャベンジしない。同じ生存物を to-space に残すだけで、進捗が無い。
+- GC を走らせない割り当て（メソッド辞書の作成・拡張、Symbol の intern、NativeMethod の作成）は、nursery に置き、nursery が満杯なら old に置く（`asSymbol` の Symbol は old に直接置く）。失敗するのは old の上限のときだけである。
+- それでも割り当てられないとき（GC を走らせない割り当てが old の上限で失敗したときを含む）は、評価エラー「out of memory」にする。
+- ネイティブが受け取る receiver と引数は、ルート済みとする。ネイティブの途中で GC が走っても、転送先を指す。
 
 ### 3.3 メッセージ送信
 
@@ -169,6 +182,13 @@ bit 2:0 = 000      → ヒープオブジェクト。8 バイト整列ポイン�
 3. 見つかればそのメソッドを適用する。
 4. 見つからなければ `receiver doesNotUnderstand: aMessage` を送る。
 5. `super` 送信は、メソッドが定義されたクラスのスーパークラスから探索を始める。
+
+スーパークラスの枠は `instVarAt:put:` で何にでも書き換えられるので、鎖が壊れていることがある。鎖をたどる処理（送信の探索、ネイティブ、コンパイラ）は、どれも次の規則で止まる。
+
+- 鎖は、`nil`、クラスの形をしていないもの（即値、バイト列、クラスの枠をすべて持たないポインタオブジェクト）、すでに通ったクラス（循環）、1024 段目、のどれかに当たったところで終わる。その先は無いものとして扱う。
+- 送信: 鎖が終わるまでにセレクタが見つからなければ `doesNotUnderstand:` を送る。`doesNotUnderstand:` も見つからなければ、送信の値は作った `Message` とする。
+- `isKindOf:` と `inheritsFrom:` は、鎖が終わるまでに引数に当たらなければ `false`。`respondsTo:` は、見つからなければ `false`。
+- `instVarNamed:` とコンパイラのインスタンス変数名は、鎖が終わるまでのクラスの変数名だけを集める。`instVarNamed:` は、名前が無ければ `error:` で失敗する（名前が無いときと同じ）。
 
 実装上の通常パス:
 
@@ -409,7 +429,7 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 
 プロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ作る。既にあるときに再度呼ぶと 0 以外を返す。`ao::shutdown()` はセッションを捨て、セッションが無くても 0 を返す。
 
-中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。ヒープの既定容量は変えない。
+中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。既定の初期容量（nursery 1 MiB×2、old 4 MiB）は変えない。old は上限まで伸びる。`ao_image_load` はヘッダの heapBytes に合わせてコミットする。
 
 `ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureTranscriptClassMethods` を呼び、メタクラスに `show:` が無ければクラス側ネイティブを `putNative` する。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。探針に失敗したセッションはシャットダウンしない。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めなければ `AO_ERR`。
 
@@ -505,6 +525,8 @@ LargeInteger とそれ以外はクラス名のまま。
 
 `NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。
 
+ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
+
 ### 3.12 クラスライブラリは取り込む。自作しない
 
 巨大な Smalltalk ライブラリ（Collection の周辺、数値、ストリーム、ファイル、例外、日付、ツールモデル）を Ao 用に書き下ろすことは **禁止** する。人手もエージェントも、既存実装と同等のライブラリを再発明しない。
@@ -577,6 +599,8 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `image_save_load_test`: save 後に同一評価結果
 - `transcript_model_test`: コールバックが呼ばれる
 
+GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体（時間計測の `KernelBench.*` を除く）を 1 プロセスでこのモードで回す。`gcstress_vendor` 項目は、vendor の file-in（`ao filein --load-order image/vendor/LOAD_ORDER`）と `ao --test image/tests` をこのモードで回す。`ao filein` は、file-in が成功してもメソッド単位のエラーを 1 行ずつ stderr に出す。vendor の file-in には既知のエラーがあるので、`gcstress_vendor` はストレスなしの 1 回の出力を基準にし、ストレス下の出力がそれと一致することを確かめる。
+
 ### 4.2 compiler
 
 - パース成功 / 失敗区間
@@ -609,7 +633,7 @@ self assert: (Object new class) equals: Object.
 2. **Kernel はネイティブ。** Kernel メソッドを `.st` の実行定義にしない。
 3. **チャットは正本ではない。** 仕様変更は `SPEC.md` を先に直す。
 4. **余計なものを作らない。** 依頼されていないデバッガ、パッケージマネージャ、シンタックステーマ、ウェブサイトを追加しない。
-5. **依存は最小。** runtime は C++20 標準ライブラリ + 必要なら mimalloc 程度。GUI は AppKit のみ。Boost、Qt、SDL、SwiftUI 主系統は使わない。
+5. **依存は最小。** runtime は C++20 標準ライブラリ + 必要なら mimalloc 程度。OS の API として mmap / mprotect を使ってよい（old の予約とコミット）。GUI は AppKit のみ。Boost、Qt、SDL、SwiftUI 主系統は使わない。
 6. **Apple Silicon を第一対象。** Intel Mac は考慮しない。
 7. **C ABI 以外で Swift が C++ テンプレートに依存しない。**
 8. **例外方針:** C++ は例外を境界で使わない。エラーは Smalltalk 例外オブジェクトか `AoError` コード。

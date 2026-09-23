@@ -6,6 +6,7 @@
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
@@ -93,7 +94,7 @@ TEST(CompilerRoundtrip, HandWrittenJumpFalseSkipsPush) {
 
 namespace {
 
-ao::Oop forceOld(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+ao::Oop forceOld(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return ao::Oop{};
   }
@@ -102,7 +103,7 @@ ao::Oop forceOld(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t ar
   return ao::Oop::nil();
 }
 
-ao::Oop forceNursery(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+ao::Oop forceNursery(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return ao::Oop{};
   }
@@ -111,7 +112,7 @@ ao::Oop forceNursery(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_
   return ao::Oop::nil();
 }
 
-ao::Oop forceSlide(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+ao::Oop forceSlide(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return ao::Oop{};
   }
@@ -143,32 +144,34 @@ ao::Oop subclassOfObject(Boot& b, const char* name, const char* ivars) {
 
 TEST(CompilerRoundtrip, SuperSendReturnsInstance) {
   Boot b;
-  auto sub = subclassOfObject(b, "Sub", "");
-  ASSERT_TRUE(sub.isHeap());
+  // installMethod と send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root sub(b.roots, subclassOfObject(b, "Sub", ""));
+  ASSERT_TRUE(sub.slot.isHeap());
   auto img = ao::compiler::compileMethod("yourself\n  ^super yourself");
   ASSERT_TRUE(img.ok) << img.error.message;
-  ASSERT_TRUE(ao::installMethod(b.ctx, sub, img.image).isHeap());
-  auto obj = send0(b, sub, "new");
-  ASSERT_TRUE(obj.isHeap());
-  EXPECT_EQ(obj, send0(b, obj, "yourself"));
+  ASSERT_TRUE(ao::installMethod(b.ctx, sub.slot, img.image).isHeap());
+  ao::Root obj(b.roots, send0(b, sub.slot, "new"));
+  ASSERT_TRUE(obj.slot.isHeap());
+  EXPECT_EQ(obj.slot, send0(b, obj.slot, "yourself"));
 }
 
 TEST(CompilerRoundtrip, HolderInstVarRoundTrip) {
   Boot b;
-  auto holder = subclassOfObject(b, "Holder", "x");
-  ASSERT_TRUE(holder.isHeap());
+  // installMethod と send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root holder(b.roots, subclassOfObject(b, "Holder", "x"));
+  ASSERT_TRUE(holder.slot.isHeap());
   ao::compiler::CompileEnv env;
   env.instVarNames.emplace_back("x");
   auto setImg = ao::compiler::compileMethod("set: v\n  x := v", env);
   ASSERT_TRUE(setImg.ok) << setImg.error.message;
   auto getImg = ao::compiler::compileMethod("get\n  ^x", env);
   ASSERT_TRUE(getImg.ok) << getImg.error.message;
-  ASSERT_TRUE(ao::installMethod(b.ctx, holder, setImg.image).isHeap());
-  ASSERT_TRUE(ao::installMethod(b.ctx, holder, getImg.image).isHeap());
-  auto obj = send0(b, holder, "new");
-  ASSERT_TRUE(obj.isHeap());
-  send1(b, obj, "set:", ao::Oop::fromSmallInteger(41));
-  EXPECT_EQ(41, send0(b, obj, "get").smallIntegerValue());
+  ASSERT_TRUE(ao::installMethod(b.ctx, holder.slot, setImg.image).isHeap());
+  ASSERT_TRUE(ao::installMethod(b.ctx, holder.slot, getImg.image).isHeap());
+  ao::Root obj(b.roots, send0(b, holder.slot, "new"));
+  ASSERT_TRUE(obj.slot.isHeap());
+  send1(b, obj.slot, "set:", ao::Oop::fromSmallInteger(41));
+  EXPECT_EQ(41, send0(b, obj.slot, "get").smallIntegerValue());
 }
 
 TEST(CompilerRoundtrip, NestedCompiledSendKeepsOuterContext) {

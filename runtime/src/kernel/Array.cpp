@@ -1,10 +1,11 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
+#include <cstring>
 #include <string>
 
 namespace ao {
@@ -28,27 +29,17 @@ namespace {
 
 constexpr int kArrayPrintMaxDepth = 4;
 
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
-
 bool isArray(const CallContext& ctx, Oop obj) {
   return obj.isHeap() && ctx.wk.classOf(obj) == ctx.wk.arrayClass;
 }
 
 Oop bytesFrom(CallContext& ctx, std::string_view text) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, text);
-  if (s.isHeap()) {
-    return s;
+  const auto n = static_cast<std::uint32_t>(text.size());
+  const Oop s = allocateRetry(ctx, ctx.wk.stringClass, n, kFlagBytes);
+  if (s.isHeap() && n != 0) {
+    std::memcpy(ctx.heap.bytes(s), text.data(), n);
   }
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return Str::fromUtf8(ctx.heap, ctx.wk, text);
+  return s;
 }
 
 // Depth 1 is the outermost array. Above 4, print "..." and do not send printString.
@@ -83,7 +74,7 @@ Oop arrayPrintString(CallContext& ctx, Oop receiver, int depth) {
 
 }  // namespace
 
-Oop ao_Array_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Array_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -93,7 +84,7 @@ Oop ao_Array_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32
   return arrayPrintString(ctx, receiver, 1);
 }
 
-Oop ao_Array_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Array_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -121,30 +112,33 @@ Oop ao_Array_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   return Oop::true_();
 }
 
-Oop ao_ArrayedCollection_size(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_ArrayedCollection_size(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   return ao_Object_basicSize(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_ArrayedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   return ao_Object_basicAt_(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_at_put_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_ArrayedCollection_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc) {
   return ao_Object_basicAt_put_(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_basicAt_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_ArrayedCollection_basicAt_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                   std::uint32_t argc) {
   return ao_Object_basicAt_(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_basicAt_put_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_ArrayedCollection_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                       std::uint32_t argc) {
   return ao_Object_basicAt_put_(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_new_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_ArrayedCollection_new_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }

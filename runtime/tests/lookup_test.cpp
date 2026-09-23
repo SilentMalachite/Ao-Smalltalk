@@ -10,11 +10,11 @@
 
 #include <gtest/gtest.h>
 
-static ao::Oop stubA(ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
+static ao::Oop stubA(ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
   return ao::Oop::fromSmallInteger(1);
 }
 
-static ao::Oop stubB(ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
+static ao::Oop stubB(ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
   return ao::Oop::fromSmallInteger(2);
 }
 

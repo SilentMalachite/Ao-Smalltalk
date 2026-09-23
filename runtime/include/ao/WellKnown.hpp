@@ -26,7 +26,11 @@ class WellKnown {
 
   Oop named(std::string_view name) const;
   Oop classOf(Oop obj) const;
+  // A new Symbol goes to the nursery, or to old when the nursery is full (allocateNoGc).
+  // Does not GC; empty Oop when old is at its max.
   Oop intern(std::string_view utf8);
+  // A new Symbol goes straight to old (allocateTenured). Empty Oop when old is at its max.
+  Oop internTenured(std::string_view utf8);
   void define(std::string_view name, Oop cls);
   bool isCatalogName(std::string_view name) const;
   bool rebind(std::string_view name, Oop cls);
@@ -169,6 +173,7 @@ class WellKnown {
 
  private:
   void addRoots(Roots& roots);
+  Oop internWith(std::string_view utf8, bool tenured);
   struct InternTable;
   struct ExtraTable;
   Heap* heap_;

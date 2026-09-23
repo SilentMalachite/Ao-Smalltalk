@@ -104,7 +104,7 @@ TEST(KernelScan, RequiredSelectorsAreNativeMethods) {
 
 TEST(KernelBench, TenMillionToDo) {
   Boot b;
-  auto body = [](ao::CallContext& ctx, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     ao::Oop one = ao::Oop::fromSmallInteger(1);
     return ao::send(ctx, args[0], ctx.wk.intern("+"), &one, 1, nullptr);
   };

@@ -1,22 +1,13 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
-#include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
 namespace ao {
 namespace {
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 constexpr std::uint32_t kHashedTally = 0;
 constexpr std::uint32_t kHashedArray = 1;
@@ -29,22 +20,6 @@ constexpr std::uint32_t kIvStart = 0;
 constexpr std::uint32_t kIvStop = 1;
 constexpr std::uint32_t kIvStep = 2;
 constexpr std::uint32_t kDefaultCap = 8;
-
-Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags) {
-  if (ctx.heap.gcStress() != 0) {
-    Root stressed(ctx.roots, cls);
-    Gc(ctx.heap, ctx.roots).stressPoint();
-    cls = stressed.slot;
-  }
-  Oop obj = ctx.heap.allocate(cls, size, flags);
-  if (obj.isHeap()) {
-    return obj;
-  }
-  Root held(ctx.roots, cls);
-  Gc gc(ctx.heap, ctx.roots);
-  gc.collectNursery();
-  return ctx.heap.allocate(held.slot, size, flags);
-}
 
 Oop selEquals(WellKnown& wk) { return wk.intern("="); }
 Oop selHash(WellKnown& wk) { return wk.intern("hash"); }
@@ -68,6 +43,12 @@ bool keysMatch(CallContext& ctx, Root& search, Oop candidate, bool identity) {
 std::int64_t tallyOf(Heap& heap, Oop hashed) {
   const Oop t = heap.slotAt(hashed, kHashedTally);
   return t.isSmallInteger() ? t.smallIntegerValue() : 0;
+}
+
+// error: の慣習どおりメッセージ文字列で失敗する。receiver はルート済みスロット（GC しても正しい）。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
 bool ensureInner(CallContext& ctx, Root& hashed) {
@@ -172,7 +153,8 @@ Oop hashedSize(CallContext& ctx, Oop receiver, std::uint32_t argc) {
   return Oop::fromSmallInteger(tallyOf(ctx.heap, receiver));
 }
 
-Oop dictAt(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, bool identity) {
+Oop dictAt(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+           bool identity) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -186,7 +168,8 @@ Oop dictAt(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, 
   return ctx.heap.slotAt(inner, i + 1);
 }
 
-Oop dictAtPut(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, bool identity) {
+Oop dictAtPut(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+              bool identity) {
   if (argc != 2 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -204,6 +187,10 @@ Oop dictAtPut(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t arg
   }
   auto n = ctx.heap.size(ctx.heap.slotAt(dict.slot, kHashedArray));
   auto tally = tallyOf(ctx.heap, dict.slot);
+  // tally は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら、伸ばす前に失敗する。
+  if (tally >= kSmiMax) {
+    return fail(ctx, dict.slot, "at:put: tally out of range");
+  }
   if (tally * 2 >= static_cast<std::int64_t>(n)) {
     if (!growInner(ctx, dict)) {
       return Oop{};
@@ -222,7 +209,7 @@ Oop dictAtPut(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t arg
   return value.slot;
 }
 
-Oop dictIncludesKey(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc,
+Oop dictIncludesKey(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
                     bool identity) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
@@ -232,7 +219,8 @@ Oop dictIncludesKey(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   return findPair(ctx, dict, key, identity) == UINT32_MAX ? Oop::false_() : Oop::true_();
 }
 
-Oop setAdd(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, bool identity) {
+Oop setAdd(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+           bool identity) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -246,6 +234,10 @@ Oop setAdd(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, 
   }
   auto n = ctx.heap.size(ctx.heap.slotAt(set.slot, kHashedArray));
   auto tally = tallyOf(ctx.heap, set.slot);
+  // tally は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら、伸ばす前に失敗する。
+  if (tally >= kSmiMax) {
+    return fail(ctx, set.slot, "add: tally out of range");
+  }
   if (tally >= static_cast<std::int64_t>(n)) {
     if (!growInner(ctx, set)) {
       return Oop{};
@@ -263,7 +255,8 @@ Oop setAdd(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, 
   return value.slot;
 }
 
-Oop setIncludes(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, bool identity) {
+Oop setIncludes(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+                bool identity) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -283,7 +276,10 @@ std::int64_t ocSize(Heap& heap, Oop oc) {
   if (l < f) {
     return 0;
   }
-  return l - f + 1;
+  // first と last は Smalltalk から書き換えられる。両端だと l - f + 1 は int64 も超えるので、
+  // kSmiMax + 1 で頭打ちにする（size はこれを範囲外として失敗する）。
+  const std::int64_t span = l - f;
+  return span >= kSmiMax ? kSmiMax + 1 : span + 1;
 }
 
 bool ocEnsure(CallContext& ctx, Root& oc) {
@@ -333,44 +329,48 @@ bool ocGrow(CallContext& ctx, Root& oc) {
 
 }  // namespace
 
-Oop ao_Dictionary_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Dictionary_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return hashedNew(ctx, receiver);
 }
 
-Oop ao_Dictionary_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Dictionary_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   return hashedSize(ctx, receiver, argc);
 }
 
-Oop ao_Dictionary_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_at_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return dictAt(ctx, receiver, args, argc, false);
 }
 
-Oop ao_Dictionary_at_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   return dictAtPut(ctx, receiver, args, argc, false);
 }
 
-Oop ao_Dictionary_includesKey_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_includesKey_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
   return dictIncludesKey(ctx, receiver, args, argc, false);
 }
 
-Oop ao_IdentityDictionary_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_IdentityDictionary_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   return dictAt(ctx, receiver, args, argc, true);
 }
 
-Oop ao_IdentityDictionary_at_put_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_IdentityDictionary_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                   std::uint32_t argc) {
   return dictAtPut(ctx, receiver, args, argc, true);
 }
 
-Oop ao_IdentityDictionary_includesKey_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_IdentityDictionary_includesKey_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                        std::uint32_t argc) {
   return dictIncludesKey(ctx, receiver, args, argc, true);
 }
 
-Oop ao_Dictionary_includes_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_includes_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -395,7 +395,7 @@ Oop ao_Dictionary_includes_(CallContext& ctx, Oop receiver, const Oop* args, std
   return Oop::false_();
 }
 
-Oop ao_Dictionary_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -427,7 +427,8 @@ Oop ao_Dictionary_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return dict.slot;
 }
 
-Oop ao_Dictionary_collect_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_collect_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -460,34 +461,36 @@ Oop ao_Dictionary_collect_(CallContext& ctx, Oop receiver, const Oop* args, std:
   return arr.slot;
 }
 
-Oop ao_Set_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Set_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return hashedNew(ctx, receiver);
 }
 
-Oop ao_Set_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Set_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   return hashedSize(ctx, receiver, argc);
 }
 
-Oop ao_Set_add_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Set_add_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return setAdd(ctx, receiver, args, argc, false);
 }
 
-Oop ao_Set_includes_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Set_includes_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return setIncludes(ctx, receiver, args, argc, false);
 }
 
-Oop ao_IdentitySet_add_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_IdentitySet_add_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   return setAdd(ctx, receiver, args, argc, true);
 }
 
-Oop ao_IdentitySet_includes_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_IdentitySet_includes_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   return setIncludes(ctx, receiver, args, argc, true);
 }
 
-Oop ao_Set_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Set_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -510,7 +513,8 @@ Oop ao_Set_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t ar
   return set.slot;
 }
 
-Oop ao_OrderedCollection_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_OrderedCollection_new(CallContext& ctx, const Oop& receiver, const Oop*,
+                             std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -530,14 +534,20 @@ Oop ao_OrderedCollection_new(CallContext& ctx, Oop receiver, const Oop*, std::ui
   return oc.slot;
 }
 
-Oop ao_OrderedCollection_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_OrderedCollection_size(CallContext& ctx, const Oop& receiver, const Oop*,
+                              std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
-  return Oop::fromSmallInteger(ocSize(ctx.heap, receiver));
+  const auto n = ocSize(ctx.heap, receiver);
+  if (n > kSmiMax) {
+    return fail(ctx, receiver, "size out of range");
+  }
+  return Oop::fromSmallInteger(n);
 }
 
-Oop ao_OrderedCollection_add_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_OrderedCollection_add_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -562,7 +572,8 @@ Oop ao_OrderedCollection_add_(CallContext& ctx, Oop receiver, const Oop* args, s
   return value.slot;
 }
 
-Oop ao_OrderedCollection_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_OrderedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap() || !args[0].isSmallInteger()) {
     return Oop{};
   }
@@ -576,7 +587,8 @@ Oop ao_OrderedCollection_at_(CallContext& ctx, Oop receiver, const Oop* args, st
   return ctx.heap.slotAt(arr, static_cast<std::uint32_t>(first + index - 2));
 }
 
-Oop ao_OrderedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_OrderedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -596,7 +608,8 @@ Oop ao_OrderedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, st
   return oc.slot;
 }
 
-Oop ao_Association_key_value_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Association_key_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
@@ -612,21 +625,22 @@ Oop ao_Association_key_value_(CallContext& ctx, Oop receiver, const Oop* args, s
   return a;
 }
 
-Oop ao_Association_key(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Association_key(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kAssocKey);
 }
 
-Oop ao_Association_value(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Association_value(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kAssocValue);
 }
 
-Oop ao_Association_key_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Association_key_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -634,7 +648,8 @@ Oop ao_Association_key_(CallContext& ctx, Oop receiver, const Oop* args, std::ui
   return receiver;
 }
 
-Oop ao_Association_value_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Association_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -642,7 +657,8 @@ Oop ao_Association_value_(CallContext& ctx, Oop receiver, const Oop* args, std::
   return receiver;
 }
 
-Oop ao_Interval_from_to_by_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Interval_from_to_by_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 3) {
     return Oop{};
   }
@@ -685,7 +701,7 @@ static Oop intervalSizeSmi(std::int64_t start, std::int64_t stop, std::int64_t s
   return Oop{};
 }
 
-Oop ao_Interval_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -707,18 +723,17 @@ Oop ao_Interval_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t a
     return Oop::fromSmallInteger(0);
   }
   std::int64_t count = 0;
-  const Oop gt = ctx.wk.intern(">");
-  const Oop lt = ctx.wk.intern("<");
-  const Oop add = ctx.wk.intern("+");
   const bool forward = !step.isSmallInteger() || step.smallIntegerValue() > 0;
-  const Oop cmpSel = forward ? gt : lt;
+  // セレクタは send をまたいで使う。full GC の圧縮で Symbol も動くので、ルートに載せる。
+  Root cmpSel(ctx.roots, ctx.wk.intern(forward ? ">" : "<"));
+  Root add(ctx.roots, ctx.wk.intern("+"));
   for (;;) {
-    const Oop past = send(ctx, cur.slot, cmpSel, &blkStop.slot, 1, nullptr);
+    const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
     if (past.isTrue()) {
       break;
     }
     ++count;
-    cur.slot = send(ctx, cur.slot, add, &blkStep.slot, 1, nullptr);
+    cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
     if (count > (std::int64_t{1} << 20)) {
       break;
     }
@@ -726,7 +741,7 @@ Oop ao_Interval_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t a
   return Oop::fromSmallInteger(count);
 }
 
-Oop ao_Interval_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -766,37 +781,36 @@ Oop ao_Interval_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   Root cur(ctx.roots, start);
   Root blkStop(ctx.roots, stop);
   Root blkStep(ctx.roots, step);
-  const Oop gt = ctx.wk.intern(">");
-  const Oop lt = ctx.wk.intern("<");
-  const Oop add = ctx.wk.intern("+");
   const bool forward = !step.isSmallInteger() || step.smallIntegerValue() > 0;
-  const Oop cmpSel = forward ? gt : lt;
+  // セレクタは send をまたいで使う。full GC の圧縮で Symbol も動くので、ルートに載せる。
+  Root cmpSel(ctx.roots, ctx.wk.intern(forward ? ">" : "<"));
+  Root add(ctx.roots, ctx.wk.intern("+"));
   for (std::int64_t n = 0; n <= (std::int64_t{1} << 20); ++n) {
-    const Oop past = send(ctx, cur.slot, cmpSel, &blkStop.slot, 1, nullptr);
+    const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
     if (past.isTrue()) {
       break;
     }
     send(ctx, blk.slot, ctx.wk.selValue_, &cur.slot, 1, nullptr);
-    cur.slot = send(ctx, cur.slot, add, &blkStep.slot, 1, nullptr);
+    cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
   }
   return iv.slot;
 }
 
-Oop ao_Bag_do_(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Bag_do_(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return receiver;
 }
 
-Oop ao_Bag_size(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_Bag_size(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return Oop::fromSmallInteger(0);
 }
 
-Oop ao_Bag_add_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Bag_add_(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }

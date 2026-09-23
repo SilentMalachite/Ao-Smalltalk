@@ -11,7 +11,8 @@
 namespace ao {
 namespace kernel {
 
-void putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, std::uint32_t argc,
+// False when the method cannot be registered (no dictionary, or it cannot grow). Does not GC.
+bool putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, std::uint32_t argc,
                std::string_view name, NativeFn fn);
 void ensureNativeNames();
 void installObject(Heap& heap, WellKnown& wk);

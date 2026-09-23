@@ -1,19 +1,14 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
+#include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
+
+#include <string_view>
 
 namespace ao {
 namespace {
-
-struct Root {
-  Roots& roots;
-  Oop slot;
-  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
-  ~Root() { roots.remove(&slot); }
-  Root(const Root&) = delete;
-  Root& operator=(const Root&) = delete;
-};
 
 Oop selEquals(WellKnown& wk) { return wk.intern("="); }
 Oop selHash(WellKnown& wk) { return wk.intern("hash"); }
@@ -23,49 +18,90 @@ Oop makeThunk(CallContext& ctx, NativeFn fn, std::uint32_t argc) {
   return makeNativeBlock(ctx, fn, argc);
 }
 
-Oop ao_Collection_collect_fill(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+// error: の慣習どおりメッセージ文字列で失敗する。receiver はルート済みスロット（GC しても正しい）。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
+}
+
+// thunk の pc（添字・件数）は、ブロックを受け取った do: から書き換えられる。+1 が SmallInteger を
+// 超えるなら、その呼び出しを失敗にする。
+bool counterAtMax(const Heap& heap, Oop thunk) {
+  const Oop n = heap.slotAt(thunk, kCtxPc);
+  return n.isSmallInteger() && n.smallIntegerValue() >= kSmiMax;
+}
+
+// 利用者のブロックのあとで読み直した値 n を +1 して pc に書く。ブロックも pc を書き換えられるので、
+// 入口の検査だけでは足りない。+1 が SmallInteger を超えるなら書かずに false を返す（呼び出し側が
+// 失敗にする）。n が SmallInteger でなければ何もしない。
+bool bumpCounter(Heap& heap, Oop thunk, Oop n) {
+  if (!n.isSmallInteger()) {
+    return true;
+  }
+  if (n.smallIntegerValue() >= kSmiMax) {
+    return false;
+  }
+  heap.slotAtPut(thunk, kCtxPc, Oop::fromSmallInteger(n.smallIntegerValue() + 1));
+  return true;
+}
+
+Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
   Root elt(ctx.roots, args[0]);
+  if (counterAtMax(ctx.heap, self.slot)) {
+    return fail(ctx, self.slot, "collect: index out of range");
+  }
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
   Root mapped(ctx.roots, send(ctx, user, ctx.wk.selValue_, &elt.slot, 1, nullptr));
   Root arr(ctx.roots, ctx.heap.slotAt(self.slot, kBlockHome));
   const Oop idx = ctx.heap.slotAt(self.slot, kCtxPc);
   Oop put[2] = {idx, mapped.slot};
   send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
-  if (idx.isSmallInteger()) {
-    ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::fromSmallInteger(idx.smallIntegerValue() + 1));
+  if (!bumpCounter(ctx.heap, self.slot, idx)) {
+    return fail(ctx, self.slot, "collect: index out of range");
   }
   return mapped.slot;
 }
 
-Oop ao_Collection_filter_count(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_filter_count(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
   Root elt(ctx.roots, args[0]);
+  if (counterAtMax(ctx.heap, self.slot)) {
+    return fail(ctx, self.slot,
+                ctx.heap.slotAt(self.slot, kCtxStackp).isTrue() ? "select: count out of range"
+                                                                : "reject: count out of range");
+  }
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
   const Oop pred = send(ctx, user, ctx.wk.selValue_, &elt.slot, 1, nullptr);
   const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();
   const bool keep = keepTrue ? pred.isTrue() : pred.isFalse();
-  if (keep) {
-    const Oop n = ctx.heap.slotAt(self.slot, kCtxPc);
-    if (n.isSmallInteger()) {
-      ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::fromSmallInteger(n.smallIntegerValue() + 1));
-    }
+  if (keep && !bumpCounter(ctx.heap, self.slot, ctx.heap.slotAt(self.slot, kCtxPc))) {
+    return fail(ctx, self.slot,
+                keepTrue ? "select: count out of range" : "reject: count out of range");
   }
   return pred;
 }
 
-Oop ao_Collection_filter_fill(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_filter_fill(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
   Root elt(ctx.roots, args[0]);
+  if (counterAtMax(ctx.heap, self.slot)) {
+    return fail(ctx, self.slot,
+                ctx.heap.slotAt(self.slot, kCtxStackp).isTrue() ? "select: index out of range"
+                                                                : "reject: index out of range");
+  }
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
   const Oop pred = send(ctx, user, ctx.wk.selValue_, &elt.slot, 1, nullptr);
   const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();
@@ -75,14 +111,16 @@ Oop ao_Collection_filter_fill(CallContext& ctx, Oop receiver, const Oop* args, s
     const Oop idx = ctx.heap.slotAt(self.slot, kCtxPc);
     Oop put[2] = {idx, elt.slot};
     send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
-    if (idx.isSmallInteger()) {
-      ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::fromSmallInteger(idx.smallIntegerValue() + 1));
+    if (!bumpCounter(ctx.heap, self.slot, idx)) {
+      return fail(ctx, self.slot,
+                  keepTrue ? "select: index out of range" : "reject: index out of range");
     }
   }
   return pred;
 }
 
-Oop ao_Collection_detect_scan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_detect_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -100,7 +138,8 @@ Oop ao_Collection_detect_scan(CallContext& ctx, Oop receiver, const Oop* args, s
   return pred;
 }
 
-Oop ao_Collection_inject_scan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_inject_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -113,7 +152,8 @@ Oop ao_Collection_inject_scan(CallContext& ctx, Oop receiver, const Oop* args, s
   return next.slot;
 }
 
-Oop ao_Collection_includes_scan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_includes_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -156,7 +196,8 @@ Oop filterIntoArray(CallContext& ctx, Root& rcvr, Root& blk, bool keepTrue) {
 
 }  // namespace
 
-Oop ao_ArrayedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_ArrayedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -179,7 +220,8 @@ Oop ao_ArrayedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, st
   return rcvr.slot;
 }
 
-Oop ao_Collection_collect_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_collect_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -198,7 +240,8 @@ Oop ao_Collection_collect_(CallContext& ctx, Oop receiver, const Oop* args, std:
   return arr.slot;
 }
 
-Oop ao_Collection_select_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_select_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -207,7 +250,8 @@ Oop ao_Collection_select_(CallContext& ctx, Oop receiver, const Oop* args, std::
   return filterIntoArray(ctx, rcvr, blk, true);
 }
 
-Oop ao_Collection_reject_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_reject_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -216,7 +260,7 @@ Oop ao_Collection_reject_(CallContext& ctx, Oop receiver, const Oop* args, std::
   return filterIntoArray(ctx, rcvr, blk, false);
 }
 
-Oop ao_Collection_detect_ifNone_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Collection_detect_ifNone_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
@@ -238,7 +282,8 @@ Oop ao_Collection_detect_ifNone_(CallContext& ctx, Oop receiver, const Oop* args
   return send(ctx, none.slot, ctx.wk.selValue, nullptr, 0, nullptr);
 }
 
-Oop ao_Collection_inject_into_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_inject_into_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
@@ -255,7 +300,8 @@ Oop ao_Collection_inject_into_(CallContext& ctx, Oop receiver, const Oop* args, 
   return ctx.heap.slotAt(thunk.slot, kBlockHome);
 }
 
-Oop ao_Collection_includes_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_includes_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -273,7 +319,7 @@ Oop ao_Collection_includes_(CallContext& ctx, Oop receiver, const Oop* args, std
   return ctx.heap.slotAt(thunk.slot, kCtxPc).isTrue() ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Collection_isEmpty(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Collection_isEmpty(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }

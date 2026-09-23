@@ -19,7 +19,8 @@ Oop headerWord(CallContext& ctx, Oop receiver) {
 
 }  // namespace
 
-Oop ao_CompiledMethod_numArgs(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_CompiledMethod_numArgs(CallContext& ctx, const Oop& receiver, const Oop*,
+                              std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -30,7 +31,8 @@ Oop ao_CompiledMethod_numArgs(CallContext& ctx, Oop receiver, const Oop*, std::u
   return Oop::fromSmallInteger(h.smallIntegerValue() & 0xFF);
 }
 
-Oop ao_CompiledMethod_numTemps(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_CompiledMethod_numTemps(CallContext& ctx, const Oop& receiver, const Oop*,
+                               std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -41,7 +43,8 @@ Oop ao_CompiledMethod_numTemps(CallContext& ctx, Oop receiver, const Oop*, std::
   return Oop::fromSmallInteger((h.smallIntegerValue() >> 8) & 0xFF);
 }
 
-Oop ao_CompiledMethod_primitive(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_CompiledMethod_primitive(CallContext& ctx, const Oop& receiver, const Oop*,
+                                std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -52,21 +55,24 @@ Oop ao_CompiledMethod_primitive(CallContext& ctx, Oop receiver, const Oop*, std:
   return Oop::fromSmallInteger((h.smallIntegerValue() >> 16) & 0xFFFF);
 }
 
-Oop ao_CompiledMethod_literals(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_CompiledMethod_literals(CallContext& ctx, const Oop& receiver, const Oop*,
+                               std::uint32_t argc) {
   if (argc != 0 || !isCompiledMethod(ctx, receiver)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kCmSlotLiterals);
 }
 
-Oop ao_CompiledMethod_bytecodes(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_CompiledMethod_bytecodes(CallContext& ctx, const Oop& receiver, const Oop*,
+                                std::uint32_t argc) {
   if (argc != 0 || !isCompiledMethod(ctx, receiver)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kCmSlotBytes);
 }
 
-Oop ao_CompiledMethod_nativeCode(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_CompiledMethod_nativeCode(CallContext& ctx, const Oop& receiver, const Oop*,
+                                 std::uint32_t argc) {
   if (argc != 0 || !isCompiledMethod(ctx, receiver)) {
     return Oop{};
   }

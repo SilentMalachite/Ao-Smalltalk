@@ -5,6 +5,7 @@
 #include "ao/Compile.hpp"
 #include "ao/CompiledMethod.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Image.hpp"
 #include "ao/ImageFormat.hpp"
 #include "ao/Lookup.hpp"
@@ -36,6 +37,11 @@ struct Loaded {
 
   explicit Loaded(std::size_t oldBytes)
       : heap(1u << 20, oldBytes), wk(heap, roots), ctx{heap, roots, wk, &cache} {
+    cache.addRoots(roots);
+  }
+
+  Loaded(std::size_t oldBytes, std::size_t oldMaxBytes)
+      : heap(1u << 20, oldBytes, oldMaxBytes), wk(heap, roots), ctx{heap, roots, wk, &cache} {
     cache.addRoots(roots);
   }
 };
@@ -149,6 +155,52 @@ bool readHeapBytes(const std::filesystem::path& path, std::uint32_t* out) {
   return true;
 }
 
+// OOP を書ける語だけを集める: heap 節の 8 バイト境界の語と、各レコードの値。
+// 任意の位置の 8 バイトを見ると、old の番地（mmap なので 0x7000000000 のように下位が 0）が
+// 隣り合う 2 語の境目に偶然現れる。
+bool oopWords(const std::vector<char>& bytes, std::vector<std::uint64_t>* out) {
+  const auto* p = reinterpret_cast<const std::byte*>(bytes.data());
+  ao::ImageFormat::ImageHeader header;
+  if (!ao::ImageFormat::readHeader(p, bytes.size(), &header)) return false;
+  const std::size_t heapStart = ao::ImageFormat::kImageHeaderBytes;
+  if (header.heapBytes > bytes.size() - heapStart) return false;
+  auto word = [&](std::size_t at) {
+    std::uint64_t w = 0;
+    std::memcpy(&w, p + at, sizeof w);
+    return w;
+  };
+  for (std::size_t i = 0; i + 8 <= header.heapBytes; i += 8) out->push_back(word(heapStart + i));
+  std::size_t cursor = heapStart + header.heapBytes;
+  const std::uint64_t records = std::uint64_t{header.wellKnownCount} + header.extraCount +
+                                header.globalCount;
+  for (std::uint64_t r = 0; r < records; ++r) {
+    std::uint32_t n = 0;
+    if (cursor + sizeof n > bytes.size()) return false;
+    std::memcpy(&n, p + cursor, sizeof n);
+    cursor += sizeof n + n + (4u - (n % 4u)) % 4u;
+    if (cursor + 8 > bytes.size()) return false;
+    out->push_back(word(cursor));
+    cursor += 8;
+  }
+  return cursor == bytes.size();
+}
+
+// old にある、指定の大きさの byte object を 1 つ探す。
+ao::Oop findBytesOfSize(ao::Heap& heap, std::uint32_t size) {
+  const std::byte* p = heap.oldBase();
+  const std::byte* end = p + heap.oldUsed();
+  while (p < end) {
+    const auto* h = reinterpret_cast<const ao::ObjectHeader*>(p);
+    const std::size_t n = heap.objectBytes(h);
+    if (n == 0 || n > static_cast<std::size_t>(end - p)) break;
+    if ((h->flags & ao::kFlagBytes) != 0 && h->size == size) {
+      return ao::Oop::fromHeap(const_cast<ao::ObjectHeader*>(h));
+    }
+    p += n;
+  }
+  return ao::Oop{};
+}
+
 void expectOnePlusTwo(Loaded& image) {
   auto three = send1(image, ao::Oop::fromSmallInteger(1), "+", ao::Oop::fromSmallInteger(2));
   ASSERT_TRUE(three.isSmallInteger());
@@ -174,10 +226,10 @@ TEST(ImageSave, WritesAoimAndKeepsSourceRunnable) {
 
   const auto host = reinterpret_cast<std::uintptr_t>(b.wk.objectClass.heapPointer());
   std::uint64_t needle = static_cast<std::uint64_t>(host);
+  std::vector<std::uint64_t> words;
+  ASSERT_TRUE(oopWords(bytes, &words));
   bool foundHost = false;
-  for (std::size_t i = 0; i + 8 <= bytes.size(); i += 1) {
-    std::uint64_t word = 0;
-    std::memcpy(&word, bytes.data() + i, 8);
+  for (std::uint64_t word : words) {
     if (word == needle) foundHost = true;
   }
   EXPECT_FALSE(foundHost);
@@ -235,23 +287,24 @@ TEST(ImageSaveLoad, UserMethodSurvives) {
 
   Loaded loaded;
   ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, path.string()));
-  auto loadedCls = loaded.wk.named("CmUser");
-  ASSERT_TRUE(loadedCls.isHeap());
-  EXPECT_EQ(hashBefore, loaded.heap.hash(loadedCls));
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root loadedCls(loaded.roots, loaded.wk.named("CmUser"));
+  ASSERT_TRUE(loadedCls.slot.isHeap());
+  EXPECT_EQ(hashBefore, loaded.heap.hash(loadedCls.slot));
 
   auto sel = loaded.wk.intern("ok");
-  auto meth = ao::lookup(loaded.heap, loadedCls, sel);
+  auto meth = ao::lookup(loaded.heap, loadedCls.slot, sel);
   ASSERT_TRUE(meth.isHeap());
   EXPECT_EQ(loaded.wk.compiledMethodClass, loaded.heap.klass(meth));
   ASSERT_GE(loaded.heap.size(meth), ao::kCmSlotCount);
   EXPECT_TRUE(loaded.heap.slotAt(meth, ao::kCmSlotNativeCode).isNil());
 
-  auto inst = send0(loaded, loadedCls, "new");
-  ASSERT_TRUE(inst.isHeap());
-  auto three = send0(loaded, inst, "ok");
+  ao::Root inst(loaded.roots, send0(loaded, loadedCls.slot, "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  auto three = send0(loaded, inst.slot, "ok");
   ASSERT_TRUE(three.isSmallInteger());
   EXPECT_EQ(3, three.smallIntegerValue());
-  EXPECT_EQ("ao", utf8Bytes(loaded.heap, send0(loaded, inst, "tag")));
+  EXPECT_EQ("ao", utf8Bytes(loaded.heap, send0(loaded, inst.slot, "tag")));
 }
 
 TEST(ImageSaveLoad, KernelMethodsStayNative) {
@@ -402,4 +455,60 @@ TEST(ImageSaveLoad, VendorLinkSurvives) {
   auto link = send0(*image, linkClass, "new");
   ASSERT_TRUE(link.isHeap());
   EXPECT_TRUE(send0(*image, link, "nextLink").isNil());
+}
+
+// ヘッダの heapBytes が old の初期容量（4 MiB）を超えても、ロードはその分だけ old をコミットする。
+TEST(ImageSaveLoad, LoadSizesOldFromHeader) {
+  constexpr std::uint32_t kBlobBytes = 5u << 20;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-big.aoimage";
+  {
+    Boot b;
+    ao::Oop blob = b.heap.allocate(b.wk.byteArrayClass, kBlobBytes, ao::kFlagBytes);
+    ASSERT_TRUE(blob.isHeap());
+    b.heap.bytes(blob)[0] = std::byte{0x11};
+    b.heap.bytes(blob)[kBlobBytes - 1] = std::byte{0x22};
+    b.roots.add(&blob);
+    ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+    b.roots.remove(&blob);
+  }
+  std::uint32_t heapBytes = 0;
+  ASSERT_TRUE(readHeapBytes(path, &heapBytes));
+  ASSERT_GT(heapBytes, 4u << 20);
+
+  Loaded loaded;
+  ASSERT_LT(loaded.heap.oldCapacity(), heapBytes);
+  ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, path.string()));
+  EXPECT_EQ(heapBytes, loaded.heap.oldUsed());
+  EXPECT_GE(loaded.heap.oldCapacity(), static_cast<std::size_t>(heapBytes));
+  expectOnePlusTwo(loaded);
+  auto blob = findBytesOfSize(loaded.heap, kBlobBytes);
+  ASSERT_TRUE(blob.isHeap());
+  EXPECT_EQ(loaded.wk.byteArrayClass, loaded.heap.klass(blob));
+  EXPECT_EQ(std::byte{0x11}, loaded.heap.bytes(blob)[0]);
+  EXPECT_EQ(std::byte{0x22}, loaded.heap.bytes(blob)[kBlobBytes - 1]);
+
+  ao::Gc gc(loaded.heap, loaded.roots);
+  gc.collectNursery();
+  expectOnePlusTwo(loaded);
+}
+
+// heapBytes が old の上限を超えるイメージは拒否し、old を空のまま残す。上限ちょうどなら受け付ける。
+TEST(ImageSaveLoad, RejectsHeapBytesAboveOldMax) {
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-max.aoimage";
+  {
+    Boot b;
+    ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  }
+  std::uint32_t heapBytes = 0;
+  ASSERT_TRUE(readHeapBytes(path, &heapBytes));
+  ASSERT_GT(heapBytes, 64u << 10);
+
+  Loaded below(64u << 10, heapBytes - 8);
+  EXPECT_FALSE(ao::Image::load(below.heap, below.roots, below.wk, path.string()));
+  EXPECT_EQ(0u, below.heap.oldUsed());
+
+  Loaded exact(64u << 10, heapBytes);
+  ASSERT_TRUE(ao::Image::load(exact.heap, exact.roots, exact.wk, path.string()));
+  EXPECT_EQ(heapBytes, exact.heap.oldUsed());
+  expectOnePlusTwo(exact);
 }

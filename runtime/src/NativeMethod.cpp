@@ -71,13 +71,17 @@ namespace NativeMethod {
 
 Oop create(Heap& heap, WellKnown& wk, Oop selector, std::uint32_t argc, std::string_view name,
            std::uint32_t registryIndex, Oop methodClass) {
-  auto meth = heap.allocate(wk.nativeMethodClass, kNativeSlotCount, 0);
+  // Does not GC: the nursery first, then old when it is full. Fails only with old at its max,
+  // which is out of memory (SPEC §3.2).
+  auto meth = heap.allocateNoGc(wk.nativeMethodClass, kNativeSlotCount, 0);
   if (!meth.isHeap()) {
+    heap.setOutOfMemory();
     return Oop{};
   }
   const auto n = static_cast<std::uint32_t>(name.size());
-  auto nameObj = heap.allocate(Oop::nil(), n, kFlagBytes);
+  auto nameObj = heap.allocateNoGc(Oop::nil(), n, kFlagBytes);
   if (!nameObj.isHeap()) {
+    heap.setOutOfMemory();
     return Oop{};
   }
   if (n != 0) {
@@ -117,7 +121,16 @@ Oop apply(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint
   if (fn == nullptr) {
     return Oop{};
   }
-  return fn(ctx, receiver, args, argc);
+  return invoke(ctx, fn, receiver, args, argc);
+}
+
+Oop invoke(CallContext& ctx, NativeFn fn, Oop receiver, const Oop* args, std::uint32_t argc) {
+  // Slot 0 is the receiver, slots 1..argc the arguments. The native reads them through references
+  // into these rooted slots, so every GC inside it updates what it sees.
+  Oop* frame = ctx.roots.pushFrame(receiver, args, argc);
+  const Oop result = fn(ctx, frame[0], frame + 1, argc);
+  ctx.roots.popFrame(frame, argc);
+  return result;
 }
 
 std::string_view nameBytes(Heap& heap, Oop method) {

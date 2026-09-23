@@ -12,11 +12,13 @@
 
 namespace {
 
-ao::Oop imageRegistryStubA(ao::CallContext&, ao::Oop receiver, const ao::Oop*, std::uint32_t) {
+ao::Oop imageRegistryStubA(ao::CallContext&, const ao::Oop& receiver, const ao::Oop*,
+                           std::uint32_t) {
   return receiver;
 }
 
-ao::Oop imageRegistryStubB(ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t argc) {
+ao::Oop imageRegistryStubB(ao::CallContext&, const ao::Oop&, const ao::Oop* args,
+                           std::uint32_t argc) {
   if (argc == 0 || args == nullptr) {
     return ao::Oop::nil();
   }
@@ -120,7 +122,7 @@ TEST(ImageRegistry, AdoptOldBytesOnce) {
   EXPECT_EQ(7, heap.hashCursor());
 
   ao::Heap empty;
-  EXPECT_FALSE(empty.adoptOldBytes(filler, empty.oldCapacity() + 1, 3));
+  EXPECT_FALSE(empty.adoptOldBytes(filler, empty.oldMaxBytes() + 1, 3));
   EXPECT_EQ(0u, empty.oldUsed());
   EXPECT_EQ(1, empty.hashCursor());
 }

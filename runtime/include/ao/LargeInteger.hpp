@@ -10,12 +10,12 @@ namespace ao {
 
 struct CallContext;
 
-inline constexpr std::int64_t kSmiMin = -(std::int64_t{1} << 62);
-inline constexpr std::int64_t kSmiMax = (std::int64_t{1} << 62) - 1;
-
 namespace LargeInteger {
 
+// Does not GC. Empty Oop when a LargeInteger does not fit in the nursery.
 Oop fromInt64(Heap& heap, WellKnown& wk, std::int64_t value);
+// Boxes a LargeInteger with allocateRetry, so it may GC.
+Oop fromInt64(CallContext& ctx, std::int64_t value);
 bool isLarge(const WellKnown& wk, Oop o);
 bool isInteger(const WellKnown& wk, Oop o);
 std::int64_t asInt64IfFits(Heap& heap, WellKnown& wk, Oop o, bool* fits);

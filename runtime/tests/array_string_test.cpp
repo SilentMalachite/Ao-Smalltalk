@@ -1,5 +1,7 @@
 #include "test_support.hpp"
 
+#include "ao/HandleScope.hpp"
+
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <string>
@@ -92,58 +94,61 @@ TEST(ArrayString, StringAtPutSameWidth) {
 
 TEST(ArrayString, AsSymbolAndAsString) {
   Boot b;
-  auto s = ao::Str::fromUtf8(b.heap, b.wk, "foo");
-  auto sym = send0(b, s, "asSymbol");
-  ASSERT_TRUE(sym.isHeap());
-  EXPECT_EQ(b.wk.symbolClass, b.heap.klass(sym));
-  EXPECT_EQ(sym, b.wk.intern("foo"));
-  auto copy = send0(b, sym, "asString");
-  ASSERT_TRUE(copy.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(copy));
-  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, copy));
-  EXPECT_NE(sym, copy);
-  EXPECT_TRUE(send1(b, s, "=", copy).isTrue());
-  EXPECT_TRUE(send1(b, s, "=", sym).isTrue());
+  // send をまたぐ値はルートしておく（GC ストレスでは send ごとに動く）。
+  ao::Root s(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "foo"));
+  ao::Root sym(b.roots, send0(b, s.slot, "asSymbol"));
+  ASSERT_TRUE(sym.slot.isHeap());
+  EXPECT_EQ(b.wk.symbolClass, b.heap.klass(sym.slot));
+  EXPECT_EQ(sym.slot, b.wk.intern("foo"));
+  ao::Root copy(b.roots, send0(b, sym.slot, "asString"));
+  ASSERT_TRUE(copy.slot.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(copy.slot));
+  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, copy.slot));
+  EXPECT_NE(sym.slot, copy.slot);
+  EXPECT_TRUE(send1(b, s.slot, "=", copy.slot).isTrue());
+  EXPECT_TRUE(send1(b, s.slot, "=", sym.slot).isTrue());
 }
 
 TEST(ArrayString, FromSlotsAndDo) {
   Boot b;
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
   ao::Oop slots[3] = {ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(2),
                       ao::Oop::fromSmallInteger(3)};
-  auto arr = ao::Arr::fromSlots(b.heap, b.wk, slots, 3);
-  ASSERT_TRUE(arr.isHeap());
-  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(arr));
-  EXPECT_EQ(3, send0(b, arr, "size").smallIntegerValue());
-  EXPECT_EQ(2, send1(b, arr, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 3));
+  ASSERT_TRUE(arr.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(arr.slot));
+  EXPECT_EQ(3, send0(b, arr.slot, "size").smallIntegerValue());
+  EXPECT_EQ(2, send1(b, arr.slot, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
 
   static std::int64_t sum;
   sum = 0;
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (args[0].isSmallInteger()) {
       sum += args[0].smallIntegerValue();
     }
     return args[0];
   };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  ASSERT_TRUE(blk.isHeap());
-  EXPECT_EQ(arr, send1(b, arr, "do:", blk));
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  ASSERT_TRUE(blk.slot.isHeap());
+  EXPECT_EQ(arr.slot, send1(b, arr.slot, "do:", blk.slot));
   EXPECT_EQ(6, sum);
 }
 
 TEST(ArrayString, StringDoYieldsCharacters) {
   Boot b;
-  auto s = ao::Str::fromUtf8(b.heap, b.wk, "Aあ");
+  // send と makeNativeBlock は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root s(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "Aあ"));
   static char32_t seen[2];
   static int nseen;
   nseen = 0;
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (nseen < 2 && args[0].isCharacter()) {
       seen[nseen++] = args[0].characterValue();
     }
     return args[0];
   };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  send1(b, s, "do:", blk);
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  send1(b, s.slot, "do:", blk.slot);
   EXPECT_EQ(2, nseen);
   EXPECT_EQ(U'A', seen[0]);
   EXPECT_EQ(U'あ', seen[1]);
@@ -188,16 +193,18 @@ TEST(ArrayString, AtPutShrinksUtf8WithinObjectBytes) {
 
 TEST(ArrayString, SymbolAtPutDoesNotMutateInternedBytes) {
   Boot b;
-  auto sym = b.wk.intern("foo");
-  auto r = send2(b, sym, "at:put:", ao::Oop::fromSmallInteger(1), ao::Oop::fromCharacter(U'Z'));
+  // shouldNotImplement はメッセージの割り当てで GC する。Symbol はルートに載せて読み直す。
+  ao::Root sym(b.roots, b.wk.intern("foo"));
+  auto r = send2(b, sym.slot, "at:put:", ao::Oop::fromSmallInteger(1),
+                 ao::Oop::fromCharacter(U'Z'));
   ASSERT_TRUE(r.isHeap());
   EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, r));
-  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym));
-  EXPECT_EQ(sym, b.wk.intern("foo"));
+  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym.slot));
+  EXPECT_EQ(sym.slot, b.wk.intern("foo"));
 
-  auto br = send2(b, sym, "basicAt:put:", ao::Oop::fromSmallInteger(1),
+  auto br = send2(b, sym.slot, "basicAt:put:", ao::Oop::fromSmallInteger(1),
                   ao::Oop::fromSmallInteger(static_cast<std::int64_t>('Z')));
   ASSERT_TRUE(br.isHeap());
   EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, br));
-  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym));
+  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym.slot));
 }

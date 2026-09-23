@@ -8,22 +8,25 @@
 namespace ao {
 namespace kernel {
 
-void putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, std::uint32_t argc,
+bool putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, std::uint32_t argc,
                std::string_view name, NativeFn fn) {
   auto dict = heap.slotAt(cls, kClassSlotMethodDict);
   if (!dict.isHeap()) {
-    return;
+    return false;
   }
   auto sel = Symbol::intern(wk, selector);
+  if (!sel.isHeap()) {
+    return false;
+  }
   std::uint32_t idx = 0;
   if (!NativeRegistry::addNamed(name, fn, &idx)) {
-    return;
+    return false;
   }
   auto meth = NativeMethod::create(heap, wk, sel, argc, name, idx, cls);
   if (!meth.isHeap()) {
-    return;
+    return false;
   }
-  MethodDictionary::atPut(heap, dict, sel, meth);
+  return MethodDictionary::atPut(heap, dict, sel, meth);
 }
 
 void ensureNativeNames() {
