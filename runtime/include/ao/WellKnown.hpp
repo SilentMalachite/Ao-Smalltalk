@@ -34,6 +34,8 @@ class WellKnown {
   void define(std::string_view name, Oop cls);
   bool isCatalogName(std::string_view name) const;
   bool rebind(std::string_view name, Oop cls);
+  // Grows whenever define or rebind changes the global names, so caches of them can tell.
+  std::uint64_t globalsVersion() const { return globalsVersion_; }
   void eachClass(void (*fn)(void* baton, Oop cls), void* baton) const;
   void eachNativeRequiredClass(void (*fn)(void* baton, Oop cls), void* baton) const;
   void eachImageSlot(void (*fn)(void*, const char* name, Oop value), void* baton) const;
@@ -180,6 +182,7 @@ class WellKnown {
   Roots* roots_ = nullptr;
   std::unique_ptr<InternTable> intern_;
   std::unique_ptr<ExtraTable> extra_;
+  std::uint64_t globalsVersion_ = 0;
 };
 
 }  // namespace ao

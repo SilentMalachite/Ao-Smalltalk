@@ -73,7 +73,9 @@ const char* nameAt(std::uint32_t index) {
 }
 
 void install(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
-  auto dict = heap.allocate(Oop::nil(), kSmalltalkCount, 0);
+  // The global table is what the name Smalltalk answers, so it is a SmalltalkImage and gets
+  // that class's at: and at:put: (SPEC §3.10). Those natives do not read its slots.
+  auto dict = heap.allocate(wk.smalltalkImageClass, kSmalltalkCount, 0);
   if (!dict.isHeap()) {
     wk.smalltalk = Oop::nil();
     return;

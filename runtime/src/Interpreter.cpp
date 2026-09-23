@@ -95,48 +95,6 @@ struct Temps {
   }
 };
 
-// Hides hostTemps for the duration of this frame so a nested run cannot alias them.
-// Writes the slots back when this frame's temps die, including early returns.
-struct HostTempGuard {
-  CallContext* ctx = nullptr;
-  Temps* temps = nullptr;
-  Oop* ptr = nullptr;
-  std::uint32_t count = 0;
-  Oop* prevPtr = nullptr;
-  std::uint32_t prevCount = 0;
-  bool active = false;
-
-  HostTempGuard(CallContext& c, Temps& t, bool use) : ctx(&c), temps(&t) {
-    if (!use) {
-      return;
-    }
-    active = true;
-    ptr = c.hostTemps;
-    count = c.hostTempCount;
-    prevPtr = c.hostTemps;
-    prevCount = c.hostTempCount;
-    c.hostTemps = nullptr;
-    c.hostTempCount = 0;
-  }
-
-  ~HostTempGuard() {
-    if (!active || ptr == nullptr) {
-      return;
-    }
-    for (std::uint32_t i = 0; i < count; ++i) {
-      Oop v;
-      if (temps->at(i, &v)) {
-        ptr[i] = v;
-      }
-    }
-    ctx->hostTemps = prevPtr;
-    ctx->hostTempCount = prevCount;
-  }
-
-  HostTempGuard(const HostTempGuard&) = delete;
-  HostTempGuard& operator=(const HostTempGuard&) = delete;
-};
-
 struct Frame {
   Oop method{};
   Oop receiver{};
@@ -483,14 +441,6 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
 
   ActiveGuard active(ctx, frame->context, depth.outermost);
   Temps temps(ctx.roots, numTemps);
-  const bool useHost = !frame->isBlock && ctx.hostTemps != nullptr &&
-                       ctx.hostTempCount == static_cast<std::uint32_t>(numTemps);
-  if (useHost) {
-    for (std::uint32_t i = 0; i < numTemps; ++i) {
-      temps.put(i, ctx.hostTemps[i]);
-    }
-  }
-  HostTempGuard hostBack(ctx, temps, useHost);
   for (std::uint32_t i = 0; i < argc; ++i) {
     temps.put(i, argHold.ptr()[i]);
   }

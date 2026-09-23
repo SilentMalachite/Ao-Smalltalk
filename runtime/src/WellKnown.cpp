@@ -210,6 +210,7 @@ void WellKnown::define(std::string_view name, Oop cls) {
   if (extra_ == nullptr) {
     extra_ = std::make_unique<ExtraTable>();
   }
+  ++globalsVersion_;
   for (auto& e : extra_->table) {
     if (e.name == name) {
       e.cls = cls;
@@ -240,6 +241,7 @@ bool WellKnown::rebind(std::string_view name, Oop cls) {
     this->*e.cls = cls;
     this->*e.meta = heap_->klass(cls);
     Globals::atPut(*this, name, cls);
+    ++globalsVersion_;
     return true;
   }
   return false;

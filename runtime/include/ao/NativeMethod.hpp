@@ -35,6 +35,8 @@ struct ClassMethodCache {
 struct CallContext;
 
 using HostOopHook = void (*)(CallContext& ctx, Oop value);
+// Finds or makes the workspace binding (an Association) for name; empty Oop on failure.
+using BindingHook = Oop (*)(CallContext& ctx, std::string_view name);
 
 struct CallContext {
   Heap& heap;
@@ -57,9 +59,8 @@ struct CallContext {
   // at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them.
   std::uintptr_t stackLimit = 0;
   std::uintptr_t stackHigh = 0;
-  // Caller-rooted temp slots. Non-null only for the ao_eval frame that matches numTemps.
-  Oop* hostTemps = nullptr;
-  std::uint32_t hostTempCount = 0;
+  // Boxes LitKind::Binding literals (SPEC §3.10). Null outside a session: such literals fail.
+  BindingHook bindingHook = nullptr;
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, const Oop& receiver, const Oop* args,

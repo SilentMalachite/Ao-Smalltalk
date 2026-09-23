@@ -47,7 +47,9 @@ int specialIndex(std::string_view sel) {
   return -1;
 }
 
-bool internable(LitKind k) { return k == LitKind::Int || k == LitKind::Symbol; }
+bool internable(LitKind k) {
+  return k == LitKind::Int || k == LitKind::Symbol || k == LitKind::Binding;
+}
 
 bool sameIntern(const Literal& a, const Literal& b) {
   if (a.kind != b.kind) {
@@ -56,7 +58,7 @@ bool sameIntern(const Literal& a, const Literal& b) {
   if (a.kind == LitKind::Int) {
     return a.intValue == b.intValue;
   }
-  if (a.kind == LitKind::Symbol) {
+  if (a.kind == LitKind::Symbol || a.kind == LitKind::Binding) {
     return a.text == b.text;
   }
   return false;
@@ -82,7 +84,7 @@ bool nameIn(const std::vector<std::string>& names, std::string_view name) {
 class Emitter {
  public:
   Emitter(MethodImage& image, const CompileEnv& env, CompileError& error)
-      : image_(image), bindingsImage_(&image), env_(env), error_(error) {}
+      : image_(image), env_(env), error_(error) {}
 
   bool failed() const { return failed_; }
 
@@ -90,31 +92,11 @@ class Emitter {
     scope_.parent = nullptr;
     scope_.isBlock = false;
     scope_.args = method.params;
-    scope_.temps.clear();
+    scope_.temps = method.temps;
     scope_.copied.clear();
-    image_.tempBindings.clear();
-    if (env_.undeclaredAreTemps) {
-      for (const std::string& name : env_.workspaceTemps) {
-        if (nameIn(scope_.args, name) || nameIn(scope_.temps, name)) {
-          continue;
-        }
-        scope_.temps.push_back(name);
-        image_.tempBindings.push_back(MethodImage::TempBinding{name, true});
-      }
-      for (const std::string& name : method.temps) {
-        if (nameIn(scope_.args, name) || nameIn(scope_.temps, name)) {
-          continue;
-        }
-        scope_.temps.push_back(name);
-        image_.tempBindings.push_back(MethodImage::TempBinding{name, false});
-      }
-    } else {
-      scope_.temps = method.temps;
-    }
     const std::size_t ntemps = scope_.args.size() + scope_.temps.size();
     if (scope_.args.size() > 255 || scope_.temps.size() > 255 || ntemps > 255) {
-      fail(method.span, env_.undeclaredAreTemps ? "too many temporaries"
-                                                : "too many arguments or temporaries");
+      fail(method.span, "too many arguments or temporaries");
       return;
     }
     image_.selector = method.name;
@@ -138,20 +120,10 @@ class Emitter {
     } else {
       emit(Op::ReturnReceiver);
     }
-    if (failed_ || !env_.undeclaredAreTemps) {
-      return;
-    }
-    const std::size_t finalCount = scope_.args.size() + scope_.temps.size() + scope_.copied.size();
-    if (finalCount > 255) {
-      fail(method.span, "too many temporaries");
-      return;
-    }
-    image_.numTemps = static_cast<std::uint8_t>(finalCount);
   }
 
  private:
   MethodImage& image_;
-  MethodImage* bindingsImage_;
   const CompileEnv& env_;
   CompileError& error_;
   Scope scope_{};
@@ -292,28 +264,16 @@ class Emitter {
 
   bool isKnownGlobal(std::string_view name) const { return nameIn(env_.knownGlobals, name); }
 
-  Scope* methodScope() const {
-    Scope* s = cur_;
-    while (s->parent != nullptr) {
-      s = s->parent;
+  // A workspace binding (SPEC §3.10): the literal names it; the runtime boxes the Association.
+  void emitLitVar(Op op, const std::string& name, SourceSpan span) {
+    Literal lit;
+    lit.kind = LitKind::Binding;
+    lit.text = name;
+    const std::uint8_t li = intern(std::move(lit), span);
+    if (failed_) {
+      return;
     }
-    return s;
-  }
-
-  bool addWorkspaceTemp(std::string_view name, SourceSpan span) {
-    Scope* method = methodScope();
-    std::uint8_t existing = 0;
-    if (localIndex(method, name, &existing)) {
-      return true;
-    }
-    const std::size_t n = method->args.size() + method->temps.size() + method->copied.size();
-    if (n >= 255) {
-      fail(span, "too many temporaries");
-      return false;
-    }
-    method->temps.emplace_back(name);
-    bindingsImage_->tempBindings.push_back(MethodImage::TempBinding{std::string(name), true});
-    return true;
+    emitU8(op, li);
   }
 
   void emitPushGlobal(const Ast& n) {
@@ -361,7 +321,7 @@ class Emitter {
   }
 
   void compileMethodBody(const Ast& body) {
-    if (env_.undeclaredAreTemps) {
+    if (env_.undeclaredAreBindings) {
       compileWorkspaceMethodBody(body);
       return;
     }
@@ -552,11 +512,8 @@ class Emitter {
       emitU8(asStmt ? Op::PopStoreInstVar : Op::StoreInstVar, idx);
       return;
     }
-    if (env_.undeclaredAreTemps && !isPseudo(n.name) && !isKnownGlobal(n.name)) {
-      if (!addWorkspaceTemp(n.name, n.span) || !bindTemp(cur_, n.name, &idx, n.span)) {
-        return;
-      }
-      emitU8(asStmt ? Op::PopStoreTemp : Op::StoreTemp, idx);
+    if (env_.undeclaredAreBindings && !isPseudo(n.name) && !isKnownGlobal(n.name)) {
+      emitLitVar(asStmt ? Op::PopStoreLitVar : Op::StoreLitVar, n.name, n.span);
       return;
     }
     fail(n.span, "cannot assign");
@@ -660,11 +617,8 @@ class Emitter {
       emit(Op::PushFalse);
       return;
     }
-    if (env_.undeclaredAreTemps && !isKnownGlobal(n.name)) {
-      if (!addWorkspaceTemp(n.name, n.span) || !bindTemp(cur_, n.name, &idx, n.span)) {
-        return;
-      }
-      emitU8(Op::PushTemp, idx);
+    if (env_.undeclaredAreBindings && !isKnownGlobal(n.name)) {
+      emitLitVar(Op::PushLitVar, n.name, n.span);
       return;
     }
     emitPushGlobal(n);
@@ -764,7 +718,6 @@ class Emitter {
     innerScope.args = blk.params;
     innerScope.temps = blk.temps;
     Emitter innerEm(inner, env_, error_);
-    innerEm.bindingsImage_ = bindingsImage_;
     innerEm.cur_ = &innerScope;
     innerEm.failed_ = failed_;
     if (blk.kids.empty()) {
@@ -916,6 +869,8 @@ std::string formatLit(const Literal& lit) {
       return "#[";
     case LitKind::Method:
       return "[method]";
+    case LitKind::Binding:
+      return "{" + lit.text + "}";
   }
   return "?";
 }

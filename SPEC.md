@@ -560,7 +560,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 ワークスペースはセッションに 1 つ。`IdentityDictionary` ではなく、名前文字列をキーにした `Dictionary` をルートする。値は束縛（`Association`。キーは名前の文字列、値は変数の値）である。`ao_workspace_reset` は空の辞書に戻す。
 
 - 名前の解決順は、ローカル（引数と temp）→ インスタンス変数 → 擬変数 → `knownGlobals` → 束縛。宣言した temp（`| q |`）は同じ名前の束縛と関係しない。
-- `knownGlobals` は `Globals::nameAt` の 57 名、`Smalltalk`、`eachExtra` の名、`eachClass` のクラス名バイト。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
+- `knownGlobals` は `Globals::nameAt` の 57 名、`Smalltalk`、`eachExtra` の名、`eachClass` のクラス名バイト。`Smalltalk` はグローバル表そのもので、クラスは `SmalltalkImage` である（`at:` と `at:put:` を受ける）。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
 - どれにも当たらない名前は束縛である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar`。束縛が辞書に無ければ、メソッドを作るとき（リテラルを箱に入れるとき）に値 nil で作って辞書に入れる。同じ名前の束縛は評価をまたいで同じ Association なので、ブロックに捕捉した束縛への代入も辞書に残る。束縛の数に上限は無い（temp の 255 に数えない）。
 
 Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。空 OOP は `AO_ERR_EVAL`。abort（§3.4）も `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。

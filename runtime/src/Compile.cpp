@@ -53,6 +53,7 @@ bool boxedOk(const compiler::Literal& lit, Oop boxed) {
     case compiler::LitKind::Array:
     case compiler::LitKind::ByteArray:
     case compiler::LitKind::Method:
+    case compiler::LitKind::Binding:
       return boxed.isHeap();
   }
   return boxed.isHeap();
@@ -112,6 +113,12 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
         return Oop{};
       }
       return boxMethodImage(ctx, *lit.method, methodClass);
+    case compiler::LitKind::Binding:
+      // SPEC §3.10: the session finds or makes the workspace's Association for the name.
+      if (ctx.bindingHook == nullptr) {
+        return Oop{};
+      }
+      return ctx.bindingHook(ctx, lit.text);
   }
   return Oop{};
 }
