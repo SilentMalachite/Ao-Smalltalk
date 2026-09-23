@@ -898,3 +898,73 @@ TEST(BlockInline, LinkedListDoCountsLinks) {
                    .smallIntegerValue());
   EXPECT_FALSE(b.ctx.aborting);
 }
+
+namespace {
+
+constexpr const char* kDeepEnsure =
+    "!Object subclass: #R2DeepEnsure\n"
+    "  instanceVariableNames: 'enter exit'\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2DeepEnsure methodsFor: 'r'!\n"
+    "start\n"
+    "  enter := 0.\n"
+    "  exit := 0.\n"
+    "  ^self recur!\n"
+    "recur\n"
+    "  ^[enter := enter + 1. self recur] ensure: [self b1]!\n"
+    "b1\n"
+    "  ^self b2!\n"
+    "b2\n"
+    "  ^self b3!\n"
+    "b3\n"
+    "  ^self b4!\n"
+    "b4\n"
+    "  exit := exit + 1!\n"
+    "missing\n"
+    "  ^enter - exit! !\n";
+
+}  // namespace
+
+// レビュー指摘: 前のスレッドのスタックの範囲が残っていても、最外の入口で取り直す。取り直さないと、
+// ガードが効かずに C スタックを溢れさせる。
+TEST(BlockAbort, StaleStackRangeIsRefreshedAtOutermostEntry) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #R2Stale\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B2-Test'!\n"
+                               "!R2Stale methodsFor: 'r'!\n"
+                               "recur: n\n"
+                               "  ^self recur: n + 1! !\n",
+                               errs));
+  ao::Root obj(b.roots, send0(b, b.wk.named("R2Stale"), "new"));
+  ao::Oop got = ao::Oop::fromSmallInteger(0);
+  runOnSmallStack([&] {
+    // どの番地も「範囲内」に見える古い範囲。
+    b.ctx.stackLimit = 1;
+    b.ctx.stackHigh = ~std::uintptr_t{0};
+    got = send1(b, obj.slot, "recur:", ao::Oop::fromSmallInteger(0));
+  });
+  EXPECT_TRUE(got.isEmpty());
+  ASSERT_TRUE(b.ctx.aborting);
+  EXPECT_EQ(std::string("stack overflow"), b.ctx.abortReason);
+}
+
+// レビュー指摘: stack overflow の abort 中も、限界近くの ensure: の後始末（数段の送信）を走らせる。
+TEST(BlockAbort, EnsureCleanupRunsNearStackLimit) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, kDeepEnsure, errs));
+  ASSERT_TRUE(errs.empty()) << errs[0].message;
+  ao::Root obj(b.roots, send0(b, b.wk.named("R2DeepEnsure"), "new"));
+  runOnSmallStack([&] { send0(b, obj.slot, "start"); });
+  ASSERT_TRUE(b.ctx.aborting);
+  EXPECT_EQ(std::string("stack overflow"), b.ctx.abortReason);
+  ao::clearUnwinding(b.ctx);
+  EXPECT_EQ(0, send0(b, obj.slot, "missing").smallIntegerValue());
+}

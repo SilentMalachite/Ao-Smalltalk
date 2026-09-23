@@ -213,6 +213,7 @@ void ensureKernelNatives() {
   // SPEC §3.10: add the Kernel natives the image lacks (those added after it was saved) and keep
   // every method it has.
   kernel::installMissing(s.heap, s.roots, s.wk);
+  Globals::adoptImageClass(s.heap, s.wk);
 }
 
 namespace {
@@ -713,6 +714,7 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   if (g_session != nullptr && g_session->ctx != nullptr) {
     g_session->heap.clearOutOfMemory();
     clearUnwinding(*g_session->ctx);
+    refreshStackLimit(*g_session->ctx);
   }
   const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser);
   if (g_session == nullptr || g_session->ctx == nullptr) {

@@ -107,5 +107,13 @@ void atPut(WellKnown& wk, std::string_view name, Oop value) {
   }
 }
 
+void adoptImageClass(Heap& heap, WellKnown& wk) {
+  if (!wk.smalltalk.isHeap() || !wk.smalltalkImageClass.isHeap() ||
+      heap.klass(wk.smalltalk) == wk.smalltalkImageClass) {
+    return;
+  }
+  heap.header(wk.smalltalk)->klass = wk.smalltalkImageClass;
+}
+
 }  // namespace Globals
 }  // namespace ao

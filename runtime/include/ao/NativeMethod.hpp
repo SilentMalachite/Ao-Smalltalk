@@ -56,9 +56,14 @@ struct CallContext {
   bool aborting = false;
   const char* abortReason = nullptr;
   // Stack guard (SPEC §3.4) of the thread that last applied a method: a method may be applied
-  // at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them.
+  // at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them, and
+  // every outermost entry refreshes them too (a new thread may reuse an old thread's stack).
+  // While an ensure: cleanup runs (cleanupDepth > 0) the lower stackCleanupLimit applies, so a
+  // cleanup still runs during a stack overflow abort.
   std::uintptr_t stackLimit = 0;
   std::uintptr_t stackHigh = 0;
+  std::uintptr_t stackCleanupLimit = 0;
+  std::uint32_t cleanupDepth = 0;
   // Boxes LitKind::Binding literals (SPEC §3.10). Null outside a session: such literals fail.
   BindingHook bindingHook = nullptr;
 };

@@ -416,6 +416,10 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     argHold.ptr()[i] = args[i];
   }
   DepthGuard depth(gInterpreterDepth);
+  if (depth.outermost) {
+    // The stack range may belong to an earlier thread whose stack this one now reuses.
+    refreshStackLimit(ctx);
+  }
   NonlocalGuard nonlocal(ctx, depth.outermost);
   // Root inputs before the safepoint. applyMethod's caller may hold the method only in a register.
   Gc gc(ctx.heap, ctx.roots);
@@ -792,9 +796,12 @@ Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std
   // SPEC §3.4: every send, native or compiled, passes here, so unbounded recursion stops here
   // with a reserve left for unwinding. A frame outside the known range is another thread.
   const auto sp = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0));
-  if (sp < ctx.stackLimit || sp > ctx.stackHigh) {
+  const auto limit = [&ctx] {
+    return ctx.cleanupDepth > 0 ? ctx.stackCleanupLimit : ctx.stackLimit;
+  };
+  if (sp < limit() || sp > ctx.stackHigh) {
     refreshStackLimit(ctx);
-    if (sp < ctx.stackLimit) {
+    if (sp < limit()) {
       return abortEvaluation(ctx, "stack overflow");
     }
   }
@@ -815,6 +822,8 @@ void refreshStackLimit(CallContext& ctx) {
   const std::size_t reserve = std::min<std::size_t>(std::size_t{512} * 1024, size / 4);
   ctx.stackHigh = high;
   ctx.stackLimit = high - size + reserve;
+  // ensure: cleanups may use half of the reserve; the rest is left for unwinding.
+  ctx.stackCleanupLimit = high - size + reserve / 2;
 }
 
 }  // namespace ao

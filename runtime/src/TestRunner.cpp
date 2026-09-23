@@ -4,6 +4,7 @@
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 #include "ao/kernel/Install.hpp"
@@ -155,6 +156,7 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     // 前に立ったフラグ（起動時や前のファイルのもの）を、このファイルのせいにしない（sessionEval と同じ）。
     ctx.heap.clearOutOfMemory();
     clearUnwinding(ctx);
+    refreshStackLimit(ctx);
     const bool ran = runFile(ctx, cls, doIt, body);
     // SPEC §3.4: abort（stack overflow など）はファイルの失敗。理由を出して消す。
     if (ctx.aborting) {

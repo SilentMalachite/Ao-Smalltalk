@@ -266,3 +266,17 @@ TEST(Bootstrap, SmalltalkContainsAllNamedClasses) {
     EXPECT_TRUE(ao::Globals::at(wk, n).isHeap()) << n;
   }
 }
+
+// レビュー指摘: クラスを nil のまま保存した古いイメージでも、ロード後に Smalltalk は
+// SmalltalkImage になる（SPEC §3.10）。
+TEST(Bootstrap, OldGlobalTableAdoptsImageClass) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  ASSERT_TRUE(wk.smalltalk.isHeap());
+  EXPECT_EQ(wk.smalltalkImageClass, heap.klass(wk.smalltalk));
+  heap.header(wk.smalltalk)->klass = ao::Oop::nil();
+  ao::Globals::adoptImageClass(heap, wk);
+  EXPECT_EQ(wk.smalltalkImageClass, heap.klass(wk.smalltalk));
+}

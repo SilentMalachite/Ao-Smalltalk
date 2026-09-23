@@ -63,7 +63,11 @@ void runAside(CallContext& ctx, Oop cleanup) {
   const char* reason = ctx.abortReason;
   clearUnwinding(ctx);
   Oop ignored;
-  if (!callBlock(ctx, blk.slot, nullptr, 0, &ignored)) {
+  // During a stack overflow abort the cleanup runs past the normal limit (SPEC §3.4).
+  ++ctx.cleanupDepth;
+  const bool ran = callBlock(ctx, blk.slot, nullptr, 0, &ignored);
+  --ctx.cleanupDepth;
+  if (!ran) {
     return;
   }
   ctx.nonlocalReturn = nonlocal;
