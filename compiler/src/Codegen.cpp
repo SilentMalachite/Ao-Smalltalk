@@ -70,10 +70,19 @@ struct Scope {
   std::vector<std::string> copied;
 };
 
+bool nameIn(const std::vector<std::string>& names, std::string_view name) {
+  for (const std::string& each : names) {
+    if (each == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
 class Emitter {
  public:
   Emitter(MethodImage& image, const CompileEnv& env, CompileError& error)
-      : image_(image), env_(env), error_(error) {}
+      : image_(image), bindingsImage_(&image), env_(env), error_(error) {}
 
   bool failed() const { return failed_; }
 
@@ -81,15 +90,36 @@ class Emitter {
     scope_.parent = nullptr;
     scope_.isBlock = false;
     scope_.args = method.params;
-    scope_.temps = method.temps;
-    if (method.params.size() > 255 || method.temps.size() > 255 ||
-        method.params.size() + method.temps.size() > 255) {
-      fail(method.span, "too many arguments or temporaries");
+    scope_.temps.clear();
+    scope_.copied.clear();
+    image_.tempBindings.clear();
+    if (env_.undeclaredAreTemps) {
+      for (const std::string& name : env_.workspaceTemps) {
+        if (nameIn(scope_.args, name) || nameIn(scope_.temps, name)) {
+          continue;
+        }
+        scope_.temps.push_back(name);
+        image_.tempBindings.push_back(MethodImage::TempBinding{name, true});
+      }
+      for (const std::string& name : method.temps) {
+        if (nameIn(scope_.args, name) || nameIn(scope_.temps, name)) {
+          continue;
+        }
+        scope_.temps.push_back(name);
+        image_.tempBindings.push_back(MethodImage::TempBinding{name, false});
+      }
+    } else {
+      scope_.temps = method.temps;
+    }
+    const std::size_t ntemps = scope_.args.size() + scope_.temps.size();
+    if (scope_.args.size() > 255 || scope_.temps.size() > 255 || ntemps > 255) {
+      fail(method.span, env_.undeclaredAreTemps ? "too many temporaries"
+                                                : "too many arguments or temporaries");
       return;
     }
     image_.selector = method.name;
     image_.numArgs = static_cast<std::uint8_t>(method.params.size());
-    image_.numTemps = static_cast<std::uint8_t>(method.params.size() + method.temps.size());
+    image_.numTemps = static_cast<std::uint8_t>(ntemps);
     image_.primitive = 0;
 
     std::size_t body = 0;
@@ -108,10 +138,20 @@ class Emitter {
     } else {
       emit(Op::ReturnReceiver);
     }
+    if (failed_ || !env_.undeclaredAreTemps) {
+      return;
+    }
+    const std::size_t finalCount = scope_.args.size() + scope_.temps.size() + scope_.copied.size();
+    if (finalCount > 255) {
+      fail(method.span, "too many temporaries");
+      return;
+    }
+    image_.numTemps = static_cast<std::uint8_t>(finalCount);
   }
 
  private:
   MethodImage& image_;
+  MethodImage* bindingsImage_;
   const CompileEnv& env_;
   CompileError& error_;
   Scope scope_{};
@@ -245,7 +285,86 @@ class Emitter {
     return true;
   }
 
+  bool isPseudo(std::string_view name) const {
+    return name == "self" || name == "super" || name == "thisContext" || name == "nil" ||
+           name == "true" || name == "false";
+  }
+
+  bool isKnownGlobal(std::string_view name) const { return nameIn(env_.knownGlobals, name); }
+
+  Scope* methodScope() const {
+    Scope* s = cur_;
+    while (s->parent != nullptr) {
+      s = s->parent;
+    }
+    return s;
+  }
+
+  bool addWorkspaceTemp(std::string_view name, SourceSpan span) {
+    Scope* method = methodScope();
+    std::uint8_t existing = 0;
+    if (localIndex(method, name, &existing)) {
+      return true;
+    }
+    const std::size_t n = method->args.size() + method->temps.size() + method->copied.size();
+    if (n >= 255) {
+      fail(span, "too many temporaries");
+      return false;
+    }
+    method->temps.emplace_back(name);
+    bindingsImage_->tempBindings.push_back(MethodImage::TempBinding{std::string(name), true});
+    return true;
+  }
+
+  void emitPushGlobal(const Ast& n) {
+    Literal lit;
+    lit.kind = LitKind::Symbol;
+    lit.text = n.name;
+    const std::uint8_t li = intern(std::move(lit), n.span);
+    if (failed_) {
+      return;
+    }
+    emitU8(Op::PushGlobal, li);
+  }
+
+  void compileWorkspaceMethodBody(const Ast& body) {
+    if (failed_) {
+      return;
+    }
+    if (body.kind == Ast::Kind::Sequence) {
+      if (body.kids.empty()) {
+        emit(Op::ReturnReceiver);
+        return;
+      }
+      for (std::size_t i = 0; i + 1 < body.kids.size(); ++i) {
+        compileStmt(body.kids[i]);
+      }
+      const Ast& last = body.kids.back();
+      if (last.kind == Ast::Kind::Return) {
+        compileReturn(last, false);
+      } else {
+        compileExpr(last);
+        if (!failed_) {
+          emit(Op::ReturnTop);
+        }
+      }
+      return;
+    }
+    if (body.kind == Ast::Kind::Return) {
+      compileReturn(body, false);
+      return;
+    }
+    compileExpr(body);
+    if (!failed_) {
+      emit(Op::ReturnTop);
+    }
+  }
+
   void compileMethodBody(const Ast& body) {
+    if (env_.undeclaredAreTemps) {
+      compileWorkspaceMethodBody(body);
+      return;
+    }
     if (body.kind == Ast::Kind::Sequence) {
       if (body.kids.empty()) {
         emit(Op::ReturnReceiver);
@@ -433,6 +552,13 @@ class Emitter {
       emitU8(asStmt ? Op::PopStoreInstVar : Op::StoreInstVar, idx);
       return;
     }
+    if (env_.undeclaredAreTemps && !isPseudo(n.name) && !isKnownGlobal(n.name)) {
+      if (!addWorkspaceTemp(n.name, n.span) || !bindTemp(cur_, n.name, &idx, n.span)) {
+        return;
+      }
+      emitU8(asStmt ? Op::PopStoreTemp : Op::StoreTemp, idx);
+      return;
+    }
     fail(n.span, "cannot assign");
   }
 
@@ -534,11 +660,14 @@ class Emitter {
       emit(Op::PushFalse);
       return;
     }
-    Literal lit;
-    lit.kind = LitKind::Symbol;
-    lit.text = n.name;
-    const std::uint8_t li = intern(std::move(lit), n.span);
-    emitU8(Op::PushGlobal, li);
+    if (env_.undeclaredAreTemps && !isKnownGlobal(n.name)) {
+      if (!addWorkspaceTemp(n.name, n.span) || !bindTemp(cur_, n.name, &idx, n.span)) {
+        return;
+      }
+      emitU8(Op::PushTemp, idx);
+      return;
+    }
+    emitPushGlobal(n);
   }
 
   Literal fromAstLiteral(const Ast& n) {
@@ -635,6 +764,7 @@ class Emitter {
     innerScope.args = blk.params;
     innerScope.temps = blk.temps;
     Emitter innerEm(inner, env_, error_);
+    innerEm.bindingsImage_ = bindingsImage_;
     innerEm.cur_ = &innerScope;
     innerEm.failed_ = failed_;
     if (blk.kids.empty()) {

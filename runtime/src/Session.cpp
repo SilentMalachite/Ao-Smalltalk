@@ -2,7 +2,11 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/Compile.hpp"
+#include "ao/Compiler.hpp"
+#include "ao/Context.hpp"
+#include "ao/Globals.hpp"
 #include "ao/Image.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
@@ -30,6 +34,26 @@ void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook ins
   session.ctx->inspectHook = inspect;
 }
 
+bool installEmptyWorkspace(Session& session) {
+  if (session.ctx == nullptr || !session.wk.dictionaryClass.isHeap()) {
+    return false;
+  }
+  if (!session.workspaceRooted) {
+    session.roots.add(&session.workspace);
+    session.workspaceRooted = true;
+  }
+  const Oop sel = session.wk.intern("new");
+  if (!sel.isHeap()) {
+    return false;
+  }
+  const Oop dict = send(*session.ctx, session.wk.dictionaryClass, sel, nullptr, 0, nullptr);
+  if (!dict.isHeap()) {
+    return false;
+  }
+  session.workspace = dict;
+  return true;
+}
+
 bool loadedImageProbes(Session& session) {
   Oop arg = Oop::fromSmallInteger(2);
   const Oop three =
@@ -55,6 +79,10 @@ int sessionBoot() {
     return 1;
   }
   g_session = std::make_unique<Session>(true);
+  if (!installEmptyWorkspace(*g_session)) {
+    g_session.reset();
+    return 1;
+  }
   return 0;
 }
 
@@ -67,6 +95,22 @@ int sessionImageSave(const char* path) {
   if (g_session == nullptr || path == nullptr) {
     return 1;
   }
+  // Workspace bindings are session state. Drop the root so Image::save does not trace them.
+  struct HideWorkspace {
+    Session* session = nullptr;
+    bool hidden = false;
+    explicit HideWorkspace(Session* s) : session(s) {
+      if (session != nullptr && session->workspaceRooted) {
+        session->roots.remove(&session->workspace);
+        hidden = true;
+      }
+    }
+    ~HideWorkspace() {
+      if (hidden && session != nullptr) {
+        session->roots.add(&session->workspace);
+      }
+    }
+  } hide(g_session.get());
   return Image::save(g_session->heap, g_session->roots, g_session->wk, path) ? 0 : 1;
 }
 
@@ -85,12 +129,22 @@ int sessionImageLoad(const char* path) {
     inspect = g_session->ctx->inspectHook;
   }
   installEmptyCache(*next, transcript, inspect);
+  if (!installEmptyWorkspace(*next)) {
+    return 1;
+  }
   g_session = std::move(next);
   ensureTranscriptClassMethods();
   if (!loadedImageProbes(*g_session)) {
     return 1;
   }
   return 0;
+}
+
+int sessionWorkspaceReset() {
+  if (g_session == nullptr) {
+    return 1;
+  }
+  return installEmptyWorkspace(*g_session) ? 0 : 1;
 }
 
 int sessionFileInLoadOrder(const char* path) {
@@ -434,7 +488,283 @@ std::vector<std::string> subclassNames(Session& s, const std::string& name,
 
 bool metaOk(int meta) { return meta == 0 || meta == 1; }
 
+struct HostRoot {
+  Roots& roots;
+  Oop slot;
+  explicit HostRoot(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
+  ~HostRoot() { roots.remove(&slot); }
+  HostRoot(const HostRoot&) = delete;
+  HostRoot& operator=(const HostRoot&) = delete;
+};
+
+struct HostSlots {
+  Roots& roots;
+  std::unique_ptr<Oop[]> data;
+  std::uint32_t n = 0;
+  HostSlots(Roots& r, std::uint32_t count) : roots(r), n(count) {
+    if (n == 0) {
+      return;
+    }
+    data.reset(new Oop[n]);
+    for (std::uint32_t i = 0; i < n; ++i) {
+      data[i] = Oop::nil();
+      roots.add(&data[i]);
+    }
+  }
+  ~HostSlots() {
+    if (!data) {
+      return;
+    }
+    for (std::uint32_t i = 0; i < n; ++i) {
+      roots.remove(&data[i]);
+    }
+  }
+  HostSlots(const HostSlots&) = delete;
+  HostSlots& operator=(const HostSlots&) = delete;
+  Oop* ptr() const { return data.get(); }
+};
+
+struct HostBind {
+  CallContext& ctx;
+  HostBind(CallContext& c, Oop* ptr, std::uint32_t count) : ctx(c) {
+    ctx.hostTemps = ptr;
+    ctx.hostTempCount = count;
+  }
+  ~HostBind() {
+    ctx.hostTemps = nullptr;
+    ctx.hostTempCount = 0;
+  }
+  HostBind(const HostBind&) = delete;
+  HostBind& operator=(const HostBind&) = delete;
+};
+
+struct NameBag {
+  Heap* heap = nullptr;
+  std::vector<std::string>* names = nullptr;
+};
+
+void collectClassGlobal(void* baton, Oop cls) {
+  auto* bag = static_cast<NameBag*>(baton);
+  if (bag->heap == nullptr || bag->names == nullptr ||
+      !pointerSlots(*bag->heap, cls, kClassSlotName + 1)) {
+    return;
+  }
+  const Oop name = bag->heap->slotAt(cls, kClassSlotName);
+  if (!name.isHeap() || (bag->heap->flags(name) & kFlagBytes) == 0) {
+    return;
+  }
+  bag->names->push_back(byteText(*bag->heap, name));
+}
+
+void collectExtraGlobal(void* baton, std::string_view name, Oop) {
+  auto* bag = static_cast<NameBag*>(baton);
+  if (bag->names != nullptr) {
+    bag->names->emplace_back(name);
+  }
+}
+
+void collectKnownGlobals(Session& session, std::vector<std::string>* names) {
+  names->clear();
+  for (std::uint32_t i = 0; i < Globals::kSmalltalkCount; ++i) {
+    const char* name = Globals::nameAt(i);
+    if (name != nullptr) {
+      names->emplace_back(name);
+    }
+  }
+  NameBag bag{&session.heap, names};
+  session.wk.eachExtra(collectExtraGlobal, &bag);
+  session.wk.eachClass(collectClassGlobal, &bag);
+}
+
+void collectWorkspaceKeys(Session& session, std::vector<std::string>* keys) {
+  keys->clear();
+  if (!pointerSlots(session.heap, session.workspace, 2)) {
+    return;
+  }
+  const Oop inner = session.heap.slotAt(session.workspace, 1);
+  if (!inner.isHeap() || (session.heap.flags(inner) & kFlagBytes) != 0) {
+    return;
+  }
+  const auto n = session.heap.size(inner);
+  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
+    const Oop key = session.heap.slotAt(inner, i);
+    if (!key.isHeap() || (session.heap.flags(key) & kFlagBytes) == 0) {
+      continue;
+    }
+    keys->push_back(byteText(session.heap, key));
+  }
+  std::sort(keys->begin(), keys->end(), utf8Less);
+}
+
+void blankOut(char* out, int outLen) {
+  if (outLen > 0 && out != nullptr) {
+    out[0] = '\0';
+  }
+}
+
+bool dictAtKey(Session& session, std::string_view name, Oop* out) {
+  HostRoot key(session.roots, Str::fromUtf8(session.heap, session.wk, name));
+  if (!key.slot.isHeap()) {
+    return false;
+  }
+  const Oop sel = session.wk.intern("at:");
+  if (!sel.isHeap()) {
+    return false;
+  }
+  *out = send(*session.ctx, session.workspace, sel, &key.slot, 1, nullptr);
+  return !out->isEmpty();
+}
+
+bool dictAtPutKey(Session& session, std::string_view name, Oop value) {
+  HostRoot key(session.roots, Str::fromUtf8(session.heap, session.wk, name));
+  HostRoot val(session.roots, value);
+  if (!key.slot.isHeap()) {
+    return false;
+  }
+  const Oop sel = session.wk.intern("at:put:");
+  if (!sel.isHeap()) {
+    return false;
+  }
+  Oop args[2] = {key.slot, val.slot};
+  const Oop stored = send(*session.ctx, session.workspace, sel, args, 2, nullptr);
+  return !stored.isEmpty();
+}
+
+int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
+             AoInspectFn inspect, void* inspectUser) {
+  if (err != nullptr) {
+    err->start = 0;
+    err->end = 0;
+    err->message[0] = '\0';
+  }
+  if (g_session == nullptr || g_session->ctx == nullptr) {
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  if (mode != AO_EVAL_DOIT && mode != AO_EVAL_PRINTIT && mode != AO_EVAL_INSPECTIT) {
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  if (sourceLen < 0 || (source == nullptr && sourceLen != 0) || (outLen > 0 && out == nullptr)) {
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+
+  Session& session = *g_session;
+  std::string text = "doIt\n";
+  if (sourceLen > 0) {
+    text.append(source, static_cast<std::size_t>(sourceLen));
+  }
+
+  compiler::CompileEnv env;
+  env.undeclaredAreTemps = true;
+  collectKnownGlobals(session, &env.knownGlobals);
+  collectWorkspaceKeys(session, &env.workspaceTemps);
+  const compiler::CompileResult compiled = compiler::compileMethod(text, env);
+  if (!compiled.ok) {
+    if (err != nullptr) {
+      constexpr unsigned kDoItPrefix = 5;
+      unsigned start = compiled.error.span.start;
+      unsigned end = compiled.error.span.end;
+      err->start = start >= kDoItPrefix ? start - kDoItPrefix : 0;
+      err->end = end >= kDoItPrefix ? end - kDoItPrefix : 0;
+      const std::size_t n = std::min(compiled.error.message.size(), sizeof(err->message) - 1);
+      if (n != 0) {
+        std::memcpy(err->message, compiled.error.message.data(), n);
+      }
+      err->message[n] = '\0';
+    }
+    blankOut(out, outLen);
+    return AO_ERR_COMPILE;
+  }
+
+  const compiler::MethodImage& image = compiled.image;
+  if (image.numArgs != 0 || image.tempBindings.size() != static_cast<std::size_t>(image.numTemps)) {
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
+
+  HostRoot method(session.roots, boxMethodImage(*session.ctx, image, session.wk.compiledMethodClass));
+  if (!method.slot.isHeap()) {
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
+
+  const auto ntemps = static_cast<std::uint32_t>(image.numTemps);
+  HostSlots slots(session.roots, ntemps);
+  for (std::uint32_t i = 0; i < ntemps; ++i) {
+    if (!image.tempBindings[i].workspace) {
+      continue;
+    }
+    Oop value = Oop::nil();
+    if (!dictAtKey(session, image.tempBindings[i].name, &value)) {
+      blankOut(out, outLen);
+      return AO_ERR_EVAL;
+    }
+    slots.ptr()[i] = value;
+  }
+
+  HostRoot result(session.roots);
+  {
+    HostBind bound(*session.ctx, ntemps == 0 ? nullptr : slots.ptr(), ntemps);
+    result.slot = applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil());
+  }
+  if (result.slot.isEmpty()) {
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
+
+  for (std::uint32_t i = 0; i < ntemps; ++i) {
+    if (!image.tempBindings[i].workspace) {
+      continue;
+    }
+    if (!dictAtPutKey(session, image.tempBindings[i].name, slots.ptr()[i])) {
+      blankOut(out, outLen);
+      return AO_ERR_EVAL;
+    }
+  }
+
+  if (mode == AO_EVAL_DOIT) {
+    return writeBuf("", out, outLen);
+  }
+
+  if (mode == AO_EVAL_INSPECTIT) {
+    const Oop sel = session.wk.intern("inspect");
+    if (!sel.isHeap()) {
+      blankOut(out, outLen);
+      return AO_ERR_EVAL;
+    }
+    if (send(*session.ctx, result.slot, sel, nullptr, 0, nullptr).isEmpty()) {
+      blankOut(out, outLen);
+      return AO_ERR_EVAL;
+    }
+  }
+
+  const Oop printSel = session.wk.intern("printString");
+  if (!printSel.isHeap()) {
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
+  HostRoot printed(session.roots,
+                   send(*session.ctx, result.slot, printSel, nullptr, 0, nullptr));
+  if (!printed.slot.isHeap() || (session.heap.flags(printed.slot) & kFlagBytes) == 0) {
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
+  const std::string utf8 = Str::toUtf8(session.heap, printed.slot);
+  if (mode == AO_EVAL_INSPECTIT && inspect != nullptr) {
+    const std::string cls = classNameOf(session.heap, session.wk.classOf(result.slot));
+    inspect(cls.c_str(), utf8.c_str(), inspectUser);
+  }
+  return writeBuf(utf8, out, outLen);
+}
+
 }  // namespace
+
+int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
+                AoInspectFn inspect, void* inspectUser) {
+  return evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser);
+}
 
 int browserClassCount() {
   Session* s = session();

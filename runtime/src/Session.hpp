@@ -2,6 +2,8 @@
 
 #include "ao/NativeMethod.hpp"
 
+#include "ao_abi.h"
+
 #include <memory>
 
 namespace ao {
@@ -13,6 +15,9 @@ struct Session {
   WellKnown wk;
   std::unique_ptr<ClassMethodCache> cache;
   std::unique_ptr<CallContext> ctx;
+  // Session Dictionary of workspace name strings. Not part of the image.
+  Oop workspace = Oop::nil();
+  bool workspaceRooted = false;
 
   // true: Bootstrap::run. false: empty old space for Image::load.
   explicit Session(bool bootstrap);
@@ -24,6 +29,9 @@ int sessionShutdown();
 int sessionImageSave(const char* path);
 int sessionImageLoad(const char* path);
 int sessionFileInLoadOrder(const char* path);
+int sessionWorkspaceReset();
+int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
+                AoInspectFn inspect, void* inspectUser);
 void ensureTranscriptClassMethods();
 
 int browserClassCount();

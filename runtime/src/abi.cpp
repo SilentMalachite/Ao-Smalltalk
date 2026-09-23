@@ -30,6 +30,8 @@ namespace {
 
 AoTranscriptFn g_transcriptFn = nullptr;
 void* g_transcriptUser = nullptr;
+AoInspectFn g_inspectFn = nullptr;
+void* g_inspectUser = nullptr;
 
 int encodeTranscriptUtf8(char32_t cp, char out[4]) {
   if (cp <= 0x7F) {
@@ -88,6 +90,20 @@ void deliverTranscript(ao::CallContext& ctx, ao::Oop value) {
 }
 
 }  // namespace
+
+extern "C" void ao_set_inspect_hook(AoInspectFn fn, void* user) {
+  g_inspectFn = fn;
+  g_inspectUser = user;
+}
+
+extern "C" int ao_workspace_reset(void) {
+  return ao::sessionWorkspaceReset() == 0 ? AO_OK : AO_ERR;
+}
+
+extern "C" int ao_eval(const char* source, int source_len, int mode, char* out, int out_len,
+                       AoSpan* err) {
+  return ao::sessionEval(source, source_len, mode, out, out_len, err, g_inspectFn, g_inspectUser);
+}
 
 extern "C" void ao_set_transcript_hook(AoTranscriptFn fn, void* user) {
   g_transcriptFn = fn;

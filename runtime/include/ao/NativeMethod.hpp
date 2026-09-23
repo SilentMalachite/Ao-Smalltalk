@@ -49,6 +49,9 @@ struct CallContext {
   bool nonlocalReturn = false;
   Oop nonlocalHome{};
   Oop nonlocalValue{};
+  // Caller-rooted temp slots. Non-null only for the ao_eval frame that matches numTemps.
+  Oop* hostTemps = nullptr;
+  std::uint32_t hostTempCount = 0;
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
