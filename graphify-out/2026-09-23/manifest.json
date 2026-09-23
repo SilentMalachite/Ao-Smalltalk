@@ -120,9 +120,9 @@
     "semantic_hash": ""
   },
   "CMakeLists.txt": {
-    "mtime": 1790145273.3342876,
-    "seen": 1790145297.992209,
-    "ast_hash": "05df91048b688687b8974b08d0453045",
+    "mtime": 1790146715.0432968,
+    "seen": 1790147047.3423371,
+    "ast_hash": "dc346f80c9f3a5d909f4d2d10c8ae74a",
     "semantic_hash": ""
   },
   "README.md": {
@@ -588,9 +588,9 @@
     "semantic_hash": ""
   },
   "runtime/src/Gc.cpp": {
-    "mtime": 1790145027.2953448,
-    "seen": 1790145297.992147,
-    "ast_hash": "ad3aee81d92f6bb001f5e5c82d951475",
+    "mtime": 1790146935.6278944,
+    "seen": 1790147047.34227,
+    "ast_hash": "be8bc26c941d3130dc863cb6b186a518",
     "semantic_hash": ""
   },
   "runtime/tests/gc_test.cpp": {
@@ -1410,9 +1410,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/gc_stress_test.cpp": {
-    "mtime": 1790144948.9389112,
-    "seen": 1790145297.992183,
-    "ast_hash": "691efc982242febbbee4ac716e913bfa",
+    "mtime": 1790146921.2294703,
+    "seen": 1790147047.34231,
+    "ast_hash": "85d7c1c1fc3c91607936a61510faa26e",
     "semantic_hash": ""
   },
   "docs/claude-review/00-recent-diff.md": {
