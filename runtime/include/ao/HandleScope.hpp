@@ -51,8 +51,10 @@ class RootedArray {
 // The allocation entry point that may run the GC. A large object first gets a scavenge and, when
 // old would pass its threshold, a full collection (Gc::collectBeforeTenured). Then: nursery (or
 // old for a large object), then collect the nursery once and retry, then old directly, then old
-// once more after a full collection. `cls` is rooted across the collections. When all of these
-// fail, sets the heap's out-of-memory flag and returns an empty Oop.
+// once more after a full collection unless one already ran in this call (at most one full
+// collection before giving up). A request larger than old's max fails without any collection.
+// `cls` is rooted across the collections. When all of these fail, sets the heap's out-of-memory
+// flag and returns an empty Oop.
 Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags);
 
 }  // namespace ao

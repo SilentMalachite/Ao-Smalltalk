@@ -921,3 +921,30 @@ TEST(GcSafety, PerformWithArgumentsStopsOnBrokenSuperclassChain) {
     expectPerformRejects(b, inst.slot);
   }
 }
+
+// SPEC §3.2: allocateRetry が old の上限で諦めるまでに走らせる full GC は 1 回まで。以前は大きな
+// object の閾値の full GC（第 2 契機）と、上限での full GC（第 3 契機）が重なって 2 回走った。
+// old の上限より大きな要求は、GC せずに out of memory にする。
+TEST(GcSafety, OutOfMemoryRunsAtMostOneFullGc) {
+  Boot b(1 << 20, 1 << 20, 2 << 20);  // old は 2 MiB で頭打ち
+  b.heap.setGcStress(0);
+  // 生きている object で old をほぼ埋める（full GC をしても空かない）。残りは 32 KiB 弱。
+  const std::size_t room = b.heap.oldMaxBytes() - b.heap.oldUsed();
+  ASSERT_GT(room, std::size_t{64} << 10);
+  ao::Root live(b.roots, b.heap.allocateTenured(ao::Oop::nil(),
+                                                static_cast<std::uint32_t>(room - (32 << 10)),
+                                                ao::kFlagBytes));
+  ASSERT_TRUE(live.slot.isHeap());
+
+  const std::uint64_t before = b.heap.oldCollections();
+  EXPECT_FALSE(ao::allocateRetry(b.ctx, ao::Oop::nil(), 64 << 10, ao::kFlagBytes).isHeap());
+  EXPECT_TRUE(b.heap.outOfMemory());
+  EXPECT_LE(b.heap.oldCollections() - before, 1u);
+  EXPECT_TRUE(live.slot.isHeap());
+
+  b.heap.clearOutOfMemory();
+  const std::uint64_t beforeHuge = b.heap.oldCollections();
+  EXPECT_FALSE(ao::allocateRetry(b.ctx, ao::Oop::nil(), 3u << 20, ao::kFlagBytes).isHeap());
+  EXPECT_TRUE(b.heap.outOfMemory());
+  EXPECT_EQ(beforeHuge, b.heap.oldCollections());
+}
