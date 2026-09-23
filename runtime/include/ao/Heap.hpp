@@ -79,6 +79,9 @@ class Heap {
 
   std::size_t objectBytes(const ObjectHeader* h) const;  // header + payload, 8-aligned
 
+  // Bytes a new object of this size and flags takes (header + payload, 8-aligned).
+  std::size_t objectBytesFor(std::uint32_t size, std::uint16_t flags) const;
+
   bool inNursery(Oop obj) const;
   bool inOld(Oop obj) const;
   std::size_t oldUsed() const;

@@ -65,6 +65,13 @@ std::size_t Heap::objectBytes(const ObjectHeader* h) const {
   return align8(sizeof(ObjectHeader) + payload);
 }
 
+std::size_t Heap::objectBytesFor(std::uint32_t size, std::uint16_t flags) const {
+  ObjectHeader probe{};
+  probe.size = size;
+  probe.flags = flags;
+  return objectBytes(&probe);
+}
+
 Oop Heap::allocate(Oop cls, std::uint32_t size, std::uint16_t flags) {
   ObjectHeader probe{};
   probe.size = size;

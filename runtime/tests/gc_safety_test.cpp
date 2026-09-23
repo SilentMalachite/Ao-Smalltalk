@@ -233,6 +233,29 @@ TEST(GcSafety, LiveSetAbove4MiBDoesNotThrash) {
               static_cast<unsigned long long>(b.heap.oldCollections()));
 }
 
+// 大きな object は nursery を通らず old に直置きされる。大きなゴミだけを作るループではスキャベンジが
+// 起きず、full GC も走らないまま old が伸び続けていた（2000 回で 306 MiB）。SPEC §3.2 の第 2 契機
+// （allocateRetry が直置きする前に oldUsed + サイズ > 閾値なら full GC）で、old は小さく収まる。
+TEST(GcSafety, LargeGarbageLoopTriggersFullGc) {
+  Boot b;
+  const auto collectionsBefore = b.heap.oldCollections();
+  for (int i = 0; i < 2000; ++i) {  // 160 KiB の Array を 2000 個（計 312 MiB）捨てる
+    const ao::Oop garbage = ao::allocateRetry(b.ctx, b.wk.arrayClass, 20000, 0);
+    ASSERT_TRUE(garbage.isHeap()) << i;
+    ASSERT_TRUE(b.heap.inOld(garbage)) << i;
+  }
+  EXPECT_GT(b.heap.oldCollections(), collectionsBefore);
+  EXPECT_LE(b.heap.oldCapacity(), std::size_t{16} << 20);
+
+  // Smalltalk の `Array new: 20000` も同じ経路を通る。
+  for (int i = 0; i < 300; ++i) {
+    const ao::Oop garbage = send1(b, b.wk.arrayClass, "new:", smi(20000));
+    ASSERT_TRUE(garbage.isHeap()) << i;
+  }
+  EXPECT_LE(b.heap.oldCapacity(), std::size_t{16} << 20);
+  EXPECT_FALSE(b.heap.outOfMemory());
+}
+
 namespace {
 
 // GC を走らせずに nursery を使い切る（残りは 16 B 未満）。

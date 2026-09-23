@@ -77,6 +77,18 @@ void Gc::collectNursery() {
   }
 }
 
+void Gc::collectBeforeTenured(std::size_t bytes) {
+  if (heap_->oldUsed() + bytes <= heap_->oldThreshold_) {
+    return;
+  }
+  const std::uint64_t before = heap_->oldCollections_;
+  collectNursery();
+  // スキャベンジが full GC を走らせたなら、続けてもう一度走らせても何も回収できない。
+  if (heap_->oldCollections_ == before && heap_->oldUsed() + bytes > heap_->oldThreshold_) {
+    collectOld();
+  }
+}
+
 void Gc::scavengeFromRoots() {
   std::vector<Oop> stack;
   std::unordered_set<std::uintptr_t> visited;

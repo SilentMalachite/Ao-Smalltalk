@@ -34,6 +34,13 @@ Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t f
     Gc(ctx.heap, ctx.roots).stressPoint();
     cls = stressed.slot;
   }
+  // 大きな object は old に直置きされ、スキャベンジを起こさない。置く前に閾値を見る（SPEC §3.2）。
+  const std::size_t bytes = ctx.heap.objectBytesFor(size, flags);
+  if (bytes >= ctx.heap.largeObjectBytes()) {
+    Root large(ctx.roots, cls);
+    Gc(ctx.heap, ctx.roots).collectBeforeTenured(bytes);
+    cls = large.slot;
+  }
   Oop obj = ctx.heap.allocate(cls, size, flags);
   if (obj.isHeap()) {
     return obj;
