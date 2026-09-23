@@ -271,21 +271,24 @@ TEST(CollectionDo, AssociationKeyValue) {
 
 TEST(CollectionDo, BagLinkedListMappedCollectionStubs) {
   Boot b;
-  const ao::Oop classes[3] = {b.wk.bagClass, b.wk.linkedListClass, b.wk.mappedCollectionClass};
+  // send は GC しうる。old の GC ではクラスも動くので、クラスもルートに置いて使うたびに読み直す。
+  ao::RootedArray classes(b.roots, 3);
+  classes[0] = b.wk.bagClass;
+  classes[1] = b.wk.linkedListClass;
+  classes[2] = b.wk.mappedCollectionClass;
   const char* doNames[3] = {"ao_Bag_do_", "ao_LinkedList_do_", "ao_MappedCollection_do_"};
   const char* sizeNames[3] = {"ao_Bag_size", "ao_LinkedList_size", "ao_MappedCollection_size"};
-  for (int i = 0; i < 3; ++i) {
-    auto cls = classes[i];
-    auto o = send0(b, cls, "new");
-    ASSERT_TRUE(o.isHeap());
-    EXPECT_EQ(0, send0(b, o, "size").smallIntegerValue());
-    EXPECT_EQ(o, send1(b, o, "do:", ao::Oop::nil()));
-    auto r = send1(b, o, "add:", ao::Oop::fromSmallInteger(1));
+  for (std::uint32_t i = 0; i < 3; ++i) {
+    ao::Root o(b.roots, send0(b, classes[i], "new"));
+    ASSERT_TRUE(o.slot.isHeap());
+    EXPECT_EQ(0, send0(b, o.slot, "size").smallIntegerValue());
+    EXPECT_EQ(o.slot, send1(b, o.slot, "do:", ao::Oop::nil()));
+    auto r = send1(b, o.slot, "add:", ao::Oop::fromSmallInteger(1));
     ASSERT_TRUE(r.isHeap());
     EXPECT_EQ("subclassResponsibility", ao::Str::toUtf8(b.heap, r));
-    auto doMeth = send1(b, cls, "compiledMethodAt:", b.wk.intern("do:"));
-    auto sizeMeth = send1(b, cls, "compiledMethodAt:", b.wk.intern("size"));
-    EXPECT_EQ(doNames[i], ao::NativeMethod::nameBytes(b.heap, doMeth));
+    ao::Root doMeth(b.roots, send1(b, classes[i], "compiledMethodAt:", b.wk.intern("do:")));
+    auto sizeMeth = send1(b, classes[i], "compiledMethodAt:", b.wk.intern("size"));
+    EXPECT_EQ(doNames[i], ao::NativeMethod::nameBytes(b.heap, doMeth.slot));
     EXPECT_EQ(sizeNames[i], ao::NativeMethod::nameBytes(b.heap, sizeMeth));
   }
 }

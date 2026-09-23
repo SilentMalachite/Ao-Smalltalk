@@ -144,14 +144,15 @@ ao::Oop subclassOfObject(Boot& b, const char* name, const char* ivars) {
 
 TEST(CompilerRoundtrip, SuperSendReturnsInstance) {
   Boot b;
-  auto sub = subclassOfObject(b, "Sub", "");
-  ASSERT_TRUE(sub.isHeap());
+  // installMethod と send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root sub(b.roots, subclassOfObject(b, "Sub", ""));
+  ASSERT_TRUE(sub.slot.isHeap());
   auto img = ao::compiler::compileMethod("yourself\n  ^super yourself");
   ASSERT_TRUE(img.ok) << img.error.message;
-  ASSERT_TRUE(ao::installMethod(b.ctx, sub, img.image).isHeap());
-  auto obj = send0(b, sub, "new");
-  ASSERT_TRUE(obj.isHeap());
-  EXPECT_EQ(obj, send0(b, obj, "yourself"));
+  ASSERT_TRUE(ao::installMethod(b.ctx, sub.slot, img.image).isHeap());
+  ao::Root obj(b.roots, send0(b, sub.slot, "new"));
+  ASSERT_TRUE(obj.slot.isHeap());
+  EXPECT_EQ(obj.slot, send0(b, obj.slot, "yourself"));
 }
 
 TEST(CompilerRoundtrip, HolderInstVarRoundTrip) {
