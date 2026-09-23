@@ -10,6 +10,7 @@
 #include "ao/Symbol.hpp"
 
 #include <cstring>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -20,8 +21,9 @@ Oop sendValue(CallContext& ctx, Oop block) {
   return send(ctx, block, ctx.wk.selValue, nullptr, 0, nullptr);
 }
 
-Oop fail(CallContext& ctx, Oop receiver, std::string_view msg) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, msg);
+// receiver はネイティブが受け取ったルート済みスロット。メッセージの割り当てで GC が走っても正しい。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
   return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
@@ -207,7 +209,8 @@ Oop ao_Object_shallowCopy(CallContext& ctx, const Oop& receiver, const Oop*, std
   }
   const auto n = ctx.heap.size(receiver);
   const auto flags = ctx.heap.flags(receiver);
-  const Oop copy = ctx.heap.allocate(ctx.heap.klass(receiver), n, flags);
+  // GC で receiver が動いても、ルート済みスロットを指す参照なので読み直さなくてよい。
+  const Oop copy = allocateRetry(ctx, ctx.heap.klass(receiver), n, flags);
   if (!copy.isHeap()) {
     return Oop{};
   }
@@ -365,22 +368,10 @@ Oop ao_Object_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop* arg
 Oop ao_Object_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   const Oop cls = ctx.wk.classOf(receiver);
-  if (!cls.isHeap()) {
-    return Str::fromUtf8(ctx.heap, ctx.wk, "");
-  }
-  const Oop name = ctx.heap.slotAt(cls, kClassSlotName);
-  if (!name.isHeap()) {
-    return Str::fromUtf8(ctx.heap, ctx.wk, "");
-  }
-  const auto n = ctx.heap.size(name);
-  auto str = ctx.heap.allocate(ctx.wk.stringClass, n, kFlagBytes);
-  if (!str.isHeap()) {
-    return Oop{};
-  }
-  if (n != 0) {
-    std::memcpy(ctx.heap.bytes(str), ctx.heap.header(name) + 1, n);
-  }
-  return str;
+  const Oop name = cls.isHeap() ? ctx.heap.slotAt(cls, kClassSlotName) : Oop{};
+  // 名前は割り当ての前に写す。allocateRetry の GC で名前のオブジェクトが動いても読まない。
+  const std::string text = name.isHeap() ? Str::toUtf8(ctx.heap, name) : std::string();
+  return Str::fromUtf8(ctx, text);
 }
 
 Oop ao_Object_printOn_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -425,7 +416,7 @@ Oop ao_UndefinedObject_ifNotNil_(CallContext&, const Oop& receiver, const Oop*,
 
 Oop ao_UndefinedObject_printString(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "nil");
+  return Str::fromUtf8(ctx, "nil");
 }
 
 namespace kernel {

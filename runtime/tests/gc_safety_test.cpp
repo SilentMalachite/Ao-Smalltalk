@@ -3,10 +3,13 @@
 #include "test_support.hpp"
 
 #include "ao/Compile.hpp"
+#include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/LargeInteger.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -228,4 +231,138 @@ TEST(GcSafety, LiveSetAbove4MiBDoesNotThrash) {
   std::printf("LiveSetAbove4MiB: %lld ms, old %zu bytes, %llu full collections\n",
               static_cast<long long>(ms), b.heap.oldUsed(),
               static_cast<unsigned long long>(b.heap.oldCollections()));
+}
+
+namespace {
+
+// GC を走らせずに nursery を使い切る（残りは 16 B 未満）。
+void fillNursery(Boot& b) {
+  while (b.heap.allocate(ao::Oop::nil(), 0, 0).isHeap()) {
+  }
+}
+
+// GC を走らせずに、nursery の残りをちょうど target バイトにする。16 B（空の pointers）と
+// 24 B（8 バイトの bytes）で詰める。
+void fillNurseryTo(Boot& b, std::size_t target) {
+  while (b.heap.nurseryRemaining() > target) {
+    const bool last24 = b.heap.nurseryRemaining() - target == 24;
+    const ao::Oop filler = last24 ? b.heap.allocate(ao::Oop::nil(), 8, ao::kFlagBytes)
+                                  : b.heap.allocate(ao::Oop::nil(), 0, 0);
+    ASSERT_TRUE(filler.isHeap());
+  }
+  ASSERT_EQ(target, b.heap.nurseryRemaining());
+}
+
+// この send の間だけ GC ストレスを入れる。allocateRetry を通れば必ず nursery GC が走り、
+// 解放した領域は毒で埋まる。
+ao::Oop sendStressed0(Boot& b, ao::Oop rcvr, const char* sel) {
+  b.heap.setGcStress(1);
+  const ao::Oop r = send0(b, rcvr, sel);
+  b.heap.setGcStress(0);
+  return r;
+}
+
+}  // namespace
+
+// 04 Medium: nursery が満杯のとき、shallowCopy と copy は GC してから複製する。
+TEST(GcSafety, ShallowCopyWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // 定義と生成はストレスなしで行う（AO_GC_STRESS に左右されない）
+  ao::Root arr(b.roots, send1(b, b.wk.arrayClass, "new:", smi(3)));
+  send2(b, arr.slot, "at:put:", smi(1), smi(11));
+  send2(b, arr.slot, "at:put:", smi(3), smi(33));
+  ao::Root str(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "gcSafetyCopy"));
+  ASSERT_TRUE(b.heap.inNursery(arr.slot));
+  ASSERT_TRUE(b.heap.inNursery(str.slot));
+
+  fillNursery(b);
+  ao::Root arrCopy(b.roots, sendStressed0(b, arr.slot, "shallowCopy"));
+  ASSERT_TRUE(arrCopy.slot.isHeap());
+  EXPECT_NE(arr.slot, arrCopy.slot);
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(arrCopy.slot));
+  EXPECT_EQ(smi(3), send0(b, arrCopy.slot, "size"));
+  EXPECT_EQ(smi(11), send1(b, arrCopy.slot, "at:", smi(1)));
+  EXPECT_EQ(smi(33), send1(b, arrCopy.slot, "at:", smi(3)));
+
+  fillNursery(b);
+  ao::Root strCopy(b.roots, sendStressed0(b, str.slot, "copy"));
+  ASSERT_TRUE(strCopy.slot.isHeap());
+  EXPECT_NE(str.slot, strCopy.slot);
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(strCopy.slot));
+  EXPECT_EQ("gcSafetyCopy", ao::Str::toUtf8(b.heap, strCopy.slot));
+}
+
+// 04 Medium: nursery が満杯のとき、printString は GC してから文字列を作る。
+TEST(GcSafety, PrintStringWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // 定義と生成はストレスなしで行う（AO_GC_STRESS に左右されない）
+  ao::Root obj(b.roots, send0(b, b.wk.objectClass, "new"));
+  ao::Root str(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "it's"));
+  ASSERT_TRUE(b.heap.inNursery(obj.slot));
+  const auto expectPrint = [&](ao::Oop rcvr, const char* expected) {
+    SCOPED_TRACE(expected);
+    fillNursery(b);
+    const ao::Oop s = sendStressed0(b, rcvr, "printString");
+    ASSERT_TRUE(s.isHeap());
+    EXPECT_EQ(b.wk.stringClass, b.heap.klass(s));
+    EXPECT_EQ(expected, ao::Str::toUtf8(b.heap, s));
+  };
+  expectPrint(obj.slot, "Object");
+  expectPrint(str.slot, "'it''s'");
+  expectPrint(smi(42), "42");
+  expectPrint(ao::Oop::nil(), "nil");
+  expectPrint(ao::Oop::true_(), "true");
+  expectPrint(ao::Oop::false_(), "false");
+  expectPrint(ao::Oop::fromCharacter(U'a'), "$a");
+}
+
+// 04 Medium: nursery が満杯のとき、asSymbol は新しい Symbol を old に置く（allocateTenured）。
+TEST(GcSafety, AsSymbolWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // 定義と生成はストレスなしで行う（AO_GC_STRESS に左右されない）
+  ao::Root str(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "gcSafetyFreshAsSymbol"));
+
+  fillNursery(b);
+  ao::Root sym(b.roots, sendStressed0(b, str.slot, "asSymbol"));
+  ASSERT_TRUE(sym.slot.isHeap());
+  EXPECT_EQ(b.wk.symbolClass, b.heap.klass(sym.slot));
+  EXPECT_TRUE(b.heap.inOld(sym.slot));
+  EXPECT_EQ("gcSafetyFreshAsSymbol", ao::Str::toUtf8(b.heap, sym.slot));
+  EXPECT_EQ(sym.slot, b.wk.intern("gcSafetyFreshAsSymbol"));
+
+  fillNursery(b);
+  EXPECT_EQ(sym.slot, sendStressed0(b, str.slot, "asSymbol"));
+}
+
+// 03 Low: nursery が逼迫した状態で 2^62 のリテラルを含むメソッドをコンパイルしても、リテラルが
+// 空にならない。残りをリテラル配列ちょうどにして、LargeInteger の箱詰めで GC を要求する。
+TEST(GcSafety, LargeLiteralWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // 割り当ての途中で GC が走ると、nursery の残りを作れない
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #GcSafetyBig\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'GcSafety'!\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root cls(b.roots, b.wk.named("GcSafetyBig"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  ao::Root inst(b.roots, send0(b, cls.slot, "new"));
+  ao::Root sel(b.roots, b.wk.intern("big"));
+  const auto cr = ao::compiler::compileMethod("big\n  ^4611686018427387904");
+  ASSERT_TRUE(cr.ok) << cr.error.message;
+
+  // installMethod で最初に割り当てるのはリテラル配列。その直後に nursery が空になる。
+  fillNurseryTo(b, sizeof(ao::ObjectHeader) + 8 * cr.image.literals.size());
+  ao::Root installed(b.roots, ao::installMethod(b.ctx, cls.slot, cr.image));
+  ASSERT_TRUE(installed.slot.isHeap());
+
+  const ao::Oop r = send0(b, inst.slot, "big");
+  ASSERT_TRUE(ao::LargeInteger::isLarge(b.wk, r));
+  bool fits = false;
+  EXPECT_EQ(std::int64_t{1} << 62, ao::LargeInteger::asInt64IfFits(b.heap, b.wk, r, &fits));
+  EXPECT_TRUE(fits);
 }

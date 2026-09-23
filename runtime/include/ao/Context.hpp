@@ -37,7 +37,10 @@ Oop ao_BlockContext_valueWithArguments_(CallContext& ctx, const Oop& receiver, c
                                         std::uint32_t argc);
 
 namespace Str {
+// Does not GC. Empty Oop when the nursery (or old, for a large string) is full.
 Oop fromUtf8(Heap& heap, WellKnown& wk, std::string_view utf8);
+// Allocates with allocateRetry, so it may GC. utf8 must not point into the heap.
+Oop fromUtf8(CallContext& ctx, std::string_view utf8);
 std::string toUtf8(Heap& heap, Oop str);
 std::uint32_t codePointCount(Heap& heap, Oop str);
 Oop at(Heap& heap, Oop str, std::int64_t oneBased);

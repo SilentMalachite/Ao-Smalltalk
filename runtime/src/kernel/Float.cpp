@@ -285,7 +285,7 @@ Oop ao_Float_printString(CallContext& ctx, const Oop& receiver, const Oop*, std:
   if (wrote <= 0 || static_cast<std::size_t>(wrote) >= sizeof(buf)) {
     return Oop{};
   }
-  return Str::fromUtf8(ctx.heap, ctx.wk, std::string_view(buf, static_cast<std::size_t>(wrote)));
+  return Str::fromUtf8(ctx, std::string_view(buf, static_cast<std::size_t>(wrote)));
 }
 
 namespace kernel {

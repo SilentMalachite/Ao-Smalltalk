@@ -194,7 +194,7 @@ Oop ao_SmallInteger_printString(CallContext& ctx, const Oop& receiver, const Oop
   if (!receiver.isSmallInteger()) {
     return ao_Object_printString(ctx, receiver, nullptr, 0);
   }
-  return Str::fromUtf8(ctx.heap, ctx.wk, std::to_string(receiver.smallIntegerValue()));
+  return Str::fromUtf8(ctx, std::to_string(receiver.smallIntegerValue()));
 }
 
 namespace kernel {

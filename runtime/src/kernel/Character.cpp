@@ -53,7 +53,7 @@ Oop ao_Character_printString(CallContext& ctx, const Oop& receiver, const Oop*,
     return ao_Object_printString(ctx, receiver, nullptr, 0);
   }
   const char bytes[2] = {'$', static_cast<char>(scalar)};
-  return Str::fromUtf8(ctx.heap, ctx.wk, std::string_view(bytes, 2));
+  return Str::fromUtf8(ctx, std::string_view(bytes, 2));
 }
 
 namespace kernel {

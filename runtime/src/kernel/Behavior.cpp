@@ -245,7 +245,10 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
 
   std::string metaName = nameBytes;
   metaName += " class";
-  Root metaNameOop(ctx.roots, Str::fromUtf8(ctx.heap, ctx.wk, metaName));
+  Root metaNameOop(ctx.roots, Str::fromUtf8(ctx, metaName));
+  if (!metaNameOop.slot.isHeap()) {
+    return Oop{};
+  }
 
   ctx.heap.slotAtPut(cls.slot, kClassSlotSuperclass, receiver);
   ctx.heap.slotAtPut(cls.slot, kClassSlotMethodDict, dict.slot);

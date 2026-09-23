@@ -47,7 +47,7 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
       if (lit.intValue >= kSmiMin && lit.intValue <= kSmiMax) {
         return Oop::fromSmallInteger(lit.intValue);
       }
-      return LargeInteger::fromInt64(ctx.heap, ctx.wk, lit.intValue);
+      return LargeInteger::fromInt64(ctx, lit.intValue);
     case compiler::LitKind::Float: {
       Root o(ctx.roots, allocateRetry(ctx, ctx.wk.floatClass, 8, kFlagBytes));
       if (!o.slot.isHeap()) {

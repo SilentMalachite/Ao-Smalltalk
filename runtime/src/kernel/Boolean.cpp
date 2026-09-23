@@ -131,12 +131,12 @@ Oop ao_False_xor_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc)
 
 Oop ao_True_printString(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "true");
+  return Str::fromUtf8(ctx, "true");
 }
 
 Oop ao_False_printString(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "false");
+  return Str::fromUtf8(ctx, "false");
 }
 
 namespace kernel {

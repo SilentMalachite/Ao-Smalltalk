@@ -1,5 +1,6 @@
 #include "ao/Context.hpp"
 
+#include "ao/HandleScope.hpp"
 #include "ao/Heap.hpp"
 #include "ao/Interpreter.hpp"
 
@@ -83,6 +84,18 @@ Oop fromUtf8(Heap& heap, WellKnown& wk, std::string_view utf8) {
   }
   if (n != 0) {
     std::memcpy(heap.bytes(str), utf8.data(), n);
+  }
+  return str;
+}
+
+Oop fromUtf8(CallContext& ctx, std::string_view utf8) {
+  const auto n = static_cast<std::uint32_t>(utf8.size());
+  const Oop str = allocateRetry(ctx, ctx.wk.stringClass, n, kFlagBytes);
+  if (!str.isHeap()) {
+    return Oop{};
+  }
+  if (n != 0) {
+    std::memcpy(ctx.heap.bytes(str), utf8.data(), n);
   }
   return str;
 }

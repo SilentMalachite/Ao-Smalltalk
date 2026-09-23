@@ -249,7 +249,12 @@ Oop ao_String_asSymbol(CallContext& ctx, const Oop& receiver, const Oop*, std::u
   if (argc != 0 || !isBytes(ctx.heap, receiver)) {
     return Oop{};
   }
-  return Symbol::intern(ctx.wk, Str::toUtf8(ctx.heap, receiver));
+  // Symbol は intern 表から外れないので、nursery を通さず old に置く（GC しない）。
+  const Oop sym = ctx.wk.internTenured(Str::toUtf8(ctx.heap, receiver));
+  if (!sym.isHeap()) {
+    ctx.heap.setOutOfMemory();
+  }
+  return sym;
 }
 
 Oop ao_Symbol_asString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
@@ -300,7 +305,7 @@ Oop ao_String_printString(CallContext& ctx, const Oop& receiver, const Oop*, std
     }
   }
   out.push_back('\'');
-  return Str::fromUtf8(ctx.heap, ctx.wk, out);
+  return Str::fromUtf8(ctx, out);
 }
 
 namespace kernel {
