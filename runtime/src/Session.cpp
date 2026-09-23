@@ -212,7 +212,7 @@ void ensureKernelNatives() {
   }
   // SPEC §3.10: add the Kernel natives the image lacks (those added after it was saved) and keep
   // every method it has.
-  kernel::installMissing(s.heap, s.roots, s.wk);
+  kernel::installMissing(s.heap, s.roots, s.wk, s.cache.get());
   Globals::adoptImageClass(s.heap, s.wk);
   // SPEC §3.5: installMissing may have added one of the eight; a kept user method may hide one.
   s.wk.checkSmallIntegerFastPath();

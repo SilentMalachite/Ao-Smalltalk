@@ -11,11 +11,13 @@ namespace {
 
 // Set only while installMissing runs: putNative then keeps any method already in the dictionary.
 bool gOnlyMissing = false;
+// Set only while installMissing runs: the loaded session's cache, which sends may have filled.
+ClassMethodCache* gMissingCache = nullptr;
 
 }  // namespace
 
-bool putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, std::uint32_t argc,
-               std::string_view name, NativeFn fn) {
+bool putNative(Heap& heap, WellKnown& wk, ClassMethodCache* cache, Oop cls,
+               std::string_view selector, std::uint32_t argc, std::string_view name, NativeFn fn) {
   auto dict = heap.slotAt(cls, kClassSlotMethodDict);
   if (!dict.isHeap()) {
     return false;
@@ -35,7 +37,16 @@ bool putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, st
   if (!meth.isHeap()) {
     return false;
   }
-  return MethodDictionary::atPut(heap, dict, sel, meth);
+  if (!MethodDictionary::atPut(heap, dict, sel, meth)) {
+    return false;
+  }
+  invalidateMethodCache(cache, sel);
+  return true;
+}
+
+bool putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, std::uint32_t argc,
+               std::string_view name, NativeFn fn) {
+  return putNative(heap, wk, gMissingCache, cls, selector, argc, name, fn);
 }
 
 void ensureNativeNames() {
@@ -97,10 +108,12 @@ void installAll(Heap& heap, Roots& /*roots*/, WellKnown& wk) {
   installCompiledMethod(heap, wk);
 }
 
-void installMissing(Heap& heap, Roots& roots, WellKnown& wk) {
+void installMissing(Heap& heap, Roots& roots, WellKnown& wk, ClassMethodCache* cache) {
   gOnlyMissing = true;
+  gMissingCache = cache;
   installAll(heap, roots, wk);
   gOnlyMissing = false;
+  gMissingCache = nullptr;
 }
 
 }  // namespace kernel

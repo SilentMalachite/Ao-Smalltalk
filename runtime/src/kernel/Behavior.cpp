@@ -266,6 +266,9 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   ctx.heap.slotAtPut(meta.slot, kClassSlotInstVarNames, Oop::nil());
 
   ctx.wk.define(nameBytes, cls.slot);
+  // SPEC §3.3: the name may have meant another class, which the cache then still holds. Every
+  // class definition drops the whole cache; a new name only costs the re-lookups.
+  invalidateMethodCache(ctx.cache, Oop{});
   return cls.slot;
 }
 

@@ -29,8 +29,18 @@ struct ClassMethodCache {
   void addRoots(Roots& roots);
   Oop probe(Heap& heap, Oop klass, Oop selector) const;
   void insert(Heap& heap, Oop klass, Oop selector, Oop method);
-  void forget(Heap& heap, Oop klass, Oop selector);
+  // Drops every entry for selector, whatever the receiver's class. Does not GC.
+  void flushSelector(Oop selector);
+  // Drops every entry. Does not GC.
+  void flushAll();
 };
+
+// SPEC §3.3 (キャッシュの無効化): the one function every change of what a send finds goes
+// through. A method added to or replaced in a dictionary (installMethod: Browser accept, file-in
+// method chunks; putNative) passes its selector, and every entry for it is dropped. A class
+// definition, which may replace the class a name meant, passes the empty Oop, and the whole
+// cache is dropped. A null cache (outside a session, Bootstrap) has nothing to drop. Does not GC.
+void invalidateMethodCache(ClassMethodCache* cache, Oop selector);
 
 struct CallContext;
 

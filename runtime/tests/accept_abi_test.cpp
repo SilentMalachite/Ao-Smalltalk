@@ -156,3 +156,59 @@ TEST(AcceptAbi, ObjectSubclassObjectIsCompileError) {
   EXPECT_EQ(before, ao_browser_class_count());
   ao_runtime_shutdown();
 }
+
+// SPEC §3.3 キャッシュの無効化: キャッシュは受信側のクラスで引く。Object>>zork を再 Accept したら、
+// `3 zork` が SmallInteger の下に残したエントリも捨てる（定義クラスの分だけでは足りない）。
+TEST(AcceptAbi, ReacceptReachesSendCachedForSubclassReceiver) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "zork\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("3 zork")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "zork\n  ^2\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("3 zork")) << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, printIt("Object new zork")) << err.message;
+  EXPECT_STREQ("2", out);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.3: メソッドチャンク（file-in、ao_accept_class）による再定義も、キャッシュ済みの送信に届く。
+// 定義クラスのインスタンスにも、継承するサブクラスのインスタンスにも。
+TEST(AcceptAbi, ChunkRedefinitionReachesCachedSends) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B3R5M\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B3-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class("B3R5M subclass: #B3R5M2\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B3-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B3R5M", 0, "foo\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("B3R5M new foo")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("B3R5M2 new foo")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, ao_accept_class("!B3R5M methodsFor: 'x'!\nfoo\n  ^2! !", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("B3R5M new foo")) << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, printIt("B3R5M2 new foo")) << err.message;
+  EXPECT_STREQ("2", out);
+  ao_runtime_shutdown();
+}

@@ -312,6 +312,8 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
   if (!MethodDictionary::atPut(ctx.heap, dict, sel, cm.slot)) {
     return Oop{};
   }
+  // SPEC §3.3: accept and file-in method chunks both come here. atPut did not GC, so sel is valid.
+  invalidateMethodCache(ctx.cache, sel);
   return cm.slot;
 }
 
@@ -466,9 +468,6 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
       MethodDictionary::at(ctx.heap, dictNow, selNow) != kept.slot) {
     assignError(error, "install failed");
     return false;
-  }
-  if (ctx.cache != nullptr) {
-    ctx.cache->forget(ctx.heap, tgt.slot, selNow);
   }
   const Oop replaced = old.slot.isHeap() ? old.slot : Oop{};
   rememberMethodSource(kept.slot, text.slot, replaced);

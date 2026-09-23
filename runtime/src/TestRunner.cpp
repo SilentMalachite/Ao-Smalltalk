@@ -119,10 +119,6 @@ bool runFile(CallContext& ctx, Root& cls, Root& doIt, const std::string& body) {
   if (!instance.slot.isHeap()) {
     return false;
   }
-  // installMethod replaces the dictionary slot and leaves the global cache.
-  if (ctx.cache != nullptr) {
-    ctx.cache->forget(ctx.heap, ctx.wk.classOf(instance.slot), doIt.slot);
-  }
   return !send(ctx, instance.slot, doIt.slot, nullptr, 0, nullptr).isEmpty();
 }
 
@@ -143,7 +139,7 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
   if (!cls.slot.isHeap()) {
     return 1;
   }
-  if (!kernel::putNative(ctx.heap, ctx.wk, cls.slot, "assert:equals:", 2,
+  if (!kernel::putNative(ctx.heap, ctx.wk, ctx.cache, cls.slot, "assert:equals:", 2,
                          "ao_AoTest_assert_equals_", ao_AoTest_assert_equals_)) {
     return 1;
   }

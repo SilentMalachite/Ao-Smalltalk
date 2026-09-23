@@ -190,7 +190,7 @@ TEST(KernelInstall, InstallMissingAddsAbsentAndKeepsPresent) {
   // 古いイメージを真似る: numArgs は無く、whileTrue: はネイティブ以外が入っている。
   ASSERT_TRUE(ao::MethodDictionary::atPut(b.heap, dict, numArgs, ao::Oop::nil()));
   ASSERT_TRUE(ao::MethodDictionary::atPut(b.heap, dict, whileTrue, marker));
-  ao::kernel::installMissing(b.heap, b.roots, b.wk);
+  ao::kernel::installMissing(b.heap, b.roots, b.wk, &b.cache);
   const ao::Oop added = ao::MethodDictionary::at(b.heap, dict, numArgs);
   ASSERT_TRUE(added.isHeap());
   EXPECT_EQ(b.wk.nativeMethodClass, b.heap.klass(added));
@@ -200,4 +200,118 @@ TEST(KernelInstall, InstallMissingAddsAbsentAndKeepsPresent) {
                                     "ao_BlockContext_whileTrue_", ao::ao_BlockContext_whileTrue_));
   EXPECT_EQ(b.wk.nativeMethodClass,
             b.heap.klass(ao::MethodDictionary::at(b.heap, dict, whileTrue)));
+}
+
+namespace {
+
+ao::Oop answerOne(ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+  return ao::Oop::fromSmallInteger(1);
+}
+
+ao::Oop answerTwo(ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+  return ao::Oop::fromSmallInteger(2);
+}
+
+// file-in のクラス定義（applyClassDef → subclass:...）で name を定義し、束縛されたクラスを返す。
+ao::Oop fileInEmptyClass(Boot& b, const std::string& name) {
+  std::vector<ao::compiler::CompileError> errs;
+  const std::string src = "!Object subclass: #" + name +
+                          "\n"
+                          "  instanceVariableNames: ''\n"
+                          "  classVariableNames: ''\n"
+                          "  poolDictionaries: ''\n"
+                          "  category: 'B3-Test'!\n";
+  EXPECT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  return b.wk.named(name);
+}
+
+bool cacheHoldsClass(const Boot& b, ao::Oop cls) {
+  for (const auto& e : b.cache.entries) {
+    if (e.klass == cls) {
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
+// SPEC §3.3 キャッシュの無効化: flushSelector はそのセレクタのエントリを受信側のクラスによらず捨て、
+// 他のセレクタのエントリは残す。flushAll はすべて捨てる。
+TEST(MethodCacheInvalidation, FlushSelectorDropsEveryClassAndKeepsOtherSelectors) {
+  Boot b;
+  ao::Root printString(b.roots, b.wk.intern("printString"));
+  ao::Root yourself(b.roots, b.wk.intern("yourself"));
+  ao::Root printer(b.roots, ao::lookup(b.heap, b.wk.objectClass, printString.slot));
+  ao::Root self(b.roots, ao::lookup(b.heap, b.wk.objectClass, yourself.slot));
+  ASSERT_TRUE(printer.slot.isHeap());
+  ASSERT_TRUE(self.slot.isHeap());
+  b.cache.insert(b.heap, b.wk.objectClass, printString.slot, printer.slot);
+  b.cache.insert(b.heap, b.wk.smallIntegerClass, printString.slot, printer.slot);
+  b.cache.insert(b.heap, b.wk.trueClass, yourself.slot, self.slot);
+  // 3 件が別の行に入っていること（衝突すると後の insert が前を消し、下の検査が意味を失う）。
+  ASSERT_EQ(printer.slot, b.cache.probe(b.heap, b.wk.objectClass, printString.slot));
+  ASSERT_EQ(printer.slot, b.cache.probe(b.heap, b.wk.smallIntegerClass, printString.slot));
+  ASSERT_EQ(self.slot, b.cache.probe(b.heap, b.wk.trueClass, yourself.slot));
+  b.cache.flushSelector(printString.slot);
+  EXPECT_FALSE(b.cache.probe(b.heap, b.wk.objectClass, printString.slot).isHeap());
+  EXPECT_FALSE(b.cache.probe(b.heap, b.wk.smallIntegerClass, printString.slot).isHeap());
+  EXPECT_EQ(self.slot, b.cache.probe(b.heap, b.wk.trueClass, yourself.slot));
+  b.cache.flushAll();
+  EXPECT_FALSE(b.cache.probe(b.heap, b.wk.trueClass, yourself.slot).isHeap());
+}
+
+// SPEC §3.3: putNative による置換も、キャッシュ済みの送信に届く。定義クラス（Object）ではなく、
+// サブクラスのレシーバ（3）で入ったエントリも捨てる。
+TEST(MethodCacheInvalidation, PutNativeReplacementReachesCachedSend) {
+  Boot b;
+  const ao::Oop three = ao::Oop::fromSmallInteger(3);
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, &b.cache, b.wk.objectClass, "b3CacheProbe", 0,
+                                    "ao_MethodCacheProbe_one", answerOne));
+  ao::Oop got = send0(b, three, "b3CacheProbe");
+  ASSERT_TRUE(got.isSmallInteger());
+  EXPECT_EQ(1, got.smallIntegerValue());
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, &b.cache, b.wk.objectClass, "b3CacheProbe", 0,
+                                    "ao_MethodCacheProbe_two", answerTwo));
+  got = send0(b, three, "b3CacheProbe");
+  ASSERT_TRUE(got.isSmallInteger());
+  EXPECT_EQ(2, got.smallIntegerValue());
+}
+
+// SPEC §3.3 / §3.10: installMissing（イメージのロード後の ensureKernelNatives）が足したネイティブは、
+// それまでスーパークラスのメソッドに解決してキャッシュしていた送信にも届く。
+TEST(MethodCacheInvalidation, InstallMissingReachesCachedSend) {
+  Boot b;
+  const ao::Oop dict = b.heap.slotAt(b.wk.trueClass, ao::kClassSlotMethodDict);
+  // 古いイメージを真似る: True>>printString が無く、Object>>printString（クラス名）が答える。
+  ASSERT_TRUE(ao::MethodDictionary::atPut(b.heap, dict, b.wk.intern("printString"),
+                                          ao::Oop::nil()));
+  ao::Oop got = send0(b, ao::Oop::true_(), "printString");
+  ASSERT_TRUE(got.isHeap());
+  EXPECT_EQ("True", ao::Str::toUtf8(b.heap, got));
+  ao::kernel::installMissing(b.heap, b.roots, b.wk, &b.cache);
+  got = send0(b, ao::Oop::true_(), "printString");
+  ASSERT_TRUE(got.isHeap());
+  EXPECT_EQ("true", ao::Str::toUtf8(b.heap, got));
+}
+
+// SPEC §3.3: 既存の名前へのクラス定義（クラスの差し替え）はキャッシュ全体を捨てる。古いクラスと
+// そのメタクラスのエントリは残らず、古いクラスで送信が当たらない。
+TEST(MethodCacheInvalidation, ClassRedefinitionDropsOldClassEntries) {
+  Boot b;
+  ao::Root old(b.roots, fileInEmptyClass(b, "B3CacheReplaced"));
+  ASSERT_TRUE(old.slot.isHeap());
+  ao::Root inst(b.roots, send0(b, old.slot, "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  ASSERT_TRUE(send0(b, inst.slot, "printString").isHeap());
+  ASSERT_TRUE(cacheHoldsClass(b, old.slot));
+  ASSERT_TRUE(cacheHoldsClass(b, b.heap.klass(old.slot)));
+  ao::Root replacement(b.roots, fileInEmptyClass(b, "B3CacheReplaced"));
+  ASSERT_TRUE(replacement.slot.isHeap());
+  ASSERT_NE(old.slot, replacement.slot);
+  EXPECT_FALSE(cacheHoldsClass(b, old.slot));
+  EXPECT_FALSE(cacheHoldsClass(b, b.heap.klass(old.slot)));
+  const ao::Oop fresh = send0(b, replacement.slot, "new");
+  ASSERT_TRUE(fresh.isHeap());
+  EXPECT_EQ(replacement.slot, b.heap.klass(fresh));
 }

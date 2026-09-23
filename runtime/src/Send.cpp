@@ -164,10 +164,29 @@ void ClassMethodCache::insert(Heap& heap, Oop klass, Oop selector, Oop method) {
   e.method = method;
 }
 
-void ClassMethodCache::forget(Heap& heap, Oop klass, Oop selector) {
-  auto& e = entries[cacheIndex(heap, klass, selector)];
-  if (e.klass == klass && e.selector == selector) {
-    e.method = Oop{};
+void ClassMethodCache::flushSelector(Oop selector) {
+  // The index hashes the receiver's class too, so the selector's entries may be in any row.
+  for (auto& e : entries) {
+    if (e.selector == selector) {
+      e = Entry{};
+    }
+  }
+}
+
+void ClassMethodCache::flushAll() {
+  for (auto& e : entries) {
+    e = Entry{};
+  }
+}
+
+void invalidateMethodCache(ClassMethodCache* cache, Oop selector) {
+  if (cache == nullptr) {
+    return;
+  }
+  if (selector.isEmpty()) {
+    cache->flushAll();
+  } else {
+    cache->flushSelector(selector);
   }
 }
 
