@@ -1,8 +1,13 @@
 #pragma once
 
+#include <cassert>
 #include <cstdint>
 
 namespace ao {
+
+// SmallInteger の範囲（63 ビットの 2 の補数）。
+inline constexpr std::int64_t kSmiMin = -(std::int64_t{1} << 62);
+inline constexpr std::int64_t kSmiMax = (std::int64_t{1} << 62) - 1;
 
 class Oop {
  public:
@@ -12,6 +17,7 @@ class Oop {
   static constexpr std::uint64_t kLow3 = 0x7;
 
   static Oop fromSmallInteger(std::int64_t value) {
+    assert(value >= kSmiMin && value <= kSmiMax && "fromSmallInteger: value out of range");
     Oop o;
     o.raw_ = (static_cast<std::uint64_t>(value) << 1) | kSmiTag;
     return o;
