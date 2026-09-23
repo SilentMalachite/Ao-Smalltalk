@@ -118,7 +118,7 @@ TEST(ArrayString, FromSlotsAndDo) {
 
   static std::int64_t sum;
   sum = 0;
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (args[0].isSmallInteger()) {
       sum += args[0].smallIntegerValue();
     }
@@ -136,7 +136,7 @@ TEST(ArrayString, StringDoYieldsCharacters) {
   static char32_t seen[2];
   static int nseen;
   nseen = 0;
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (nseen < 2 && args[0].isCharacter()) {
       seen[nseen++] = args[0].characterValue();
     }

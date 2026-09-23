@@ -206,21 +206,22 @@ Oop selNextPut(WellKnown& wk) { return wk.intern("nextPut:"); }
 
 }  // namespace
 
-Oop ao_Stream_next(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Stream_next(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return ao_Object_subclassResponsibility(ctx, receiver, nullptr, 0);
 }
 
-Oop ao_Stream_nextPut_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Stream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return ao_Object_subclassResponsibility(ctx, receiver, nullptr, 0);
 }
 
-Oop ao_Stream_nextPutAll_each(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Stream_nextPutAll_each(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -229,7 +230,8 @@ Oop ao_Stream_nextPutAll_each(CallContext& ctx, Oop receiver, const Oop* args, s
   return send(ctx, stream.slot, selNextPut(ctx.wk), &elt.slot, 1, nullptr);
 }
 
-Oop ao_Stream_nextPutAll_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Stream_nextPutAll_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -244,7 +246,7 @@ Oop ao_Stream_nextPutAll_(CallContext& ctx, Oop receiver, const Oop* args, std::
   return coll.slot;
 }
 
-Oop ao_Stream_cr(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Stream_cr(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -254,7 +256,8 @@ Oop ao_Stream_cr(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc)
   return self.slot;
 }
 
-Oop ao_PositionableStream_on_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_PositionableStream_on_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -280,7 +283,8 @@ Oop ao_PositionableStream_on_(CallContext& ctx, Oop receiver, const Oop* args, s
   return stream.slot;
 }
 
-Oop ao_PositionableStream_next(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_PositionableStream_next(CallContext& ctx, const Oop& receiver, const Oop*,
+                               std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -297,7 +301,7 @@ Oop ao_PositionableStream_next(CallContext& ctx, Oop receiver, const Oop*, std::
   return send(ctx, coll.slot, ctx.wk.selAt_, &idx, 1, nullptr);
 }
 
-Oop ao_PositionableStream_nextPut_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_PositionableStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                    std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
@@ -340,14 +344,15 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, Oop receiver, const Oop* ar
   return val.slot;
 }
 
-Oop ao_PositionableStream_position(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_PositionableStream_position(CallContext& ctx, const Oop& receiver, const Oop*,
+                                   std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kStreamPosition);
 }
 
-Oop ao_PositionableStream_position_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_PositionableStream_position_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                     std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
@@ -369,7 +374,8 @@ Oop ao_PositionableStream_position_(CallContext& ctx, Oop receiver, const Oop* a
   return receiver;
 }
 
-Oop ao_PositionableStream_reset(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_PositionableStream_reset(CallContext& ctx, const Oop& receiver, const Oop*,
+                                std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -377,7 +383,8 @@ Oop ao_PositionableStream_reset(CallContext& ctx, Oop receiver, const Oop*, std:
   return receiver;
 }
 
-Oop ao_PositionableStream_contents(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_PositionableStream_contents(CallContext& ctx, const Oop& receiver, const Oop*,
+                                   std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -387,7 +394,7 @@ Oop ao_PositionableStream_contents(CallContext& ctx, Oop receiver, const Oop*, s
   return copyPrefix(ctx, coll, n);
 }
 
-Oop ao_WriteStream_contents(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_WriteStream_contents(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -397,7 +404,7 @@ Oop ao_WriteStream_contents(CallContext& ctx, Oop receiver, const Oop*, std::uin
   return copyPrefix(ctx, coll, n);
 }
 
-Oop ao_Transcript_nextPut_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_Transcript_nextPut_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -405,7 +412,7 @@ Oop ao_Transcript_nextPut_(CallContext& ctx, Oop, const Oop* args, std::uint32_t
   return args[0];
 }
 
-Oop ao_Transcript_nextPutAll_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_Transcript_nextPutAll_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -413,16 +420,17 @@ Oop ao_Transcript_nextPutAll_(CallContext& ctx, Oop, const Oop* args, std::uint3
   return args[0];
 }
 
-Oop ao_Transcript_show_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Transcript_show_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   ao_Transcript_nextPutAll_(ctx, receiver, args, argc);
   return receiver;
 }
 
-Oop ao_Transcript_cr(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Transcript_cr(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return ao_Stream_cr(ctx, receiver, args, argc);
 }
 
-Oop ao_Transcript_clear(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Transcript_clear(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -430,7 +438,7 @@ Oop ao_Transcript_clear(CallContext& ctx, Oop receiver, const Oop*, std::uint32_
   return receiver;
 }
 
-Oop ao_Transcript_class_nextPut_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Transcript_class_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -438,7 +446,7 @@ Oop ao_Transcript_class_nextPut_(CallContext& ctx, Oop receiver, const Oop* args
   return forwardTranscriptClass(ctx, receiver, "nextPut:", args, argc);
 }
 
-Oop ao_Transcript_class_nextPutAll_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Transcript_class_nextPutAll_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                     std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -446,7 +454,7 @@ Oop ao_Transcript_class_nextPutAll_(CallContext& ctx, Oop receiver, const Oop* a
   return forwardTranscriptClass(ctx, receiver, "nextPutAll:", args, argc);
 }
 
-Oop ao_Transcript_class_show_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Transcript_class_show_(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -454,21 +462,22 @@ Oop ao_Transcript_class_show_(CallContext& ctx, Oop receiver, const Oop* args,
   return forwardTranscriptClass(ctx, receiver, "show:", args, argc);
 }
 
-Oop ao_Transcript_class_cr(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Transcript_class_cr(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return forwardTranscriptClass(ctx, receiver, "cr", nullptr, 0);
 }
 
-Oop ao_Transcript_class_clear(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Transcript_class_clear(CallContext& ctx, const Oop& receiver, const Oop*,
+                              std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return forwardTranscriptClass(ctx, receiver, "clear", nullptr, 0);
 }
 
-Oop ao_SmalltalkImage_at_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_SmalltalkImage_at_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -479,7 +488,7 @@ Oop ao_SmalltalkImage_at_(CallContext& ctx, Oop, const Oop* args, std::uint32_t 
   return Globals::at(ctx.wk, name);
 }
 
-Oop ao_SmalltalkImage_at_put_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_SmalltalkImage_at_put_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
@@ -491,7 +500,7 @@ Oop ao_SmalltalkImage_at_put_(CallContext& ctx, Oop, const Oop* args, std::uint3
   return args[1];
 }
 
-Oop ao_SmalltalkImage_globals(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_SmalltalkImage_globals(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }

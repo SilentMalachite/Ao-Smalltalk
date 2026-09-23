@@ -14,14 +14,16 @@ Oop sendBin(CallContext& ctx, Oop rcvr, const char* sel, Oop arg) {
 
 }  // namespace
 
-Oop ao_Magnitude_greaterThan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Magnitude_greaterThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return sendBin(ctx, args[0], "<", receiver);
 }
 
-Oop ao_Magnitude_lessOrEqual(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Magnitude_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -35,7 +37,7 @@ Oop ao_Magnitude_lessOrEqual(CallContext& ctx, Oop receiver, const Oop* args, st
   return sendBin(ctx, receiver, "=", args[0]);
 }
 
-Oop ao_Magnitude_greaterOrEqual(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Magnitude_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
                                 std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -50,7 +52,8 @@ Oop ao_Magnitude_greaterOrEqual(CallContext& ctx, Oop receiver, const Oop* args,
   return lt;
 }
 
-Oop ao_Magnitude_between_and_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Magnitude_between_and_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }

@@ -27,11 +27,13 @@ Oop createBlock(CallContext& ctx, Oop method, Oop receiver, Oop home, Oop copied
 
 Oop makeNativeBlock(CallContext& ctx, NativeFn fn, std::uint32_t argc);
 
-Oop ao_BlockContext_value(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
-Oop ao_BlockContext_value_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
-Oop ao_BlockContext_value_value_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_BlockContext_value(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc);
+Oop ao_BlockContext_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc);
+Oop ao_BlockContext_value_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc);
-Oop ao_BlockContext_valueWithArguments_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_BlockContext_valueWithArguments_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                         std::uint32_t argc);
 
 namespace Str {

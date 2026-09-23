@@ -80,7 +80,7 @@ Oop magMin(CallContext& ctx, Oop a, Oop b) {
 
 }  // namespace
 
-Oop ao_Point_x_y_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Point_x_y_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
@@ -96,21 +96,21 @@ Oop ao_Point_x_y_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t
   return p;
 }
 
-Oop ao_Point_x(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Point_x(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isPoint(ctx, receiver)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kPointX);
 }
 
-Oop ao_Point_y(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Point_y(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isPoint(ctx, receiver)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kPointY);
 }
 
-Oop ao_Point_x_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Point_x_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !isPoint(ctx, receiver)) {
     return Oop{};
   }
@@ -118,7 +118,7 @@ Oop ao_Point_x_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t a
   return receiver;
 }
 
-Oop ao_Point_y_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Point_y_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !isPoint(ctx, receiver)) {
     return Oop{};
   }
@@ -126,35 +126,35 @@ Oop ao_Point_y_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t a
   return receiver;
 }
 
-Oop ao_Point_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Point_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return pointBin(ctx, receiver, args[0], "+");
 }
 
-Oop ao_Point_subtract(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Point_subtract(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return pointBin(ctx, receiver, args[0], "-");
 }
 
-Oop ao_Point_multiply(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Point_multiply(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return pointBin(ctx, receiver, args[0], "*");
 }
 
-Oop ao_Point_intDivide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Point_intDivide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return pointBin(ctx, receiver, args[0], "//");
 }
 
-Oop ao_Point_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Point_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -173,7 +173,7 @@ Oop ao_Point_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   return sendBin(ctx, y.slot, "=", oy.slot).isTrue() ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Rectangle_origin_corner_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Rectangle_origin_corner_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                 std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
@@ -190,21 +190,21 @@ Oop ao_Rectangle_origin_corner_(CallContext& ctx, Oop receiver, const Oop* args,
   return r;
 }
 
-Oop ao_Rectangle_origin(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Rectangle_origin(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isRect(ctx, receiver)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kRectOrigin);
 }
 
-Oop ao_Rectangle_corner(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Rectangle_corner(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isRect(ctx, receiver)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kRectCorner);
 }
 
-Oop ao_Rectangle_width(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Rectangle_width(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isRect(ctx, receiver)) {
     return Oop{};
   }
@@ -219,7 +219,7 @@ Oop ao_Rectangle_width(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
   return sendBin(ctx, cx.slot, "-", ox.slot);
 }
 
-Oop ao_Rectangle_height(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Rectangle_height(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isRect(ctx, receiver)) {
     return Oop{};
   }
@@ -234,7 +234,7 @@ Oop ao_Rectangle_height(CallContext& ctx, Oop receiver, const Oop*, std::uint32_
   return sendBin(ctx, cy.slot, "-", oy.slot);
 }
 
-Oop ao_Rectangle_containsPoint_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Rectangle_containsPoint_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                 std::uint32_t argc) {
   if (argc != 1 || !isRect(ctx, receiver)) {
     return Oop{};
@@ -270,7 +270,8 @@ Oop ao_Rectangle_containsPoint_(CallContext& ctx, Oop receiver, const Oop* args,
   return Oop::true_();
 }
 
-Oop ao_Rectangle_intersect_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Rectangle_intersect_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1 || !isRect(ctx, receiver) || !isRect(ctx, args[0])) {
     return Oop{};
   }

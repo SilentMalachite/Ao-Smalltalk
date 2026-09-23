@@ -54,26 +54,28 @@ bool nameEquals(Heap& heap, Oop a, Oop b) {
 
 }  // namespace
 
-Oop ao_Object_identityEquals(CallContext&, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_identityEquals(CallContext&, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return receiver == args[0] ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Object_identityNotEquals(CallContext&, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_identityNotEquals(CallContext&, const Oop& receiver, const Oop* args,
+                                std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return receiver != args[0] ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Object_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return ao_Object_identityEquals(ctx, receiver, args, argc);
 }
 
-Oop ao_Object_class(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Object_class(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return ctx.wk.classOf(receiver);
 }
 
-Oop ao_Object_identityHash(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Object_identityHash(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   if (receiver.isSmallInteger()) {
     return receiver;
@@ -96,46 +98,47 @@ Oop ao_Object_identityHash(CallContext& ctx, Oop receiver, const Oop*, std::uint
   return Oop::fromSmallInteger(0);
 }
 
-Oop ao_Object_hash(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return ao_Object_identityHash(ctx, receiver, args, argc);
 }
 
-Oop ao_Object_yourself(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Object_yourself(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return receiver;
 }
 
-Oop ao_Object_isNil(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_Object_isNil(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Oop::false_();
 }
 
-Oop ao_Object_notNil(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_Object_notNil(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Oop::true_();
 }
 
-Oop ao_Object_ifNil_(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Object_ifNil_(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return receiver;
 }
 
-Oop ao_Object_ifNotNil_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_ifNotNil_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return sendValue(ctx, args[0]);
 }
 
-Oop ao_Object_perform_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_perform_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return send(ctx, receiver, args[0], nullptr, 0, nullptr);
 }
 
-Oop ao_Object_perform_with_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_perform_with_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 2) return Oop{};
   return send(ctx, receiver, args[0], &args[1], 1, nullptr);
 }
 
-Oop ao_Object_perform_withArguments_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Object_perform_withArguments_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                      std::uint32_t argc) {
   if (argc != 2) return Oop{};
   const Oop arr = args[1];
@@ -150,27 +153,28 @@ Oop ao_Object_perform_withArguments_(CallContext& ctx, Oop receiver, const Oop* 
   return send(ctx, receiver, args[0], unpacked.data(), n, nullptr);
 }
 
-Oop ao_Object_doesNotUnderstand_(CallContext&, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_doesNotUnderstand_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return args[0];
 }
 
-Oop ao_Object_error_(CallContext&, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_error_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return args[0];
 }
 
-Oop ao_Object_subclassResponsibility(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_Object_subclassResponsibility(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Str::fromUtf8(ctx.heap, ctx.wk, "subclassResponsibility");
 }
 
-Oop ao_Object_shouldNotImplement(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_Object_shouldNotImplement(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Str::fromUtf8(ctx.heap, ctx.wk, "shouldNotImplement");
 }
 
-Oop ao_Object_isKindOf_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_isKindOf_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   if (argc != 1) return Oop{};
   Oop cls = ctx.wk.classOf(receiver);
   while (cls.isHeap()) {
@@ -182,18 +186,20 @@ Oop ao_Object_isKindOf_(CallContext& ctx, Oop receiver, const Oop* args, std::ui
   return Oop::false_();
 }
 
-Oop ao_Object_isMemberOf_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_isMemberOf_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return ctx.wk.classOf(receiver) == args[0] ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Object_respondsTo_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_respondsTo_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1) return Oop{};
   const Oop meth = lookup(ctx.heap, ctx.wk.classOf(receiver), args[0]);
   return meth.isHeap() ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Object_shallowCopy(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Object_shallowCopy(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   if (!receiver.isHeap()) {
     return receiver;
@@ -216,11 +222,12 @@ Oop ao_Object_shallowCopy(CallContext& ctx, Oop receiver, const Oop*, std::uint3
   return copy;
 }
 
-Oop ao_Object_copy(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_copy(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return ao_Object_shallowCopy(ctx, receiver, args, argc);
 }
 
-Oop ao_Object_instVarAt_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_instVarAt_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1) return Oop{};
   if (!receiver.isHeap() || (ctx.heap.flags(receiver) & kFlagBytes) != 0 ||
       !args[0].isSmallInteger()) {
@@ -234,7 +241,8 @@ Oop ao_Object_instVarAt_(CallContext& ctx, Oop receiver, const Oop* args, std::u
   return ctx.heap.slotAt(receiver, static_cast<std::uint32_t>(idx - 1));
 }
 
-Oop ao_Object_instVarAt_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_instVarAt_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 2) return Oop{};
   if (!receiver.isHeap() || (ctx.heap.flags(receiver) & kFlagBytes) != 0 ||
       !args[0].isSmallInteger()) {
@@ -249,7 +257,8 @@ Oop ao_Object_instVarAt_put_(CallContext& ctx, Oop receiver, const Oop* args, st
   return args[1];
 }
 
-Oop ao_Object_instVarNamed_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_instVarNamed_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1) return Oop{};
   std::vector<Oop> chain;
   Oop cls = ctx.wk.classOf(receiver);
@@ -275,7 +284,7 @@ Oop ao_Object_instVarNamed_(CallContext& ctx, Oop receiver, const Oop* args, std
   return fail(ctx, receiver, "instVarNamed: not found");
 }
 
-Oop ao_Object_basicSize(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Object_basicSize(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   if (!receiver.isHeap()) {
     return Oop::fromSmallInteger(0);
@@ -293,7 +302,7 @@ Oop ao_Object_basicSize(CallContext& ctx, Oop receiver, const Oop*, std::uint32_
   return Oop::fromSmallInteger(var);
 }
 
-Oop ao_Object_basicAt_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_basicAt_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   if (!receiver.isHeap() || !args[0].isSmallInteger()) {
     return fail(ctx, receiver, "basicAt: index out of range");
@@ -319,7 +328,8 @@ Oop ao_Object_basicAt_(CallContext& ctx, Oop receiver, const Oop* args, std::uin
   return ctx.heap.slotAt(receiver, static_cast<std::uint32_t>(slot));
 }
 
-Oop ao_Object_basicAt_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
   if (argc != 2) return Oop{};
   if (!receiver.isHeap() || !args[0].isSmallInteger()) {
     return fail(ctx, receiver, "basicAt:put: index out of range");
@@ -351,7 +361,7 @@ Oop ao_Object_basicAt_put_(CallContext& ctx, Oop receiver, const Oop* args, std:
   return args[1];
 }
 
-Oop ao_Object_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Object_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   const Oop cls = ctx.wk.classOf(receiver);
   if (!cls.isHeap()) {
@@ -372,18 +382,18 @@ Oop ao_Object_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint3
   return str;
 }
 
-Oop ao_Object_printOn_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_printOn_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   Oop str = ao_Object_printString(ctx, receiver, nullptr, 0);
   auto sel = Symbol::intern(ctx.wk, "nextPutAll:");
   return send(ctx, args[0], sel, &str, 1, nullptr);
 }
 
-Oop ao_Object_storeOn_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Object_storeOn_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return ao_Object_printOn_(ctx, receiver, args, argc);
 }
 
-Oop ao_Object_inspect(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Object_inspect(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   if (ctx.inspectHook != nullptr) {
     ctx.inspectHook(ctx, receiver);
@@ -391,27 +401,28 @@ Oop ao_Object_inspect(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t 
   return receiver;
 }
 
-Oop ao_UndefinedObject_isNil(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_UndefinedObject_isNil(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Oop::true_();
 }
 
-Oop ao_UndefinedObject_notNil(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_UndefinedObject_notNil(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Oop::false_();
 }
 
-Oop ao_UndefinedObject_ifNil_(CallContext& ctx, Oop, const Oop* args, std::uint32_t argc) {
+Oop ao_UndefinedObject_ifNil_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return sendValue(ctx, args[0]);
 }
 
-Oop ao_UndefinedObject_ifNotNil_(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_UndefinedObject_ifNotNil_(CallContext&, const Oop& receiver, const Oop*,
+                                 std::uint32_t argc) {
   if (argc != 1) return Oop{};
   return receiver;
 }
 
-Oop ao_UndefinedObject_printString(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_UndefinedObject_printString(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   return Str::fromUtf8(ctx.heap, ctx.wk, "nil");
 }

@@ -71,6 +71,7 @@ add_executable(ao_runtime_tests
   tests/heap_alloc_test.cpp
   tests/gc_test.cpp
   tests/gc_stress_test.cpp
+  tests/gc_safety_test.cpp
   tests/bootstrap_test.cpp
   tests/symbol_test.cpp
   tests/method_dictionary_test.cpp

@@ -56,7 +56,7 @@ TEST(Process, PriorityColonStoresSmallInteger) {
 TEST(Process, BlockContextForkCreatesAndResumesProcess) {
   Boot b;
   auto p1 = send0(b, b.wk.processor, "activeProcess");
-  auto fn = [](ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
+  auto fn = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Oop::fromSmallInteger(1);
   };
   auto blk = ao::makeNativeBlock(b.ctx, fn, 0);

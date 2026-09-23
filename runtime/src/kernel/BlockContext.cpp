@@ -11,7 +11,7 @@ namespace ao {
 
 namespace {
 
-Oop applyBlock(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop applyBlock(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (!receiver.isHeap()) {
     return Oop{};
   }
@@ -41,20 +41,22 @@ Oop makeNativeBlock(CallContext& ctx, NativeFn fn, std::uint32_t argc) {
   return blk;
 }
 
-Oop ao_BlockContext_value(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_BlockContext_value(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   return applyBlock(ctx, receiver, args, argc);
 }
 
-Oop ao_BlockContext_value_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_BlockContext_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
   return applyBlock(ctx, receiver, args, argc);
 }
 
-Oop ao_BlockContext_value_value_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_BlockContext_value_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc) {
   return applyBlock(ctx, receiver, args, argc);
 }
 
-Oop ao_BlockContext_valueWithArguments_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_BlockContext_valueWithArguments_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                         std::uint32_t argc) {
   if (argc != 1 || !args[0].isHeap()) {
     return Oop{};

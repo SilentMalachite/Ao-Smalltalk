@@ -9,7 +9,7 @@ TEST(CollectionDo, ArrayCollectDoublesViaNativeBlock) {
   ao::Oop slots[3] = {ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(2),
                       ao::Oop::fromSmallInteger(3)};
   auto arr = ao::Arr::fromSlots(b.heap, b.wk, slots, 3);
-  auto body = [](ao::CallContext& ctx, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     ao::Oop two = ao::Oop::fromSmallInteger(2);
     return ao::send(ctx, args[0], ctx.wk.intern("*"), &two, 1, nullptr);
   };
@@ -40,7 +40,7 @@ TEST(CollectionDo, ArraySelectRejectDetectInjectIncludesIsEmpty) {
   EXPECT_TRUE(send1(b, arr, "includes:", ao::Oop::fromSmallInteger(2)).isTrue());
   EXPECT_TRUE(send1(b, arr, "includes:", ao::Oop::fromSmallInteger(9)).isFalse());
 
-  auto odd = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto odd = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (!args[0].isSmallInteger()) {
       return ao::Oop::false_();
     }
@@ -59,21 +59,21 @@ TEST(CollectionDo, ArraySelectRejectDetectInjectIncludesIsEmpty) {
   EXPECT_EQ(1, send0(b, rejected, "size").smallIntegerValue());
   EXPECT_EQ(2, b.heap.slotAt(rejected, 0).smallIntegerValue());
 
-  auto none = [](ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
+  auto none = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Oop::fromSmallInteger(0);
   };
   auto noneBlk = ao::makeNativeBlock(b.ctx, none, 0);
   auto detected = send2(b, arr, "detect:ifNone:", oddBlk, noneBlk);
   EXPECT_EQ(1, detected.smallIntegerValue());
 
-  auto noMatch = [](ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
+  auto noMatch = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Oop::false_();
   };
   auto noBlk = ao::makeNativeBlock(b.ctx, noMatch, 1);
   auto fallback = send2(b, arr, "detect:ifNone:", noBlk, noneBlk);
   EXPECT_EQ(0, fallback.smallIntegerValue());
 
-  auto add = [](ao::CallContext& ctx, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto add = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     return ao::send(ctx, args[0], ctx.wk.intern("+"), &args[1], 1, nullptr);
   };
   auto addBlk = ao::makeNativeBlock(b.ctx, add, 2);
@@ -95,7 +95,7 @@ TEST(CollectionDo, DictionaryEqualsLookupAndCollectValues) {
   EXPECT_EQ(2, send0(b, d, "size").smallIntegerValue());
   EXPECT_TRUE(send1(b, d, "includes:", ao::Oop::fromSmallInteger(9)).isTrue());
 
-  auto body = [](ao::CallContext& ctx, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     ao::Oop two = ao::Oop::fromSmallInteger(2);
     return ao::send(ctx, args[0], ctx.wk.intern("*"), &two, 1, nullptr);
   };
@@ -109,7 +109,7 @@ TEST(CollectionDo, DictionaryEqualsLookupAndCollectValues) {
 
   static std::vector<std::int64_t> keys;
   keys.clear();
-  auto assocDo = [](ao::CallContext& ctx, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto assocDo = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     auto k = ao::send(ctx, args[0], ctx.wk.intern("key"), nullptr, 0, nullptr);
     auto v = ao::send(ctx, args[0], ctx.wk.intern("value"), nullptr, 0, nullptr);
     if (v.isSmallInteger()) {
@@ -171,7 +171,7 @@ TEST(CollectionDo, OrderedCollectionAddAtDo) {
   EXPECT_EQ(10, send1(b, oc, "at:", ao::Oop::fromSmallInteger(10)).smallIntegerValue());
   static std::int64_t sum;
   sum = 0;
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (args[0].isSmallInteger()) {
       sum += args[0].smallIntegerValue();
     }
@@ -192,7 +192,7 @@ TEST(CollectionDo, IntervalFromToByAndIntegerTo) {
   EXPECT_EQ(3, send0(b, iv, "size").smallIntegerValue());
   static std::vector<std::int64_t> seen;
   seen.clear();
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (args[0].isSmallInteger()) {
       seen.push_back(args[0].smallIntegerValue());
     }
@@ -213,7 +213,8 @@ TEST(CollectionDo, IntervalFromToByAndIntegerTo) {
 TEST(CollectionDo, StringCollectYieldsCharacters) {
   Boot b;
   auto s = ao::Str::fromUtf8(b.heap, b.wk, "Aあ");
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) { return args[0]; };
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args,
+                 std::uint32_t) { return args[0]; };
   auto blk = ao::makeNativeBlock(b.ctx, body, 1);
   auto r = send1(b, s, "collect:", blk);
   ASSERT_TRUE(r.isHeap());
@@ -229,7 +230,8 @@ TEST(CollectionDo, CollectDoesNotGrowNativeRegistry) {
   Boot b;
   ao::Oop slots[1] = {ao::Oop::fromSmallInteger(1)};
   auto arr = ao::Arr::fromSlots(b.heap, b.wk, slots, 1);
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) { return args[0]; };
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args,
+                 std::uint32_t) { return args[0]; };
   auto blk = ao::makeNativeBlock(b.ctx, body, 1);
   send1(b, arr, "collect:", blk);
   const auto n = ao::NativeRegistry::size();

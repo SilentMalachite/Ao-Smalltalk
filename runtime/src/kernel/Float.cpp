@@ -178,7 +178,7 @@ Oop floatOp(CallContext& ctx, Oop a, Oop b, FlOp op) {
 
 }  // namespace
 
-Oop ao_Integer_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -188,35 +188,35 @@ Oop ao_Integer_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return fracOp(ctx, receiver, args[0], FracOp::Div);
 }
 
-Oop ao_Float_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return floatOp(ctx, receiver, args[0], FlOp::Add);
 }
 
-Oop ao_Float_subtract(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_subtract(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return floatOp(ctx, receiver, args[0], FlOp::Sub);
 }
 
-Oop ao_Float_multiply(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_multiply(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return floatOp(ctx, receiver, args[0], FlOp::Mul);
 }
 
-Oop ao_Float_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return floatOp(ctx, receiver, args[0], FlOp::Div);
 }
 
-Oop ao_Float_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -227,7 +227,7 @@ Oop ao_Float_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
                                                                      : Oop::false_();
 }
 
-Oop ao_Float_lessThan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Float_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -239,35 +239,37 @@ Oop ao_Float_lessThan(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return x < y ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Fraction_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Fraction_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return fracOp(ctx, receiver, args[0], FracOp::Add);
 }
 
-Oop ao_Fraction_subtract(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Fraction_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return fracOp(ctx, receiver, args[0], FracOp::Sub);
 }
 
-Oop ao_Fraction_multiply(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Fraction_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return fracOp(ctx, receiver, args[0], FracOp::Mul);
 }
 
-Oop ao_Fraction_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Fraction_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return fracOp(ctx, receiver, args[0], FracOp::Div);
 }
 
-Oop ao_Float_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Float_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }

@@ -46,7 +46,7 @@ TEST(SmallIntegerArith, ToDoSums) {
   Boot b;
   static std::int64_t sum;
   sum = 0;
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop* args, std::uint32_t) {
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (args[0].isSmallInteger()) sum += args[0].smallIntegerValue();
     return args[0];
   };

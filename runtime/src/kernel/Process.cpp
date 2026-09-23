@@ -152,33 +152,34 @@ Oop ctxSlot(CallContext& ctx, Oop receiver, std::uint32_t slot) {
 
 }  // namespace
 
-Oop ao_Process_resume(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc);
-Oop ao_Process_suspend(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc);
-Oop ao_Semaphore_signal(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc);
-Oop ao_Semaphore_wait(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc);
+Oop ao_Process_resume(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc);
+Oop ao_Process_suspend(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc);
+Oop ao_Semaphore_signal(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc);
+Oop ao_Semaphore_wait(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc);
 
-Oop ao_MethodContext_sender(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_MethodContext_sender(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return ctxSlot(ctx, receiver, kCtxSender);
 }
 
-Oop ao_MethodContext_method(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_MethodContext_method(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return ctxSlot(ctx, receiver, kCtxMethod);
 }
 
-Oop ao_MethodContext_receiver(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_MethodContext_receiver(CallContext& ctx, const Oop& receiver, const Oop*,
+                              std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return ctxSlot(ctx, receiver, kCtxReceiver);
 }
 
-Oop ao_ProcessorScheduler_activeProcess(CallContext& ctx, Oop receiver, const Oop*,
+Oop ao_ProcessorScheduler_activeProcess(CallContext& ctx, const Oop& receiver, const Oop*,
                                         std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
@@ -186,7 +187,8 @@ Oop ao_ProcessorScheduler_activeProcess(CallContext& ctx, Oop receiver, const Oo
   return ctxSlot(ctx, receiver, kSchedActive);
 }
 
-Oop ao_Process_priority_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Process_priority_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1 || !hasSlots(ctx.heap, receiver, kProcPriority)) {
     return Oop{};
   }
@@ -194,7 +196,7 @@ Oop ao_Process_priority_(CallContext& ctx, Oop receiver, const Oop* args, std::u
   return receiver;
 }
 
-Oop ao_Process_resume(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Process_resume(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kProcMyList)) {
     return Oop{};
   }
@@ -224,7 +226,7 @@ Oop ao_Process_resume(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t 
   return proc.slot;
 }
 
-Oop ao_Process_suspend(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Process_suspend(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kProcMyList)) {
     return Oop{};
   }
@@ -253,7 +255,8 @@ Oop ao_Process_suspend(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
   return proc.slot;
 }
 
-Oop ao_ProcessorScheduler_yield(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_ProcessorScheduler_yield(CallContext& ctx, const Oop& receiver, const Oop*,
+                                std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kSchedActive)) {
     return Oop{};
   }
@@ -277,7 +280,7 @@ Oop ao_ProcessorScheduler_yield(CallContext& ctx, Oop receiver, const Oop*, std:
   return sched.slot;
 }
 
-Oop ao_Semaphore_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Semaphore_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -293,7 +296,7 @@ Oop ao_Semaphore_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t a
   return sem.slot;
 }
 
-Oop ao_Semaphore_signal(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Semaphore_signal(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kSemList)) {
     return Oop{};
   }
@@ -313,7 +316,7 @@ Oop ao_Semaphore_signal(CallContext& ctx, Oop receiver, const Oop*, std::uint32_
   return sem.slot;
 }
 
-Oop ao_Semaphore_wait(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Semaphore_wait(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kSemList)) {
     return Oop{};
   }
@@ -339,7 +342,7 @@ Oop ao_Semaphore_wait(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t 
   return sem.slot;
 }
 
-Oop ao_SharedQueue_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_SharedQueue_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -359,7 +362,8 @@ Oop ao_SharedQueue_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
   return q.slot;
 }
 
-Oop ao_SharedQueue_nextPut_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_SharedQueue_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1 || !hasSlots(ctx.heap, receiver, kSqWrite)) {
     return Oop{};
   }
@@ -374,7 +378,7 @@ Oop ao_SharedQueue_nextPut_(CallContext& ctx, Oop receiver, const Oop* args, std
   return value.slot;
 }
 
-Oop ao_SharedQueue_next(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_SharedQueue_next(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !hasSlots(ctx.heap, receiver, kSqWrite)) {
     return Oop{};
   }
@@ -388,7 +392,7 @@ Oop ao_SharedQueue_next(CallContext& ctx, Oop receiver, const Oop*, std::uint32_
   return value;
 }
 
-Oop ao_BlockContext_fork(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_BlockContext_fork(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }

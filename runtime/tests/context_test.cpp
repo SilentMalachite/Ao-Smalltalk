@@ -51,7 +51,7 @@ TEST(ContextGc, BlockContextKeepsHomeAndCopied) {
 
 TEST(ContextGc, NativeBlockThunkStillValues) {
   Boot b;
-  auto body = [](ao::CallContext&, ao::Oop, const ao::Oop*, std::uint32_t) {
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Oop::fromSmallInteger(9);
   };
   auto blk = ao::makeNativeBlock(b.ctx, body, 0);

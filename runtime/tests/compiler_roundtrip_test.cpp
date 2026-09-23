@@ -93,7 +93,7 @@ TEST(CompilerRoundtrip, HandWrittenJumpFalseSkipsPush) {
 
 namespace {
 
-ao::Oop forceOld(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+ao::Oop forceOld(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return ao::Oop{};
   }
@@ -102,7 +102,7 @@ ao::Oop forceOld(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t ar
   return ao::Oop::nil();
 }
 
-ao::Oop forceNursery(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+ao::Oop forceNursery(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return ao::Oop{};
   }
@@ -111,7 +111,7 @@ ao::Oop forceNursery(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_
   return ao::Oop::nil();
 }
 
-ao::Oop forceSlide(ao::CallContext& ctx, ao::Oop, const ao::Oop*, std::uint32_t argc) {
+ao::Oop forceSlide(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return ao::Oop{};
   }

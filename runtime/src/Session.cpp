@@ -193,14 +193,15 @@ int sessionFileInLoadOrder(const char* path) {
   return fileInLoadOrder(*g_session->ctx, path, errors) ? 0 : 1;
 }
 
-Oop ao_Transcript_class_nextPut_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Transcript_class_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc);
-Oop ao_Transcript_class_nextPutAll_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Transcript_class_nextPutAll_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                     std::uint32_t argc);
-Oop ao_Transcript_class_show_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Transcript_class_show_(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc);
-Oop ao_Transcript_class_cr(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
-Oop ao_Transcript_class_clear(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Transcript_class_cr(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc);
+Oop ao_Transcript_class_clear(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc);
 
 void ensureTranscriptClassMethods() {

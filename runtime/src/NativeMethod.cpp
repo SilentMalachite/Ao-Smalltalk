@@ -117,7 +117,16 @@ Oop apply(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint
   if (fn == nullptr) {
     return Oop{};
   }
-  return fn(ctx, receiver, args, argc);
+  return invoke(ctx, fn, receiver, args, argc);
+}
+
+Oop invoke(CallContext& ctx, NativeFn fn, Oop receiver, const Oop* args, std::uint32_t argc) {
+  // Slot 0 is the receiver, slots 1..argc the arguments. The native reads them through references
+  // into these rooted slots, so every GC inside it updates what it sees.
+  Oop* frame = ctx.roots.pushFrame(receiver, args, argc);
+  const Oop result = fn(ctx, frame[0], frame + 1, argc);
+  ctx.roots.popFrame(frame, argc);
+  return result;
 }
 
 std::string_view nameBytes(Heap& heap, Oop method) {

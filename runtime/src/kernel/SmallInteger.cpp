@@ -25,28 +25,32 @@ bool bothInts(const WellKnown& wk, Oop a, Oop b) {
 
 }  // namespace
 
-Oop ao_SmallInteger_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_SmallInteger_add(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
   return LargeInteger::add(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_subtract(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
   return LargeInteger::sub(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_multiply(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
   return LargeInteger::mul(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_intDivide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_intDivide(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
@@ -56,7 +60,7 @@ Oop ao_Integer_intDivide(CallContext& ctx, Oop receiver, const Oop* args, std::u
   return LargeInteger::floorDiv(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_modulo(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_modulo(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
@@ -66,7 +70,7 @@ Oop ao_Integer_modulo(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return LargeInteger::modulo(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_quo_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_quo_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
@@ -76,7 +80,7 @@ Oop ao_Integer_quo_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   return LargeInteger::truncDiv(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_rem_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_rem_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
@@ -86,28 +90,29 @@ Oop ao_Integer_rem_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   return LargeInteger::remainder(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_bitAnd_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_bitAnd_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
   return LargeInteger::bitAnd(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_bitOr_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_bitOr_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
   return LargeInteger::bitOr(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_bitXor_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_bitXor_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
   return LargeInteger::bitXor(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_bitShift_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_bitShift_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
   if (argc != 1 || !LargeInteger::isInteger(ctx.wk, receiver) ||
       !LargeInteger::isInteger(ctx.wk, args[0])) {
     return Oop{};
@@ -115,7 +120,7 @@ Oop ao_Integer_bitShift_(CallContext& ctx, Oop receiver, const Oop* args, std::u
   return LargeInteger::bitShift(ctx, receiver, args[0]);
 }
 
-Oop ao_Integer_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -125,14 +130,15 @@ Oop ao_Integer_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) == 0);
 }
 
-Oop ao_Integer_lessThan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
     return Oop{};
   }
   return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) < 0);
 }
 
-Oop ao_Integer_to_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_to_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -148,7 +154,7 @@ Oop ao_Integer_to_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_
   return iv;
 }
 
-Oop ao_Integer_to_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Integer_to_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 2 || !receiver.isSmallInteger() || !args[0].isSmallInteger()) {
     return Oop{};
   }
@@ -169,7 +175,7 @@ Oop ao_Integer_to_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return receiver;
 }
 
-Oop ao_Integer_asCharacter(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Integer_asCharacter(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isSmallInteger()) {
     return Oop{};
   }
@@ -180,7 +186,8 @@ Oop ao_Integer_asCharacter(CallContext&, Oop receiver, const Oop*, std::uint32_t
   return Oop::fromCharacter(static_cast<char32_t>(v));
 }
 
-Oop ao_SmallInteger_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_SmallInteger_printString(CallContext& ctx, const Oop& receiver, const Oop*,
+                                std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }

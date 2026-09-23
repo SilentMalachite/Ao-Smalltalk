@@ -75,7 +75,7 @@ Oop arrayPrintString(CallContext& ctx, Oop receiver, int depth) {
 
 }  // namespace
 
-Oop ao_Array_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Array_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -85,7 +85,7 @@ Oop ao_Array_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32
   return arrayPrintString(ctx, receiver, 1);
 }
 
-Oop ao_Array_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Array_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -113,30 +113,33 @@ Oop ao_Array_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   return Oop::true_();
 }
 
-Oop ao_ArrayedCollection_size(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_ArrayedCollection_size(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   return ao_Object_basicSize(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_ArrayedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   return ao_Object_basicAt_(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_at_put_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_ArrayedCollection_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc) {
   return ao_Object_basicAt_put_(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_basicAt_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_ArrayedCollection_basicAt_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                   std::uint32_t argc) {
   return ao_Object_basicAt_(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_basicAt_put_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_ArrayedCollection_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                       std::uint32_t argc) {
   return ao_Object_basicAt_put_(ctx, receiver, args, argc);
 }
 
-Oop ao_ArrayedCollection_new_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_ArrayedCollection_new_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }

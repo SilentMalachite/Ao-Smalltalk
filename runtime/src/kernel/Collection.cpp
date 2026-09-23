@@ -15,7 +15,8 @@ Oop makeThunk(CallContext& ctx, NativeFn fn, std::uint32_t argc) {
   return makeNativeBlock(ctx, fn, argc);
 }
 
-Oop ao_Collection_collect_fill(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -33,7 +34,8 @@ Oop ao_Collection_collect_fill(CallContext& ctx, Oop receiver, const Oop* args, 
   return mapped.slot;
 }
 
-Oop ao_Collection_filter_count(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_filter_count(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -52,7 +54,8 @@ Oop ao_Collection_filter_count(CallContext& ctx, Oop receiver, const Oop* args, 
   return pred;
 }
 
-Oop ao_Collection_filter_fill(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_filter_fill(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -74,7 +77,8 @@ Oop ao_Collection_filter_fill(CallContext& ctx, Oop receiver, const Oop* args, s
   return pred;
 }
 
-Oop ao_Collection_detect_scan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_detect_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -92,7 +96,8 @@ Oop ao_Collection_detect_scan(CallContext& ctx, Oop receiver, const Oop* args, s
   return pred;
 }
 
-Oop ao_Collection_inject_scan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_inject_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -105,7 +110,8 @@ Oop ao_Collection_inject_scan(CallContext& ctx, Oop receiver, const Oop* args, s
   return next.slot;
 }
 
-Oop ao_Collection_includes_scan(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_includes_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -148,7 +154,8 @@ Oop filterIntoArray(CallContext& ctx, Root& rcvr, Root& blk, bool keepTrue) {
 
 }  // namespace
 
-Oop ao_ArrayedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_ArrayedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -171,7 +178,8 @@ Oop ao_ArrayedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, st
   return rcvr.slot;
 }
 
-Oop ao_Collection_collect_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_collect_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -190,7 +198,8 @@ Oop ao_Collection_collect_(CallContext& ctx, Oop receiver, const Oop* args, std:
   return arr.slot;
 }
 
-Oop ao_Collection_select_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_select_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -199,7 +208,8 @@ Oop ao_Collection_select_(CallContext& ctx, Oop receiver, const Oop* args, std::
   return filterIntoArray(ctx, rcvr, blk, true);
 }
 
-Oop ao_Collection_reject_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_reject_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -208,7 +218,7 @@ Oop ao_Collection_reject_(CallContext& ctx, Oop receiver, const Oop* args, std::
   return filterIntoArray(ctx, rcvr, blk, false);
 }
 
-Oop ao_Collection_detect_ifNone_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_Collection_detect_ifNone_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
@@ -230,7 +240,8 @@ Oop ao_Collection_detect_ifNone_(CallContext& ctx, Oop receiver, const Oop* args
   return send(ctx, none.slot, ctx.wk.selValue, nullptr, 0, nullptr);
 }
 
-Oop ao_Collection_inject_into_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_inject_into_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
@@ -247,7 +258,8 @@ Oop ao_Collection_inject_into_(CallContext& ctx, Oop receiver, const Oop* args, 
   return ctx.heap.slotAt(thunk.slot, kBlockHome);
 }
 
-Oop ao_Collection_includes_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Collection_includes_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -265,7 +277,7 @@ Oop ao_Collection_includes_(CallContext& ctx, Oop receiver, const Oop* args, std
   return ctx.heap.slotAt(thunk.slot, kCtxPc).isTrue() ? Oop::true_() : Oop::false_();
 }
 
-Oop ao_Collection_isEmpty(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Collection_isEmpty(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }

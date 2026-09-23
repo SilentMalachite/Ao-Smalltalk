@@ -147,7 +147,8 @@ Oop hashedSize(CallContext& ctx, Oop receiver, std::uint32_t argc) {
   return Oop::fromSmallInteger(tallyOf(ctx.heap, receiver));
 }
 
-Oop dictAt(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, bool identity) {
+Oop dictAt(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+           bool identity) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -161,7 +162,8 @@ Oop dictAt(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, 
   return ctx.heap.slotAt(inner, i + 1);
 }
 
-Oop dictAtPut(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, bool identity) {
+Oop dictAtPut(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+              bool identity) {
   if (argc != 2 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -197,7 +199,7 @@ Oop dictAtPut(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t arg
   return value.slot;
 }
 
-Oop dictIncludesKey(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc,
+Oop dictIncludesKey(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
                     bool identity) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
@@ -207,7 +209,8 @@ Oop dictIncludesKey(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   return findPair(ctx, dict, key, identity) == UINT32_MAX ? Oop::false_() : Oop::true_();
 }
 
-Oop setAdd(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, bool identity) {
+Oop setAdd(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+           bool identity) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -238,7 +241,8 @@ Oop setAdd(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, 
   return value.slot;
 }
 
-Oop setIncludes(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc, bool identity) {
+Oop setIncludes(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+                bool identity) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -308,44 +312,48 @@ bool ocGrow(CallContext& ctx, Root& oc) {
 
 }  // namespace
 
-Oop ao_Dictionary_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Dictionary_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return hashedNew(ctx, receiver);
 }
 
-Oop ao_Dictionary_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Dictionary_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   return hashedSize(ctx, receiver, argc);
 }
 
-Oop ao_Dictionary_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_at_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return dictAt(ctx, receiver, args, argc, false);
 }
 
-Oop ao_Dictionary_at_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   return dictAtPut(ctx, receiver, args, argc, false);
 }
 
-Oop ao_Dictionary_includesKey_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_includesKey_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
   return dictIncludesKey(ctx, receiver, args, argc, false);
 }
 
-Oop ao_IdentityDictionary_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_IdentityDictionary_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   return dictAt(ctx, receiver, args, argc, true);
 }
 
-Oop ao_IdentityDictionary_at_put_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_IdentityDictionary_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                   std::uint32_t argc) {
   return dictAtPut(ctx, receiver, args, argc, true);
 }
 
-Oop ao_IdentityDictionary_includesKey_(CallContext& ctx, Oop receiver, const Oop* args,
+Oop ao_IdentityDictionary_includesKey_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                        std::uint32_t argc) {
   return dictIncludesKey(ctx, receiver, args, argc, true);
 }
 
-Oop ao_Dictionary_includes_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_includes_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -370,7 +378,7 @@ Oop ao_Dictionary_includes_(CallContext& ctx, Oop receiver, const Oop* args, std
   return Oop::false_();
 }
 
-Oop ao_Dictionary_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -402,7 +410,8 @@ Oop ao_Dictionary_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return dict.slot;
 }
 
-Oop ao_Dictionary_collect_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Dictionary_collect_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -435,34 +444,36 @@ Oop ao_Dictionary_collect_(CallContext& ctx, Oop receiver, const Oop* args, std:
   return arr.slot;
 }
 
-Oop ao_Set_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Set_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return hashedNew(ctx, receiver);
 }
 
-Oop ao_Set_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Set_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   return hashedSize(ctx, receiver, argc);
 }
 
-Oop ao_Set_add_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Set_add_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return setAdd(ctx, receiver, args, argc, false);
 }
 
-Oop ao_Set_includes_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Set_includes_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   return setIncludes(ctx, receiver, args, argc, false);
 }
 
-Oop ao_IdentitySet_add_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_IdentitySet_add_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   return setAdd(ctx, receiver, args, argc, true);
 }
 
-Oop ao_IdentitySet_includes_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_IdentitySet_includes_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   return setIncludes(ctx, receiver, args, argc, true);
 }
 
-Oop ao_Set_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Set_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -485,7 +496,8 @@ Oop ao_Set_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t ar
   return set.slot;
 }
 
-Oop ao_OrderedCollection_new(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_OrderedCollection_new(CallContext& ctx, const Oop& receiver, const Oop*,
+                             std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
@@ -505,14 +517,16 @@ Oop ao_OrderedCollection_new(CallContext& ctx, Oop receiver, const Oop*, std::ui
   return oc.slot;
 }
 
-Oop ao_OrderedCollection_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_OrderedCollection_size(CallContext& ctx, const Oop& receiver, const Oop*,
+                              std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
   return Oop::fromSmallInteger(ocSize(ctx.heap, receiver));
 }
 
-Oop ao_OrderedCollection_add_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_OrderedCollection_add_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -537,7 +551,8 @@ Oop ao_OrderedCollection_add_(CallContext& ctx, Oop receiver, const Oop* args, s
   return value.slot;
 }
 
-Oop ao_OrderedCollection_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_OrderedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap() || !args[0].isSmallInteger()) {
     return Oop{};
   }
@@ -551,7 +566,8 @@ Oop ao_OrderedCollection_at_(CallContext& ctx, Oop receiver, const Oop* args, st
   return ctx.heap.slotAt(arr, static_cast<std::uint32_t>(first + index - 2));
 }
 
-Oop ao_OrderedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_OrderedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -571,7 +587,8 @@ Oop ao_OrderedCollection_do_(CallContext& ctx, Oop receiver, const Oop* args, st
   return oc.slot;
 }
 
-Oop ao_Association_key_value_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Association_key_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
@@ -587,21 +604,22 @@ Oop ao_Association_key_value_(CallContext& ctx, Oop receiver, const Oop* args, s
   return a;
 }
 
-Oop ao_Association_key(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Association_key(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kAssocKey);
 }
 
-Oop ao_Association_value(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Association_value(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kAssocValue);
 }
 
-Oop ao_Association_key_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Association_key_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                        std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -609,7 +627,8 @@ Oop ao_Association_key_(CallContext& ctx, Oop receiver, const Oop* args, std::ui
   return receiver;
 }
 
-Oop ao_Association_value_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Association_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -617,7 +636,8 @@ Oop ao_Association_value_(CallContext& ctx, Oop receiver, const Oop* args, std::
   return receiver;
 }
 
-Oop ao_Interval_from_to_by_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Interval_from_to_by_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 3) {
     return Oop{};
   }
@@ -660,7 +680,7 @@ static Oop intervalSizeSmi(std::int64_t start, std::int64_t stop, std::int64_t s
   return Oop{};
 }
 
-Oop ao_Interval_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -701,7 +721,7 @@ Oop ao_Interval_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t a
   return Oop::fromSmallInteger(count);
 }
 
-Oop ao_Interval_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -757,21 +777,21 @@ Oop ao_Interval_do_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32
   return iv.slot;
 }
 
-Oop ao_Bag_do_(CallContext&, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Bag_do_(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   return receiver;
 }
 
-Oop ao_Bag_size(CallContext&, Oop, const Oop*, std::uint32_t argc) {
+Oop ao_Bag_size(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return Oop::fromSmallInteger(0);
 }
 
-Oop ao_Bag_add_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Bag_add_(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }

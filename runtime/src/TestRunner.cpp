@@ -20,7 +20,8 @@
 namespace ao {
 namespace {
 
-Oop ao_AoTest_assert_equals_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_AoTest_assert_equals_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
   if (argc != 2 || args == nullptr) {
     return Oop{};
   }

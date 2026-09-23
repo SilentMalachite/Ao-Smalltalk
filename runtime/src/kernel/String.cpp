@@ -155,14 +155,14 @@ Oop at(Heap& heap, Oop str, std::int64_t oneBased) {
 
 }  // namespace Str
 
-Oop ao_String_size(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_String_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
   return Oop::fromSmallInteger(static_cast<std::int64_t>(Str::codePointCount(ctx.heap, receiver)));
 }
 
-Oop ao_String_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_String_at_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -176,7 +176,7 @@ Oop ao_String_at_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t
   return ch;
 }
 
-Oop ao_String_at_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_String_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
@@ -223,7 +223,7 @@ Oop ao_String_at_put_(CallContext& ctx, Oop receiver, const Oop* args, std::uint
   return fail(ctx, receiver, "at:put: index out of range");
 }
 
-Oop ao_String_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+Oop ao_String_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
@@ -245,14 +245,14 @@ Oop ao_String_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint3
              : Oop::false_();
 }
 
-Oop ao_String_asSymbol(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_String_asSymbol(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isBytes(ctx.heap, receiver)) {
     return Oop{};
   }
   return Symbol::intern(ctx.wk, Str::toUtf8(ctx.heap, receiver));
 }
 
-Oop ao_Symbol_asString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Symbol_asString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isBytes(ctx.heap, receiver)) {
     return Oop{};
   }
@@ -267,21 +267,21 @@ Oop ao_Symbol_asString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t
   return s;
 }
 
-Oop ao_Symbol_at_put_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Symbol_at_put_(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
   return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
 }
 
-Oop ao_Symbol_basicAt_put_(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_Symbol_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
   return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
 }
 
-Oop ao_String_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+Oop ao_String_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
