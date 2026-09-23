@@ -7,12 +7,16 @@
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/TestRunner.hpp"
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -555,4 +559,50 @@ TEST(GcSafety, LiteralArrayKeepsMethodClassAcrossGc) {
   ao::Root inst(b.roots, send0(b, cls.slot, "new"));
   ao::Root floats(b.roots, send0(b, inst.slot, "floats"));
   EXPECT_EQ(smi(8), send0(b, floats.slot, "size"));
+}
+
+// ao --test の assert:equals: は、失敗したとき printString のセレクタを C++ のローカルに持ったまま
+// 2 回 send していた。1 回目の printString が full GC を起こすと、2 回目は動く前の番地で send する。
+// 1 回目（実際の値の printString）で 4.8 MB の Array を作り、full GC を起こす。
+TEST(GcSafety, TestRunnerFailureMessageAfterFullGc) {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ao-gc-safety-test-runner";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir);
+  struct Cleanup {
+    fs::path path;
+    ~Cleanup() {
+      std::error_code ignore;
+      fs::remove_all(path, ignore);
+    }
+  } cleanup{dir};
+  {
+    std::ofstream fail(dir / "noisy.st");
+    fail << "SmalltalkImage new at: #GcSafetyMessage\n"
+         << "  put: (self assert: GcSafetyNoisy new equals: 3).\n";
+    ASSERT_TRUE(fail);
+  }
+  GarbageFirstBoot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #GcSafetyNoisy\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'GcSafety'!\n"
+                               "!GcSafetyNoisy methodsFor: 'printing'!\n"
+                               "printString\n"
+                               "  Array new: 600000.\n"
+                               "  ^'noisy'! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  const auto collectionsBefore = b.heap.oldCollections();
+  EXPECT_EQ(1, ao::runSmalltalkTests(b.ctx, dir.string()));
+  EXPECT_EQ(1, b.ctx.testFailures);
+  EXPECT_GT(b.heap.oldCollections(), collectionsBefore);
+  const ao::Oop message = b.wk.named("GcSafetyMessage");
+  ASSERT_TRUE(message.isHeap());
+  ASSERT_EQ(b.wk.stringClass, b.heap.klass(message));
+  EXPECT_EQ("noisy ~= 3", ao::Str::toUtf8(b.heap, message));
 }

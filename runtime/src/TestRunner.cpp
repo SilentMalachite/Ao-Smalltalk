@@ -34,9 +34,10 @@ Oop ao_AoTest_assert_equals_(CallContext& ctx, const Oop& receiver, const Oop* a
     return self.slot;
   }
   ctx.testFailures += 1;
-  const Oop printSel = ctx.wk.intern("printString");
-  Root left(ctx.roots, send(ctx, actual.slot, printSel, nullptr, 0, nullptr));
-  Root right(ctx.roots, send(ctx, expected.slot, printSel, nullptr, 0, nullptr));
+  // 1 回目の printString が full GC を起こすと Symbol も動く。セレクタはルートに載せる。
+  Root printSel(ctx.roots, ctx.wk.intern("printString"));
+  Root left(ctx.roots, send(ctx, actual.slot, printSel.slot, nullptr, 0, nullptr));
+  Root right(ctx.roots, send(ctx, expected.slot, printSel.slot, nullptr, 0, nullptr));
   std::string message = Str::toUtf8(ctx.heap, left.slot);
   message.append(" ~= ");
   message += Str::toUtf8(ctx.heap, right.slot);
