@@ -3,11 +3,14 @@
 #include "test_support.hpp"
 
 #include "ao/Compile.hpp"
+#include "ao/CompiledMethod.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/MethodDictionary.hpp"
 #include "ao/TestRunner.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -16,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -698,4 +702,148 @@ TEST(GcSafety, SelectWithFullNursery) {
   ASSERT_EQ(2u, b.heap.size(r.slot));
   EXPECT_EQ(smi(1), b.heap.slotAt(r.slot, 0));
   EXPECT_EQ(smi(3), b.heap.slotAt(r.slot, 1));
+}
+
+namespace {
+
+// 空のクラスを 1 つ定義する（file-in、GC ストレスは呼び出し側で止めておく）。
+ao::Oop defineEmptyClass(Boot& b, const std::string& name) {
+  std::vector<ao::compiler::CompileError> errs;
+  const std::string src = "!Object subclass: #" + name +
+                          "\n"
+                          "  instanceVariableNames: ''\n"
+                          "  classVariableNames: ''\n"
+                          "  poolDictionaries: ''\n"
+                          "  category: 'GcSafety'!\n";
+  EXPECT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  return b.wk.named(name);
+}
+
+// installMethod が Symbol の intern より前に割り当てる分（リテラル配列とバイト列）。
+std::size_t literalsAndBytes(Boot& b, const ao::compiler::MethodImage& image) {
+  return b.heap.objectBytesFor(static_cast<std::uint32_t>(image.literals.size()), 0) +
+         b.heap.objectBytesFor(static_cast<std::uint32_t>(image.bytes.size()), ao::kFlagBytes);
+}
+
+// GC を走らせずに old を上限まで使い切る（残りは 16 B 未満）。
+void fillOld(Boot& b) {
+  while (b.heap.allocateTenured(ao::Oop::nil(), 0, 0).isHeap()) {
+  }
+}
+
+// 辞書のキーに空 Oop が混ざっていない。
+void expectNoEmptyKey(Boot& b, ao::Oop dict) {
+  const ao::Oop inner = b.heap.slotAt(dict, ao::kDictSlotArray);
+  ASSERT_TRUE(inner.isHeap());
+  for (std::uint32_t i = 0; i + 1 < b.heap.size(inner); i += 2) {
+    EXPECT_FALSE(b.heap.slotAt(inner, i).isEmpty()) << "slot " << i;
+  }
+}
+
+ao::Oop probeNative(ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+  return ao::Oop::fromSmallInteger(1);
+}
+
+}  // namespace
+
+// Symbol の intern は GC しない。nursery が満杯なら old に置く（SPEC §3.2）。以前は nursery だけを
+// 見て空 Oop を返し、installMethod は空のセレクタで辞書に登録して成功を返していた（呼べば DNU）。
+// nursery の残りを「リテラル配列＋バイト列＋16 B」にして、新しいセレクタの Symbol だけを入らなくする。
+TEST(GcSafety, InstallMethodInternsFreshSelectorWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // 割り当ての途中で GC が走ると、nursery の残りを作れない
+  ao::Root cls(b.roots, defineEmptyClass(b, "GcSafetyFreshSelector"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  ao::Root inst(b.roots, send0(b, cls.slot, "new"));
+  const auto cr = ao::compiler::compileMethod("zzProbeFreshSelector42\n  ^42");
+  ASSERT_TRUE(cr.ok) << cr.error.message;
+
+  fillNurseryTo(b, literalsAndBytes(b, cr.image) + 16);
+  ao::Root installed(b.roots, ao::installMethod(b.ctx, cls.slot, cr.image));
+  ASSERT_TRUE(installed.slot.isHeap());
+  const ao::Oop sel = b.heap.slotAt(installed.slot, ao::kCmSlotSelector);
+  ASSERT_TRUE(sel.isHeap());
+  EXPECT_EQ(b.wk.symbolClass, b.heap.klass(sel));
+  EXPECT_EQ(sel, b.wk.intern("zzProbeFreshSelector42"));
+  expectNoEmptyKey(b, b.heap.slotAt(cls.slot, ao::kClassSlotMethodDict));
+
+  EXPECT_EQ(smi(42), send0(b, inst.slot, "zzProbeFreshSelector42"));
+  ao::Root sels(b.roots, send0(b, cls.slot, "selectors"));
+  ASSERT_TRUE(sels.slot.isHeap());
+  ASSERT_EQ(1u, b.heap.size(sels.slot));
+  EXPECT_EQ(b.wk.intern("zzProbeFreshSelector42"), b.heap.slotAt(sels.slot, 0));
+}
+
+// subclass: も instVarNames を intern する。nursery の残りがクラス一式と名前の配列の分だけでも、
+// 名前の Symbol は old に置かれ、定義は成功する（以前は intern の空 Oop で subclass: が失敗していた）。
+TEST(GcSafety, SubclassInternsFreshInstVarNamesWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // 割り当ての途中で GC が走ると、nursery の残りを作れない
+  ao::Root name(b.roots, b.wk.intern("GcSafetyFreshIvars"));
+  ao::Root ivars(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "zzProbeFreshIvar42"));
+  ao::Root empty(b.roots, ao::Str::fromUtf8(b.heap, b.wk, ""));
+  ao::Root cat(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "GcSafety"));
+  ao::Root sel(b.roots, b.wk.intern(
+                            "subclass:instanceVariableNames:classVariableNames:poolDictionaries:"
+                            "category:"));
+  ASSERT_TRUE(name.slot.isHeap() && ivars.slot.isHeap() && empty.slot.isHeap() &&
+              cat.slot.isHeap() && sel.slot.isHeap());
+
+  // クラスとメタクラス、2 つのメソッド辞書（外側と 16 スロットの内側）、名前 1 つの配列は入り、
+  // 名前の Symbol は入らない。
+  const std::size_t classBytes = b.heap.objectBytesFor(ao::kClassSlotCount, 0);
+  const std::size_t dictBytes = b.heap.objectBytesFor(2, 0) + b.heap.objectBytesFor(16, 0);
+  fillNurseryTo(b, 2 * classBytes + 2 * dictBytes + b.heap.objectBytesFor(1, 0) + 16);
+  const ao::Oop args[5] = {name.slot, ivars.slot, empty.slot, empty.slot, cat.slot};
+  ao::Root created(b.roots, ao::send(b.ctx, b.wk.objectClass, sel.slot, args, 5, nullptr));
+  ASSERT_TRUE(created.slot.isHeap());
+  EXPECT_EQ(created.slot, b.wk.named("GcSafetyFreshIvars"));
+  const ao::Oop names = b.heap.slotAt(created.slot, ao::kClassSlotInstVarNames);
+  ASSERT_TRUE(names.isHeap());
+  ASSERT_EQ(1u, b.heap.size(names));
+  EXPECT_EQ(b.wk.intern("zzProbeFreshIvar42"), b.heap.slotAt(names, 0));
+}
+
+// nursery が満杯で old も上限なら、新しいセレクタは intern できない。installMethod は空 Oop を返し、
+// 辞書には何も登録しない（空のキーを入れない）。
+TEST(GcSafety, InstallMethodFailsWhenSelectorCannotBeInterned) {
+  Boot b(1 << 20, 1 << 20, 1 << 20);  // old は 1 MiB で頭打ち
+  b.heap.setGcStress(0);
+  ao::Root cls(b.roots, defineEmptyClass(b, "GcSafetyNoSelector"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  const auto cr = ao::compiler::compileMethod("zzProbeUninternedSelector42\n  ^42");
+  ASSERT_TRUE(cr.ok) << cr.error.message;
+  ao::Root dict(b.roots, b.heap.slotAt(cls.slot, ao::kClassSlotMethodDict));
+  const ao::Oop tally = b.heap.slotAt(dict.slot, ao::kDictSlotTally);
+
+  fillOld(b);
+  fillNurseryTo(b, literalsAndBytes(b, cr.image) + 16);
+  EXPECT_FALSE(ao::installMethod(b.ctx, cls.slot, cr.image).isHeap());
+  EXPECT_EQ(tally, b.heap.slotAt(dict.slot, ao::kDictSlotTally));
+  expectNoEmptyKey(b, dict.slot);
+}
+
+// putNative も同じ。NativeMethod 一式は入るが、それより大きい新しいセレクタの Symbol は入らない。
+// 以前は空のセレクタで登録して true を返していた。
+TEST(GcSafety, PutNativeFailsWhenSelectorCannotBeInterned) {
+  Boot b(1 << 20, 1 << 20, 1 << 20);  // old は 1 MiB で頭打ち
+  b.heap.setGcStress(0);
+  ao::Root cls(b.roots, defineEmptyClass(b, "GcSafetyNoNativeSelector"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  const std::string selector(100, 'z');
+  const std::string_view nativeName = "ao_GcSafetyProbe_native";
+  const std::size_t nativeBytes =
+      b.heap.objectBytesFor(ao::kNativeSlotCount, 0) +
+      b.heap.objectBytesFor(static_cast<std::uint32_t>(nativeName.size()), ao::kFlagBytes);
+  ASSERT_GT(b.heap.objectBytesFor(static_cast<std::uint32_t>(selector.size()), ao::kFlagBytes),
+            nativeBytes);
+  ao::Root dict(b.roots, b.heap.slotAt(cls.slot, ao::kClassSlotMethodDict));
+  const ao::Oop tally = b.heap.slotAt(dict.slot, ao::kDictSlotTally);
+
+  fillOld(b);
+  fillNurseryTo(b, nativeBytes);
+  EXPECT_FALSE(
+      ao::kernel::putNative(b.heap, b.wk, cls.slot, selector, 0, nativeName, probeNative));
+  EXPECT_EQ(tally, b.heap.slotAt(dict.slot, ao::kDictSlotTally));
+  expectNoEmptyKey(b, dict.slot);
 }

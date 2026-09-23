@@ -15,6 +15,9 @@ bool putNative(Heap& heap, WellKnown& wk, Oop cls, std::string_view selector, st
     return false;
   }
   auto sel = Symbol::intern(wk, selector);
+  if (!sel.isHeap()) {
+    return false;
+  }
   std::uint32_t idx = 0;
   if (!NativeRegistry::addNamed(name, fn, &idx)) {
     return false;

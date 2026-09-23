@@ -296,8 +296,9 @@ Oop WellKnown::internWith(std::string_view utf8, bool tenured) {
     return intern_->table[it->second];
   }
   const auto n = static_cast<std::uint32_t>(utf8.size());
+  // GC しない（SPEC §3.2）。nursery が満杯なら old に置き、old の上限でだけ失敗する。
   Oop sym = tenured ? heap_->allocateTenured(symbolClass, n, kFlagBytes)
-                    : heap_->allocate(symbolClass, n, kFlagBytes);
+                    : heap_->allocateNoGc(symbolClass, n, kFlagBytes);
   if (!sym.isHeap()) {
     return Oop{};
   }

@@ -163,3 +163,20 @@ TEST(MethodDictionary, AtPutWithTallyAtSmiMaxFails) {
   EXPECT_FALSE(ao::lookup(b.heap, cls.slot, sel.slot).isHeap());
   EXPECT_EQ(max, b.heap.slotAt(dict.slot, ao::kDictSlotTally));
 }
+
+// セレクタはヒープの Symbol に限る。空 Oop（intern の失敗）や nil（空きスロットの印）、即値をキーに
+// しても登録せず、false を返す。
+TEST(MethodDictionary, AtPutRejectsNonHeapKey) {
+  Boot b;
+  ao::Root dict(b.roots, ao::MethodDictionary::create(b.heap, b.wk, 2));
+  ASSERT_TRUE(dict.slot.isHeap());
+  const ao::Oop meth = ao::Oop::fromSmallInteger(7);
+  EXPECT_FALSE(ao::MethodDictionary::atPut(b.heap, dict.slot, ao::Oop{}, meth));
+  EXPECT_FALSE(ao::MethodDictionary::atPut(b.heap, dict.slot, ao::Oop::nil(), meth));
+  EXPECT_FALSE(ao::MethodDictionary::atPut(b.heap, dict.slot, ao::Oop::fromSmallInteger(3), meth));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(0), b.heap.slotAt(dict.slot, ao::kDictSlotTally));
+  const ao::Oop inner = b.heap.slotAt(dict.slot, ao::kDictSlotArray);
+  for (std::uint32_t i = 0; i < b.heap.size(inner); ++i) {
+    EXPECT_TRUE(b.heap.slotAt(inner, i).isNil()) << "slot " << i;
+  }
+}

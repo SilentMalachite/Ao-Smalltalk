@@ -50,7 +50,8 @@ static bool growInner(Heap& heap, Oop dict, Oop& inner) {
 }
 
 bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
-  if (!dict.isHeap()) {
+  // キーはヒープの Symbol。空 Oop（intern の失敗）と nil（空きスロットの印）と即値は登録しない。
+  if (!dict.isHeap() || !key.isHeap()) {
     return false;
   }
   auto inner = heap.slotAt(dict, kDictSlotArray);

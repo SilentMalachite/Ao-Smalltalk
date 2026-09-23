@@ -35,6 +35,28 @@ Oop boxBytes(CallContext& ctx, Oop cls, const std::uint8_t* p, std::uint32_t n) 
   return o.slot;
 }
 
+// boxLiteral の結果が使えるか。即値の種類はそのまま使え、それ以外はヒープ Oop でなければならない
+// （割り当てや intern の失敗は空 Oop になる）。
+bool boxedOk(const compiler::Literal& lit, Oop boxed) {
+  switch (lit.kind) {
+    case compiler::LitKind::Nil:
+    case compiler::LitKind::True:
+    case compiler::LitKind::False:
+    case compiler::LitKind::Char:
+      return true;
+    case compiler::LitKind::Int:
+      return boxed.isSmallInteger() || boxed.isHeap();
+    case compiler::LitKind::Float:
+    case compiler::LitKind::String:
+    case compiler::LitKind::Symbol:
+    case compiler::LitKind::Array:
+    case compiler::LitKind::ByteArray:
+    case compiler::LitKind::Method:
+      return boxed.isHeap();
+  }
+  return boxed.isHeap();
+}
+
 Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) {
   switch (lit.kind) {
     case compiler::LitKind::Nil:
@@ -74,6 +96,9 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
       }
       for (std::uint32_t i = 0; i < n; ++i) {
         Oop e = boxLiteral(ctx, lit.elements[i], mcls.slot);
+        if (!boxedOk(lit.elements[i], e)) {
+          return Oop{};
+        }
         ctx.heap.slotAtPut(arr.slot, i, e);
       }
       return arr.slot;
@@ -220,11 +245,21 @@ Oop boxMethodImage(CallContext& ctx, const compiler::MethodImage& image, Oop met
   }
   for (std::uint32_t i = 0; i < n; ++i) {
     Oop e = boxLiteral(ctx, image.literals[i], mcls.slot);
+    if (!boxedOk(image.literals[i], e)) {
+      return Oop{};
+    }
     ctx.heap.slotAtPut(lits.slot, i, e);
   }
   Root bytes(ctx.roots, boxBytes(ctx, ctx.wk.byteArrayClass, image.bytes.data(),
                                  static_cast<std::uint32_t>(image.bytes.size())));
+  if (!bytes.slot.isHeap()) {
+    return Oop{};
+  }
+  // intern は GC しない。old も上限なら空 Oop になり、そのセレクタのメソッドは作らない。
   Root sel(ctx.roots, image.selector.empty() ? Oop::nil() : ctx.wk.intern(image.selector));
+  if (!image.selector.empty() && !sel.slot.isHeap()) {
+    return Oop{};
+  }
   return CompiledMethod::create(ctx, image.numArgs, image.numTemps, image.primitive, lits.slot,
                                 bytes.slot, sel.slot, mcls.slot);
 }
@@ -240,6 +275,9 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
     return Oop{};
   }
   const Oop sel = ctx.heap.slotAt(cm.slot, kCmSlotSelector);
+  if (!sel.isHeap()) {
+    return Oop{};
+  }
   // atPut は GC しない。辞書を伸ばせなければ（old が上限）登録せずに失敗を返す。
   if (!MethodDictionary::atPut(ctx.heap, dict, sel, cm.slot)) {
     return Oop{};

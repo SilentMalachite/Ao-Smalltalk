@@ -26,7 +26,8 @@ class WellKnown {
 
   Oop named(std::string_view name) const;
   Oop classOf(Oop obj) const;
-  // A new Symbol goes to the nursery. Does not GC; empty Oop when the nursery is full.
+  // A new Symbol goes to the nursery, or to old when the nursery is full (allocateNoGc).
+  // Does not GC; empty Oop when old is at its max.
   Oop intern(std::string_view utf8);
   // A new Symbol goes straight to old (allocateTenured). Empty Oop when old is at its max.
   Oop internTenured(std::string_view utf8);

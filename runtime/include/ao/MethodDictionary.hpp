@@ -16,7 +16,8 @@ namespace MethodDictionary {
 // Empty Oop when the nursery is full and old is at its max.
 Oop create(Heap& heap, WellKnown& wk, std::uint32_t capacity);
 Oop at(const Heap& heap, Oop dict, Oop key);
-// False when dict is not a dictionary or its array cannot grow (nursery full, old at its max).
+// False when dict is not a dictionary, key is not a heap object, or its array cannot grow
+// (nursery full, old at its max).
 bool atPut(Heap& heap, Oop dict, Oop key, Oop value);
 }
 
