@@ -25,14 +25,15 @@ TEST(BlockEval, ArgumentAndOuterTemp) {
   EXPECT_EQ(7, got.smallIntegerValue());
 }
 
-TEST(BlockEval, CopyDoesNotWriteOuter) {
+// SPEC §3.4: ブロックは外側の temp を共有する（05 Critical）。
+TEST(BlockEval, BlockAssignmentWritesOuterTemp) {
   Boot b;
   auto img = ao::compiler::compileMethod(
       "foo\n  | x |\n  x := 1.\n  [x := 2] value.\n  ^x");
   ASSERT_TRUE(img.ok) << img.error.message;
   auto cm = ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass);
   auto got = ao::Interpreter::run(b.ctx, cm, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
-  EXPECT_EQ(1, got.smallIntegerValue());
+  EXPECT_EQ(2, got.smallIntegerValue());
 }
 
 TEST(BlockEval, NonLocalReturnSkipsRest) {
@@ -530,4 +531,66 @@ TEST(BlockActivation, ExitedContextIsMarkedDead) {
   EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(got));
   EXPECT_TRUE(b.heap.slotAt(got, ao::kCtxPc).isNil());
   EXPECT_TRUE(b.heap.slotAt(got, ao::kCtxSender).isNil());
+}
+
+namespace {
+
+// source をコンパイルして引数なしで走らせる。
+ao::Oop runSource(Boot& b, const char* source) {
+  auto img = ao::compiler::compileMethod(source);
+  if (!img.ok) {
+    ADD_FAILURE() << img.error.message;
+    return ao::Oop{};
+  }
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  return ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+}
+
+}  // namespace
+
+// 同じクロージャの次の起動にも、前の代入が見える。
+TEST(BlockSharedTemps, CounterClosureKeepsState) {
+  Boot b;
+  ao::Root counter(b.roots, runSource(b, "counter\n  | n |\n  n := 0.\n  ^[n := n + 1]"));
+  ASSERT_TRUE(counter.slot.isHeap());
+  EXPECT_EQ(1, send0(b, counter.slot, "value").smallIntegerValue());
+  EXPECT_EQ(2, send0(b, counter.slot, "value").smallIntegerValue());
+  EXPECT_EQ(3, send0(b, counter.slot, "value").smallIntegerValue());
+}
+
+TEST(BlockSharedTemps, TwoBlocksShareTemp) {
+  Boot b;
+  const ao::Oop got = runSource(b,
+                                "foo\n  | x inc get |\n  x := 0.\n  inc := [x := x + 1].\n"
+                                "  get := [x].\n  inc value.\n  inc value.\n  ^get value");
+  EXPECT_EQ(2, got.smallIntegerValue());
+}
+
+TEST(BlockSharedTemps, ThreeLevelNesting) {
+  Boot b;
+  EXPECT_EQ(11, runSource(b, "foo\n  | a |\n  a := 1.\n  [[[a := a + 10] value] value] value.\n  ^a")
+                    .smallIntegerValue());
+  EXPECT_EQ(6, runSource(b, "foo\n  | a |\n  a := 1.\n"
+                            "  ^[:x | [:y | a := a + x + y. a] value: 3] value: 2")
+                   .smallIntegerValue());
+}
+
+// 05 Critical の失敗シナリオ: do: のブロックで外側の temp に足し込む。
+TEST(BlockSharedTemps, DoAccumulatesIntoOuterTemp) {
+  Boot b;
+  EXPECT_EQ(6, runSource(b, "foo\n  | sum |\n  sum := 0.\n  #(1 2 3) do: [:e | sum := sum + e].\n  ^sum")
+                   .smallIntegerValue());
+}
+
+// 代入の無い捕捉はコピーのまま。外側を後から書き換えても、作った時点の値を持つ。
+TEST(BlockSharedTemps, UnwrittenCaptureIsCopied) {
+  Boot b;
+  auto img = ao::compiler::compileMethod("foo: x\n  ^[x + 1]");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  ao::Oop arg = ao::Oop::fromSmallInteger(4);
+  ao::Root blk(b.roots, ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), &arg, 1,
+                                             ao::Oop::nil()));
+  ASSERT_TRUE(blk.slot.isHeap());
+  EXPECT_EQ(5, send0(b, blk.slot, "value").smallIntegerValue());
 }

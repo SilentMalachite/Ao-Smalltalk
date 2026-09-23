@@ -108,3 +108,70 @@ TEST(Codegen, DisassemblesAppendedOps) {
       "  ReturnNil\n",
       disassemble(image));
 }
+
+namespace {
+
+const ao::compiler::MethodImage* firstBlock(const ao::compiler::MethodImage& image) {
+  for (const auto& lit : image.literals) {
+    if (lit.kind == LitKind::Method) {
+      return lit.method.get();
+    }
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+// SPEC §3.4: 捕捉して代入する temp は temp ベクタに置く。ベクタはメソッドの入口で作る。
+TEST(Codegen, BoxedTempUsesRemoteTemp) {
+  auto r = compileMethod("foo\n  | x |\n  x := 1.\n  [x := 2] value.\n  ^x");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  EXPECT_EQ(1, r.image.numTemps);
+  const std::string d = disassemble(r.image);
+  EXPECT_EQ(0u, d.find("method foo args=0 temps=1 prim=0\nliterals: [method]\n  PushNewArray 1\n"
+                       "  PopStoreTemp 0\n  PushOne\n  PopStoreRemoteTemp 0 0\n  PushTemp 0\n"
+                       "  CreateBlock 0 1\n"))
+      << d;
+  EXPECT_NE(std::string::npos, d.find("PushRemoteTemp 0 0"));
+  const auto* inner = firstBlock(r.image);
+  ASSERT_NE(nullptr, inner);
+  EXPECT_EQ(1, inner->numTemps);
+  EXPECT_NE(std::string::npos, disassemble(*inner).find("StoreRemoteTemp 0 0"));
+}
+
+// 代入の無い捕捉は値をコピーする（ベクタを作らない）。
+TEST(Codegen, UnwrittenCaptureIsCopied) {
+  auto r = compileMethod("foo: x\n  ^[x + 1]");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const std::string d = disassemble(r.image);
+  EXPECT_EQ(std::string::npos, d.find("PushNewArray"));
+  EXPECT_NE(std::string::npos, d.find("PushTemp 0\n  CreateBlock 0 1"));
+  const auto* inner = firstBlock(r.image);
+  ASSERT_NE(nullptr, inner);
+  EXPECT_EQ(1, inner->numTemps);
+  EXPECT_NE(std::string::npos, disassemble(*inner).find("PushTemp 0"));
+  EXPECT_EQ(std::string::npos, disassemble(*inner).find("RemoteTemp"));
+}
+
+// 中間のブロックは、使わなくても内側のためにベクタを受け渡す。
+TEST(Codegen, MiddleBlockForwardsVector) {
+  auto r = compileMethod("foo\n  | a |\n  ^[[a := 1]]");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const auto* middle = firstBlock(r.image);
+  ASSERT_NE(nullptr, middle);
+  EXPECT_EQ(1, middle->numTemps);
+  EXPECT_NE(std::string::npos, disassemble(*middle).find("PushTemp 0\n  CreateBlock 0 1"));
+  const auto* inner = firstBlock(*middle);
+  ASSERT_NE(nullptr, inner);
+  EXPECT_NE(std::string::npos, disassemble(*inner).find("StoreRemoteTemp 0 0"));
+}
+
+// SPEC §3.8: 引数（メソッドとブロック）への代入はコンパイルエラー。
+TEST(Codegen, ArgumentAssignIsError) {
+  auto m = compileMethod("foo: x\n  x := 5");
+  EXPECT_FALSE(m.ok);
+  EXPECT_EQ("cannot assign to argument", m.error.message);
+  auto b = compileMethod("foo\n  ^[:a | a := 1]");
+  EXPECT_FALSE(b.ok);
+  EXPECT_EQ("cannot assign to argument", b.error.message);
+}
