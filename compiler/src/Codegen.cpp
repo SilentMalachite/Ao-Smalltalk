@@ -138,6 +138,97 @@ bool hasReceiverChild(const Ast& send) {
   return send.kids.size() == static_cast<std::size_t>(send.argc) + 1;
 }
 
+// Inline expansion (SPEC §3.5).
+enum class Inline : std::uint8_t {
+  None,
+  IfTrue,
+  IfFalse,
+  IfTrueIfFalse,
+  IfFalseIfTrue,
+  And,
+  Or,
+  WhileTrue,
+  WhileFalse,
+  WhileTrueUnary,
+  WhileFalseUnary,
+  ToDo,
+  ToByDo,
+};
+
+bool literalBlock(const Ast& n, std::size_t params) {
+  return n.kind == Ast::Kind::Block && n.params.size() == params;
+}
+
+// Number literals are the Literal nodes without a name.
+bool numberLiteral(const Ast& n) { return n.kind == Ast::Kind::Literal && n.name.empty(); }
+
+bool negativeNumber(const Ast& n) { return n.isFloat ? n.floatValue < 0 : n.intValue < 0; }
+
+// The one decision on inlining: the analysis and the code generator both ask it, so they agree
+// on which blocks are real scopes. Only a send compiled with its own receiver is inlined; the
+// cascade code never asks.
+Inline inlinePlan(const Ast& send) {
+  if (send.kind != Ast::Kind::Send || send.isSuper || !hasReceiverChild(send)) {
+    return Inline::None;
+  }
+  const std::string& sel = send.name;
+  const Ast& rcvr = send.kids[0];
+  const std::size_t nargs = send.kids.size() - 1;
+  const auto arg = [&](std::size_t i, std::size_t params) {
+    return literalBlock(send.kids[i + 1], params);
+  };
+  if (nargs == 0) {
+    if (sel == "whileTrue" && literalBlock(rcvr, 0)) {
+      return Inline::WhileTrueUnary;
+    }
+    if (sel == "whileFalse" && literalBlock(rcvr, 0)) {
+      return Inline::WhileFalseUnary;
+    }
+    return Inline::None;
+  }
+  if (nargs == 1) {
+    if (sel == "ifTrue:" && arg(0, 0)) {
+      return Inline::IfTrue;
+    }
+    if (sel == "ifFalse:" && arg(0, 0)) {
+      return Inline::IfFalse;
+    }
+    if (sel == "and:" && arg(0, 0)) {
+      return Inline::And;
+    }
+    if (sel == "or:" && arg(0, 0)) {
+      return Inline::Or;
+    }
+    if (sel == "whileTrue:" && literalBlock(rcvr, 0) && arg(0, 0)) {
+      return Inline::WhileTrue;
+    }
+    if (sel == "whileFalse:" && literalBlock(rcvr, 0) && arg(0, 0)) {
+      return Inline::WhileFalse;
+    }
+    return Inline::None;
+  }
+  if (nargs == 2) {
+    if (sel == "ifTrue:ifFalse:" && arg(0, 0) && arg(1, 0)) {
+      return Inline::IfTrueIfFalse;
+    }
+    if (sel == "ifFalse:ifTrue:" && arg(0, 0) && arg(1, 0)) {
+      return Inline::IfFalseIfTrue;
+    }
+    if (sel == "to:do:" && arg(1, 1)) {
+      return Inline::ToDo;
+    }
+    return Inline::None;
+  }
+  if (nargs == 3 && sel == "to:by:do:" && arg(2, 1)) {
+    const Ast& step = send.kids[2];
+    const bool nonzero = step.isFloat ? step.floatValue != 0 : step.intValue != 0;
+    if (numberLiteral(step) && nonzero) {
+      return Inline::ToByDo;
+    }
+  }
+  return Inline::None;
+}
+
 class Analyzer {
  public:
   explicit Analyzer(Analysis& an) : an_(an) {}
@@ -243,9 +334,64 @@ class Analyzer {
       case Ast::Kind::Block:
         realBlock(n, lex);
         return;
+      case Ast::Kind::Send: {
+        const Inline plan = inlinePlan(n);
+        if (plan != Inline::None) {
+          inlinedSend(n, plan, lex);
+          return;
+        }
+        for (const Ast& k : n.kids) {
+          walk(k, lex);
+        }
+        return;
+      }
       default:
         for (const Ast& k : n.kids) {
           walk(k, lex);
+        }
+        return;
+    }
+  }
+
+  // An inlined block is a lexical scope of the enclosing real scope; its variables take slots
+  // there (to:do:'s parameter as the loop variable).
+  void inlinedBlock(const Ast& blk, LexScope* lex, VarKind paramKind) {
+    LexScope* inner = newLex(lex, lex->real);
+    for (const std::string& p : blk.params) {
+      declare(inner, &blk, p, paramKind);
+    }
+    for (const std::string& t : blk.temps) {
+      declare(inner, &blk, t, VarKind::Temp);
+    }
+    for (const Ast& k : blk.kids) {
+      walk(k, inner);
+    }
+  }
+
+  void inlinedSend(const Ast& send, Inline plan, LexScope* lex) {
+    const Ast& rcvr = send.kids[0];
+    switch (plan) {
+      case Inline::WhileTrue:
+      case Inline::WhileFalse:
+      case Inline::WhileTrueUnary:
+      case Inline::WhileFalseUnary:
+        for (const Ast& k : send.kids) {
+          inlinedBlock(k, lex, VarKind::Temp);
+        }
+        return;
+      case Inline::ToDo:
+      case Inline::ToByDo:
+        // The limit (and the step) are read before the loop variable exists.
+        for (std::size_t i = 0; i + 1 < send.kids.size(); ++i) {
+          walk(send.kids[i], lex);
+        }
+        declare(lex, &send, "", VarKind::Hidden);
+        inlinedBlock(send.kids.back(), lex, VarKind::LoopVar);
+        return;
+      default:
+        walk(rcvr, lex);
+        for (std::size_t i = 1; i < send.kids.size(); ++i) {
+          inlinedBlock(send.kids[i], lex, VarKind::Temp);
         }
         return;
     }
@@ -824,6 +970,11 @@ class Emitter {
 
   void compileSend(const Ast& send, bool skipReceiver) {
     if (!skipReceiver) {
+      const Inline plan = inlinePlan(send);
+      if (plan != Inline::None) {
+        compileInlined(send, plan);
+        return;
+      }
       if (send.isSuper) {
         emit(Op::PushReceiver);
       } else if (hasReceiverChild(send)) {
@@ -850,6 +1001,139 @@ class Emitter {
     lit.text = send.name;
     const std::uint8_t li = intern(std::move(lit), send.span);
     emitU8U8(send.isSuper ? Op::SendSuper : Op::Send, li, send.argc);
+  }
+
+  // A backward jump to target, an offset in the instruction stream (base: the next instruction).
+  void emitJumpBack(Op op, std::size_t target) {
+    const std::int64_t off = static_cast<std::int64_t>(target) -
+                             static_cast<std::int64_t>(image_.bytes.size() + 3);
+    if (off < -32768) {
+      fail(SourceSpan{}, "jump offset out of range");
+      return;
+    }
+    emitI16(op, static_cast<std::int16_t>(off));
+  }
+
+  // The statements of an inlined block, leaving the last one's value (nil when empty).
+  void compileInlinedValue(const Ast& blk) {
+    emitEntry(blk, true);
+    if (blk.kids.empty() || blk.kids[0].kids.empty()) {
+      emit(Op::PushNil);
+      return;
+    }
+    const Ast& body = blk.kids[0];
+    for (std::size_t i = 0; i + 1 < body.kids.size(); ++i) {
+      compileStmt(body.kids[i]);
+    }
+    compileExpr(body.kids.back());
+  }
+
+  // The statements of an inlined block, leaving nothing.
+  void compileInlinedEffect(const Ast& blk) {
+    emitEntry(blk, true);
+    if (!blk.kids.empty()) {
+      compileStmt(blk.kids[0]);
+    }
+  }
+
+  const Var* declaredVar(const Ast& decl, std::size_t i) const {
+    const auto it = an_.declared.find(&decl);
+    return it == an_.declared.end() || i >= it->second.size() ? nullptr : it->second[i];
+  }
+
+  void emitSpecial(const char* selector) {
+    emitU8U8(Op::SendSpecial, static_cast<std::uint8_t>(specialIndex(selector)), 1);
+  }
+
+  // SPEC §3.5. Each form leaves one value, like the send it replaces.
+  void compileInlined(const Ast& send, Inline plan) {
+    const Ast& rcvr = send.kids[0];
+    switch (plan) {
+      case Inline::IfTrue:
+      case Inline::IfFalse:
+      case Inline::And:
+      case Inline::Or: {
+        compileExpr(rcvr);
+        const bool onTrue = plan == Inline::IfFalse || plan == Inline::Or;
+        const std::size_t skip = emitJump(onTrue ? Op::JumpTrue : Op::JumpFalse);
+        compileInlinedValue(send.kids[1]);
+        const std::size_t done = emitJump(Op::Jump);
+        patchJump(skip);
+        emit(plan == Inline::And ? Op::PushFalse : plan == Inline::Or ? Op::PushTrue : Op::PushNil);
+        patchJump(done);
+        return;
+      }
+      case Inline::IfTrueIfFalse:
+      case Inline::IfFalseIfTrue: {
+        compileExpr(rcvr);
+        const std::size_t other =
+            emitJump(plan == Inline::IfTrueIfFalse ? Op::JumpFalse : Op::JumpTrue);
+        compileInlinedValue(send.kids[1]);
+        const std::size_t done = emitJump(Op::Jump);
+        patchJump(other);
+        compileInlinedValue(send.kids[2]);
+        patchJump(done);
+        return;
+      }
+      case Inline::WhileTrue:
+      case Inline::WhileFalse: {
+        const std::size_t top = image_.bytes.size();
+        compileInlinedValue(rcvr);
+        const std::size_t exit = emitJump(plan == Inline::WhileTrue ? Op::JumpFalse : Op::JumpTrue);
+        compileInlinedEffect(send.kids[1]);
+        emitJumpBack(Op::Jump, top);
+        patchJump(exit);
+        emit(Op::PushNil);
+        return;
+      }
+      case Inline::WhileTrueUnary:
+      case Inline::WhileFalseUnary: {
+        const std::size_t top = image_.bytes.size();
+        compileInlinedValue(rcvr);
+        emitJumpBack(plan == Inline::WhileTrueUnary ? Op::JumpTrue : Op::JumpFalse, top);
+        emit(Op::PushNil);
+        return;
+      }
+      case Inline::ToDo:
+      case Inline::ToByDo:
+        compileToDo(send, plan == Inline::ToByDo);
+        return;
+      case Inline::None:
+        return;
+    }
+  }
+
+  // receiver to: limit [by: step] do: [:i | ...]. The receiver stays on the stack as the value.
+  void compileToDo(const Ast& send, bool hasStep) {
+    const Ast& body = send.kids.back();
+    const Var* loopVar = declaredVar(body, 0);
+    const Var* limit = declaredVar(send, 0);
+    if (loopVar == nullptr || limit == nullptr) {
+      fail(send.span, "to:do: missing from the analysis");
+      return;
+    }
+    const bool down = hasStep && negativeNumber(send.kids[2]);
+    compileExpr(send.kids[0]);
+    emit(Op::Dup);
+    emitStore(loopVar, true);
+    compileExpr(send.kids[1]);
+    emitStore(limit, true);
+    const std::size_t top = image_.bytes.size();
+    emitLoad(loopVar);
+    emitLoad(limit);
+    emitSpecial(down ? ">=" : "<=");
+    const std::size_t exit = emitJump(Op::JumpFalse);
+    compileInlinedEffect(body);
+    emitLoad(loopVar);
+    if (hasStep) {
+      compileExpr(send.kids[2]);
+    } else {
+      emit(Op::PushOne);
+    }
+    emitSpecial("+");
+    emitStore(loopVar, true);
+    emitJumpBack(Op::Jump, top);
+    patchJump(exit);
   }
 
   void compileCascade(const Ast& casc) {

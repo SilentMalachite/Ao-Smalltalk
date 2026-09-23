@@ -594,3 +594,307 @@ TEST(BlockSharedTemps, UnwrittenCaptureIsCopied) {
   ASSERT_TRUE(blk.slot.isHeap());
   EXPECT_EQ(5, send0(b, blk.slot, "value").smallIntegerValue());
 }
+
+// ---- SPEC §3.5 インライン展開: 展開した送信は、ネイティブと同じ Blue Book の意味で動く ----
+
+namespace {
+
+// 展開した to:do: が <= と + を本当に送ることを見るクラス。どちらも log に印を積む。
+// v:log: はレシーバを返し、+ は新しいインスタンスを返す。
+constexpr const char* kStepProbe =
+    "!Object subclass: #R2Step\n"
+    "  instanceVariableNames: 'v log'\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Step methodsFor: 'arithmetic'!\n"
+    "v\n"
+    "  ^v!\n"
+    "v: n log: aLog\n"
+    "  v := n.\n"
+    "  log := aLog!\n"
+    "<= limit\n"
+    "  log add: #le.\n"
+    "  ^v <= limit!\n"
+    "+ delta\n"
+    "  log add: #plus.\n"
+    "  ^R2Step new v: v + delta log: log! !\n";
+
+// mustBeBoolean を上書きしたクラス。R2Truthy は true を、R2Murky は Boolean でない値を答える。
+constexpr const char* kTruthProbe =
+    "!Object subclass: #R2Truthy\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Truthy methodsFor: 'coercing'!\n"
+    "mustBeBoolean\n"
+    "  ^true! !\n"
+    "!Object subclass: #R2Murky\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Murky methodsFor: 'coercing'!\n"
+    "mustBeBoolean\n"
+    "  ^3! !\n";
+
+bool fileIn(Boot& b, const char* source) {
+  std::vector<ao::compiler::CompileError> errs;
+  if (!ao::fileInString(b.ctx, source, errs) || !errs.empty()) {
+    ADD_FAILURE() << (errs.empty() ? "file-in failed" : errs[0].message);
+    return false;
+  }
+  return true;
+}
+
+// source の評価が「NonBoolean receiver」で中断したことを確かめ、中断の状態を消す。
+void expectNonBooleanAbort(Boot& b, const char* source) {
+  SCOPED_TRACE(source);
+  const ao::Oop got = runSource(b, source);
+  EXPECT_TRUE(got.isEmpty());
+  EXPECT_TRUE(b.ctx.aborting);
+  if (b.ctx.abortReason == nullptr) {
+    ADD_FAILURE() << "no abort reason";
+  } else {
+    EXPECT_EQ(std::string("NonBoolean receiver"), b.ctx.abortReason);
+  }
+  ao::clearUnwinding(b.ctx);
+}
+
+}  // namespace
+
+namespace {
+
+// runSource の GC で Symbol も動く。値を得たあとで intern し、今の番地と比べる。
+void expectSymbol(Boot& b, const char* name, ao::Oop got) {
+  EXPECT_EQ(b.wk.intern(name), got) << name;
+}
+
+}  // namespace
+
+// 展開した分岐の中の代入は、外側の temp に書く。値は選んだブロックの値。
+TEST(BlockInline, IfTrueAssignsOuterTemp) {
+  Boot b;
+  EXPECT_EQ(1, runSource(b, "foo\n  | y |\n  y := 0.\n  3 > 1 ifTrue: [y := 1].\n  ^y")
+                   .smallIntegerValue());
+  EXPECT_EQ(2, runSource(b, "foo\n  | y |\n  y := 0.\n  3 < 1 ifTrue: [y := 1] ifFalse: [y := 2].\n  ^y")
+                   .smallIntegerValue());
+  expectSymbol(b, "yes", runSource(b, "foo\n  ^3 > 1 ifFalse: [#no] ifTrue: [#yes]"));
+  expectSymbol(b, "no", runSource(b, "foo\n  ^3 < 1 ifTrue: [#yes] ifFalse: [#no]"));
+}
+
+// 選ぶ分岐が無ければ nil。
+TEST(BlockInline, FalseIfTrueIsNil) {
+  Boot b;
+  EXPECT_TRUE(runSource(b, "foo\n  ^false ifTrue: [1]").isNil());
+  EXPECT_TRUE(runSource(b, "foo\n  ^true ifFalse: [1]").isNil());
+  EXPECT_EQ(1, runSource(b, "foo\n  ^true ifTrue: [1]").smallIntegerValue());
+  EXPECT_EQ(1, runSource(b, "foo\n  ^false ifFalse: [1]").smallIntegerValue());
+}
+
+// and: はレシーバが false なら false、or: は true なら true。引数ブロックは評価しない。
+// それ以外は引数ブロックの値。
+TEST(BlockInline, AndOrShortCircuit) {
+  Boot b;
+  EXPECT_TRUE(runSource(b, "foo\n  ^false and: [1 / 0]").isFalse());
+  EXPECT_TRUE(runSource(b, "foo\n  ^true or: [nil foo]").isTrue());
+  EXPECT_EQ(7, runSource(b, "foo\n  ^true and: [7]").smallIntegerValue());
+  EXPECT_EQ(7, runSource(b, "foo\n  ^false or: [7]").smallIntegerValue());
+  EXPECT_EQ(1100, runSource(b,
+                            "foo\n  | n |\n  n := 0.\n"
+                            "  false and: [n := n + 1].\n  true or: [n := n + 10].\n"
+                            "  true and: [n := n + 100].\n  false or: [n := n + 1000].\n  ^n")
+                      .smallIntegerValue());
+  EXPECT_FALSE(b.ctx.aborting);
+}
+
+// while ループの値は nil。
+TEST(BlockInline, WhileLoopsAnswerNil) {
+  Boot b;
+  EXPECT_TRUE(runSource(b, "foo\n  | i |\n  i := 0.\n  ^[i < 3] whileTrue: [i := i + 1]").isNil());
+  EXPECT_TRUE(runSource(b, "foo\n  | i |\n  i := 0.\n  ^[i >= 3] whileFalse: [i := i + 1]").isNil());
+  EXPECT_TRUE(runSource(b, "foo\n  | i |\n  i := 0.\n  ^[i := i + 1. i < 3] whileTrue").isNil());
+  EXPECT_TRUE(runSource(b, "foo\n  | i |\n  i := 0.\n  ^[i := i + 1. i >= 3] whileFalse").isNil());
+  EXPECT_EQ(3, runSource(b, "foo\n  | i |\n  i := 0.\n  [i := i + 1. i >= 3] whileFalse.\n  ^i")
+                   .smallIntegerValue());
+}
+
+// 展開したブロック内の ^ は、含む実スコープの ^。メソッドなら、そのメソッドから返る。
+TEST(BlockInline, ReturnInsideInlinedLoop) {
+  Boot b;
+  EXPECT_EQ(5, runSource(b,
+                         "foo\n  | i |\n  i := 0.\n"
+                         "  [true] whileTrue: [i := i + 1. i = 5 ifTrue: [^i]].\n  ^0")
+                   .smallIntegerValue());
+  EXPECT_EQ(4, runSource(b, "foo\n  1 to: 10 do: [:k | k = 4 ifTrue: [^k]].\n  ^0")
+                   .smallIntegerValue());
+  expectSymbol(b, "cond", runSource(b, "foo\n  | i |\n  i := 0.\n"
+                         "  [i := i + 1. i = 2 ifTrue: [^#cond]. false] whileFalse.\n  ^0"));
+  // 展開しないブロックの中の展開したループからの ^ は、ホームのメソッドから返る。
+  EXPECT_EQ(30, runSource(b, "foo\n  [:n | 1 to: 10 do: [:k | k = n ifTrue: [^k * 10]]] value: 3.\n  ^0")
+                    .smallIntegerValue());
+  EXPECT_FALSE(b.ctx.nonlocalReturn);
+}
+
+// to:do: の値はレシーバ。ループは上限まで回る。
+TEST(BlockInline, ToDoAnswersReceiverAndSums) {
+  Boot b;
+  EXPECT_EQ(11, runSource(b, "foo\n  | s |\n  s := 0.\n  ^(1 to: 4 do: [:k | s := s + k]) + s")
+                    .smallIntegerValue());
+  // 上限がレシーバより小さければ、一度も回らない。
+  EXPECT_EQ(500, runSource(b, "foo\n  | s |\n  s := 0.\n  ^(5 to: 1 do: [:k | s := s + 1]) * 100 + s")
+                     .smallIntegerValue());
+}
+
+// to:by:do: は刻みで進み、刻みが負なら >= で止まる。値はレシーバ。
+TEST(BlockInline, ToByDoNegativeStep) {
+  Boot b;
+  EXPECT_EQ(10741, runSource(b,
+                             "foo\n  | s |\n  s := 0.\n"
+                             "  10 to: 1 by: -3 do: [:k | s := s * 10 + k].\n  ^s")
+                       .smallIntegerValue());
+  EXPECT_EQ(159, runSource(b,
+                           "foo\n  | s |\n  s := 0.\n"
+                           "  1 to: 10 by: 4 do: [:k | s := s * 10 + k].\n  ^s")
+                     .smallIntegerValue());
+  EXPECT_EQ(10, runSource(b, "foo\n  ^10 to: 1 by: -3 do: [:k | k]").smallIntegerValue());
+}
+
+// ループ変数を捕捉したクロージャは、作った反復の値を持つ。
+TEST(BlockInline, LoopVarCapturedPerIteration) {
+  Boot b;
+  EXPECT_EQ(123, runSource(b,
+                           "foo\n  | blocks |\n  blocks := OrderedCollection new.\n"
+                           "  1 to: 3 do: [:k | blocks add: [k]].\n"
+                           "  ^((blocks at: 1) value * 100) + ((blocks at: 2) value * 10) + "
+                           "(blocks at: 3) value")
+                     .smallIntegerValue());
+}
+
+// 展開したブロックの temp は、入るたびに（ループなら反復ごとに）nil から始まる。捕捉した temp は
+// 反復ごとに別の temp ベクタに入るので、クロージャはその反復の temp を共有する。
+TEST(BlockInline, InlinedLoopTempFreshEachIteration) {
+  Boot b;
+  {
+    ao::Root seen(b.roots, runSource(b,
+                                     "foo\n  | i seen |\n  i := 0.\n  seen := OrderedCollection new.\n"
+                                     "  [i < 3] whileTrue: [| t | seen add: t. t := i. i := i + 1].\n"
+                                     "  ^seen"));
+    ASSERT_TRUE(seen.slot.isHeap());
+    ASSERT_EQ(3, send0(b, seen.slot, "size").smallIntegerValue());
+    for (std::int64_t k = 1; k <= 3; ++k) {
+      EXPECT_TRUE(ocAt(b, seen.slot, k).isNil()) << k;
+    }
+  }
+  {
+    ao::Root seen(b.roots, runSource(b,
+                                     "foo\n  | seen |\n  seen := OrderedCollection new.\n"
+                                     "  1 to: 3 do: [:k | true ifTrue: [| t | seen add: t. t := k]].\n"
+                                     "  ^seen"));
+    ASSERT_TRUE(seen.slot.isHeap());
+    ASSERT_EQ(3, send0(b, seen.slot, "size").smallIntegerValue());
+    for (std::int64_t k = 1; k <= 3; ++k) {
+      EXPECT_TRUE(ocAt(b, seen.slot, k).isNil()) << k;
+    }
+  }
+  EXPECT_EQ(12, runSource(b,
+                          "foo\n  | i blocks |\n  i := 0.\n  blocks := OrderedCollection new.\n"
+                          "  [i < 3] whileTrue: [| t | t := i. blocks add: [t]. i := i + 1].\n"
+                          "  ^((blocks at: 1) value * 100) + ((blocks at: 2) value * 10) + "
+                          "(blocks at: 3) value")
+                    .smallIntegerValue());
+  // 捕捉のあとの代入も、同じ反復のクロージャには見える（共有）。次の反復には持ち越さない。
+  EXPECT_EQ(100101102,
+            runSource(b,
+                      "foo\n  | i blocks |\n  i := 0.\n  blocks := OrderedCollection new.\n"
+                      "  [i < 3] whileTrue: [| t | t := i. blocks add: [t]. t := t + 100. i := i + 1].\n"
+                      "  ^((blocks at: 1) value * 1000000) + ((blocks at: 2) value * 1000) + "
+                      "(blocks at: 3) value")
+                .smallIntegerValue());
+}
+
+// to:do: と to:by:do: の上限は 1 回だけ評価する。OrderedCollection>>add: は引数を答える。
+TEST(BlockInline, LimitEvaluatedOnce) {
+  Boot b;
+  EXPECT_EQ(106, runSource(b,
+                           "foo\n  | c s |\n  c := OrderedCollection new.\n  s := 0.\n"
+                           "  1 to: (c add: 3) do: [:k | s := s + k].\n  ^(c size * 100) + s")
+                     .smallIntegerValue());
+  EXPECT_EQ(122, runSource(b,
+                           "foo\n  | c s |\n  c := OrderedCollection new.\n  s := 0.\n"
+                           "  10 to: (c add: 1) by: -3 do: [:k | s := s + k].\n  ^(c size * 100) + s")
+                     .smallIntegerValue());
+}
+
+// SPEC §3.5: 継続の判定は <=、増分は + を送る。レシーバは SmallInteger でなくてよい。
+// 期待する順: 判定、本体、増分を繰り返し、判定が false で抜ける。値はレシーバ。
+TEST(BlockInline, ToDoSendsComparisonAndIncrement) {
+  Boot b;
+  ASSERT_TRUE(fileIn(b, kStepProbe));
+  ao::Root log(b.roots, runSource(b,
+                                  "foo\n  | log start |\n  log := OrderedCollection new.\n"
+                                  "  start := R2Step new v: 1 log: log.\n"
+                                  "  log add: (start to: 3 do: [:k | log add: k v]) == start.\n"
+                                  "  ^log"));
+  ASSERT_TRUE(log.slot.isHeap());
+  ASSERT_EQ(11, send0(b, log.slot, "size").smallIntegerValue());
+  const ao::Oop le = b.wk.intern("le");
+  const ao::Oop plus = b.wk.intern("plus");
+  EXPECT_EQ(le, ocAt(b, log.slot, 1));
+  EXPECT_EQ(1, ocAt(b, log.slot, 2).smallIntegerValue());
+  EXPECT_EQ(plus, ocAt(b, log.slot, 3));
+  EXPECT_EQ(le, ocAt(b, log.slot, 4));
+  EXPECT_EQ(2, ocAt(b, log.slot, 5).smallIntegerValue());
+  EXPECT_EQ(plus, ocAt(b, log.slot, 6));
+  EXPECT_EQ(le, ocAt(b, log.slot, 7));
+  EXPECT_EQ(3, ocAt(b, log.slot, 8).smallIntegerValue());
+  EXPECT_EQ(plus, ocAt(b, log.slot, 9));
+  EXPECT_EQ(le, ocAt(b, log.slot, 10));
+  EXPECT_TRUE(ocAt(b, log.slot, 11).isTrue());
+}
+
+// 展開したブロックは起動を作らないので、中の thisContext は含む実スコープのコンテキスト。
+TEST(BlockInline, InlinedBlockRunsInEnclosingContext) {
+  Boot b;
+  EXPECT_TRUE(runSource(b, "foo\n  ^(true ifTrue: [thisContext]) == thisContext").isTrue());
+  EXPECT_TRUE(runSource(b, "foo\n  | c |\n  1 to: 1 do: [:k | c := thisContext].\n  ^c == thisContext")
+                  .isTrue());
+}
+
+// SPEC §3.5: 展開した分岐のレシーバが Boolean でなければ mustBeBoolean を送る。答えが Boolean なら
+// それで分岐する。
+TEST(BlockInline, MustBeBooleanAnswerChoosesBranch) {
+  Boot b;
+  ASSERT_TRUE(fileIn(b, kTruthProbe));
+  expectSymbol(b, "yes", runSource(b, "foo\n  ^R2Truthy new ifTrue: [#yes] ifFalse: [#no]"));
+  EXPECT_EQ(7, runSource(b, "foo\n  ^R2Truthy new and: [7]").smallIntegerValue());
+  EXPECT_FALSE(b.ctx.aborting);
+}
+
+// Object>>mustBeBoolean の既定、または Boolean でない答えは、「NonBoolean receiver」で中断する。
+// 中断を消せば、同じコンテキストで評価を続けられる。
+TEST(BlockInline, NonBooleanReceiverAborts) {
+  Boot b;
+  ASSERT_TRUE(fileIn(b, kTruthProbe));
+  expectNonBooleanAbort(b, "foo\n  ^nil ifTrue: [1] ifFalse: [2]");
+  expectNonBooleanAbort(b, "foo\n  ^3 and: [true]");
+  expectNonBooleanAbort(b, "foo\n  [nil] whileTrue: [nil].\n  ^0");
+  expectNonBooleanAbort(b, "foo\n  ^R2Murky new ifTrue: [1]");
+  EXPECT_EQ(3, runSource(b, "foo\n  ^1 + 2").smallIntegerValue());
+}
+
+// vendor の LinkedList>>do: は whileFalse: と外側の temp への代入で回る。
+TEST(BlockInline, LinkedListDoCountsLinks) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInLoadOrder(b.ctx, std::string(AO_SOURCE_DIR) + "/image/vendor/LOAD_ORDER", errs));
+  ASSERT_TRUE(b.wk.named("LinkedList").isHeap());
+  ASSERT_TRUE(b.wk.named("Link").isHeap());
+  EXPECT_EQ(3, runSource(b,
+                         "foo\n  | list n |\n  list := LinkedList new.\n"
+                         "  list add: Link new; add: Link new; add: Link new.\n"
+                         "  n := 0.\n  list do: [:each | n := n + 1].\n  ^n")
+                   .smallIntegerValue());
+  EXPECT_FALSE(b.ctx.aborting);
+}

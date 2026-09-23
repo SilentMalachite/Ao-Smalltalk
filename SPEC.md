@@ -265,7 +265,7 @@ Blue Book 第 28 章の集合を現代化した **Ao バイトコード** を定
 | 34 / 35 / 36 | PushRemoteTemp / StoreRemoteTemp / PopStoreRemoteTemp | i t | temp t の Array（temp ベクタ）の i 番を読み書きする |
 | 37 / 38 / 39 | PushLitVar / StoreLitVar / PopStoreLitVar | lit（Association） | 束縛の値を読み書きする |
 
-- ジャンプのオフセットは符号付き 16 bit（リトルエンディアン）で、基点は次の命令の先頭である。後方ジャンプは safepoint を通る。
+- ジャンプのオフセットは符号付き 16 bit（リトルエンディアン）で、基点は次の命令の先頭である。後方ジャンプは、条件ジャンプも含めて safepoint を通る。
 - JumpTrue / JumpFalse で降ろした値が Boolean でなければ、その値に `mustBeBoolean` を送る。答えが Boolean ならそれで分岐し、Boolean でなければ「NonBoolean receiver」で abort する。`Object>>mustBeBoolean` の既定は、同じ理由の abort である。
 - LitVar 系のリテラルは Association（値のスロットを持つポインタオブジェクト）でなければならない。ワークスペースの束縛（§3.10）とクラス変数が使う。
 
@@ -282,9 +282,9 @@ Blue Book 第 28 章の集合を現代化した **Ao バイトコード** を定
 | `to:do:` | 最後の引数が 1 引数のリテラルブロック | レシーバ |
 | `to:by:do:` | 上に加えて、刻みが 0 でない数値リテラル | レシーバ |
 
-- `to:do:` の上限は 1 回だけ評価する。継続の判定は `<=`（刻みが負なら `>=`）、増分は `+` を送る。レシーバは SmallInteger でなくてよい。
+- `to:do:` の上限は 1 回だけ評価する。反復は、判定 → 本体 → 増分 → 判定の順である。判定は `<=`（刻みが負なら `>=`）、増分は `+` を送る。レシーバは SmallInteger でなくてよい。刻みの `0.0` も 0 とみなし、展開しない。
 - 展開したブロックの temp は、そのブロックに入るたびに（ループなら反復ごとに）nil から始まる。ループ変数を捕捉したクロージャは、作った反復の値を持つ。
-- 展開したブロック内の `^` は、そのブロックを含む実スコープ（メソッドか、展開しないブロック）の `^` と同じ意味である。
+- 展開したブロック内の `^` と `thisContext` は、そのブロックを含む実スコープ（メソッドか、展開しないブロック）のものと同じ意味である。
 
 JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し、v1 では常に `nil`。
 
@@ -726,7 +726,7 @@ v1 は次をすべて満たす。
 - [x] `Object superclass` は `nil`（または明示したルート方針に一致。採用したら SPEC を更新）
 - [ ] 未定義セレクタは `doesNotUnderstand:` に入り、デフォルトはエラーオブジェクトを返す
 - [x] `#(1 2 3) collect: [:x | x * 2]` が `#(2 4 6)`
-- [ ] ブロックが外側の temp を共有する（`| y | y := 0. 3 > 1 ifTrue: [y := 1]. y` が `1`、`#(1 2 3) do: [:e | sum := sum + e]` のあと `sum` が `6`）
+- [x] ブロックが外側の temp を共有する（`| y | y := 0. 3 > 1 ifTrue: [y := 1]. y` が `1`、`#(1 2 3) do: [:e | sum := sum + e]` のあと `sum` が `6`）
 - [x] ユーザーが Browser から `Object>>foo` を追加し、Workspace から `Object new foo` を評価できる
 - [x] `.aoimage` を保存して再起動し、追加したメソッドが残る
 - [x] `image/vendor` から file-in した非 Kernel メソッドが `CompiledMethod` として評価できる

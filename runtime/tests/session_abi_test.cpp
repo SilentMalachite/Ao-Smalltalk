@@ -322,3 +322,28 @@ TEST_F(SessionAbi, DeadHomeBlockDoesNotAbortLaterEval) {
   EXPECT_STREQ("3", out);
   ao_runtime_shutdown();
 }
+
+// SPEC §3.5: 展開した分岐のレシーバが Boolean でなければ mustBeBoolean を送り、Object の既定は
+// 「NonBoolean receiver」で評価を中断する。Print it は評価エラーになり、セッションはそのまま使える。
+TEST_F(SessionAbi, NonBooleanBranchReportsReason) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "r2Branch\n  ^nil ifTrue: [1] ifFalse: [2]\n", &err))
+      << err.message;
+  char out[64];
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("Object new r2Branch", out, 64, &err));
+  EXPECT_STREQ("NonBoolean receiver", err.message);
+  EXPECT_STREQ("", out);
+
+  // Do it の本体で展開した分岐も同じ。
+  AoSpan err2{};
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("3 ifTrue: [1]", out, 64, &err2));
+  EXPECT_STREQ("NonBoolean receiver", err2.message);
+
+  // 中断は次の評価に持ち越さない。
+  AoSpan err3{};
+  ASSERT_EQ(AO_OK, evalPrint("1 + 2", out, 64, &err3)) << err3.message;
+  EXPECT_STREQ("3", out);
+  EXPECT_STREQ("", err3.message);
+  ao_runtime_shutdown();
+}
