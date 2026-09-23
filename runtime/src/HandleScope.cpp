@@ -49,6 +49,13 @@ Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t f
   if (obj.isHeap()) {
     return obj;
   }
+  // old が上限。閾値は上限で頭打ちになり、死んだ old はスキャベンジからは見えないので、
+  // 諦める前に一度だけ full GC で回収してから置き直す。
+  gc.collectOld();
+  obj = ctx.heap.allocateTenured(held.slot, size, flags);
+  if (obj.isHeap()) {
+    return obj;
+  }
   ctx.heap.setOutOfMemory();
   return Oop{};
 }

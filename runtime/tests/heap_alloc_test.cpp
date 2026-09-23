@@ -133,11 +133,15 @@ TEST(HeapAlloc, OldGrowsPastInitialCapacity) {
 TEST(HeapAlloc, OldStopsAtMax) {
   constexpr std::size_t kMax = 256u << 10;
   ao::Heap heap(4096, 64u << 10, kMax);
+  ao::Roots roots;
+  ao::RootedArray live(roots, 17);  // 上限まで生きている object で埋める
   EXPECT_EQ(kMax, heap.oldMaxBytes());
-  std::size_t made = 0;
-  while (heap.allocateTenured(ao::Oop::nil(), (16u << 10) - 16, ao::kFlagBytes).isHeap()) {
-    ++made;
-    ASSERT_LE(made, 16u);
+  std::uint32_t made = 0;
+  while (true) {
+    auto o = heap.allocateTenured(ao::Oop::nil(), (16u << 10) - 16, ao::kFlagBytes);
+    if (!o.isHeap()) break;
+    ASSERT_LT(made, 16u);
+    live[made++] = o;
   }
   EXPECT_EQ(16u, made);  // 16 KiB ちょうどの object が上限まで 16 個
   EXPECT_EQ(kMax, heap.oldUsed());
@@ -147,7 +151,6 @@ TEST(HeapAlloc, OldStopsAtMax) {
   EXPECT_TRUE(heap.allocate(ao::Oop::nil(), 1, 0).isHeap());  // nursery は使える
 
   // allocateRetry は nursery → GC → nursery → old の順に試し、すべて失敗したら OOM を立てる。
-  ao::Roots roots;
   ao::WellKnown wk(heap, roots);
   ao::ClassMethodCache cache;
   ao::CallContext ctx{heap, roots, wk, &cache};
@@ -157,6 +160,13 @@ TEST(HeapAlloc, OldStopsAtMax) {
   heap.clearOutOfMemory();
   EXPECT_FALSE(heap.outOfMemory());
   EXPECT_TRUE(ao::allocateRetry(ctx, ao::Oop::nil(), 1, 0).isHeap());
+  EXPECT_FALSE(heap.outOfMemory());
+
+  // 上限でも、old のゴミは回収してから置く。
+  live[0] = ao::Oop::nil();
+  auto reused = ao::allocateRetry(ctx, ao::Oop::nil(), (16u << 10) - 16, ao::kFlagBytes);
+  ASSERT_TRUE(reused.isHeap());
+  EXPECT_TRUE(heap.inOld(reused));
   EXPECT_FALSE(heap.outOfMemory());
 }
 

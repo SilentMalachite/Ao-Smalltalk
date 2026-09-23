@@ -91,24 +91,140 @@ TEST(GcNursery, DeadOldSlotIsNotANurseryRoot) {
   EXPECT_EQ(deadBytes + keepBytes, heap.oldUsed());
 }
 
-TEST(GcNursery, OldOomDoesNotClobberRoot) {
-  ao::Heap heap(512, 24, 24);
+// old が上限でも、スキャベンジは失敗しない。入り切らない生存物は to-space に残り、フリップ後の
+// nursery で生き続ける。old に空きができれば次のスキャベンジで昇格する。
+TEST(GcNursery, OldAtMaxKeepsSurvivorInToSpace) {
+  ao::Heap heap(512, 32, 32);
   ao::Roots roots;
   ao::Gc gc(heap, roots);
   auto first = heap.allocate(ao::Oop::nil(), 1, 0);
   ASSERT_TRUE(first.isHeap());
+  heap.slotAtPut(first, 0, ao::Oop::fromSmallInteger(1));
   roots.add(&first);
   gc.collectNursery();
   ASSERT_TRUE(heap.inOld(first));
+  ASSERT_EQ(24u, heap.oldUsed());
 
-  auto second = heap.allocate(ao::Oop::nil(), 1, 0);
+  auto second = heap.allocate(ao::Oop::nil(), 2, 0);  // 32 バイト: old の残り 8 バイトに入らない
+  auto child = heap.allocate(ao::Oop::nil(), 0, 0);
   ASSERT_TRUE(second.isHeap());
-  void* secondBefore = second.heapPointer();
+  ASSERT_TRUE(child.isHeap());
+  heap.slotAtPut(second, 0, ao::Oop::fromSmallInteger(2));
+  heap.slotAtPut(second, 1, child);
+  void* const secondBefore = second.heapPointer();
   roots.add(&second);
   gc.collectNursery();
-  EXPECT_TRUE(second.isHeap());
-  EXPECT_EQ(secondBefore, second.heapPointer());
+
+  ASSERT_TRUE(second.isHeap());
+  EXPECT_TRUE(heap.inNursery(second));
+  EXPECT_FALSE(heap.inOld(second));
+  EXPECT_NE(secondBefore, second.heapPointer());
+  EXPECT_TRUE(heap.klass(second).isNil());
+  EXPECT_EQ(ao::Oop::fromSmallInteger(2), heap.slotAt(second, 0));
+  auto keptChild = heap.slotAt(second, 1);
+  ASSERT_TRUE(keptChild.isHeap());
+  EXPECT_TRUE(heap.klass(keptChild).isNil());
   EXPECT_TRUE(heap.inOld(first));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(1), heap.slotAt(first, 0));
+  EXPECT_EQ(24u, heap.oldUsed());
+
+  // first を捨てて old を空けると、次のスキャベンジで second が昇格する。
+  roots.remove(&first);
+  gc.collectOld();
+  ASSERT_EQ(0u, heap.oldUsed());
+  gc.collectNursery();
+  ASSERT_TRUE(second.isHeap());
+  EXPECT_TRUE(heap.inOld(second));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(2), heap.slotAt(second, 0));
+  auto lastChild = heap.slotAt(second, 1);
+  ASSERT_TRUE(lastChild.isHeap());
+  EXPECT_TRUE(heap.inNursery(lastChild));  // 残り 0 バイトの old には入らない
+  EXPECT_TRUE(heap.klass(lastChild).isNil());
+  roots.remove(&second);
+}
+
+// docs/claude-review/01 プローブ p1。old が [ゴミ G][A (2 slot)][B (slot0 = 42)] で埋まり、
+// A.slot1 だけが nursery の N を指す。N を置くためにスキャベンジの途中で old を圧縮すると、
+// A の古い番地（圧縮後は B の slot0）へ書き込んでしまう。上限あり・伸長ありの両方で試す。
+TEST(GcNursery, CompactionDuringScavengeDoesNotCorruptSlots) {
+  for (const std::size_t oldMax : {std::size_t{80}, std::size_t{1} << 20}) {
+    SCOPED_TRACE(oldMax);
+    ao::Heap heap(512, 80, oldMax);  // G 24 + A 32 + B 24 = 80 で初期容量ちょうど
+    ao::Roots roots;
+    ao::Gc gc(heap, roots);
+    auto g = heap.allocate(ao::Oop::nil(), 1, 0);
+    auto a = heap.allocate(ao::Oop::nil(), 2, 0);
+    auto b = heap.allocate(ao::Oop::nil(), 1, 0);
+    roots.add(&g);
+    roots.add(&a);
+    roots.add(&b);
+    gc.collectNursery();
+    ASSERT_EQ(heap.oldBase(), static_cast<const std::byte*>(g.heapPointer()));
+    ASSERT_EQ(static_cast<std::byte*>(g.heapPointer()) + 24,
+              static_cast<std::byte*>(a.heapPointer()));
+    ASSERT_EQ(static_cast<std::byte*>(a.heapPointer()) + 32,
+              static_cast<std::byte*>(b.heapPointer()));
+    ASSERT_EQ(80u, heap.oldUsed());
+    roots.remove(&g);
+    heap.slotAtPut(b, 0, ao::Oop::fromSmallInteger(42));
+
+    auto n = heap.allocate(ao::Oop::nil(), 1, 0);
+    ASSERT_TRUE(n.isHeap());
+    heap.slotAtPut(n, 0, ao::Oop::fromSmallInteger(7));
+    heap.slotAtPut(a, 1, n);
+    gc.collectNursery();
+
+    EXPECT_EQ(ao::Oop::fromSmallInteger(42), heap.slotAt(b, 0));
+    EXPECT_TRUE(heap.slotAt(a, 0).isNil());
+    auto moved = heap.slotAt(a, 1);
+    ASSERT_TRUE(moved.isHeap());
+    EXPECT_TRUE(heap.klass(moved).isNil());
+    EXPECT_EQ(ao::Oop::fromSmallInteger(7), heap.slotAt(moved, 0));
+    roots.remove(&b);
+    roots.remove(&a);
+  }
+}
+
+// docs/claude-review/01 プローブ p6。root→N1、root→N2（old に入らない）、root→N3、N3.slot0→N1。
+// 途中で昇格できなくなっても、転送済みの N1 が別経路から見えて同一性が割れてはならない。
+TEST(GcNursery, NoIdentitySplitWhenOldAtMax) {
+  ao::Heap heap(4096, 64, 64);  // cls 16 + N1 24 + N3 24 = 64。N2 は入らない
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto cls = heap.allocateTenured(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(cls.isHeap());
+  auto n1 = heap.allocate(cls, 1, 0);
+  auto n2 = heap.allocate(cls, 200, 0);
+  auto n3 = heap.allocate(cls, 1, 0);
+  ASSERT_TRUE(n1.isHeap());
+  ASSERT_TRUE(n2.isHeap());
+  ASSERT_TRUE(n3.isHeap());
+  ASSERT_TRUE(heap.inNursery(n2));
+  heap.slotAtPut(n1, 0, ao::Oop::fromSmallInteger(1));
+  heap.slotAtPut(n3, 0, n1);
+  roots.add(&cls);
+  roots.add(&n1);
+  roots.add(&n2);
+  roots.add(&n3);
+
+  for (int round = 0; round < 2; ++round) {
+    SCOPED_TRACE(round);
+    gc.collectNursery();
+    EXPECT_EQ(cls, heap.klass(n1));
+    EXPECT_EQ(cls, heap.klass(n2));
+    EXPECT_EQ(cls, heap.klass(n3));
+    EXPECT_TRUE(heap.inNursery(n2));
+    EXPECT_EQ(200u, heap.size(n2));
+    auto viaN3 = heap.slotAt(n3, 0);
+    EXPECT_EQ(n1, viaN3);
+    EXPECT_EQ(cls, heap.klass(viaN3));
+    heap.slotAtPut(n1, 0, ao::Oop::fromSmallInteger(99 + round));
+    EXPECT_EQ(ao::Oop::fromSmallInteger(99 + round), heap.slotAt(heap.slotAt(n3, 0), 0));
+  }
+  roots.remove(&n3);
+  roots.remove(&n2);
+  roots.remove(&n1);
+  roots.remove(&cls);
 }
 
 TEST(GcNursery, SharedChildCopiedOnce) {
@@ -639,4 +755,136 @@ TEST(GcOld, DestJumpPastPinDoesNotOverlap) {
   const std::size_t p2n = heap.objectBytes(heap.header(pin2));
   EXPECT_FALSE(m < p1 + p1n && m + mn > p1);
   EXPECT_FALSE(m < p2 + p2n && m + mn > p2);
+}
+
+// old に入らず to-space に残った弱オブジェクトも、スキャベンジ後に弱スロットを直す:
+// 死んだ参照先は nil、生きている参照先は転送先。
+TEST(GcWeak, WeakSlotInToSpaceSurvivorCleared) {
+  ao::Heap heap(512, 0, 0);  // old に何も置けない
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto weak = heap.allocate(ao::Oop::nil(), 2, ao::kFlagWeak);
+  auto dead = heap.allocate(ao::Oop::nil(), 0, 0);
+  auto live = heap.allocate(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(weak.isHeap());
+  ASSERT_TRUE(dead.isHeap());
+  ASSERT_TRUE(live.isHeap());
+  heap.slotAtPut(weak, 0, dead);
+  heap.slotAtPut(weak, 1, live);
+  roots.add(&weak);
+  roots.add(&live);
+  void* const liveBefore = live.heapPointer();
+
+  gc.collectNursery();
+
+  ASSERT_TRUE(weak.isHeap());
+  EXPECT_TRUE(heap.inNursery(weak));
+  EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
+  EXPECT_NE(liveBefore, live.heapPointer());
+  EXPECT_EQ(live, heap.slotAt(weak, 1));
+  EXPECT_TRUE(heap.klass(heap.slotAt(weak, 1)).isNil());
+
+  roots.remove(&live);
+  gc.collectNursery();
+  EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
+  EXPECT_TRUE(heap.slotAt(weak, 1).isNil());
+  roots.remove(&weak);
+}
+
+// full GC はスキャベンジの後、oldUsed が閾値（最初は old の初期容量）を超えたときだけ走る。
+TEST(GcOld, CollectOldOnlyAfterThreshold) {
+  ao::Heap heap(4096, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  constexpr std::uint32_t kKiBSlots = (1024 - 16) / 8;  // 1 KiB の object
+
+  auto junk = heap.allocate(ao::Oop::nil(), kKiBSlots, 0);
+  roots.add(&junk);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(junk));
+  roots.remove(&junk);
+
+  ao::RootedArray keep(roots, 4);
+  for (std::uint32_t i = 0; i < 3; ++i) {
+    keep[i] = heap.allocate(ao::Oop::nil(), kKiBSlots, 0);
+    gc.collectNursery();
+  }
+  EXPECT_EQ(4096u, heap.oldUsed());  // 閾値ちょうど: まだ走らない（ゴミも残る）
+  EXPECT_EQ(0u, heap.oldCollections());
+
+  keep[3] = heap.allocate(ao::Oop::nil(), kKiBSlots, 0);
+  gc.collectNursery();
+  EXPECT_EQ(1u, heap.oldCollections());
+  EXPECT_EQ(4096u, heap.oldUsed());  // junk の 1 KiB が回収された
+  for (std::uint32_t i = 0; i < 4; ++i) {
+    ASSERT_TRUE(heap.inOld(keep[i]));
+    EXPECT_EQ(kKiBSlots, heap.size(keep[i]));
+  }
+}
+
+// 生存量が初期容量を超えても、何も回収できない full GC を繰り返さない。閾値は 2×生存量に伸び、
+// old が上限で生存物が to-space に残る間も、スキャベンジのたびに full GC を走らせない。
+TEST(GcOld, NoRepeatedZeroYieldCollects) {
+  ao::Heap heap(4096, 4096, 8192);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  constexpr std::uint32_t kKiBSlots = (1024 - 16) / 8;
+  ao::RootedArray keep(roots, 11);
+  for (std::uint32_t i = 0; i < 8; ++i) {  // 8 KiB がすべて生存し、old は上限まで埋まる
+    keep[i] = heap.allocate(ao::Oop::nil(), kKiBSlots, 0);
+    heap.slotAtPut(keep[i], 0, ao::Oop::fromSmallInteger(i));
+    gc.collectNursery();
+  }
+  ASSERT_EQ(8192u, heap.oldUsed());
+  const auto afterFill = heap.oldCollections();
+  EXPECT_LE(afterFill, 1u);
+
+  for (std::uint32_t i = 8; i < 11; ++i) {  // old に入らない生存物
+    keep[i] = heap.allocate(ao::Oop::nil(), kKiBSlots, 0);
+    heap.slotAtPut(keep[i], 0, ao::Oop::fromSmallInteger(i));
+  }
+  gc.collectNursery();
+  const auto afterFirstSpill = heap.oldCollections();
+  EXPECT_LE(afterFirstSpill, afterFill + 1);
+  for (int round = 0; round < 10; ++round) {
+    gc.collectNursery();
+  }
+  EXPECT_EQ(afterFirstSpill, heap.oldCollections());
+  for (std::uint32_t i = 0; i < 11; ++i) {
+    ASSERT_TRUE(keep[i].isHeap());
+    EXPECT_EQ(i < 8, heap.inOld(keep[i])) << i;
+    EXPECT_EQ(ao::Oop::fromSmallInteger(i), heap.slotAt(keep[i], 0)) << i;
+  }
+}
+
+// 同じスロットを 2 回登録しても、collectOld のルート更新はスロットごとに 1 回だけ行う。
+// old が [G][A][B] のとき、B の転送先は A の旧番地なので、2 回引くと A を指してしまう。
+TEST(GcRoots, DuplicateRootForwardedOnce) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto g = heap.allocate(ao::Oop::nil(), 1, 0);
+  auto a = heap.allocate(ao::Oop::nil(), 1, 0);
+  auto b = heap.allocate(ao::Oop::nil(), 1, 0);
+  roots.add(&g);
+  roots.add(&a);
+  roots.add(&b);
+  gc.collectNursery();
+  ASSERT_EQ(static_cast<std::byte*>(g.heapPointer()) + 24,
+            static_cast<std::byte*>(a.heapPointer()));
+  ASSERT_EQ(static_cast<std::byte*>(a.heapPointer()) + 24,
+            static_cast<std::byte*>(b.heapPointer()));
+  heap.slotAtPut(a, 0, ao::Oop::fromSmallInteger(1));
+  heap.slotAtPut(b, 0, ao::Oop::fromSmallInteger(2));
+  roots.remove(&g);
+  roots.add(&b);  // 同じスロットの二重登録
+
+  gc.collectOld();
+
+  EXPECT_EQ(ao::Oop::fromSmallInteger(2), heap.slotAt(b, 0));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(1), heap.slotAt(a, 0));
+  EXPECT_NE(a, b);
+  roots.remove(&b);
+  roots.remove(&b);
+  roots.remove(&a);
 }

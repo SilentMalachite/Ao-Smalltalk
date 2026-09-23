@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_map>
 #include <unordered_set>
@@ -29,13 +31,7 @@ void Gc::stressPoint() {
 }
 
 Oop Gc::copy(Oop obj) {
-  if (!obj.isHeap()) {
-    return obj;
-  }
-  if (heap_->inOld(obj)) {
-    return obj;
-  }
-  if (!heap_->containsNurseryFrom(obj.heapPointer())) {
+  if (!obj.isHeap() || !heap_->containsNurseryFrom(obj.heapPointer())) {
     return obj;
   }
   ObjectHeader* h = heap_->header(obj);
@@ -43,21 +39,28 @@ Oop Gc::copy(Oop obj) {
     return h->klass;
   }
   const std::size_t n = heap_->objectBytes(h);
-  if (!heap_->fitsOld(n)) {
-    collectOld();
-    if (!heap_->fitsOld(n)) {
-      failed_ = true;
-      return obj;
-    }
+  auto* const at = static_cast<std::byte*>(obj.heapPointer());
+  if (at >= heap_->fromBump_ || n > static_cast<std::size_t>(heap_->fromBump_ - at)) {
+    // 生きている object は fromBump_ より前に収まる。はみ出すのは、解放済みの番地を指したまま
+    // 再利用された領域を読んでいる OOP（ルートし忘れ）である。スキャベンジは失敗できない。
+    std::fprintf(stderr, "ao: GC: stale reference into the nursery at %p\n", obj.heapPointer());
+    std::abort();
   }
+  auto flags = static_cast<std::uint16_t>(h->flags | kFlagOld);
   std::byte* dest = heap_->reserveOld(n);
   if (dest == nullptr) {
-    failed_ = true;
-    return obj;
+    // old が上限: to-space に残す。from-space の生存物は同じ大きさの to-space に必ず入る。
+    dest = heap_->reserveToSpace(n);
+    if (dest == nullptr) {
+      std::fprintf(stderr, "ao: GC: to-space overflow during scavenge (stale reference?)\n");
+      std::abort();
+    }
+    flags = static_cast<std::uint16_t>(h->flags & ~kFlagOld);
+    spilled_ = true;
   }
   std::memcpy(dest, h, n);
   auto* nh = reinterpret_cast<ObjectHeader*>(dest);
-  nh->flags = static_cast<std::uint16_t>((nh->flags | kFlagOld) & ~kFlagForwarded);
+  nh->flags = static_cast<std::uint16_t>(flags & ~kFlagForwarded);
   Oop nw = Oop::fromHeap(dest);
   h->flags = static_cast<std::uint16_t>(h->flags | kFlagForwarded);
   h->klass = nw;
@@ -65,15 +68,16 @@ Oop Gc::copy(Oop obj) {
 }
 
 void Gc::collectNursery() {
-  failed_ = false;
-  do {
-    oldCompacted_ = false;
-    scavengeFromRoots();
-  } while (oldCompacted_ && !failed_);
-  if (!failed_) {
-    clearWeakAfterNursery();
-    heap_->flipNursery();
-    heap_->poisonFreed(heap_->toStart_, heap_->toEnd_);
+  spilled_ = false;
+  scavengeFromRoots();
+  clearWeakAfterNursery();
+  heap_->flipNursery();
+  heap_->poisonFreed(heap_->toStart_, heap_->toEnd_);
+  // full GC は閾値を超えたときだけ。old が上限で生存物を to-space に残したときは、前回の
+  // full GC から old が増えていれば回収を試す（増えていなければ回収できるものはない）。
+  const std::size_t used = heap_->oldUsed();
+  if (used > heap_->oldThreshold_ || (spilled_ && used > heap_->oldLive_)) {
+    collectOld();
   }
 }
 
@@ -89,23 +93,22 @@ void Gc::scavengeFromRoots() {
   roots_->visitAll(
       [](void* v, Oop* slot) {
         auto* c = static_cast<Ctx*>(v);
-        if (slot == nullptr || c->gc->failed_) {
+        if (slot == nullptr) {
           return;
         }
         *slot = c->gc->copy(*slot);
-        if (c->gc->failed_ || c->gc->oldCompacted_) {
-          return;
-        }
         if (slot->isHeap()) {
           c->stack->push_back(*slot);
         }
       },
       &ctx);
 
-  while (!stack.empty() && !failed_ && !oldCompacted_) {
+  // old と to-space のコピーをたどる。どちらもスキャベンジ中は動かないので、h は最後まで有効。
+  while (!stack.empty()) {
     Oop obj = stack.back();
     stack.pop_back();
-    if (!obj.isHeap() || !heap_->inOld(obj)) {
+    if (!obj.isHeap() ||
+        (!heap_->inOld(obj) && !heap_->containsNurseryTo(obj.heapPointer()))) {
       continue;
     }
     auto key = reinterpret_cast<std::uintptr_t>(obj.heapPointer());
@@ -114,9 +117,6 @@ void Gc::scavengeFromRoots() {
     }
     ObjectHeader* h = heap_->header(obj);
     h->klass = copy(h->klass);
-    if (failed_ || oldCompacted_) {
-      return;
-    }
     if (h->klass.isHeap()) {
       stack.push_back(h->klass);
     }
@@ -129,9 +129,6 @@ void Gc::scavengeFromRoots() {
     auto* slots = reinterpret_cast<Oop*>(h + 1);
     for (std::uint32_t i = 0; i < h->size; ++i) {
       slots[i] = copy(slots[i]);
-      if (failed_ || oldCompacted_) {
-        return;
-      }
       if (slots[i].isHeap()) {
         stack.push_back(slots[i]);
       }
@@ -140,33 +137,27 @@ void Gc::scavengeFromRoots() {
 }
 
 void Gc::clearWeakAfterNursery() {
-  std::byte* scan = heap_->oldStart_;
-  while (scan < heap_->oldBump_) {
-    auto* h = reinterpret_cast<ObjectHeader*>(scan);
-    const std::size_t n = heap_->objectBytes(h);
-    if ((h->flags & kFlagWeak) != 0 && (h->flags & kFlagBytes) == 0) {
-      auto* slots = reinterpret_cast<Oop*>(h + 1);
-      for (std::uint32_t i = 0; i < h->size; ++i) {
-        Oop s = slots[i];
-        if (!s.isHeap()) {
-          continue;
-        }
-        if (heap_->inOld(s)) {
-          continue;
-        }
-        if (!heap_->containsNurseryFrom(s.heapPointer())) {
-          continue;
-        }
-        ObjectHeader* ch = heap_->header(s);
-        if (ch->flags & kFlagForwarded) {
-          slots[i] = ch->klass;
-        } else {
-          slots[i] = Oop::nil();
+  // from-space を指す弱スロット: 転送済みなら転送先、そうでなければ死んでいるので nil。
+  auto fixWeak = [&](std::byte* scan, std::byte* end) {
+    while (scan < end) {
+      auto* h = reinterpret_cast<ObjectHeader*>(scan);
+      const std::size_t n = heap_->objectBytes(h);
+      if ((h->flags & kFlagWeak) != 0 && (h->flags & kFlagBytes) == 0) {
+        auto* slots = reinterpret_cast<Oop*>(h + 1);
+        for (std::uint32_t i = 0; i < h->size; ++i) {
+          Oop s = slots[i];
+          if (!s.isHeap() || !heap_->containsNurseryFrom(s.heapPointer())) {
+            continue;
+          }
+          ObjectHeader* ch = heap_->header(s);
+          slots[i] = (ch->flags & kFlagForwarded) ? ch->klass : Oop::nil();
         }
       }
+      scan += n;
     }
-    scan += n;
-  }
+  };
+  fixWeak(heap_->oldStart_, heap_->oldBump_);
+  fixWeak(heap_->toStart_, heap_->toBump_);  // old に入らず to-space に残った弱オブジェクト
 }
 
 void Gc::clearWeakAfterOldMark() {
@@ -206,7 +197,7 @@ void Gc::clearWeakAfterOldMark() {
 }
 
 void Gc::collectOld() {
-  oldCompacted_ = true;
+  ++heap_->oldCollections_;
 
   std::vector<Oop> stack;
   roots_->visitAll(
@@ -339,13 +330,17 @@ void Gc::collectOld() {
     return it->second;
   };
 
+  // update は冪等でない（転送先が別の object の旧番地と重なる）。同じスロットが二重に登録されて
+  // いても、書き換えはスロットごとに 1 回だけにする。
   struct UpdateCtx {
     decltype(update)* fn;
-  } upd{&update};
+    std::unordered_set<Oop*> seen;
+  } upd{&update, {}};
   roots_->visitAll(
       [](void* ctx, Oop* slot) {
-        if (slot != nullptr) {
-          *slot = (*static_cast<UpdateCtx*>(ctx)->fn)(*slot);
+        auto* u = static_cast<UpdateCtx*>(ctx);
+        if (slot != nullptr && u->seen.insert(slot).second) {
+          *slot = (*u->fn)(*slot);
         }
       },
       &upd);
@@ -424,6 +419,10 @@ void Gc::collectOld() {
   std::byte* const freedEnd = heap_->oldBump_;
   heap_->oldBump_ = usedEnd;
   heap_->poisonFreed(usedEnd, freedEnd);
+
+  const std::size_t liveBytes = heap_->oldUsed();
+  heap_->oldLive_ = liveBytes;
+  heap_->oldThreshold_ = std::clamp(2 * liveBytes, heap_->oldInitial_, heap_->oldMax_);
 }
 
 }  // namespace ao

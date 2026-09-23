@@ -51,6 +51,7 @@ Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes, std::size_t oldMaxByt
   oldStart_ = old_->base();
   oldEnd_ = oldStart_ + oldInitial_;
   oldBump_ = oldStart_;
+  oldThreshold_ = oldInitial_;
   gcStress_ = gcStressFromEnv();
 }
 
@@ -259,6 +260,11 @@ std::byte* Heap::reserveToSpace(std::size_t n) {
 bool Heap::containsNurseryFrom(void* p) const {
   auto* b = static_cast<std::byte*>(p);
   return b >= fromStart_ && b < fromEnd_;
+}
+
+bool Heap::containsNurseryTo(void* p) const {
+  auto* b = static_cast<std::byte*>(p);
+  return b >= toStart_ && b < toBump_;
 }
 
 // n バイトを old に置けるか（コミットを伸ばせば置ける場合を含む）。

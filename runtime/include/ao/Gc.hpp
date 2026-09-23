@@ -9,6 +9,8 @@ namespace ao {
 class Gc {
  public:
   Gc(Heap& heap, Roots& roots);
+  // スキャベンジ → 弱スロットの消去 → フリップ → 必要なら collectOld。失敗しない。
+  // 生存物は old へ昇格し、old が上限なら to-space に残る。スキャベンジ中に old は動かない。
   void collectNursery();
   void collectOld();
   void safepoint();
@@ -22,8 +24,7 @@ class Gc {
   void clearWeakAfterOldMark();
   Heap* heap_;
   Roots* roots_;
-  bool oldCompacted_ = false;
-  bool failed_ = false;
+  bool spilled_ = false;  // このスキャベンジで to-space に残した生存物がある
 };
 
 }  // namespace ao

@@ -85,6 +85,8 @@ class Heap {
   // Bytes old can hold before it next grows (never more than oldMaxBytes()).
   std::size_t oldCapacity() const;
   std::size_t oldMaxBytes() const { return oldMax_; }
+  // Number of collectOld runs so far.
+  std::uint64_t oldCollections() const { return oldCollections_; }
   const std::byte* oldBase() const;
   std::size_t nurseryRemaining() const;
   std::size_t nurseryCapacity() const;
@@ -102,6 +104,7 @@ class Heap {
   void flipNursery();
   std::byte* reserveToSpace(std::size_t n);
   bool containsNurseryFrom(void* p) const;
+  bool containsNurseryTo(void* p) const;
   bool fitsOld(std::size_t n) const;
   // Bump-allocates n bytes in old, growing the commit when needed. nullptr at oldMaxBytes().
   std::byte* reserveOld(std::size_t n);
@@ -122,6 +125,10 @@ class Heap {
   std::unique_ptr<VirtualRegion> old_;
   std::size_t oldInitial_ = 0;
   std::size_t oldMax_ = 0;
+  // collectNursery runs collectOld once oldUsed passes this. collectOld resets it to
+  // clamp(2 × live, initial, max); oldLive_ is oldUsed right after that collectOld.
+  std::size_t oldThreshold_ = 0;
+  std::size_t oldLive_ = 0;
   std::size_t nurseryHalf_ = 0;
   std::byte* fromStart_ = nullptr;
   std::byte* fromEnd_ = nullptr;
@@ -136,6 +143,7 @@ class Heap {
   std::uint32_t gcStress_ = 0;
   std::uint32_t stressTicks_ = 0;
   std::uint32_t stressCollections_ = 0;
+  std::uint64_t oldCollections_ = 0;
   bool outOfMemory_ = false;
 };
 
