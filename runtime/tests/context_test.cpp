@@ -2,6 +2,7 @@
 #include "ao/CompiledMethod.hpp"
 #include "ao/Context.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include <gtest/gtest.h>
 
 namespace {
@@ -37,15 +38,17 @@ TEST(ContextGc, MethodContextSurvivesNurseryCollection) {
 
 TEST(ContextGc, BlockContextKeepsHomeAndCopied) {
   Boot b;
-  auto home = b.heap.allocate(b.wk.methodContextClass, ao::kMethodContextSlotCount, 0);
-  auto copied = ao::Arr::fromSlots(b.heap, b.wk, nullptr, 0);
+  // createBlock は allocateRetry を通るので、それをまたぐ値はルートしておく。
+  ao::Root home(b.roots,
+                b.heap.allocate(b.wk.methodContextClass, ao::kMethodContextSlotCount, 0));
+  ao::Root copied(b.roots, ao::Arr::fromSlots(b.heap, b.wk, nullptr, 0));
   auto blk = ao::Context::createBlock(b.ctx, ao::Oop::nil(), ao::Oop::fromSmallInteger(7),
-                                       home, copied, ao::Oop::nil(), 1);
+                                       home.slot, copied.slot, ao::Oop::nil(), 1);
   ASSERT_TRUE(blk.isHeap());
   EXPECT_EQ(b.wk.blockContextClass, b.heap.klass(blk));
   EXPECT_EQ(ao::kBlockSlotCount, b.heap.size(blk));
-  EXPECT_EQ(home, b.heap.slotAt(blk, ao::kBlockHome));
-  EXPECT_EQ(copied, b.heap.slotAt(blk, ao::kBlockCopied));
+  EXPECT_EQ(home.slot, b.heap.slotAt(blk, ao::kBlockHome));
+  EXPECT_EQ(copied.slot, b.heap.slotAt(blk, ao::kBlockCopied));
   EXPECT_EQ(7, b.heap.slotAt(blk, ao::kCtxReceiver).smallIntegerValue());
 }
 

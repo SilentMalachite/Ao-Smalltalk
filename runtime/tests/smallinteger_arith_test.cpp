@@ -184,14 +184,15 @@ TEST(SmallIntegerArith, CharacterProtocol) {
 
 TEST(SmallIntegerArith, FloatArithmetic) {
   Boot b;
-  auto x = makeFloat(b, 1.5);
-  auto y = makeFloat(b, 2.5);
-  auto sum = send1(b, x, "+", y);
+  // Float の結果は allocateRetry で作るので、send をまたぐ値はルートしておく。
+  ao::Root x(b.roots, makeFloat(b, 1.5));
+  ao::Root y(b.roots, makeFloat(b, 2.5));
+  auto sum = send1(b, x.slot, "+", y.slot);
   ASSERT_TRUE(sum.isHeap());
   EXPECT_EQ(b.wk.floatClass, b.heap.klass(sum));
   EXPECT_DOUBLE_EQ(4.0, floatValue(b, sum));
-  EXPECT_TRUE(send1(b, x, "<", y).isTrue());
-  EXPECT_TRUE(send1(b, x, "=", makeFloat(b, 1.5)).isTrue());
+  EXPECT_TRUE(send1(b, x.slot, "<", y.slot).isTrue());
+  EXPECT_TRUE(send1(b, x.slot, "=", makeFloat(b, 1.5)).isTrue());
 }
 
 TEST(SmallIntegerArith, FloatEqualsDoesNotCoerceInteger) {

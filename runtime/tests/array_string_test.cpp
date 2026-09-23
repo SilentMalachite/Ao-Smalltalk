@@ -94,18 +94,19 @@ TEST(ArrayString, StringAtPutSameWidth) {
 
 TEST(ArrayString, AsSymbolAndAsString) {
   Boot b;
-  auto s = ao::Str::fromUtf8(b.heap, b.wk, "foo");
-  auto sym = send0(b, s, "asSymbol");
-  ASSERT_TRUE(sym.isHeap());
-  EXPECT_EQ(b.wk.symbolClass, b.heap.klass(sym));
-  EXPECT_EQ(sym, b.wk.intern("foo"));
-  auto copy = send0(b, sym, "asString");
-  ASSERT_TRUE(copy.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(copy));
-  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, copy));
-  EXPECT_NE(sym, copy);
-  EXPECT_TRUE(send1(b, s, "=", copy).isTrue());
-  EXPECT_TRUE(send1(b, s, "=", sym).isTrue());
+  // send をまたぐ値はルートしておく（GC ストレスでは send ごとに動く）。
+  ao::Root s(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "foo"));
+  ao::Root sym(b.roots, send0(b, s.slot, "asSymbol"));
+  ASSERT_TRUE(sym.slot.isHeap());
+  EXPECT_EQ(b.wk.symbolClass, b.heap.klass(sym.slot));
+  EXPECT_EQ(sym.slot, b.wk.intern("foo"));
+  ao::Root copy(b.roots, send0(b, sym.slot, "asString"));
+  ASSERT_TRUE(copy.slot.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(copy.slot));
+  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, copy.slot));
+  EXPECT_NE(sym.slot, copy.slot);
+  EXPECT_TRUE(send1(b, s.slot, "=", copy.slot).isTrue());
+  EXPECT_TRUE(send1(b, s.slot, "=", sym.slot).isTrue());
 }
 
 TEST(ArrayString, FromSlotsAndDo) {

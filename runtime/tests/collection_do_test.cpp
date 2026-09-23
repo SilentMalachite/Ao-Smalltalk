@@ -40,10 +40,11 @@ TEST(CollectionDo, ArraySelectRejectDetectInjectIncludesIsEmpty) {
   Boot b;
   ao::Oop slots[3] = {ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(2),
                       ao::Oop::fromSmallInteger(3)};
-  auto arr = ao::Arr::fromSlots(b.heap, b.wk, slots, 3);
-  EXPECT_TRUE(send0(b, arr, "isEmpty").isFalse());
-  EXPECT_TRUE(send1(b, arr, "includes:", ao::Oop::fromSmallInteger(2)).isTrue());
-  EXPECT_TRUE(send1(b, arr, "includes:", ao::Oop::fromSmallInteger(9)).isFalse());
+  // send をまたぐ値はルートしておく（GC ストレスでは send ごとに動く）。
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 3));
+  EXPECT_TRUE(send0(b, arr.slot, "isEmpty").isFalse());
+  EXPECT_TRUE(send1(b, arr.slot, "includes:", ao::Oop::fromSmallInteger(2)).isTrue());
+  EXPECT_TRUE(send1(b, arr.slot, "includes:", ao::Oop::fromSmallInteger(9)).isFalse());
 
   auto odd = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     if (!args[0].isSmallInteger()) {
@@ -51,38 +52,38 @@ TEST(CollectionDo, ArraySelectRejectDetectInjectIncludesIsEmpty) {
     }
     return (args[0].smallIntegerValue() % 2) != 0 ? ao::Oop::true_() : ao::Oop::false_();
   };
-  auto oddBlk = ao::makeNativeBlock(b.ctx, odd, 1);
-  auto selected = send1(b, arr, "select:", oddBlk);
-  ASSERT_TRUE(selected.isHeap());
-  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(selected));
-  EXPECT_EQ(2, send0(b, selected, "size").smallIntegerValue());
-  EXPECT_EQ(1, b.heap.slotAt(selected, 0).smallIntegerValue());
-  EXPECT_EQ(3, b.heap.slotAt(selected, 1).smallIntegerValue());
+  ao::Root oddBlk(b.roots, ao::makeNativeBlock(b.ctx, odd, 1));
+  ao::Root selected(b.roots, send1(b, arr.slot, "select:", oddBlk.slot));
+  ASSERT_TRUE(selected.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(selected.slot));
+  EXPECT_EQ(2, send0(b, selected.slot, "size").smallIntegerValue());
+  EXPECT_EQ(1, b.heap.slotAt(selected.slot, 0).smallIntegerValue());
+  EXPECT_EQ(3, b.heap.slotAt(selected.slot, 1).smallIntegerValue());
 
-  auto rejected = send1(b, arr, "reject:", oddBlk);
-  ASSERT_TRUE(rejected.isHeap());
-  EXPECT_EQ(1, send0(b, rejected, "size").smallIntegerValue());
-  EXPECT_EQ(2, b.heap.slotAt(rejected, 0).smallIntegerValue());
+  ao::Root rejected(b.roots, send1(b, arr.slot, "reject:", oddBlk.slot));
+  ASSERT_TRUE(rejected.slot.isHeap());
+  EXPECT_EQ(1, send0(b, rejected.slot, "size").smallIntegerValue());
+  EXPECT_EQ(2, b.heap.slotAt(rejected.slot, 0).smallIntegerValue());
 
   auto none = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Oop::fromSmallInteger(0);
   };
-  auto noneBlk = ao::makeNativeBlock(b.ctx, none, 0);
-  auto detected = send2(b, arr, "detect:ifNone:", oddBlk, noneBlk);
+  ao::Root noneBlk(b.roots, ao::makeNativeBlock(b.ctx, none, 0));
+  auto detected = send2(b, arr.slot, "detect:ifNone:", oddBlk.slot, noneBlk.slot);
   EXPECT_EQ(1, detected.smallIntegerValue());
 
   auto noMatch = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Oop::false_();
   };
-  auto noBlk = ao::makeNativeBlock(b.ctx, noMatch, 1);
-  auto fallback = send2(b, arr, "detect:ifNone:", noBlk, noneBlk);
+  ao::Root noBlk(b.roots, ao::makeNativeBlock(b.ctx, noMatch, 1));
+  auto fallback = send2(b, arr.slot, "detect:ifNone:", noBlk.slot, noneBlk.slot);
   EXPECT_EQ(0, fallback.smallIntegerValue());
 
   auto add = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
     return ao::send(ctx, args[0], ctx.wk.intern("+"), &args[1], 1, nullptr);
   };
-  auto addBlk = ao::makeNativeBlock(b.ctx, add, 2);
-  auto sum = send2(b, arr, "inject:into:", ao::Oop::fromSmallInteger(0), addBlk);
+  ao::Root addBlk(b.roots, ao::makeNativeBlock(b.ctx, add, 2));
+  auto sum = send2(b, arr.slot, "inject:into:", ao::Oop::fromSmallInteger(0), addBlk.slot);
   EXPECT_EQ(6, sum.smallIntegerValue());
 }
 
@@ -144,22 +145,23 @@ TEST(CollectionDo, IdentityDictionaryDoesNotUseEquals) {
 
 TEST(CollectionDo, SetAndIdentitySet) {
   Boot b;
-  auto s = send0(b, b.wk.setClass, "new");
-  auto a = ao::Str::fromUtf8(b.heap, b.wk, "x");
-  auto a2 = ao::Str::fromUtf8(b.heap, b.wk, "x");
-  send1(b, s, "add:", a);
-  send1(b, s, "add:", a2);
-  EXPECT_EQ(1, send0(b, s, "size").smallIntegerValue());
-  EXPECT_TRUE(send1(b, s, "includes:", a2).isTrue());
+  // send をまたぐ値はルートしておく（GC ストレスでは send ごとに動く）。
+  ao::Root s(b.roots, send0(b, b.wk.setClass, "new"));
+  ao::Root a(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "x"));
+  ao::Root a2(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "x"));
+  send1(b, s.slot, "add:", a.slot);
+  send1(b, s.slot, "add:", a2.slot);
+  EXPECT_EQ(1, send0(b, s.slot, "size").smallIntegerValue());
+  EXPECT_TRUE(send1(b, s.slot, "includes:", a2.slot).isTrue());
 
-  auto ids = send0(b, b.wk.identitySetClass, "new");
-  send1(b, ids, "add:", a);
-  EXPECT_EQ(1, send0(b, ids, "size").smallIntegerValue());
-  EXPECT_TRUE(send1(b, ids, "includes:", a).isTrue());
-  EXPECT_TRUE(send1(b, ids, "includes:", a2).isFalse());
-  send1(b, ids, "add:", a2);
-  EXPECT_EQ(2, send0(b, ids, "size").smallIntegerValue());
-  EXPECT_TRUE(send1(b, ids, "includes:", a2).isTrue());
+  ao::Root ids(b.roots, send0(b, b.wk.identitySetClass, "new"));
+  send1(b, ids.slot, "add:", a.slot);
+  EXPECT_EQ(1, send0(b, ids.slot, "size").smallIntegerValue());
+  EXPECT_TRUE(send1(b, ids.slot, "includes:", a.slot).isTrue());
+  EXPECT_TRUE(send1(b, ids.slot, "includes:", a2.slot).isFalse());
+  send1(b, ids.slot, "add:", a2.slot);
+  EXPECT_EQ(2, send0(b, ids.slot, "size").smallIntegerValue());
+  EXPECT_TRUE(send1(b, ids.slot, "includes:", a2.slot).isTrue());
 }
 
 TEST(CollectionDo, OrderedCollectionAddAtDo) {
@@ -234,28 +236,31 @@ TEST(CollectionDo, StringCollectYieldsCharacters) {
 TEST(CollectionDo, CollectDoesNotGrowNativeRegistry) {
   Boot b;
   ao::Oop slots[1] = {ao::Oop::fromSmallInteger(1)};
-  auto arr = ao::Arr::fromSlots(b.heap, b.wk, slots, 1);
+  // send をまたぐ値はルートしておく（GC ストレスでは send ごとに動く）。
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 1));
   auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args,
                  std::uint32_t) { return args[0]; };
-  auto blk = ao::makeNativeBlock(b.ctx, body, 1);
-  send1(b, arr, "collect:", blk);
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  send1(b, arr.slot, "collect:", blk.slot);
   const auto n = ao::NativeRegistry::size();
-  send1(b, arr, "collect:", blk);
+  send1(b, arr.slot, "collect:", blk.slot);
   EXPECT_EQ(n, ao::NativeRegistry::size());
 }
 
 TEST(CollectionDo, AssociationKeyValue) {
   Boot b;
-  auto k = b.wk.intern("a");
-  auto a = send2(b, b.wk.associationClass, "key:value:", k, ao::Oop::fromSmallInteger(9));
-  ASSERT_TRUE(a.isHeap());
-  EXPECT_EQ(b.wk.associationClass, b.heap.klass(a));
-  EXPECT_EQ(k, send0(b, a, "key"));
-  EXPECT_EQ(9, send0(b, a, "value").smallIntegerValue());
-  send1(b, a, "key:", b.wk.intern("b"));
-  send1(b, a, "value:", ao::Oop::fromSmallInteger(8));
-  EXPECT_EQ(b.wk.intern("b"), send0(b, a, "key"));
-  EXPECT_EQ(8, send0(b, a, "value").smallIntegerValue());
+  // send をまたぐ値はルートしておく（GC ストレスでは send ごとに動く。old の Symbol も動く）。
+  ao::Root k(b.roots, b.wk.intern("a"));
+  ao::Root a(b.roots,
+             send2(b, b.wk.associationClass, "key:value:", k.slot, ao::Oop::fromSmallInteger(9)));
+  ASSERT_TRUE(a.slot.isHeap());
+  EXPECT_EQ(b.wk.associationClass, b.heap.klass(a.slot));
+  EXPECT_EQ(k.slot, send0(b, a.slot, "key"));
+  EXPECT_EQ(9, send0(b, a.slot, "value").smallIntegerValue());
+  send1(b, a.slot, "key:", b.wk.intern("b"));
+  send1(b, a.slot, "value:", ao::Oop::fromSmallInteger(8));
+  EXPECT_EQ(b.wk.intern("b"), send0(b, a.slot, "key"));
+  EXPECT_EQ(8, send0(b, a.slot, "value").smallIntegerValue());
 }
 
 TEST(CollectionDo, BagLinkedListMappedCollectionStubs) {

@@ -32,17 +32,18 @@ TEST(Process, NamedProcessorIsSchedulerInstance) {
 
 TEST(Process, ResumeYieldSuspendRoundTrip) {
   Boot b;
-  auto p1 = send0(b, b.wk.processor, "activeProcess");
-  ASSERT_TRUE(p1.isHeap());
-  auto p2 = send0(b, b.wk.processClass, "new");
-  ASSERT_TRUE(p2.isHeap());
-  EXPECT_EQ(b.wk.processClass, b.heap.klass(p2));
-  EXPECT_EQ(p2, send0(b, p2, "resume"));
-  EXPECT_EQ(p1, send0(b, b.wk.processor, "activeProcess"));
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root p1(b.roots, send0(b, b.wk.processor, "activeProcess"));
+  ASSERT_TRUE(p1.slot.isHeap());
+  ao::Root p2(b.roots, send0(b, b.wk.processClass, "new"));
+  ASSERT_TRUE(p2.slot.isHeap());
+  EXPECT_EQ(b.wk.processClass, b.heap.klass(p2.slot));
+  EXPECT_EQ(p2.slot, send0(b, p2.slot, "resume"));
+  EXPECT_EQ(p1.slot, send0(b, b.wk.processor, "activeProcess"));
   EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
-  EXPECT_EQ(p2, send0(b, b.wk.processor, "activeProcess"));
-  EXPECT_EQ(p2, send0(b, p2, "suspend"));
-  EXPECT_EQ(p1, send0(b, b.wk.processor, "activeProcess"));
+  EXPECT_EQ(p2.slot, send0(b, b.wk.processor, "activeProcess"));
+  EXPECT_EQ(p2.slot, send0(b, p2.slot, "suspend"));
+  EXPECT_EQ(p1.slot, send0(b, b.wk.processor, "activeProcess"));
 }
 
 TEST(Process, PriorityColonStoresSmallInteger) {
@@ -56,64 +57,68 @@ TEST(Process, PriorityColonStoresSmallInteger) {
 
 TEST(Process, BlockContextForkCreatesAndResumesProcess) {
   Boot b;
-  auto p1 = send0(b, b.wk.processor, "activeProcess");
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root p1(b.roots, send0(b, b.wk.processor, "activeProcess"));
   auto fn = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
     return ao::Oop::fromSmallInteger(1);
   };
-  auto blk = ao::makeNativeBlock(b.ctx, fn, 0);
-  ASSERT_TRUE(blk.isHeap());
-  auto p = send0(b, blk, "fork");
-  ASSERT_TRUE(p.isHeap());
-  EXPECT_EQ(b.wk.processClass, b.heap.klass(p));
-  EXPECT_EQ(blk, send1(b, p, "instVarAt:", ao::Oop::fromSmallInteger(2)));
-  EXPECT_EQ(p1, send0(b, b.wk.processor, "activeProcess"));
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, fn, 0));
+  ASSERT_TRUE(blk.slot.isHeap());
+  ao::Root p(b.roots, send0(b, blk.slot, "fork"));
+  ASSERT_TRUE(p.slot.isHeap());
+  EXPECT_EQ(b.wk.processClass, b.heap.klass(p.slot));
+  EXPECT_EQ(blk.slot, send1(b, p.slot, "instVarAt:", ao::Oop::fromSmallInteger(2)));
+  EXPECT_EQ(p1.slot, send0(b, b.wk.processor, "activeProcess"));
   EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
-  EXPECT_EQ(p, send0(b, b.wk.processor, "activeProcess"));
+  EXPECT_EQ(p.slot, send0(b, b.wk.processor, "activeProcess"));
 }
 
 TEST(Process, WaitSuspendsThenSignalResumes) {
   Boot b;
-  auto p1 = send0(b, b.wk.processor, "activeProcess");
-  auto p2 = send0(b, b.wk.processClass, "new");
-  ASSERT_TRUE(p2.isHeap());
-  EXPECT_EQ(p2, send0(b, p2, "resume"));
-  auto sem = send0(b, b.wk.semaphoreClass, "new");
-  ASSERT_TRUE(sem.isHeap());
-  EXPECT_EQ(b.wk.semaphoreClass, b.heap.klass(sem));
-  EXPECT_EQ(sem, send0(b, sem, "wait"));
-  EXPECT_EQ(p2, send0(b, b.wk.processor, "activeProcess"));
-  EXPECT_EQ(sem, send0(b, sem, "signal"));
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root p1(b.roots, send0(b, b.wk.processor, "activeProcess"));
+  ao::Root p2(b.roots, send0(b, b.wk.processClass, "new"));
+  ASSERT_TRUE(p2.slot.isHeap());
+  EXPECT_EQ(p2.slot, send0(b, p2.slot, "resume"));
+  ao::Root sem(b.roots, send0(b, b.wk.semaphoreClass, "new"));
+  ASSERT_TRUE(sem.slot.isHeap());
+  EXPECT_EQ(b.wk.semaphoreClass, b.heap.klass(sem.slot));
+  EXPECT_EQ(sem.slot, send0(b, sem.slot, "wait"));
+  EXPECT_EQ(p2.slot, send0(b, b.wk.processor, "activeProcess"));
+  EXPECT_EQ(sem.slot, send0(b, sem.slot, "signal"));
   EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
-  EXPECT_EQ(p1, send0(b, b.wk.processor, "activeProcess"));
+  EXPECT_EQ(p1.slot, send0(b, b.wk.processor, "activeProcess"));
 }
 
 TEST(Process, WaitKeepsMyListAndResumeDoesNotDoubleEnqueue) {
   Boot b;
-  auto p1 = send0(b, b.wk.processor, "activeProcess");
-  auto p2 = send0(b, b.wk.processClass, "new");
-  ASSERT_TRUE(p2.isHeap());
-  EXPECT_EQ(p2, send0(b, p2, "resume"));
-  auto sem = send0(b, b.wk.semaphoreClass, "new");
-  ASSERT_TRUE(sem.isHeap());
-  EXPECT_EQ(sem, send0(b, sem, "wait"));
-  EXPECT_EQ(p2, send0(b, b.wk.processor, "activeProcess"));
-  auto waitList = send1(b, p1, "instVarAt:", ao::Oop::fromSmallInteger(4));
-  ASSERT_TRUE(waitList.isHeap());
-  EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(waitList));
-  EXPECT_EQ(1, send0(b, waitList, "size").smallIntegerValue());
-  EXPECT_EQ(p1, send1(b, waitList, "at:", ao::Oop::fromSmallInteger(1)));
-  EXPECT_EQ(p1, send0(b, p1, "resume"));
-  EXPECT_EQ(waitList, send1(b, p1, "instVarAt:", ao::Oop::fromSmallInteger(4)));
-  EXPECT_EQ(1, send0(b, waitList, "size").smallIntegerValue());
-  auto quiescent = send1(b, b.wk.processor, "instVarAt:", ao::Oop::fromSmallInteger(1));
-  ASSERT_TRUE(quiescent.isHeap());
-  EXPECT_EQ(0, send0(b, quiescent, "size").smallIntegerValue());
-  EXPECT_EQ(p2, send0(b, b.wk.processor, "activeProcess"));
-  EXPECT_EQ(sem, send0(b, sem, "signal"));
-  EXPECT_EQ(1, send0(b, quiescent, "size").smallIntegerValue());
-  EXPECT_EQ(p1, send1(b, quiescent, "at:", ao::Oop::fromSmallInteger(1)));
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root p1(b.roots, send0(b, b.wk.processor, "activeProcess"));
+  ao::Root p2(b.roots, send0(b, b.wk.processClass, "new"));
+  ASSERT_TRUE(p2.slot.isHeap());
+  EXPECT_EQ(p2.slot, send0(b, p2.slot, "resume"));
+  ao::Root sem(b.roots, send0(b, b.wk.semaphoreClass, "new"));
+  ASSERT_TRUE(sem.slot.isHeap());
+  EXPECT_EQ(sem.slot, send0(b, sem.slot, "wait"));
+  EXPECT_EQ(p2.slot, send0(b, b.wk.processor, "activeProcess"));
+  ao::Root waitList(b.roots, send1(b, p1.slot, "instVarAt:", ao::Oop::fromSmallInteger(4)));
+  ASSERT_TRUE(waitList.slot.isHeap());
+  EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(waitList.slot));
+  EXPECT_EQ(1, send0(b, waitList.slot, "size").smallIntegerValue());
+  EXPECT_EQ(p1.slot, send1(b, waitList.slot, "at:", ao::Oop::fromSmallInteger(1)));
+  EXPECT_EQ(p1.slot, send0(b, p1.slot, "resume"));
+  EXPECT_EQ(waitList.slot, send1(b, p1.slot, "instVarAt:", ao::Oop::fromSmallInteger(4)));
+  EXPECT_EQ(1, send0(b, waitList.slot, "size").smallIntegerValue());
+  ao::Root quiescent(b.roots,
+                     send1(b, b.wk.processor, "instVarAt:", ao::Oop::fromSmallInteger(1)));
+  ASSERT_TRUE(quiescent.slot.isHeap());
+  EXPECT_EQ(0, send0(b, quiescent.slot, "size").smallIntegerValue());
+  EXPECT_EQ(p2.slot, send0(b, b.wk.processor, "activeProcess"));
+  EXPECT_EQ(sem.slot, send0(b, sem.slot, "signal"));
+  EXPECT_EQ(1, send0(b, quiescent.slot, "size").smallIntegerValue());
+  EXPECT_EQ(p1.slot, send1(b, quiescent.slot, "at:", ao::Oop::fromSmallInteger(1)));
   EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
-  EXPECT_EQ(p1, send0(b, b.wk.processor, "activeProcess"));
+  EXPECT_EQ(p1.slot, send0(b, b.wk.processor, "activeProcess"));
 }
 
 TEST(Process, SharedQueueNextPutThenNext) {
@@ -128,18 +133,21 @@ TEST(Process, SharedQueueNextPutThenNext) {
 
 TEST(Process, MethodContextGettersReadSlots) {
   Boot b;
-  auto ctx = send0(b, b.wk.methodContextClass, "new");
-  ASSERT_TRUE(ctx.isHeap());
-  EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(ctx));
-  auto meth = send0(b, ao::Oop::fromSmallInteger(1), "class");
-  auto sender = send0(b, b.wk.objectClass, "new");
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root ctx(b.roots, send0(b, b.wk.methodContextClass, "new"));
+  ASSERT_TRUE(ctx.slot.isHeap());
+  EXPECT_EQ(b.wk.methodContextClass, b.heap.klass(ctx.slot));
+  ao::Root meth(b.roots, send0(b, ao::Oop::fromSmallInteger(1), "class"));
+  ao::Root sender(b.roots, send0(b, b.wk.objectClass, "new"));
   auto rcvr = ao::Oop::fromSmallInteger(7);
-  EXPECT_EQ(sender, send2(b, ctx, "instVarAt:put:", ao::Oop::fromSmallInteger(1), sender));
-  EXPECT_EQ(meth, send2(b, ctx, "instVarAt:put:", ao::Oop::fromSmallInteger(4), meth));
-  EXPECT_EQ(rcvr, send2(b, ctx, "instVarAt:put:", ao::Oop::fromSmallInteger(5), rcvr));
-  EXPECT_EQ(sender, send0(b, ctx, "sender"));
-  EXPECT_EQ(meth, send0(b, ctx, "method"));
-  EXPECT_EQ(rcvr, send0(b, ctx, "receiver"));
+  EXPECT_EQ(sender.slot,
+            send2(b, ctx.slot, "instVarAt:put:", ao::Oop::fromSmallInteger(1), sender.slot));
+  EXPECT_EQ(meth.slot,
+            send2(b, ctx.slot, "instVarAt:put:", ao::Oop::fromSmallInteger(4), meth.slot));
+  EXPECT_EQ(rcvr, send2(b, ctx.slot, "instVarAt:put:", ao::Oop::fromSmallInteger(5), rcvr));
+  EXPECT_EQ(sender.slot, send0(b, ctx.slot, "sender"));
+  EXPECT_EQ(meth.slot, send0(b, ctx.slot, "method"));
+  EXPECT_EQ(rcvr, send0(b, ctx.slot, "receiver"));
 }
 
 // excessSignals は Smalltalk から書き換えられる。SmallInteger の最大値にしてから signal すると、

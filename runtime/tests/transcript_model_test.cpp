@@ -67,50 +67,55 @@ TEST(TranscriptModel, NextPutAndClearInvokeHook) {
 
 TEST(TranscriptModel, WriteStreamGrowsArray) {
   Boot b;
-  auto arr = send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(1));
-  auto ws = send1(b, b.wk.writeStreamClass, "on:", arr);
-  ASSERT_TRUE(ws.isHeap());
-  EXPECT_EQ(b.wk.writeStreamClass, b.heap.klass(ws));
-  EXPECT_EQ(ao::Oop::fromSmallInteger(1), send1(b, ws, "nextPut:", ao::Oop::fromSmallInteger(1)));
-  EXPECT_EQ(ao::Oop::fromSmallInteger(2), send1(b, ws, "nextPut:", ao::Oop::fromSmallInteger(2)));
-  EXPECT_EQ(2, send0(b, ws, "position").smallIntegerValue());
-  auto contents = send0(b, ws, "contents");
-  ASSERT_TRUE(contents.isHeap());
-  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(contents));
-  EXPECT_EQ(2, send0(b, contents, "size").smallIntegerValue());
-  EXPECT_EQ(1, send1(b, contents, "at:", ao::Oop::fromSmallInteger(1)).smallIntegerValue());
-  EXPECT_EQ(2, send1(b, contents, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root arr(b.roots, send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(1)));
+  ao::Root ws(b.roots, send1(b, b.wk.writeStreamClass, "on:", arr.slot));
+  ASSERT_TRUE(ws.slot.isHeap());
+  EXPECT_EQ(b.wk.writeStreamClass, b.heap.klass(ws.slot));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(1),
+            send1(b, ws.slot, "nextPut:", ao::Oop::fromSmallInteger(1)));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(2),
+            send1(b, ws.slot, "nextPut:", ao::Oop::fromSmallInteger(2)));
+  EXPECT_EQ(2, send0(b, ws.slot, "position").smallIntegerValue());
+  ao::Root contents(b.roots, send0(b, ws.slot, "contents"));
+  ASSERT_TRUE(contents.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(contents.slot));
+  EXPECT_EQ(2, send0(b, contents.slot, "size").smallIntegerValue());
+  EXPECT_EQ(1, send1(b, contents.slot, "at:", ao::Oop::fromSmallInteger(1)).smallIntegerValue());
+  EXPECT_EQ(2, send1(b, contents.slot, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
 }
 
 TEST(TranscriptModel, WriteStreamOnStringNextPut) {
   Boot b;
-  auto empty = send1(b, b.wk.stringClass, "new:", ao::Oop::fromSmallInteger(0));
-  auto ws = send1(b, b.wk.writeStreamClass, "on:", empty);
-  ASSERT_TRUE(ws.isHeap());
-  send1(b, ws, "nextPut:", ao::Oop::fromCharacter(U'A'));
-  send1(b, ws, "nextPut:", ao::Oop::fromCharacter(U'あ'));
-  auto contents = send0(b, ws, "contents");
-  ASSERT_TRUE(contents.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(contents));
-  EXPECT_EQ("Aあ", ao::Str::toUtf8(b.heap, contents));
-  EXPECT_EQ(2, send0(b, contents, "size").smallIntegerValue());
-  EXPECT_EQ(2, send0(b, ws, "position").smallIntegerValue());
-  EXPECT_EQ(ws, send1(b, ws, "position:", ao::Oop::fromSmallInteger(1)));
-  EXPECT_EQ(1, send0(b, ws, "position").smallIntegerValue());
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root empty(b.roots, send1(b, b.wk.stringClass, "new:", ao::Oop::fromSmallInteger(0)));
+  ao::Root ws(b.roots, send1(b, b.wk.writeStreamClass, "on:", empty.slot));
+  ASSERT_TRUE(ws.slot.isHeap());
+  send1(b, ws.slot, "nextPut:", ao::Oop::fromCharacter(U'A'));
+  send1(b, ws.slot, "nextPut:", ao::Oop::fromCharacter(U'あ'));
+  ao::Root contents(b.roots, send0(b, ws.slot, "contents"));
+  ASSERT_TRUE(contents.slot.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(contents.slot));
+  EXPECT_EQ("Aあ", ao::Str::toUtf8(b.heap, contents.slot));
+  EXPECT_EQ(2, send0(b, contents.slot, "size").smallIntegerValue());
+  EXPECT_EQ(2, send0(b, ws.slot, "position").smallIntegerValue());
+  EXPECT_EQ(ws.slot, send1(b, ws.slot, "position:", ao::Oop::fromSmallInteger(1)));
+  EXPECT_EQ(1, send0(b, ws.slot, "position").smallIntegerValue());
 }
 
 TEST(TranscriptModel, WriteStreamStringAppendUpdatesWriteLimit) {
   Boot b;
-  auto empty = send1(b, b.wk.stringClass, "new:", ao::Oop::fromSmallInteger(0));
-  auto ws = send1(b, b.wk.writeStreamClass, "on:", empty);
-  send1(b, ws, "nextPut:", ao::Oop::fromCharacter(U'x'));
-  send1(b, ws, "nextPut:", ao::Oop::fromCharacter(U'y'));
-  send1(b, ws, "nextPut:", ao::Oop::fromCharacter(U'z'));
-  EXPECT_EQ(3, send0(b, ws, "position").smallIntegerValue());
-  EXPECT_EQ(ws, send1(b, ws, "position:", ao::Oop::fromSmallInteger(1)));
-  EXPECT_EQ(1, send0(b, ws, "position").smallIntegerValue());
-  EXPECT_EQ(ws, send1(b, ws, "position:", ao::Oop::fromSmallInteger(2)));
-  EXPECT_EQ(2, send0(b, ws, "position").smallIntegerValue());
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root empty(b.roots, send1(b, b.wk.stringClass, "new:", ao::Oop::fromSmallInteger(0)));
+  ao::Root ws(b.roots, send1(b, b.wk.writeStreamClass, "on:", empty.slot));
+  send1(b, ws.slot, "nextPut:", ao::Oop::fromCharacter(U'x'));
+  send1(b, ws.slot, "nextPut:", ao::Oop::fromCharacter(U'y'));
+  send1(b, ws.slot, "nextPut:", ao::Oop::fromCharacter(U'z'));
+  EXPECT_EQ(3, send0(b, ws.slot, "position").smallIntegerValue());
+  EXPECT_EQ(ws.slot, send1(b, ws.slot, "position:", ao::Oop::fromSmallInteger(1)));
+  EXPECT_EQ(1, send0(b, ws.slot, "position").smallIntegerValue());
+  EXPECT_EQ(ws.slot, send1(b, ws.slot, "position:", ao::Oop::fromSmallInteger(2)));
+  EXPECT_EQ(2, send0(b, ws.slot, "position").smallIntegerValue());
 }
 
 TEST(TranscriptModel, ReadStreamNextPositionResetContents) {
@@ -136,14 +141,15 @@ TEST(TranscriptModel, ReadStreamNextPositionResetContents) {
 
 TEST(TranscriptModel, NextPutAllCopiesCollection) {
   Boot b;
+  // send は GC しうるので、それをまたぐ値はルートしておく。
   ao::Oop slots[2] = {ao::Oop::fromSmallInteger(9), ao::Oop::fromSmallInteger(8)};
-  auto src = ao::Arr::fromSlots(b.heap, b.wk, slots, 2);
-  auto dest = send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(0));
-  auto ws = send1(b, b.wk.writeStreamClass, "on:", dest);
-  EXPECT_EQ(src, send1(b, ws, "nextPutAll:", src));
-  auto contents = send0(b, ws, "contents");
-  EXPECT_EQ(9, send1(b, contents, "at:", ao::Oop::fromSmallInteger(1)).smallIntegerValue());
-  EXPECT_EQ(8, send1(b, contents, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+  ao::Root src(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 2));
+  ao::Root dest(b.roots, send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(0)));
+  ao::Root ws(b.roots, send1(b, b.wk.writeStreamClass, "on:", dest.slot));
+  EXPECT_EQ(src.slot, send1(b, ws.slot, "nextPutAll:", src.slot));
+  ao::Root contents(b.roots, send0(b, ws.slot, "contents"));
+  EXPECT_EQ(9, send1(b, contents.slot, "at:", ao::Oop::fromSmallInteger(1)).smallIntegerValue());
+  EXPECT_EQ(8, send1(b, contents.slot, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
 }
 
 TEST(TranscriptModel, SmalltalkImageAtAndAtPut) {

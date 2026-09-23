@@ -5,6 +5,7 @@
 #include "ao/Compile.hpp"
 #include "ao/CompiledMethod.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Image.hpp"
 #include "ao/ImageFormat.hpp"
 #include "ao/Lookup.hpp"
@@ -286,23 +287,24 @@ TEST(ImageSaveLoad, UserMethodSurvives) {
 
   Loaded loaded;
   ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, path.string()));
-  auto loadedCls = loaded.wk.named("CmUser");
-  ASSERT_TRUE(loadedCls.isHeap());
-  EXPECT_EQ(hashBefore, loaded.heap.hash(loadedCls));
+  // send は GC しうるので、それをまたぐ値はルートしておく。
+  ao::Root loadedCls(loaded.roots, loaded.wk.named("CmUser"));
+  ASSERT_TRUE(loadedCls.slot.isHeap());
+  EXPECT_EQ(hashBefore, loaded.heap.hash(loadedCls.slot));
 
   auto sel = loaded.wk.intern("ok");
-  auto meth = ao::lookup(loaded.heap, loadedCls, sel);
+  auto meth = ao::lookup(loaded.heap, loadedCls.slot, sel);
   ASSERT_TRUE(meth.isHeap());
   EXPECT_EQ(loaded.wk.compiledMethodClass, loaded.heap.klass(meth));
   ASSERT_GE(loaded.heap.size(meth), ao::kCmSlotCount);
   EXPECT_TRUE(loaded.heap.slotAt(meth, ao::kCmSlotNativeCode).isNil());
 
-  auto inst = send0(loaded, loadedCls, "new");
-  ASSERT_TRUE(inst.isHeap());
-  auto three = send0(loaded, inst, "ok");
+  ao::Root inst(loaded.roots, send0(loaded, loadedCls.slot, "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  auto three = send0(loaded, inst.slot, "ok");
   ASSERT_TRUE(three.isSmallInteger());
   EXPECT_EQ(3, three.smallIntegerValue());
-  EXPECT_EQ("ao", utf8Bytes(loaded.heap, send0(loaded, inst, "tag")));
+  EXPECT_EQ("ao", utf8Bytes(loaded.heap, send0(loaded, inst.slot, "tag")));
 }
 
 TEST(ImageSaveLoad, KernelMethodsStayNative) {
