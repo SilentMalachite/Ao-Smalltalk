@@ -2,6 +2,20 @@ import AppKit
 import CAo
 
 @MainActor
+func saveImageFile(at url: URL) -> Int32 {
+  url.path.withCString { ao_image_save($0) }
+}
+
+@MainActor
+func openImageFile(at url: URL, transcript: TranscriptWindow?) -> Int32 {
+  let status = url.path.withCString { ao_image_load($0) }
+  if status == Int32(AO_OK) {
+    transcript?.installHook()
+  }
+  return status
+}
+
+@MainActor
 public final class AoApp: NSObject, NSApplicationDelegate {
   private var launch: LaunchSet?
   private var browser: BrowserWindow?
@@ -27,6 +41,17 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       inspectIt: {
         sendToKeyWorkspace(self.launch?.workspace, keyWindow: NSApplication.shared.keyWindow) { $0.inspectIt() }
       },
+      accept: {
+        sendToKeyBrowser(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.accept() }
+      },
+      showHierarchy: {
+        if self.browser == nil {
+          self.showBrowser()
+        }
+        self.browser?.showHierarchy()
+      },
+      saveImage: { self.presentSaveImage() },
+      openImage: { self.presentOpenImage() },
       showBrowser: { self.showBrowser() },
       showTranscript: { self.launch?.transcript.orderFront() },
       showWorkspace: { self.launch?.workspace.orderFront() },
@@ -43,6 +68,36 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     launch = started
     fileInVendorIfPresent(started)
     app.activate()
+  }
+
+  private func presentSaveImage() {
+    let panel = NSSavePanel()
+    panel.canCreateDirectories = true
+    panel.begin { response in
+      MainActor.assumeIsolated {
+        guard response == .OK, let url = panel.url else {
+          return
+        }
+        _ = saveImageFile(at: url)
+      }
+    }
+  }
+
+  private func presentOpenImage() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.begin { response in
+      MainActor.assumeIsolated {
+        guard response == .OK, let url = panel.url else {
+          return
+        }
+        if openImageFile(at: url, transcript: self.launch?.transcript) == Int32(AO_OK) {
+          self.browser?.noteImageLoaded()
+        }
+      }
+    }
   }
 
   private func showBrowser() {

@@ -7,6 +7,9 @@ enum MainMenu {
     var printIt: () -> Void = {}
     var inspectIt: () -> Void = {}
     var accept: () -> Void = {}
+    var showHierarchy: () -> Void = {}
+    var saveImage: () -> Void = {}
+    var openImage: () -> Void = {}
     var showBrowser: () -> Void = {}
     var showTranscript: () -> Void = {}
     var showWorkspace: () -> Void = {}
@@ -22,6 +25,9 @@ enum MainMenu {
     let bar = NSMenu(title: "MainMenu")
     bar.addItem(top("Ao", items: applicationItems()))
     bar.addItem(top("File", items: [
+      actionItem("Save Image…", key: "", run: { _ in actions.saveImage() }),
+      actionItem("Open Image…", key: "", run: { _ in actions.openImage() }),
+      .separator(),
       responderItem("Close", key: "w", action: #selector(NSWindow.performClose(_:)))
     ]))
     bar.addItem(top("Edit", items: [
@@ -34,7 +40,8 @@ enum MainMenu {
       actionItem("Do it", key: "d", run: { _ in actions.doIt() }),
       actionItem("Print it", key: "i", run: { _ in actions.printIt() }),
       actionItem("Inspect it", key: "", run: { _ in actions.inspectIt() }),
-      actionItem("Accept", key: "", run: { _ in actions.accept() })
+      actionItem("Accept", key: "", run: { _ in actions.accept() }),
+      actionItem("Show Hierarchy", key: "", run: { _ in actions.showHierarchy() })
     ]))
     bar.addItem(top("Tools", items: [
       actionItem("Browser", key: "", run: { _ in actions.showBrowser() }),

@@ -62,6 +62,7 @@ Oop ao_Integer_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint
 Oop ao_Character_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
 Oop ao_String_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
 Oop ao_Array_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
+Oop ao_Array_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
 Oop ao_Float_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
 
 }  // namespace ao

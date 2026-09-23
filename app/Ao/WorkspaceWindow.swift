@@ -44,6 +44,7 @@ private func installErrorField(on window: NSWindow, textView: NSTextView) -> NST
   field.isBezeled = false
   field.drawsBackground = false
   field.stringValue = ""
+  field.setAccessibilityLabel("Error")
   field.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
   field.textColor = .secondaryLabelColor
   field.translatesAutoresizingMaskIntoConstraints = true
@@ -73,7 +74,7 @@ private func installErrorField(on window: NSWindow, textView: NSTextView) -> NST
   return field
 }
 
-private func spanMessage(_ span: AoSpan) -> String {
+func spanMessage(_ span: AoSpan) -> String {
   withUnsafeBytes(of: span.message) { raw in
     let bytes = raw.bindMemory(to: CChar.self)
     guard let base = bytes.baseAddress else {
@@ -91,7 +92,7 @@ private func spanMessage(_ span: AoSpan) -> String {
   }
 }
 
-private func failureText(status: Int32, message: String) -> String {
+func failureText(status: Int32, message: String) -> String {
   if !message.isEmpty {
     return message
   }
@@ -127,6 +128,14 @@ final class WorkspaceWindow {
     errorField.stringValue
   }
 
+  var textAccessibilityLabel: String? {
+    textView.accessibilityLabel()
+  }
+
+  var errorAccessibilityLabel: String? {
+    errorField.accessibilityLabel()
+  }
+
   var inspectorText: String {
     inspectors.last?.text ?? ""
   }
@@ -147,6 +156,7 @@ final class WorkspaceWindow {
     )
     window = built.window
     textView = built.textView
+    textView.setAccessibilityLabel("Workspace")
     errorField = installErrorField(on: built.window, textView: built.textView)
     window.makeKeyAndOrderFront(nil)
   }

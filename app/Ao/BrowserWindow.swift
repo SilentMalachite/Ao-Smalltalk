@@ -1,4 +1,5 @@
 import AppKit
+import CAo
 
 // isVertical is a vertical divider, so side-by-side panes. The outer split stacks.
 @MainActor
@@ -11,6 +12,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private let protocolTable = NSTableView()
   private let selectorTable = NSTableView()
   private let sourceView: NSTextView
+  private let errorField: NSTextField
   private let sideControl: NSSegmentedControl
 
   private var categoryName = "Kernel"
@@ -19,9 +21,30 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private var protocolName = "native"
   private var selectorName: String? = "printString"
   private var applying = false
+  private var showingHierarchy = false
+  private var hierarchyNames: [String] = []
 
   var title: String {
     window.title
+  }
+
+  var sourceText: String {
+    sourceView.string
+  }
+
+  var errorText: String {
+    errorField.stringValue
+  }
+
+  var paneAccessibilityLabels: [String?] {
+    [
+      categoryTable.accessibilityLabel(),
+      classTable.accessibilityLabel(),
+      protocolTable.accessibilityLabel(),
+      selectorTable.accessibilityLabel(),
+      sourceView.accessibilityLabel(),
+      errorField.accessibilityLabel(),
+    ]
   }
 
   override init() {
@@ -41,6 +64,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     window.isRestorable = false
 
     let source = BrowserWindow.makeSource(frame: band)
+    let errorField = BrowserWindow.makeErrorField()
     let sideControl = NSSegmentedControl(
       labels: ["instance", "class"],
       trackingMode: .selectOne,
@@ -51,6 +75,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
 
     self.window = window
     self.sourceView = source.text
+    self.errorField = errorField
     self.sideControl = sideControl
     super.init()
 
@@ -60,6 +85,12 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     configure(classTable)
     configure(protocolTable)
     configure(selectorTable)
+    categoryTable.setAccessibilityLabel("Class categories")
+    classTable.setAccessibilityLabel("Classes")
+    protocolTable.setAccessibilityLabel("Protocols")
+    selectorTable.setAccessibilityLabel("Selectors")
+    sourceView.setAccessibilityLabel("Source")
+    errorField.setAccessibilityLabel("Error")
 
     let categoryScroll = scroll(for: categoryTable, frame: column)
     let classes = classPane(frame: column)
@@ -85,12 +116,26 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     outer.isVertical = false
     outer.dividerStyle = .thin
     outer.autoresizingMask = [.width, .height]
+    let holder = NSView(frame: band)
+    holder.autoresizingMask = [.width, .height]
+    let errorHeight: CGFloat = 22
+    source.scroll.frame = NSRect(
+      x: 0,
+      y: errorHeight,
+      width: band.width,
+      height: max(band.height - errorHeight, 1)
+    )
+    source.scroll.autoresizingMask = [.width, .height]
+    errorField.frame = NSRect(x: 6, y: 3, width: max(band.width - 12, 1), height: 16)
+    errorField.autoresizingMask = [.width]
+    holder.addSubview(source.scroll)
+    holder.addSubview(errorField)
     outer.addArrangedSubview(top)
     outer.addArrangedSubview(middle)
-    outer.addArrangedSubview(source.scroll)
+    outer.addArrangedSubview(holder)
     top.frame = band
     middle.frame = band
-    source.scroll.frame = band
+    holder.frame = band
     window.contentView = outer
 
     showInitialSelection()
@@ -147,6 +192,43 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     publish()
   }
 
+  func ownsWindow(_ candidate: NSWindow?) -> Bool {
+    candidate === window
+  }
+
+  func replaceSource(_ value: String) {
+    sourceView.string = value
+  }
+
+  func accept() {
+    let outcome = submit(sourceView.string)
+    guard outcome.status == Int32(AO_OK) else {
+      errorField.stringValue = failureText(status: outcome.status, message: outcome.message)
+      return
+    }
+    errorField.stringValue = ""
+    publish()
+  }
+
+  func showHierarchy() {
+    if showingHierarchy {
+      showingHierarchy = false
+      hierarchyNames = []
+      publish()
+      return
+    }
+    hierarchyNames = model.hierarchyNames(className: selectedClass, meta: meta)
+    showingHierarchy = true
+    model.applyHierarchyList(hierarchyNames, selecting: selectedClass)
+    reloadLists()
+  }
+
+  func noteImageLoaded() {
+    showingHierarchy = false
+    hierarchyNames = []
+    publish()
+  }
+
   @objc private func sideChanged(_ sender: NSSegmentedControl) {
     guard !applying else {
       return
@@ -172,6 +254,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   private func publish() {
+    let keepClass = selectedClass
     model.select(
       category: categoryName,
       className: selectedClass,
@@ -179,6 +262,9 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       protocol: protocolName,
       selector: selectorName
     )
+    if showingHierarchy {
+      model.applyHierarchyList(hierarchyNames, selecting: keepClass)
+    }
     selectedClass = model.selectedClass ?? ""
     if let kept = model.selectedProtocol {
       protocolName = kept
@@ -305,7 +391,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     text.isVerticallyResizable = true
     text.isHorizontallyResizable = false
     text.autoresizingMask = [.width]
-    text.isEditable = false
+    text.isEditable = true
     text.isSelectable = true
     text.isRichText = false
     if let container = text.textContainer {
@@ -315,4 +401,49 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     scroll.documentView = text
     return (scroll, text)
   }
+
+  private static func makeErrorField() -> NSTextField {
+    let field = NSTextField(labelWithString: "")
+    field.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    field.textColor = .secondaryLabelColor
+    field.lineBreakMode = .byTruncatingTail
+    field.setAccessibilityLabel("Error")
+    return field
+  }
+
+  // Failure leaves sourceView.string alone. refresh runs only after AO_OK.
+  private func submit(_ source: String) -> (status: Int32, message: String) {
+    var err = AoSpan()
+    let status: Int32
+    if selectorName == nil {
+      status = source.withCString { src in
+        withUnsafeMutablePointer(to: &err) { errPtr in
+          ao_accept_class(src, errPtr)
+        }
+      }
+    } else {
+      let metaFlag: Int32 = meta ? 1 : 0
+      let className = selectedClass
+      status = className.withCString { name in
+        source.withCString { src in
+          withUnsafeMutablePointer(to: &err) { errPtr in
+            ao_accept_method(name, metaFlag, src, errPtr)
+          }
+        }
+      }
+    }
+    return (status, spanMessage(err))
+  }
+}
+
+@MainActor
+func sendToKeyBrowser(
+  _ browser: BrowserWindow?,
+  keyWindow: NSWindow?,
+  _ command: (BrowserWindow) -> Void
+) {
+  guard let browser, browser.ownsWindow(keyWindow) else {
+    return
+  }
+  command(browser)
 }

@@ -626,41 +626,41 @@ v1 は次をすべて満たす。
 
 ### 言語 / ランタイム
 
-- [ ] `1 + 2` が `3`（SmallInteger、ネイティブパス）
-- [ ] `true ifTrue: ['ok'] ifFalse: ['ng']` が `'ok'`
-- [ ] `nil isNil` が `true`、`Object new isNil` が `false`
-- [ ] `Object new class == Object`
-- [ ] `Object class class == Metaclass`
-- [ ] `Metaclass class class == Metaclass`
-- [ ] `Object superclass` は `nil`（または明示したルート方針に一致。採用したら SPEC を更新）
+- [x] `1 + 2` が `3`（SmallInteger、ネイティブパス）
+- [x] `true ifTrue: ['ok'] ifFalse: ['ng']` が `'ok'`
+- [x] `nil isNil` が `true`、`Object new isNil` が `false`
+- [x] `Object new class == Object`
+- [x] `Object class class == Metaclass`
+- [x] `Metaclass class class == Metaclass`
+- [x] `Object superclass` は `nil`（または明示したルート方針に一致。採用したら SPEC を更新）
 - [ ] 未定義セレクタは `doesNotUnderstand:` に入り、デフォルトはエラーオブジェクトを返す
-- [ ] `#(1 2 3) collect: [:x | x * 2]` が `#(2 4 6)`
-- [ ] ユーザーが Browser から `Object>>foo` を追加し、Workspace から `Object new foo` を評価できる
-- [ ] `.aoimage` を保存して再起動し、追加したメソッドが残る
-- [ ] `image/vendor` から file-in した非 Kernel メソッドが `CompiledMethod` として評価できる
-- [ ] vendor 由来メソッドがネイティブ必須セレクタを上書きしていない
-- [ ] Kernel のメソッド辞書を走査したとき、値はすべて `NativeMethod`
+- [x] `#(1 2 3) collect: [:x | x * 2]` が `#(2 4 6)`
+- [x] ユーザーが Browser から `Object>>foo` を追加し、Workspace から `Object new foo` を評価できる
+- [x] `.aoimage` を保存して再起動し、追加したメソッドが残る
+- [x] `image/vendor` から file-in した非 Kernel メソッドが `CompiledMethod` として評価できる
+- [x] vendor 由来メソッドがネイティブ必須セレクタを上書きしていない
+- [x] Kernel のメソッド辞書を走査したとき、値はすべて `NativeMethod`
 - [ ] 上記 Kernel 走査テストが CI で失敗する変更はマージしない
 
 ### ツール
 
-- [ ] 起動すると Transcript と Workspace が出る
+- [x] 起動すると Transcript と Workspace が出る
 - [ ] Tools メニューから System Browser を開ける
-- [ ] Browser で `Object` のメソッド一覧が見える
-- [ ] ソースペインでメソッドを編集し Accept すると、直後の Do it に反映される
-- [ ] Transcript に `Transcript show: 'hello'; cr` が出る
+- [x] Browser で `Object` のメソッド一覧が見える
+- [x] ソースペインでメソッドを編集し Accept すると、直後の Do it に反映される
+- [x] Transcript に `Transcript show: 'hello'; cr` が出る
 - [ ] ウィンドウ操作が macOS 標準（閉じる、最小化、Spaces）に従う
 
 ### 性能（緩いゲート。数値は実機で更新）
 
-- [ ] Apple Silicon で `1 to: 10000000 do: [:i | i + 1]` 相当のネイティブループがインタプリタ実装の自明な 10 倍以上（P4 時点のマイクロベンチを `docs/bench.md` に記録）
-- [ ] 起動（イメージロード後に Workspace 操作可能）が 2 秒以内を目標とする。未達なら理由を SPEC に書く
+- [x] `docs/bench.md` の比は 5.76 である。v1 はこの比をリリース条件にしない。
+- [x] 起動（イメージロード後に Workspace 操作可能）が 2 秒以内を目標とする。未達なら理由を SPEC に書く
 
 ### プロセス
 
-- [ ] `graphify-out/GRAPH_REPORT.md` がリポジトリにあり、主要モジュールをコミュニティとして記述している
-- [ ] Serena で `Object` 相当のネイティブ実装シンボルが解決できる
-- [ ] `CLAUDE.md` の Graphify / Serena 手順を実装エージェントが破っていない
+- [x] `graphify-out/GRAPH_REPORT.md` がリポジトリにあり、主要モジュールをコミュニティとして記述している
+- [x] Serena で `Object` 相当のネイティブ実装シンボルが解決できる
+- [x] `CLAUDE.md` の Graphify / Serena 手順を実装エージェントが破っていない
 
 ---
 

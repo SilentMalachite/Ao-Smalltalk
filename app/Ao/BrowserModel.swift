@@ -63,6 +63,44 @@ final class BrowserModel {
     refresh()
   }
 
+  func hierarchyNames(className: String, meta: Bool) -> [String] {
+    var chain: [String] = []
+    var current = className
+    while !current.isEmpty, !chain.contains(current), chain.count < 64 {
+      chain.append(current)
+      guard let next = superclassName(current, meta: meta), !next.isEmpty else {
+        break
+      }
+      current = next
+    }
+    var names = Array(chain.reversed())
+    for sub in subclassNames(className) where !names.contains(sub) {
+      names.append(sub)
+    }
+    return names
+  }
+
+  // Class-list rows only. Protocols stay unless the selected class changed under us.
+  func applyHierarchyList(_ names: [String], selecting name: String) {
+    let previous = selectedClass
+    classes = names
+    if names.contains(name) {
+      selectedClass = name
+    }
+    guard selectedClass != previous else {
+      return
+    }
+    protocols = loadProtocols()
+    if let current = selectedProtocol, !protocols.contains(current) {
+      selectedProtocol = nil
+    }
+    selectors = loadSelectors()
+    if let current = selectedSelector, !selectors.contains(current) {
+      selectedSelector = nil
+    }
+    source = loadSource()
+  }
+
   private struct ListedClass {
     var name: String
     var category: String
@@ -151,6 +189,22 @@ final class BrowserModel {
 
   private var metaFlag: Int32 {
     selectedMeta ? 1 : 0
+  }
+
+  private func superclassName(_ className: String, meta: Bool) -> String? {
+    let flag: Int32 = meta ? 1 : 0
+    return copyText { buffer, length in
+      ao_browser_superclass(className, flag, buffer, length)
+    }
+  }
+
+  private func subclassNames(_ className: String) -> [String] {
+    loadList(
+      count: { ao_browser_subclass_count(className) },
+      at: { index, buffer, length in
+        ao_browser_subclass_at(className, index, buffer, length)
+      }
+    )
   }
 
   private func loadList(

@@ -1284,15 +1284,15 @@
     "semantic_hash": ""
   },
   "app/Ao/BrowserModel.swift": {
-    "mtime": 1790113643.7107866,
-    "seen": 1790118946.870036,
-    "ast_hash": "4598b05dba525ae33e37c54ef26b91cf",
+    "mtime": 1790121308.6904573,
+    "seen": 1790121425.967854,
+    "ast_hash": "0064494d9b2871083bb094469ba57ee0",
     "semantic_hash": ""
   },
   "app/Ao/BrowserWindow.swift": {
-    "mtime": 1790117632.7003257,
-    "seen": 1790118946.870037,
-    "ast_hash": "4edc49954510a261e66ad5aae25bf64e",
+    "mtime": 1790121402.4202678,
+    "seen": 1790121425.9678562,
+    "ast_hash": "dce2bc7291b502b2032825109f25b607",
     "semantic_hash": ""
   },
   "app/Ao/LaunchSet.swift": {
@@ -1326,9 +1326,9 @@
     "semantic_hash": ""
   },
   "app/AoTests/BrowserModelTests.swift": {
-    "mtime": 1790117538.3082733,
-    "seen": 1790118946.8700411,
-    "ast_hash": "3419e2821a9a76cbfebd09bc1174790b",
+    "mtime": 1790121308.7553537,
+    "seen": 1790121425.9678621,
+    "ast_hash": "d877085c958448984c27a0d89f54c735",
     "semantic_hash": ""
   },
   "app/AoTests/ToolWindowTests.swift": {

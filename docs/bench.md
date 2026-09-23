@@ -20,3 +20,7 @@ bench
   61449 ms, `interpretedBytecodes` 40000006
 - Ratio (bytecode ms / native ms): 5.76 (61449/10666)
 - The ratio is under 10. Not optimized.
+
+2026-09-23
+比 5.76 を再計測していない
+起動（ao_runtime_boot と image/vendor/LOAD_ORDER の file-in）: 30 ms

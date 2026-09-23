@@ -83,6 +83,10 @@ final class TranscriptWindow {
     didSet { storeFixedPitch() }
   }
 
+  var textAccessibilityLabel: String? {
+    textView.accessibilityLabel()
+  }
+
   init() {
     let saved = UserDefaults.standard.bool(forKey: aoTranscriptFixedPitchKey)
     let built = makeToolTextWindow(
@@ -92,6 +96,7 @@ final class TranscriptWindow {
     )
     window = built.window
     textView = built.textView
+    textView.setAccessibilityLabel("Transcript")
     useFixedPitch = saved
     applyFont()
     window.makeKeyAndOrderFront(nil)

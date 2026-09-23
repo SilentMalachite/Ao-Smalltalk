@@ -93,6 +93,34 @@ Oop ao_Array_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32
   return arrayPrintString(ctx, receiver, 1);
 }
 
+Oop ao_Array_equals(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  if (!isArray(ctx, receiver) || !isArray(ctx, args[0])) {
+    return Oop::false_();
+  }
+  Root left(ctx.roots, receiver);
+  Root right(ctx.roots, args[0]);
+  const auto n = ctx.heap.size(left.slot);
+  if (ctx.heap.size(right.slot) != n) {
+    return Oop::false_();
+  }
+  Root sel(ctx.roots, ctx.wk.intern("="));
+  if (!sel.slot.isHeap()) {
+    return Oop{};
+  }
+  for (std::uint32_t i = 0; i < n; ++i) {
+    Root a(ctx.roots, ctx.heap.slotAt(left.slot, i));
+    Root b(ctx.roots, ctx.heap.slotAt(right.slot, i));
+    const Oop eq = send(ctx, a.slot, sel.slot, &b.slot, 1, nullptr);
+    if (!eq.isTrue()) {
+      return Oop::false_();
+    }
+  }
+  return Oop::true_();
+}
+
 Oop ao_ArrayedCollection_size(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
   return ao_Object_basicSize(ctx, receiver, args, argc);
 }
@@ -139,6 +167,7 @@ void installArray(Heap& heap, WellKnown& wk) {
             ao_ArrayedCollection_new_);
   putNative(heap, wk, wk.arrayClass, "printString", 0, "ao_Array_printString",
             ao_Array_printString);
+  putNative(heap, wk, wk.arrayClass, "=", 1, "ao_Array_equals", ao_Array_equals);
 }
 
 }  // namespace kernel
