@@ -105,7 +105,7 @@ bool isStringy(CallContext& ctx, Oop obj) {
 
 Oop fail(CallContext& ctx, Oop receiver, std::string_view msg) {
   Oop s = Str::fromUtf8(ctx.heap, ctx.wk, msg);
-  return ao_Object_error_(ctx, receiver, &s, 1);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
 }  // namespace

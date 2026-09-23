@@ -2,6 +2,7 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/CompiledMethod.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/Symbol.hpp"
@@ -60,41 +61,46 @@ void fillCaches(CallContext& ctx, InlineCache* ic, Oop klass, Oop selector, Oop 
   }
 }
 
-Oop allocateMessage(Heap& heap, WellKnown& wk, Oop selector, const Oop* args, std::uint32_t argc) {
-  auto msg = heap.allocate(wk.messageClass, 2, 0);
-  if (!msg.isHeap()) {
+// in[0] is the receiver, in[1] the selector and in[2..] the arguments, all rooted.
+Oop allocateMessage(CallContext& ctx, const RootedArray& in, std::uint32_t argc) {
+  Root msg(ctx.roots, allocateRetry(ctx, ctx.wk.messageClass, 2, 0));
+  if (!msg.slot.isHeap()) {
     return Oop{};
   }
-  heap.slotAtPut(msg, 0, selector);
-  auto arr = heap.allocate(wk.arrayClass, argc, 0);
+  const Oop arr = allocateRetry(ctx, ctx.wk.arrayClass, argc, 0);
   if (!arr.isHeap()) {
     return Oop{};
   }
   for (std::uint32_t i = 0; i < argc; ++i) {
-    heap.slotAtPut(arr, i, args[i]);
+    ctx.heap.slotAtPut(arr, i, in[i + 2]);
   }
-  heap.slotAtPut(msg, 1, arr);
-  return msg;
+  ctx.heap.slotAtPut(msg.slot, 0, in[1]);
+  ctx.heap.slotAtPut(msg.slot, 1, arr);
+  return msg.slot;
 }
 
 Oop doesNotUnderstand(CallContext& ctx, Oop receiver, Oop selector, const Oop* args,
                       std::uint32_t argc) {
-  auto msg = allocateMessage(ctx.heap, ctx.wk, selector, args, argc);
-  if (!msg.isHeap()) {
+  // Building the Message can collect, so everything it holds is rooted first.
+  RootedArray in(ctx.roots, argc + 2);
+  in[0] = receiver;
+  in[1] = selector;
+  for (std::uint32_t i = 0; i < argc; ++i) {
+    in[i + 2] = args[i];
+  }
+  Root msg(ctx.roots, allocateMessage(ctx, in, argc));
+  if (!msg.slot.isHeap()) {
     return Oop{};
   }
-  auto dnuSel = Symbol::intern(ctx.wk, "doesNotUnderstand:");
+  const Oop dnuSel = Symbol::intern(ctx.wk, "doesNotUnderstand:");
   if (!dnuSel.isHeap()) {
-    return msg;
+    return msg.slot;
   }
-  auto meth = lookup(ctx.heap, ctx.wk.classOf(receiver), dnuSel);
+  const Oop meth = lookup(ctx.heap, ctx.wk.classOf(in[0]), dnuSel);
   if (!meth.isHeap()) {
-    return msg;
+    return msg.slot;
   }
-  ctx.roots.add(&msg);
-  const Oop applied = applyMethod(ctx, meth, receiver, &msg, 1);
-  ctx.roots.remove(&msg);
-  return applied;
+  return applyMethod(ctx, meth, in[0], &msg.slot, 1);
 }
 
 }  // namespace

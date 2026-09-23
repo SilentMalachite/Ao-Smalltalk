@@ -87,7 +87,7 @@ Oop ao_Behavior_basicNew(CallContext& ctx, const Oop& receiver, const Oop*, std:
   const Oop fmt = classFormat(ctx, receiver);
   if (Format::isIndexable(fmt)) {
     Oop zero = Oop::fromSmallInteger(0);
-    return ao_Behavior_basicNew_(ctx, receiver, &zero, 1);
+    return NativeMethod::invoke(ctx, ao_Behavior_basicNew_, receiver, &zero, 1);
   }
   return allocateRetry(ctx, receiver, static_cast<std::uint32_t>(Format::instSize(fmt)), 0);
 }
@@ -97,7 +97,7 @@ Oop ao_Behavior_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint
   const Oop fmt = classFormat(ctx, receiver);
   if (Format::isIndexable(fmt)) {
     Oop zero = Oop::fromSmallInteger(0);
-    return ao_Behavior_basicNew_(ctx, receiver, &zero, 1);
+    return NativeMethod::invoke(ctx, ao_Behavior_basicNew_, receiver, &zero, 1);
   }
   return ao_Behavior_basicNew(ctx, receiver, nullptr, 0);
 }

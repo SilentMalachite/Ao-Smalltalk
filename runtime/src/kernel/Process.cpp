@@ -312,7 +312,7 @@ Oop ao_Semaphore_signal(CallContext& ctx, const Oop& receiver, const Oop*, std::
   if (hasSlots(ctx.heap, waiter, kProcMyList)) {
     ctx.heap.slotAtPut(waiter, kProcMyList, Oop::nil());
   }
-  ao_Process_resume(ctx, waiter, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Process_resume, waiter, nullptr, 0);
   return sem.slot;
 }
 
@@ -334,7 +334,7 @@ Oop ao_Semaphore_wait(CallContext& ctx, const Oop& receiver, const Oop*, std::ui
                              : Oop{});
   if (active.slot.isHeap()) {
     ocAdd(ctx, list.slot, active.slot);
-    ao_Process_suspend(ctx, active.slot, nullptr, 0);
+    NativeMethod::invoke(ctx, ao_Process_suspend, active.slot, nullptr, 0);
     if (hasSlots(ctx.heap, active.slot, kProcMyList)) {
       ctx.heap.slotAtPut(active.slot, kProcMyList, list.slot);
     }
@@ -358,7 +358,7 @@ Oop ao_SharedQueue_new(CallContext& ctx, const Oop& receiver, const Oop*, std::u
   ctx.heap.slotAtPut(q.slot, kSqRead, read);
   Oop write = send(ctx, ctx.wk.semaphoreClass, ctx.wk.selNew, nullptr, 0, nullptr);
   ctx.heap.slotAtPut(q.slot, kSqWrite, write);
-  ao_Semaphore_signal(ctx, write, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_signal, write, nullptr, 0);
   return q.slot;
 }
 
@@ -370,11 +370,11 @@ Oop ao_SharedQueue_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root q(ctx.roots, receiver);
   Root value(ctx.roots, args[0]);
   Oop write = ctx.heap.slotAt(q.slot, kSqWrite);
-  ao_Semaphore_wait(ctx, write, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_wait, write, nullptr, 0);
   Oop contents = ensureOc(ctx, q, kSqContents);
   ocAdd(ctx, contents, value.slot);
   Oop read = ctx.heap.slotAt(q.slot, kSqRead);
-  ao_Semaphore_signal(ctx, read, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_signal, read, nullptr, 0);
   return value.slot;
 }
 
@@ -384,11 +384,11 @@ Oop ao_SharedQueue_next(CallContext& ctx, const Oop& receiver, const Oop*, std::
   }
   Root q(ctx.roots, receiver);
   Oop read = ctx.heap.slotAt(q.slot, kSqRead);
-  ao_Semaphore_wait(ctx, read, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_wait, read, nullptr, 0);
   Oop contents = ctx.heap.slotAt(q.slot, kSqContents);
   Oop value = ocRemoveFirst(ctx.heap, contents);
   Oop write = ctx.heap.slotAt(q.slot, kSqWrite);
-  ao_Semaphore_signal(ctx, write, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Semaphore_signal, write, nullptr, 0);
   return value;
 }
 
@@ -405,7 +405,7 @@ Oop ao_BlockContext_fork(CallContext& ctx, const Oop& receiver, const Oop*, std:
   ctx.heap.slotAtPut(proc.slot, kProcContext, blk.slot);
   ctx.heap.slotAtPut(proc.slot, kProcPriority, Oop::fromSmallInteger(0));
   ctx.heap.slotAtPut(proc.slot, kProcNextLink, Oop::nil());
-  ao_Process_resume(ctx, proc.slot, nullptr, 0);
+  NativeMethod::invoke(ctx, ao_Process_resume, proc.slot, nullptr, 0);
   return proc.slot;
 }
 

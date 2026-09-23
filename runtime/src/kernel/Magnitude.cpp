@@ -7,7 +7,7 @@
 namespace ao {
 namespace {
 
-Oop sendBin(CallContext& ctx, Oop rcvr, const char* sel, Oop arg) {
+Oop sendBin(CallContext& ctx, const Oop& rcvr, const char* sel, const Oop& arg) {
   Oop s = Symbol::intern(ctx.wk, sel);
   return send(ctx, rcvr, s, &arg, 1, nullptr);
 }

@@ -14,7 +14,7 @@ namespace {
 
 Oop div0(CallContext& ctx, Oop receiver) {
   Oop s = Str::fromUtf8(ctx.heap, ctx.wk, "division by zero");
-  return ao_Object_error_(ctx, receiver, &s, 1);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
 bool isFloat(const WellKnown& wk, Oop o) {

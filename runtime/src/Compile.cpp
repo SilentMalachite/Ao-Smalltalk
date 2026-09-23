@@ -158,9 +158,10 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
     errors.push_back(compiler::CompileError{{}, "class definition allocation failed: " + action.className});
     return false;
   }
-  Oop args[5] = {name.slot, ivars.slot, cvars.slot, pools.slot, cat.slot};
   const Oop sel = Symbol::intern(
       ctx.wk, "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:");
+  // Read the rooted slots after the last allocation. The send roots its own copies on entry.
+  const Oop args[5] = {name.slot, ivars.slot, cvars.slot, pools.slot, cat.slot};
   const Oop created = send(ctx, super.slot, sel, args, 5, nullptr);
   if (!created.isHeap()) {
     errors.push_back(compiler::CompileError{{}, "subclass failed: " + action.className});

@@ -80,7 +80,9 @@ TEST(NativeSend, DoesNotUnderstandReturnsMessage) {
   cache.addRoots(roots);
   ao::CallContext ctx{heap, roots, wk, &cache};
   ao::InlineCache ic;
-  auto sel = ao::Symbol::intern(wk, "noSuchSelector");
+  // Building the Message may collect, so the selector is held in a root.
+  ao::Root selRoot(roots, ao::Symbol::intern(wk, "noSuchSelector"));
+  const ao::Oop& sel = selRoot.slot;
   auto r = ao::send(ctx, ao::Oop::fromSmallInteger(1), sel, nullptr, 0, &ic);
   ASSERT_TRUE(r.isHeap());
   EXPECT_EQ(wk.messageClass, heap.klass(r));
@@ -161,6 +163,28 @@ ao::Oop pairAfterAlloc(ao::CallContext& ctx, const ao::Oop& receiver, const ao::
 }
 
 }  // namespace
+
+TEST(NativeSend, DnuWithFullNurseryReturnsMessage) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  ao::ClassMethodCache cache;
+  cache.addRoots(roots);
+  ao::CallContext ctx{heap, roots, wk, &cache};
+  ao::Root sel(roots, ao::Symbol::intern(wk, "zork:"));
+  const ao::Oop arg = unrootedBox(heap, wk, 7);
+  while (heap.allocate(ao::Oop::nil(), 0, 0).isHeap()) {
+  }
+  const ao::Oop r = ao::send(ctx, ao::Oop::fromSmallInteger(3), sel.slot, &arg, 1, nullptr);
+  ASSERT_TRUE(r.isHeap());
+  EXPECT_EQ(wk.messageClass, heap.klass(r));
+  EXPECT_EQ(sel.slot, heap.slotAt(r, 0));
+  const ao::Oop msgArgs = heap.slotAt(r, 1);
+  ASSERT_TRUE(msgArgs.isHeap());
+  ASSERT_EQ(1u, heap.size(msgArgs));
+  expectBox(heap, wk, heap.slotAt(msgArgs, 0), 7);
+}
 
 TEST(NativeSend, SuperSendUnderStress) {
   ao::Heap heap;

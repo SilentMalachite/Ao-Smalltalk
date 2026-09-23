@@ -3,6 +3,7 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
 #include "ao/Format.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
@@ -21,7 +22,7 @@ Oop sendValue(CallContext& ctx, Oop block) {
 
 Oop fail(CallContext& ctx, Oop receiver, std::string_view msg) {
   Oop s = Str::fromUtf8(ctx.heap, ctx.wk, msg);
-  return ao_Object_error_(ctx, receiver, &s, 1);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
 Oop classFormat(CallContext& ctx, Oop receiver) {
@@ -146,11 +147,11 @@ Oop ao_Object_perform_withArguments_(CallContext& ctx, const Oop& receiver, cons
     return fail(ctx, receiver, "perform:withArguments: expects pointer slots");
   }
   const auto n = ctx.heap.size(arr);
-  std::vector<Oop> unpacked(n);
+  RootedArray unpacked(ctx.roots, n);
   for (std::uint32_t i = 0; i < n; ++i) {
     unpacked[i] = ctx.heap.slotAt(arr, i);
   }
-  return send(ctx, receiver, args[0], unpacked.data(), n, nullptr);
+  return send(ctx, receiver, args[0], unpacked.ptr(), n, nullptr);
 }
 
 Oop ao_Object_doesNotUnderstand_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
@@ -276,7 +277,7 @@ Oop ao_Object_instVarNamed_(CallContext& ctx, const Oop& receiver, const Oop* ar
     for (std::uint32_t i = 0; i < n; ++i) {
       if (nameEquals(ctx.heap, ctx.heap.slotAt(names, i), args[0])) {
         Oop idx = Oop::fromSmallInteger(index);
-        return ao_Object_instVarAt_(ctx, receiver, &idx, 1);
+        return NativeMethod::invoke(ctx, ao_Object_instVarAt_, receiver, &idx, 1);
       }
       ++index;
     }
