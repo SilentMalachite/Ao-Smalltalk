@@ -131,6 +131,14 @@ final class WorkspaceWindow {
     inspectors.last?.text ?? ""
   }
 
+  var inspectorWindow: NSWindow? {
+    inspectors.last?.window
+  }
+
+  var inspectorCount: Int {
+    inspectors.count
+  }
+
   init() {
     let built = makeToolTextWindow(
       title: "Workspace",
@@ -222,9 +230,11 @@ final class WorkspaceWindow {
     }
   }
 
+  // Hook and out share one window when the lines match. A later Inspect it orders that window front.
   private func openInspector(className: String, printString: String) {
     let lines = InspectorWindow.lines(className: className, printString: printString)
-    if inspectors.last?.text == lines {
+    if let existing = inspectors.last, existing.text == lines {
+      existing.window.makeKeyAndOrderFront(nil)
       return
     }
     inspectors.append(InspectorWindow(className: className, printString: printString))

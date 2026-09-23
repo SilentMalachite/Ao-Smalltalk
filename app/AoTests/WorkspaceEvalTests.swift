@@ -80,6 +80,26 @@ final class WorkspaceEvalTests: XCTestCase {
     XCTAssertEqual(workspace.text, printed)
   }
 
+  func testRepeatedInspectItOrdersInspectorFront() {
+    let workspace = workspace("1 + 2")
+    workspace.selectAll()
+    workspace.inspectIt()
+    XCTAssertEqual(workspace.inspectorCount, 1)
+    guard let inspector = workspace.inspectorWindow else {
+      XCTFail("missing inspector")
+      return
+    }
+    inspector.close()
+    workspace.orderFront()
+    XCTAssertFalse(inspector.isVisible)
+    workspace.selectAll()
+    workspace.inspectIt()
+    XCTAssertEqual(workspace.inspectorCount, 1)
+    XCTAssertTrue(inspector.isVisible)
+    let orderedFront = NSApplication.shared.orderedWindows.first === inspector
+    XCTAssertTrue(inspector.isKeyWindow || orderedFront)
+  }
+
   func testEmptySelectionPrintItEvaluatesCaretLine() {
     let workspace = workspace("1 + 2\n4 + 5")
     let caret = ("1 + 2\n4" as NSString).length
