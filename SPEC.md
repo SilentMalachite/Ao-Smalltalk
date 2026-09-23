@@ -589,7 +589,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `image_save_load_test`: save 後に同一評価結果
 - `transcript_model_test`: コールバックが呼ばれる
 
-GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体（時間計測の `KernelBench.*` を除く）を 1 プロセスでこのモードで回す。`gcstress_vendor` 項目は、vendor の file-in（`ao filein --load-order image/vendor/LOAD_ORDER`）と `ao --test image/tests` をこのモードで回す。
+GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体（時間計測の `KernelBench.*` を除く）を 1 プロセスでこのモードで回す。`gcstress_vendor` 項目は、vendor の file-in（`ao filein --load-order image/vendor/LOAD_ORDER`）と `ao --test image/tests` をこのモードで回す。`ao filein` は、file-in が成功してもメソッド単位のエラーを 1 行ずつ stderr に出す。vendor の file-in には既知のエラーがあるので、`gcstress_vendor` はストレスなしの 1 回の出力を基準にし、ストレス下の出力がそれと一致することを確かめる。
 
 ### 4.2 compiler
 

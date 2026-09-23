@@ -162,14 +162,13 @@ int runFileIn(int argc, char** argv) {
   std::vector<ao::compiler::CompileError> errors;
   const bool ok = loadOrder ? ao::fileInLoadOrder(ctx, argv[3], errors)
                             : ao::fileInFile(ctx, argv[2], errors);
-  if (!ok) {
-    if (!errors.empty()) {
-      std::fputs(errors.front().message.c_str(), stderr);
-      std::fputc('\n', stderr);
-    }
-    return 1;
+  // メソッド単位のエラー（コンパイルや登録の失敗）は file-in を止めないので、ok でも 1 件ずつ出す。
+  // vendor の file-in には既知のエラーがある。gcstress_vendor は、GC ストレスの有無でこの出力が
+  // 一致することを確かめる。
+  for (const auto& e : errors) {
+    std::fprintf(stderr, "%u-%u: %s\n", e.span.start, e.span.end, e.message.c_str());
   }
-  return 0;
+  return ok ? 0 : 1;
 }
 
 int bootAndRunTests(const std::string& dir) {

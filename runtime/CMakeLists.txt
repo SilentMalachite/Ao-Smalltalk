@@ -117,8 +117,10 @@ set_tests_properties(gcstress PROPERTIES ENVIRONMENT "AO_GC_STRESS=1")
 
 # CLI の vendor file-in（image/vendor/LOAD_ORDER）と Smalltalk のテスト（ao --test image/tests）を、
 # GC ストレス下で回す。ao --test は vendor を file-in しないので、先に filein を別プロセスで回す。
+# vendor の file-in には既知のメソッド単位のエラーがあり、ao filein は成功してもそれを stderr に出す。
+# ストレスなしの 1 回を基準にして、ストレス下のエラーの並びがそれと一致することを確かめる。
 add_test(NAME gcstress_vendor
-  COMMAND sh -c "\"$0\" filein --load-order \"$1\" && \"$0\" --test \"$2\""
+  COMMAND sh -c "AO_GC_STRESS=0 \"$0\" filein --load-order \"$1\" 2>\"$3.base\" && \"$0\" filein --load-order \"$1\" 2>\"$3.stress\" && diff \"$3.base\" \"$3.stress\" && \"$0\" --test \"$2\""
           $<TARGET_FILE:ao> ${CMAKE_SOURCE_DIR}/image/vendor/LOAD_ORDER
-          ${CMAKE_SOURCE_DIR}/image/tests)
+          ${CMAKE_SOURCE_DIR}/image/tests ${CMAKE_CURRENT_BINARY_DIR}/gcstress_vendor_filein)
 set_tests_properties(gcstress_vendor PROPERTIES ENVIRONMENT "AO_GC_STRESS=1")
