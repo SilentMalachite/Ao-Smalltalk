@@ -209,7 +209,6 @@ bool Heap::adoptOldBytes(const std::byte* src, std::size_t n, std::uint16_t next
   oldBump_ = oldStart_ + n;
   nextHash_ = nextHash == 0 ? static_cast<std::uint16_t>(1) : nextHash;
   // 取り込んだバイトは生存物として扱う。最初の full GC を collectOld 後と同じ閾値にそろえる。
-  oldLive_ = n;
   oldThreshold_ = std::clamp(2 * n, oldInitial_, oldMax_);
   return true;
 }

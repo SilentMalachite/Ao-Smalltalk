@@ -843,13 +843,10 @@ TEST(GcOld, NoRepeatedZeroYieldCollects) {
     keep[i] = heap.allocate(ao::Oop::nil(), kKiBSlots, 0);
     heap.slotAtPut(keep[i], 0, ao::Oop::fromSmallInteger(i));
   }
-  gc.collectNursery();
-  const auto afterFirstSpill = heap.oldCollections();
-  EXPECT_LE(afterFirstSpill, afterFill + 1);
   for (int round = 0; round < 10; ++round) {
     gc.collectNursery();
   }
-  EXPECT_EQ(afterFirstSpill, heap.oldCollections());
+  EXPECT_EQ(afterFill, heap.oldCollections());  // oldUsed は閾値（上限）を超えない
   for (std::uint32_t i = 0; i < 11; ++i) {
     ASSERT_TRUE(keep[i].isHeap());
     EXPECT_EQ(i < 8, heap.inOld(keep[i])) << i;

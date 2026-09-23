@@ -24,7 +24,6 @@ class Gc {
   void clearWeakAfterOldMark();
   Heap* heap_;
   Roots* roots_;
-  bool spilled_ = false;  // このスキャベンジで to-space に残した生存物がある
 };
 
 }  // namespace ao

@@ -56,7 +56,6 @@ Oop Gc::copy(Oop obj) {
       std::abort();
     }
     flags = static_cast<std::uint16_t>(h->flags & ~kFlagOld);
-    spilled_ = true;
   }
   std::memcpy(dest, h, n);
   auto* nh = reinterpret_cast<ObjectHeader*>(dest);
@@ -68,15 +67,12 @@ Oop Gc::copy(Oop obj) {
 }
 
 void Gc::collectNursery() {
-  spilled_ = false;
   scavengeFromRoots();
   clearWeakAfterNursery();
   heap_->flipNursery();
   heap_->poisonFreed(heap_->toStart_, heap_->toEnd_);
-  // full GC は閾値を超えたときだけ。old が上限で生存物を to-space に残したときは、前回の
-  // full GC から old が増えていれば回収を試す（増えていなければ回収できるものはない）。
-  const std::size_t used = heap_->oldUsed();
-  if (used > heap_->oldThreshold_ || (spilled_ && used > heap_->oldLive_)) {
+  // full GC はスキャベンジの後、oldUsed が閾値を超えたときだけ走らせる（SPEC §3.2）。
+  if (heap_->oldUsed() > heap_->oldThreshold_) {
     collectOld();
   }
 }
@@ -421,7 +417,6 @@ void Gc::collectOld() {
   heap_->poisonFreed(usedEnd, freedEnd);
 
   const std::size_t liveBytes = heap_->oldUsed();
-  heap_->oldLive_ = liveBytes;
   heap_->oldThreshold_ = std::clamp(2 * liveBytes, heap_->oldInitial_, heap_->oldMax_);
 }
 

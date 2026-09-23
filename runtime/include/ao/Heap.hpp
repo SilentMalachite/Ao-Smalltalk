@@ -126,9 +126,8 @@ class Heap {
   std::size_t oldInitial_ = 0;
   std::size_t oldMax_ = 0;
   // collectNursery runs collectOld once oldUsed passes this. collectOld resets it to
-  // clamp(2 × live, initial, max); oldLive_ is oldUsed right after that collectOld.
+  // clamp(2 × live, initial, max).
   std::size_t oldThreshold_ = 0;
-  std::size_t oldLive_ = 0;
   std::size_t nurseryHalf_ = 0;
   std::byte* fromStart_ = nullptr;
   std::byte* fromEnd_ = nullptr;
