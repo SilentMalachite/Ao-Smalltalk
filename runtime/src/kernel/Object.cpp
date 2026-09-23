@@ -55,16 +55,26 @@ bool nameEquals(Heap& heap, Oop a, Oop b) {
   return std::memcmp(heap.header(a) + 1, heap.header(b) + 1, heap.size(a)) == 0;
 }
 
+// 親の鎖をたどる段数の上限。実際の階層はこれよりずっと浅い。
+constexpr std::uint32_t kMaxSuperclassDepth = 1024;
+
 // obj のクラスが Array か、そのサブクラスか。
 bool isKindOfArray(CallContext& ctx, Oop obj) {
-  if (!obj.isHeap()) {
+  // 要素を slotAt で読むので、ポインタオブジェクトに限る（バイト列のクラスの親も書き換えられる）。
+  if (!obj.isHeap() || (ctx.heap.flags(obj) & kFlagBytes) != 0) {
     return false;
   }
-  for (Oop cls = ctx.wk.classOf(obj); cls.isHeap();
-       cls = ctx.heap.slotAt(cls, kClassSlotSuperclass)) {
+  // 親の枠は instVarAt:put: で何でも入る。クラスらしくないもの（バイト列、枠の無いもの）で止め、
+  // 循環しても段数の上限で止める。
+  Oop cls = ctx.wk.classOf(obj);
+  for (std::uint32_t depth = 0; depth < kMaxSuperclassDepth && cls.isHeap(); ++depth) {
     if (cls == ctx.wk.arrayClass) {
       return true;
     }
+    if ((ctx.heap.flags(cls) & kFlagBytes) != 0 || ctx.heap.size(cls) <= kClassSlotSuperclass) {
+      return false;
+    }
+    cls = ctx.heap.slotAt(cls, kClassSlotSuperclass);
   }
   return false;
 }

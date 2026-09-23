@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -846,4 +847,77 @@ TEST(GcSafety, PutNativeFailsWhenSelectorCannotBeInterned) {
       ao::kernel::putNative(b.heap, b.wk, cls.slot, selector, 0, nativeName, probeNative));
   EXPECT_EQ(tally, b.heap.slotAt(dict.slot, ao::kDictSlotTally));
   expectNoEmptyKey(b, dict.slot);
+}
+
+namespace {
+
+// `Name superclass: value`（instVarAt: 1 put:）で親の枠を書き換えたクラスを作る。
+ao::Oop defineWithSuperclassSlot(Boot& b, const char* superName, const std::string& name,
+                                 ao::Oop super) {
+  ao::Root superRoot(b.roots, super);  // file-in は GC しうる。値で受けた super を先にルートする
+  std::vector<ao::compiler::CompileError> errs;
+  const std::string src = std::string("!") + superName + " subclass: #" + name +
+                          "\n"
+                          "  instanceVariableNames: ''\n"
+                          "  classVariableNames: ''\n"
+                          "  poolDictionaries: ''\n"
+                          "  category: 'GcSafety'!\n";
+  EXPECT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root cls(b.roots, b.wk.named(name));
+  EXPECT_TRUE(cls.slot.isHeap());
+  if (!cls.slot.isHeap()) {
+    return cls.slot;
+  }
+  ao::Root value(b.roots, superRoot.slot.isEmpty() ? cls.slot : superRoot.slot);
+  EXPECT_EQ(value.slot, send2(b, cls.slot, "instVarAt:put:", smi(1), value.slot));
+  return cls.slot;
+}
+
+void expectPerformRejects(Boot& b, ao::Oop argsObj) {
+  ao::Root args(b.roots, argsObj);
+  ao::Root plus(b.roots, b.wk.intern("+"));
+  const ao::Oop rejected = send2(b, smi(3), "perform:withArguments:", plus.slot, args.slot);
+  ASSERT_TRUE(rejected.isHeap());
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(rejected));
+  EXPECT_EQ("perform:withArguments: expects an Array", ao::Str::toUtf8(b.heap, rejected));
+}
+
+}  // namespace
+
+// B1 の退行: perform:withArguments: は Array の子孫かどうかだけを見て、バイト列の検査を落とした。
+// String の子の親を Array に書き換えると、そのバイト列を slotAt で読んで落ちた（Release では任意の
+// バイトを Oop として send に渡した）。引数はポインタオブジェクトに限る。
+TEST(GcSafety, PerformWithArgumentsRejectsBytesUnderArray) {
+  Boot b;
+  ao::Root pbytes(b.roots, defineWithSuperclassSlot(b, "String", "GcSafetyPBytes", b.wk.arrayClass));
+  ASSERT_TRUE(pbytes.slot.isHeap());
+  ao::Root inst(b.roots, send1(b, pbytes.slot, "new:", smi(16)));
+  ASSERT_TRUE(inst.slot.isHeap());
+  ASSERT_NE(0, b.heap.flags(inst.slot) & ao::kFlagBytes);
+  expectPerformRejects(b, inst.slot);
+}
+
+// 親の鎖が壊れていても（自分自身への循環、バイト列、スロットの無いオブジェクト）、Array の子孫かを
+// 調べる走査は止まり、引数を拒む。
+TEST(GcSafety, PerformWithArgumentsStopsOnBrokenSuperclassChain) {
+  Boot b;
+  ao::Root abc(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "abc"));
+  ao::Root none(b.roots, send1(b, b.wk.arrayClass, "new:", smi(0)));
+  ao::Root toBytes(b.roots, defineWithSuperclassSlot(b, "Object", "GcSafetySuperBytes", abc.slot));
+  ao::Root toEmpty(b.roots, defineWithSuperclassSlot(b, "Object", "GcSafetySuperEmpty", none.slot));
+  ao::Root toSelf(b.roots, defineWithSuperclassSlot(b, "Object", "GcSafetySuperSelf", ao::Oop{}));
+  for (const ao::Oop cls : {toBytes.slot, toEmpty.slot, toSelf.slot}) {
+    ASSERT_TRUE(cls.isHeap());
+  }
+  const std::pair<const char*, ao::Oop*> cases[] = {
+      {"superclass is bytes", &toBytes.slot},
+      {"superclass has no slots", &toEmpty.slot},
+      {"superclass is itself", &toSelf.slot},
+  };
+  for (const auto& [label, cls] : cases) {
+    SCOPED_TRACE(label);
+    ao::Root inst(b.roots, send0(b, *cls, "new"));
+    ASSERT_TRUE(inst.slot.isHeap());
+    expectPerformRejects(b, inst.slot);
+  }
 }
