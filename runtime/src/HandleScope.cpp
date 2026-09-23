@@ -41,7 +41,16 @@ Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t f
   Root held(ctx.roots, cls);
   Gc gc(ctx.heap, ctx.roots);
   gc.collectNursery();
-  return ctx.heap.allocate(held.slot, size, flags);
+  obj = ctx.heap.allocate(held.slot, size, flags);
+  if (obj.isHeap()) {
+    return obj;
+  }
+  obj = ctx.heap.allocateTenured(held.slot, size, flags);
+  if (obj.isHeap()) {
+    return obj;
+  }
+  ctx.heap.setOutOfMemory();
+  return Oop{};
 }
 
 }  // namespace ao

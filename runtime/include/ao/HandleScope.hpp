@@ -48,8 +48,9 @@ class RootedArray {
   Oop inline_[kInlineSlots];
 };
 
-// The allocation entry point that may run the GC: allocate, and on a full nursery collect it once
-// and retry. `cls` is rooted across the collection. Returns an empty Oop when the retry fails.
+// The allocation entry point that may run the GC: nursery (or old for a large object), then
+// collect the nursery once and retry, then old directly. `cls` is rooted across the collection.
+// When all of these fail, sets the heap's out-of-memory flag and returns an empty Oop.
 Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags);
 
 }  // namespace ao

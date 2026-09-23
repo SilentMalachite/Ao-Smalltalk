@@ -13,6 +13,7 @@ add_library(ao_runtime
   src/abi.cpp
   src/Oop.cpp
   src/Heap.cpp
+  src/VirtualRegion.cpp
   src/Gc.cpp
   src/Roots.cpp
   src/HandleScope.cpp

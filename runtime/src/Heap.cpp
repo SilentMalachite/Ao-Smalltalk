@@ -1,5 +1,8 @@
 #include "ao/Heap.hpp"
 
+#include "VirtualRegion.hpp"
+
+#include <algorithm>
 #include <cassert>
 #include <charconv>
 #include <cstdio>
@@ -27,9 +30,11 @@ static std::uint32_t gcStressFromEnv() {
   return n;
 }
 
-Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes)
+Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes, std::size_t oldMaxBytes)
     : nursery_(std::make_unique<std::byte[]>(2 * nurseryBytes)),
-      old_(std::make_unique<std::byte[]>(oldBytes)),
+      old_(std::make_unique<VirtualRegion>()),
+      oldInitial_(std::min(oldBytes, oldMaxBytes)),
+      oldMax_(oldMaxBytes),
       nurseryHalf_(nurseryBytes) {
   fromStart_ = nursery_.get();
   fromEnd_ = fromStart_ + nurseryBytes;
@@ -37,11 +42,21 @@ Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes)
   toStart_ = fromEnd_;
   toEnd_ = toStart_ + nurseryBytes;
   toBump_ = toStart_;
-  oldStart_ = old_.get();
-  oldEnd_ = oldStart_ + oldBytes;
+  // 予約かコミットに失敗したら old は空のまま（上限 0）にする。old への割り当ては失敗する。
+  if (!old_->reserve(oldMax_, kOldCommitUnit) || !old_->commit(oldInitial_)) {
+    old_ = std::make_unique<VirtualRegion>();
+    oldInitial_ = 0;
+    oldMax_ = 0;
+  }
+  oldStart_ = old_->base();
+  oldEnd_ = oldStart_ + oldInitial_;
   oldBump_ = oldStart_;
   gcStress_ = gcStressFromEnv();
 }
+
+Heap::~Heap() = default;
+Heap::Heap(Heap&&) noexcept = default;
+Heap& Heap::operator=(Heap&&) noexcept = default;
 
 std::size_t Heap::objectBytes(const ObjectHeader* h) const {
   std::size_t payload = (h->flags & kFlagBytes) ? h->size
@@ -54,14 +69,45 @@ Oop Heap::allocate(Oop cls, std::uint32_t size, std::uint16_t flags) {
   probe.size = size;
   probe.flags = flags;
   const std::size_t n = objectBytes(&probe);
-  if (fromBump_ + n > fromEnd_) {
+  if (n >= largeObjectBytes()) {
+    return allocateTenured(cls, size, flags);
+  }
+  if (n > static_cast<std::size_t>(fromEnd_ - fromBump_)) {
     return Oop{};
   }
-  auto* h = reinterpret_cast<ObjectHeader*>(fromBump_);
+  std::byte* at = fromBump_;
   fromBump_ += n;
+  return initObject(at, cls, size, static_cast<std::uint16_t>(flags & ~kFlagOld), n);
+}
+
+Oop Heap::allocateTenured(Oop cls, std::uint32_t size, std::uint16_t flags) {
+  ObjectHeader probe{};
+  probe.size = size;
+  probe.flags = flags;
+  const std::size_t n = objectBytes(&probe);
+  std::byte* at = reserveOld(n);
+  if (at == nullptr) {
+    return Oop{};
+  }
+  return initObject(at, cls, size, static_cast<std::uint16_t>(flags | kFlagOld), n);
+}
+
+Oop Heap::allocateNoGc(Oop cls, std::uint32_t size, std::uint16_t flags) {
+  const Oop obj = allocate(cls, size, flags);
+  if (obj.isHeap()) {
+    return obj;
+  }
+  return allocateTenured(cls, size, flags);
+}
+
+std::size_t Heap::largeObjectBytes() const { return std::min(kLargeObjectBytes, nurseryHalf_); }
+
+Oop Heap::initObject(std::byte* at, Oop cls, std::uint32_t size, std::uint16_t flags,
+                     std::size_t n) {
+  auto* h = reinterpret_cast<ObjectHeader*>(at);
   h->klass = cls;
   h->size = size;
-  h->flags = static_cast<std::uint16_t>(flags & ~kFlagOld);
+  h->flags = flags;
   h->hash = nextHash_++;
   if (nextHash_ == 0) nextHash_ = 1;
   if (flags & kFlagBytes) {
@@ -215,15 +261,32 @@ bool Heap::containsNurseryFrom(void* p) const {
   return b >= fromStart_ && b < fromEnd_;
 }
 
-bool Heap::fitsOld(std::size_t n) const { return oldBump_ + n <= oldEnd_; }
+// n バイトを old に置けるか（コミットを伸ばせば置ける場合を含む）。
+bool Heap::fitsOld(std::size_t n) const { return n <= oldMax_ - oldUsed(); }
 
 std::byte* Heap::reserveOld(std::size_t n) {
   if (!fitsOld(n)) {
     return nullptr;
   }
+  if (n > static_cast<std::size_t>(oldEnd_ - oldBump_) && !growOld(oldUsed() + n)) {
+    return nullptr;
+  }
   std::byte* dest = oldBump_;
   oldBump_ += n;
   return dest;
+}
+
+bool Heap::growOld(std::size_t neededBytes) {
+  if (neededBytes > oldMax_) {
+    return false;
+  }
+  const std::size_t units = (neededBytes + kOldCommitUnit - 1) / kOldCommitUnit;
+  const std::size_t capacity = std::min(oldMax_, units * kOldCommitUnit);
+  if (!old_->commit(capacity)) {
+    return false;
+  }
+  oldEnd_ = oldStart_ + capacity;
+  return true;
 }
 
 }  // namespace ao

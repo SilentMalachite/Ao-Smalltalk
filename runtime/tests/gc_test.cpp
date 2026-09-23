@@ -92,7 +92,7 @@ TEST(GcNursery, DeadOldSlotIsNotANurseryRoot) {
 }
 
 TEST(GcNursery, OldOomDoesNotClobberRoot) {
-  ao::Heap heap(512, 24);
+  ao::Heap heap(512, 24, 24);
   ao::Roots roots;
   ao::Gc gc(heap, roots);
   auto first = heap.allocate(ao::Oop::nil(), 1, 0);

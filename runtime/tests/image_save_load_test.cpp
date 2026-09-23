@@ -149,6 +149,36 @@ bool readHeapBytes(const std::filesystem::path& path, std::uint32_t* out) {
   return true;
 }
 
+// OOP を書ける語だけを集める: heap 節の 8 バイト境界の語と、各レコードの値。
+// 任意の位置の 8 バイトを見ると、old の番地（mmap なので 0x7000000000 のように下位が 0）が
+// 隣り合う 2 語の境目に偶然現れる。
+bool oopWords(const std::vector<char>& bytes, std::vector<std::uint64_t>* out) {
+  const auto* p = reinterpret_cast<const std::byte*>(bytes.data());
+  ao::ImageFormat::ImageHeader header;
+  if (!ao::ImageFormat::readHeader(p, bytes.size(), &header)) return false;
+  const std::size_t heapStart = ao::ImageFormat::kImageHeaderBytes;
+  if (header.heapBytes > bytes.size() - heapStart) return false;
+  auto word = [&](std::size_t at) {
+    std::uint64_t w = 0;
+    std::memcpy(&w, p + at, sizeof w);
+    return w;
+  };
+  for (std::size_t i = 0; i + 8 <= header.heapBytes; i += 8) out->push_back(word(heapStart + i));
+  std::size_t cursor = heapStart + header.heapBytes;
+  const std::uint64_t records = std::uint64_t{header.wellKnownCount} + header.extraCount +
+                                header.globalCount;
+  for (std::uint64_t r = 0; r < records; ++r) {
+    std::uint32_t n = 0;
+    if (cursor + sizeof n > bytes.size()) return false;
+    std::memcpy(&n, p + cursor, sizeof n);
+    cursor += sizeof n + n + (4u - (n % 4u)) % 4u;
+    if (cursor + 8 > bytes.size()) return false;
+    out->push_back(word(cursor));
+    cursor += 8;
+  }
+  return cursor == bytes.size();
+}
+
 void expectOnePlusTwo(Loaded& image) {
   auto three = send1(image, ao::Oop::fromSmallInteger(1), "+", ao::Oop::fromSmallInteger(2));
   ASSERT_TRUE(three.isSmallInteger());
@@ -174,10 +204,10 @@ TEST(ImageSave, WritesAoimAndKeepsSourceRunnable) {
 
   const auto host = reinterpret_cast<std::uintptr_t>(b.wk.objectClass.heapPointer());
   std::uint64_t needle = static_cast<std::uint64_t>(host);
+  std::vector<std::uint64_t> words;
+  ASSERT_TRUE(oopWords(bytes, &words));
   bool foundHost = false;
-  for (std::size_t i = 0; i + 8 <= bytes.size(); i += 1) {
-    std::uint64_t word = 0;
-    std::memcpy(&word, bytes.data() + i, 8);
+  for (std::uint64_t word : words) {
     if (word == needle) foundHost = true;
   }
   EXPECT_FALSE(foundHost);
