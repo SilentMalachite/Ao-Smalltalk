@@ -156,6 +156,46 @@ TEST(AoTestRunner, EarlierOutOfMemoryIsNotBlamedOnFile) {
   EXPECT_EQ(0, b.ctx.testFailures);
 }
 
+// SPEC §4.4: 実行中の abort（doesNotUnderstand:、0 除算）もコンパイルエラーもファイルの失敗で、
+// 失敗したファイルの後も残りを実行する。失敗ごとに 1 行を stderr に出し、コンパイルエラーの位置は
+// ファイル本文のバイト位置である。
+TEST(AoTestRunner, FailuresAreCountedAndLaterFilesStillRun) {
+  const TestDir dir("ao-test-runner-failures");
+  ASSERT_TRUE(dir.write("a_dnu.st", "nil foo.\nself assert: 1 equals: 1.\n"));
+  ASSERT_TRUE(dir.write("b_zero.st", "1/0.\nself assert: 1 equals: 1.\n"));
+  ASSERT_TRUE(dir.write("c_compile.st", "self assert: 1 + equals: 4.\n"));
+  ASSERT_TRUE(dir.write("d_pass.st", "self assert: 1 + 2 equals: 3.\n"));
+  ASSERT_TRUE(dir.write("e_mismatch.st", "self assert: 1 + 2 equals: 4.\n"));
+  Boot b;
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string reported = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(1, code);
+  EXPECT_EQ(4, b.ctx.testFailures);
+  const auto line = [&dir](const char* file, const char* rest) {
+    return "ao --test: " + (dir.path / file).string() + rest + "\n";
+  };
+  const std::string expected = line("a_dnu.st", ": doesNotUnderstand: #foo") +
+                               line("b_zero.st", ": division by zero") +
+                               line("c_compile.st", ":17-24: expected expression") +
+                               line("e_mismatch.st", ": 3 ~= 4");
+  EXPECT_EQ(expected, reported);
+  EXPECT_FALSE(b.ctx.aborting);
+}
+
+// SPEC §4.4: .st が 0 件か、ディレクトリが読めなければ exit 1。理由を stderr に出す。
+TEST(AoTestRunner, EmptyOrMissingDirectoryFails) {
+  const TestDir dir("ao-test-runner-empty");
+  ASSERT_TRUE(dir.write("notes.txt", "not a test\n"));
+  Boot b;
+  testing::internal::CaptureStderr();
+  EXPECT_EQ(1, ao::runSmalltalkTests(b.ctx, dir.path.string()));
+  EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+  testing::internal::CaptureStderr();
+  EXPECT_EQ(1, ao::runSmalltalkTests(b.ctx, (dir.path / "no-such-dir").string()));
+  EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+}
+
 namespace {
 
 // ブロックの ^ が各コレクションの反復ネイティブを止めることを見るクラス。どのメソッドも、
@@ -880,7 +920,7 @@ TEST(BlockInline, NonBooleanReceiverAborts) {
 // vendor の LinkedList>>do: は whileFalse: と外側の temp への代入で回る。
 TEST(BlockInline, LinkedListDoCountsLinks) {
   Boot b;
-  std::vector<ao::compiler::CompileError> errs;
+  std::vector<ao::FileInError> errs;
   ASSERT_TRUE(ao::fileInLoadOrder(b.ctx, std::string(AO_SOURCE_DIR) + "/image/vendor/LOAD_ORDER", errs));
   ASSERT_TRUE(b.wk.named("LinkedList").isHeap());
   ASSERT_TRUE(b.wk.named("Link").isHeap());

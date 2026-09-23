@@ -104,22 +104,48 @@ bool listTests(const std::filesystem::path& dir, std::vector<std::filesystem::pa
   return true;
 }
 
-// body を本体とする AoTest>>doIt をコンパイルして入れ、新しいインスタンスに送る。値が得られたら true。
-bool runFile(CallContext& ctx, Root& cls, Root& doIt, const std::string& body) {
-  const std::string source = "doIt\n" + body;
+// SPEC §4.4: runs one file as AoTest>>doIt sent to a new instance, one outermost evaluation.
+// Answers "" when the file passed, or what follows the file name on its stderr line: ": <reason>",
+// or ":<start>-<end>: <message>" for a compile error, whose span is in the file's own bytes.
+std::string runFile(CallContext& ctx, Root& cls, Root& doIt, const std::filesystem::path& file) {
+  std::string body;
+  if (!readFile(file, &body)) {
+    return ": cannot read";
+  }
+  constexpr std::string_view kHeader = "doIt\n";
+  const std::string source = std::string(kHeader) + body;
   const compiler::CompileResult compiled = compiler::compileMethod(source);
   if (!compiled.ok) {
-    return false;
+    const std::uint32_t header = kHeader.size();
+    const compiler::SourceSpan span = compiled.error.span;
+    const std::uint32_t start = span.start < header ? 0 : span.start - header;
+    const std::uint32_t end = span.end < header ? 0 : span.end - header;
+    return ":" + std::to_string(start) + "-" + std::to_string(end) + ": " + compiled.error.message;
   }
+  bool ran = false;
   Root installed(ctx.roots, installMethod(ctx, cls.slot, compiled.image));
-  if (!installed.slot.isHeap()) {
-    return false;
+  if (installed.slot.isHeap()) {
+    Root instance(ctx.roots, send(ctx, cls.slot, ctx.wk.selNew, nullptr, 0, nullptr));
+    ran = instance.slot.isHeap() &&
+          !send(ctx, instance.slot, doIt.slot, nullptr, 0, nullptr).isEmpty();
   }
-  Root instance(ctx.roots, send(ctx, cls.slot, ctx.wk.selNew, nullptr, 0, nullptr));
-  if (!instance.slot.isHeap()) {
-    return false;
+  // SPEC §3.4: the abort's reason (stack overflow, doesNotUnderstand:, a mismatch, ...). SPEC
+  // §3.2: out of memory is an evaluation error even when a later statement ran and the file
+  // reached its end, so the flag is checked after the run.
+  std::string reason;
+  if (ctx.aborting) {
+    reason = abortReasonText(ctx);
+    if (reason.empty()) {
+      reason = "evaluation aborted";
+    }
+  } else if (ctx.heap.outOfMemory()) {
+    reason = "out of memory";
+  } else if (!ran) {
+    reason = "evaluation failed";
   }
-  return !send(ctx, instance.slot, doIt.slot, nullptr, 0, nullptr).isEmpty();
+  clearUnwinding(ctx);
+  ctx.heap.clearOutOfMemory();
+  return reason.empty() ? reason : ": " + reason;
 }
 
 }  // namespace
@@ -128,55 +154,40 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
   namespace fs = std::filesystem;
   std::error_code ec;
   const fs::path dir{std::string(path)};
-  if (!fs::is_directory(dir, ec) || ec) {
+  std::vector<fs::path> files;
+  // SPEC §4.4: an unreadable directory, or one without a .st file, fails.
+  if (!fs::is_directory(dir, ec) || ec || !listTests(dir, &files)) {
+    std::fprintf(stderr, "ao --test: %s: cannot read directory\n", dir.string().c_str());
     return 1;
   }
-  std::vector<fs::path> files;
-  if (!listTests(dir, &files)) {
+  if (files.empty()) {
+    std::fprintf(stderr, "ao --test: %s: no .st files\n", dir.string().c_str());
     return 1;
   }
   Root cls(ctx.roots, makeAoTest(ctx));
-  if (!cls.slot.isHeap()) {
-    return 1;
-  }
-  if (!kernel::putNative(ctx.heap, ctx.wk, ctx.cache, cls.slot, "assert:equals:", 2,
+  if (!cls.slot.isHeap() ||
+      !kernel::putNative(ctx.heap, ctx.wk, ctx.cache, cls.slot, "assert:equals:", 2,
                          "ao_AoTest_assert_equals_", ao_AoTest_assert_equals_)) {
+    std::fputs("ao --test: cannot define AoTest\n", stderr);
     return 1;
   }
   Root doIt(ctx.roots, ctx.wk.intern("doIt"));
+  // SPEC §4.4: every file runs, in name order, whatever the earlier ones did. Each failure is one
+  // line on stderr.
+  int failures = 0;
   for (const fs::path& file : files) {
-    std::string body;
-    if (!readFile(file, &body)) {
-      return 1;
-    }
     // 前に立ったフラグ（起動時や前のファイルのもの）を、このファイルのせいにしない（sessionEval と同じ）。
     ctx.heap.clearOutOfMemory();
     clearUnwinding(ctx);
     refreshStackLimit(ctx);
-    const bool ran = runFile(ctx, cls, doIt, body);
-    // SPEC §3.4: abort（stack overflow など）はファイルの失敗。理由を出して消す。
-    if (ctx.aborting) {
-      const std::string reason = abortReasonText(ctx);
-      std::fprintf(stderr, "ao --test: %s: %s\n", file.string().c_str(),
-                   reason.empty() ? "evaluation aborted" : reason.c_str());
-      clearUnwinding(ctx);
-      ctx.heap.clearOutOfMemory();
+    const std::string failure = runFile(ctx, cls, doIt, file);
+    if (!failure.empty()) {
+      std::fprintf(stderr, "ao --test: %s%s\n", file.string().c_str(), failure.c_str());
       ctx.testFailures += 1;
-      return 1;
-    }
-    // SPEC §3.2: out of memory は評価エラー。途中の文の空の結果は捨てられ、後の assert は通りうるので、
-    // 走り切った後にフラグで判定する。
-    if (ctx.heap.outOfMemory()) {
-      ctx.heap.clearOutOfMemory();
-      ctx.testFailures += 1;
-      std::fprintf(stderr, "ao --test: %s: out of memory\n", file.string().c_str());
-      return 1;
-    }
-    if (!ran || ctx.testFailures > 0) {
-      return 1;
+      failures += 1;
     }
   }
-  return ctx.testFailures > 0 ? 1 : 0;
+  return failures > 0 ? 1 : 0;
 }
 
 }  // namespace ao

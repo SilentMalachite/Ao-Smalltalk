@@ -195,7 +195,8 @@ int sessionFileInLoadOrder(const char* path) {
   if (g_session == nullptr || g_session->ctx == nullptr || path == nullptr) {
     return 1;
   }
-  std::vector<compiler::CompileError> errors;
+  // SPEC §3.10 / §3.12: fails on an unreadable path or on any error DEFERRED.md does not list.
+  std::vector<FileInError> errors;
   return fileInLoadOrder(*g_session->ctx, path, errors) ? 0 : 1;
 }
 

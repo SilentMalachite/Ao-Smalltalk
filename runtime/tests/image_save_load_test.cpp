@@ -436,9 +436,9 @@ TEST(ImageSaveLoad, NurseryGcAfterLoad) {
 
 TEST(ImageSaveLoad, VendorLinkSurvives) {
   Boot b;
-  std::vector<ao::compiler::CompileError> errs;
+  std::vector<ao::FileInError> errs;
   ASSERT_TRUE(ao::fileInLoadOrder(b.ctx, AO_SOURCE_DIR "/image/vendor/LOAD_ORDER", errs))
-      << (errs.empty() ? "" : errs[0].message);
+      << (errs.empty() ? "" : errs[0].error.message);
   const auto path = std::filesystem::path(testing::TempDir()) / "load-vendor.aoimage";
   ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
 

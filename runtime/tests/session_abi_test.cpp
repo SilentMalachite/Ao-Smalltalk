@@ -4,7 +4,10 @@
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -35,6 +38,47 @@ TEST_F(SessionAbi, SecondBootFailsUntilShutdown) {
 TEST_F(SessionAbi, MissingLoadOrderIsError) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   EXPECT_EQ(AO_ERR, ao_filein_load_order("/no/such/LOAD_ORDER"));
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10 / §3.12: a file-in error that DEFERRED.md does not list makes ao_filein_load_order
+// answer AO_ERR; once it is listed, AO_OK. The vendor LOAD_ORDER files in with AO_OK.
+TEST_F(SessionAbi, FileInLoadOrderFailsOnUndeferredError) {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ao-session-abi-filein";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir);
+  {
+    std::ofstream order(dir / "LOAD_ORDER");
+    order << "a.st\n";
+    std::ofstream a(dir / "a.st");
+    a << "!Object subclass: #AbiFileIn\n"
+         "  instanceVariableNames: ''\n"
+         "  classVariableNames: ''\n"
+         "  poolDictionaries: ''\n"
+         "  category: 'B3-Test'!\n"
+         "!AbiFileIn methodsFor: 't'!\n"
+         "bad\n"
+         "  ^1 +! !\n";
+    ASSERT_TRUE(order && a);
+  }
+  const std::string order = (dir / "LOAD_ORDER").string();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  EXPECT_EQ(AO_ERR, ao_filein_load_order(order.c_str()));
+  ao_runtime_shutdown();
+  {
+    std::ofstream deferred(dir / "DEFERRED.md");
+    deferred << "AbiFileIn>>bad: kept out on purpose\n";
+    ASSERT_TRUE(deferred);
+  }
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  EXPECT_EQ(AO_OK, ao_filein_load_order(order.c_str()));
+  ao_runtime_shutdown();
+  fs::remove_all(dir, ec);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const std::string vendor = std::string(AO_SOURCE_DIR) + "/image/vendor/LOAD_ORDER";
+  EXPECT_EQ(AO_OK, ao_filein_load_order(vendor.c_str()));
   ao_runtime_shutdown();
 }
 

@@ -133,6 +133,14 @@ int runExtractVendor(int argc, char** argv) {
   return 0;
 }
 
+// SPEC §3.12: one line per counted file-in error, `<file>:<start>-<end>: <message>`.
+void printFileInErrors(const std::vector<ao::FileInError>& errors) {
+  for (const auto& e : errors) {
+    std::fprintf(stderr, "%s:%u-%u: %s\n", e.file.c_str(), e.error.span.start, e.error.span.end,
+                 e.error.message.c_str());
+  }
+}
+
 int runFileIn(int argc, char** argv) {
   if (argc < 3) {
     std::fputs("ao: usage: ao filein <file.st>\n"
@@ -159,16 +167,21 @@ int runFileIn(int argc, char** argv) {
   ao::CallContext ctx{heap, roots, wk, &cache};
   ao::Bootstrap::run(heap, roots, wk);
 
-  std::vector<ao::compiler::CompileError> errors;
-  const bool ok = loadOrder ? ao::fileInLoadOrder(ctx, argv[3], errors)
-                            : ao::fileInFile(ctx, argv[2], errors);
-  // メソッド単位のエラー（コンパイルや登録の失敗）は file-in を止めないので、ok でも 1 件ずつ出す。
-  // vendor の file-in には既知のエラーがある。gcstress_vendor は、GC ストレスの有無でこの出力が
-  // 一致することを確かめる。
-  for (const auto& e : errors) {
-    std::fprintf(stderr, "%u-%u: %s\n", e.span.start, e.span.end, e.message.c_str());
+  // SPEC §3.12: every counted error, and exit 1 when there is one. The errors of the methods the
+  // DEFERRED.md beside LOAD_ORDER lists are not counted. A single file has no DEFERRED.md.
+  std::vector<ao::FileInError> errors;
+  bool ok = false;
+  if (loadOrder) {
+    ok = ao::fileInLoadOrder(ctx, argv[3], errors);
+  } else {
+    std::vector<ao::compiler::CompileError> found;
+    ok = ao::fileInFile(ctx, argv[2], found);
+    for (auto& e : found) {
+      errors.push_back(ao::FileInError{argv[2], {}, std::move(e)});
+    }
   }
-  return ok ? 0 : 1;
+  printFileInErrors(errors);
+  return ok && errors.empty() ? 0 : 1;
 }
 
 int bootAndRunTests(const std::string& dir) {
@@ -226,9 +239,11 @@ int runImage(int argc, char** argv) {
   if (isSave) {
     ao::Bootstrap::run(heap, roots, wk);
     if (loadOrder != nullptr) {
-      std::vector<ao::compiler::CompileError> errors;
-      if (!ao::fileInLoadOrder(ctx, loadOrder, errors)) {
-        std::fputs("ao: image save failed\n", stderr);
+      // SPEC §3.12: a failed file-in reports its errors like ao filein and writes no image.
+      std::vector<ao::FileInError> errors;
+      const bool ok = ao::fileInLoadOrder(ctx, loadOrder, errors);
+      printFileInErrors(errors);
+      if (!ok) {
         return 1;
       }
     }

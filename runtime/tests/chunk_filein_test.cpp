@@ -77,3 +77,47 @@ TEST(ChunkFileIn, InstVarReadCompilesPushInstVar) {
   const std::string d = ao::compiler::disassemble(image);
   EXPECT_NE(std::string::npos, d.find("PushInstVar 0")) << d;
 }
+
+// SPEC §3.12: メソッド単位のエラーは残りのチャンクを止めないが、1 件でもあれば file-in は失敗である。
+TEST(ChunkFileIn, MethodErrorFailsFileInButKeepsGoing) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #CmHalf\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'!\n"
+      "!CmHalf methodsFor: 't'!\n"
+      "bad\n"
+      "  ^1 +!\n"
+      "good\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  EXPECT_FALSE(ao::fileInString(b.ctx, src, errs));
+  ASSERT_EQ(1u, errs.size());
+  const ao::Oop cls = b.wk.named("CmHalf");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("good")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("bad")).isNil());
+}
+
+// SPEC §3.4 / §3.12: クラス定義チャンクの送信は最外の評価である。そこで起きた abort はクラス定義の
+// 失敗として理由付きのエラーになり、状態は消えて、次の評価に持ち越さない。
+TEST(ChunkFileIn, ClassDefinitionAbortIsAnErrorAndIsCleared) {
+  Boot b;
+  const char* src =
+      "!Processor subclass: #CmNotAClass\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  EXPECT_FALSE(ao::fileInString(b.ctx, src, errs));
+  ASSERT_EQ(1u, errs.size());
+  EXPECT_EQ(
+      "subclass failed: CmNotAClass: doesNotUnderstand: "
+      "#subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:",
+      errs[0].message);
+  EXPECT_FALSE(ao::unwinding(b.ctx));
+  EXPECT_FALSE(b.wk.named("CmNotAClass").isHeap());
+}
