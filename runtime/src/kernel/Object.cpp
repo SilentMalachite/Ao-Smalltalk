@@ -184,12 +184,12 @@ Oop ao_Object_error_(CallContext&, const Oop&, const Oop* args, std::uint32_t ar
 
 Oop ao_Object_subclassResponsibility(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "subclassResponsibility");
+  return Str::fromUtf8(ctx, "subclassResponsibility");
 }
 
 Oop ao_Object_shouldNotImplement(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "shouldNotImplement");
+  return Str::fromUtf8(ctx, "shouldNotImplement");
 }
 
 Oop ao_Object_isKindOf_(CallContext& ctx, const Oop& receiver, const Oop* args,

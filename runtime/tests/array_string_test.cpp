@@ -1,5 +1,7 @@
 #include "test_support.hpp"
 
+#include "ao/HandleScope.hpp"
+
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <string>
@@ -188,16 +190,18 @@ TEST(ArrayString, AtPutShrinksUtf8WithinObjectBytes) {
 
 TEST(ArrayString, SymbolAtPutDoesNotMutateInternedBytes) {
   Boot b;
-  auto sym = b.wk.intern("foo");
-  auto r = send2(b, sym, "at:put:", ao::Oop::fromSmallInteger(1), ao::Oop::fromCharacter(U'Z'));
+  // shouldNotImplement はメッセージの割り当てで GC する。Symbol はルートに載せて読み直す。
+  ao::Root sym(b.roots, b.wk.intern("foo"));
+  auto r = send2(b, sym.slot, "at:put:", ao::Oop::fromSmallInteger(1),
+                 ao::Oop::fromCharacter(U'Z'));
   ASSERT_TRUE(r.isHeap());
   EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, r));
-  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym));
-  EXPECT_EQ(sym, b.wk.intern("foo"));
+  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym.slot));
+  EXPECT_EQ(sym.slot, b.wk.intern("foo"));
 
-  auto br = send2(b, sym, "basicAt:put:", ao::Oop::fromSmallInteger(1),
+  auto br = send2(b, sym.slot, "basicAt:put:", ao::Oop::fromSmallInteger(1),
                   ao::Oop::fromSmallInteger(static_cast<std::int64_t>('Z')));
   ASSERT_TRUE(br.isHeap());
   EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, br));
-  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym));
+  EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym.slot));
 }

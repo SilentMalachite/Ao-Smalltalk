@@ -103,8 +103,9 @@ bool isStringy(CallContext& ctx, Oop obj) {
   return false;
 }
 
-Oop fail(CallContext& ctx, Oop receiver, std::string_view msg) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, msg);
+// receiver はルート済みスロット。メッセージの割り当てで GC が走っても正しい。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
   return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 

@@ -606,3 +606,44 @@ TEST(GcSafety, TestRunnerFailureMessageAfterFullGc) {
   ASSERT_EQ(b.wk.stringClass, b.heap.klass(message));
   EXPECT_EQ("noisy ~= 3", ao::Str::toUtf8(b.heap, message));
 }
+
+namespace {
+
+// nursery を使い切ってから send する。error: の慣習で返す文字列は GC してでも作る（空にしない）。
+void expectErrorWithFullNursery(Boot& b, ao::Oop rcvr, const char* sel, const ao::Oop* args,
+                                std::uint32_t argc, const char* message) {
+  SCOPED_TRACE(sel);
+  ao::Root r(b.roots, rcvr);
+  fillNursery(b);
+  const ao::Oop got = ao::send(b.ctx, r.slot, b.wk.intern(sel), args, argc, nullptr);
+  ASSERT_TRUE(got.isHeap());
+  ASSERT_EQ(b.wk.stringClass, b.heap.klass(got));
+  EXPECT_EQ(message, ao::Str::toUtf8(b.heap, got));
+}
+
+}  // namespace
+
+TEST(GcSafety, SubclassResponsibilityWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // nursery を満杯にしておくため、途中で GC を走らせない
+  ao::Root obj(b.roots, send0(b, b.wk.objectClass, "new"));
+  expectErrorWithFullNursery(b, obj.slot, "subclassResponsibility", nullptr, 0,
+                             "subclassResponsibility");
+  expectErrorWithFullNursery(b, obj.slot, "shouldNotImplement", nullptr, 0,
+                             "shouldNotImplement");
+}
+
+TEST(GcSafety, DivisionByZeroWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // nursery を満杯にしておくため、途中で GC を走らせない
+  const ao::Oop zero = smi(0);
+  expectErrorWithFullNursery(b, smi(7), "//", &zero, 1, "division by zero");
+}
+
+TEST(GcSafety, StringIndexErrorWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);  // nursery を満杯にしておくため、途中で GC を走らせない
+  ao::Root str(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "abc"));
+  const ao::Oop index = smi(9);
+  expectErrorWithFullNursery(b, str.slot, "at:", &index, 1, "at: index out of range");
+}

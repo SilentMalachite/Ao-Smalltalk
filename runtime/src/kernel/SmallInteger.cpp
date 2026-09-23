@@ -12,8 +12,9 @@
 namespace ao {
 namespace {
 
-Oop div0(CallContext& ctx, Oop receiver) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, "division by zero");
+// receiver はルート済みスロット。メッセージの割り当てで GC が走っても正しい。
+Oop div0(CallContext& ctx, const Oop& receiver) {
+  Oop s = Str::fromUtf8(ctx, "division by zero");
   return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 

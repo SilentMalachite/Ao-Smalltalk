@@ -16,7 +16,7 @@ Oop asBool(bool v) { return v ? Oop::true_() : Oop::false_(); }
 }  // namespace
 
 Oop ao_Boolean_subclassResponsibility(CallContext& ctx, const Oop&, const Oop*, std::uint32_t) {
-  return Str::fromUtf8(ctx.heap, ctx.wk, "subclassResponsibility");
+  return Str::fromUtf8(ctx, "subclassResponsibility");
 }
 
 Oop ao_True_ifTrue_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {

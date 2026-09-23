@@ -280,7 +280,7 @@ Oop ao_Metaclass_thisClass(CallContext& ctx, const Oop& receiver, const Oop*, st
 
 Oop ao_Metaclass_newForbidden(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx.heap, ctx.wk, "shouldNotImplement");
+  return Str::fromUtf8(ctx, "shouldNotImplement");
 }
 
 namespace kernel {

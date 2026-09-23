@@ -609,7 +609,7 @@ void blankOut(char* out, int outLen) {
 }
 
 bool dictAtKey(Session& session, std::string_view name, Oop* out) {
-  Root key(session.roots, Str::fromUtf8(session.heap, session.wk, name));
+  Root key(session.roots, Str::fromUtf8(*session.ctx, name));
   if (!key.slot.isHeap()) {
     return false;
   }
@@ -622,8 +622,9 @@ bool dictAtKey(Session& session, std::string_view name, Oop* out) {
 }
 
 bool dictAtPutKey(Session& session, std::string_view name, Oop value) {
-  Root key(session.roots, Str::fromUtf8(session.heap, session.wk, name));
+  // キーの割り当ては GC する。value を先にルートに載せる。
   Root val(session.roots, value);
+  Root key(session.roots, Str::fromUtf8(*session.ctx, name));
   if (!key.slot.isHeap()) {
     return false;
   }

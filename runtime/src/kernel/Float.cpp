@@ -12,8 +12,9 @@
 namespace ao {
 namespace {
 
-Oop div0(CallContext& ctx, Oop receiver) {
-  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, "division by zero");
+// receiver はルート済みスロット。メッセージの割り当てで GC が走っても正しい。
+Oop div0(CallContext& ctx, const Oop& receiver) {
+  Oop s = Str::fromUtf8(ctx, "division by zero");
   return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
@@ -57,11 +58,11 @@ bool asFloat(CallContext& ctx, Oop o, double* out) {
 }
 
 Oop makeFraction(CallContext& ctx, Oop num, Oop den) {
-  if (LargeInteger::isZero(ctx.heap, ctx.wk, den)) {
-    return div0(ctx, num);
-  }
   Root n(ctx.roots, num);
   Root d(ctx.roots, den);
+  if (LargeInteger::isZero(ctx.heap, ctx.wk, d.slot)) {
+    return div0(ctx, n.slot);  // div0 はメッセージを割り当てる（GC する）。ルート済みの n を渡す
+  }
   Root g(ctx.roots, LargeInteger::gcd(ctx, n.slot, d.slot));
   if (!g.slot.isSmallInteger() && !LargeInteger::isLarge(ctx.wk, g.slot)) {
     return Oop{};
