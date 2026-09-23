@@ -424,3 +424,135 @@ TEST(GcSafety, PerformWithArgumentsRejectsOrderedCollection) {
   send2(b, sub.slot, "at:put:", smi(1), smi(5));
   EXPECT_EQ(smi(8), send2(b, smi(3), "perform:withArguments:", plus.slot, sub.slot));
 }
+
+namespace {
+
+// 1 MiB のゴミを old の先頭に置いてから起動する。ゴミの根を外したあとの最初の full GC で、起動時に
+// 作った Symbol はすべて 1 MiB 手前へ動く。C++ のローカルに持った Symbol は古い番地を指したままになる。
+struct GarbageFirstBoot {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk;
+  ao::ClassMethodCache cache;
+  ao::CallContext ctx;
+  GarbageFirstBoot()
+      : heap(1 << 20, 4 << 20, ao::kOldMaxBytes), wk(heap, roots), ctx{heap, roots, wk, &cache} {
+    heap.setGcStress(0);
+    cache.addRoots(roots);
+    ao::Root garbage(roots, heap.allocateTenured(ao::Oop::nil(), 1 << 20, ao::kFlagBytes));
+    ao::Bootstrap::run(heap, roots, wk);
+  }
+  ao::Oop send(ao::Oop rcvr, const char* sel, ao::Oop* args, std::uint32_t argc) {
+    return ao::send(ctx, rcvr, wk.intern(sel), args, argc, nullptr);
+  }
+};
+
+// 整数でない Interval の do: と size は、`>` と `+` を send して進む。
+const char* kFloatInterval =
+    "!Object subclass: #GcSafetyInterval\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'GcSafety'!\n"
+    "!GcSafetyInterval methodsFor: 'running'!\n"
+    "floats\n"
+    "  ^Interval from: 1.0 to: 60.0 by: 1.0!\n"
+    "blockInto: seen\n"
+    "  ^[:x | seen add: x]! !\n";
+
+// Interval と引数を GC ストレスなしで作り、selector の send の間だけストレスを入れる。ループの前に
+// ストレスの GC は走らないので、4 回目のストレス GC（full GC）はループの途中で起き、Symbol を動かす。
+ao::Oop sendToFloatInterval(GarbageFirstBoot& b, const char* sel, bool withBlock,
+                            ao::Oop* seenOut) {
+  std::vector<ao::compiler::CompileError> errs;
+  EXPECT_TRUE(ao::fileInString(b.ctx, kFloatInterval, errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root inst(b.roots, b.send(b.wk.named("GcSafetyInterval"), "new", nullptr, 0));
+  ao::Root iv(b.roots, b.send(inst.slot, "floats", nullptr, 0));
+  ao::Root seen(b.roots, b.send(b.wk.orderedCollectionClass, "new", nullptr, 0));
+  ao::Root blk(b.roots, b.send(inst.slot, "blockInto:", &seen.slot, 1));
+  EXPECT_TRUE(iv.slot.isHeap() && seen.slot.isHeap() && blk.slot.isHeap());
+  const auto collectionsBefore = b.heap.oldCollections();
+  b.heap.setGcStress(1);
+  const ao::Oop r = b.send(iv.slot, sel, withBlock ? &blk.slot : nullptr, withBlock ? 1 : 0);
+  b.heap.setGcStress(0);
+  EXPECT_GT(b.heap.oldCollections(), collectionsBefore);
+  *seenOut = seen.slot;
+  return r;
+}
+
+}  // namespace
+
+// Interval の do: は、`>` と `+` のセレクタを C++ のローカルに持ったまま send をまたいでいた。
+// full GC の圧縮で Symbol が動くと、比較が true にならず 2^20 回まで回っていた。
+TEST(GcSafety, FloatIntervalDoAcrossFullGc) {
+  GarbageFirstBoot b;
+  ao::Root seen(b.roots);
+  sendToFloatInterval(b, "do:", true, &seen.slot);
+  EXPECT_EQ(smi(60), b.send(seen.slot, "size", nullptr, 0));
+}
+
+TEST(GcSafety, FloatIntervalSizeAcrossFullGc) {
+  GarbageFirstBoot b;
+  ao::Root seen(b.roots);
+  EXPECT_EQ(smi(60), sendToFloatInterval(b, "size", false, &seen.slot));
+}
+
+// SharedQueue の next は、取り出した値を C++ のローカルに持ったまま write の signal を送っていた。
+// signal が待っているプロセスを起こし、scheduler の待ち行列を作り直す割り当てで GC が走ると、
+// 値（キューから外したので他に参照がない）は古い番地のまま返っていた。
+TEST(GcSafety, SharedQueueNextKeepsValueAcrossSignal) {
+  Boot b;
+  b.heap.setGcStress(0);  // 準備はストレスなしで行う（AO_GC_STRESS に左右されない）
+  ao::Root p2(b.roots, send0(b, b.wk.processClass, "new"));
+  ASSERT_TRUE(p2.slot.isHeap());
+  send0(b, p2.slot, "resume");
+  ao::Root q(b.roots, send0(b, b.wk.sharedQueueClass, "new"));
+  ASSERT_TRUE(q.slot.isHeap());
+  ao::Root value(b.roots, send1(b, b.wk.arrayClass, "new:", smi(1)));
+  send2(b, value.slot, "at:put:", smi(1), smi(42));
+  send1(b, q.slot, "nextPut:", value.slot);
+  // write の excess は 0。今のプロセスを write で待たせ、p2 に切り替える。
+  ao::Root write(b.roots, send1(b, q.slot, "instVarAt:", smi(3)));
+  send0(b, write.slot, "wait");
+  ASSERT_EQ(p2.slot, send0(b, b.wk.processor, "activeProcess"));
+  // scheduler の待ち行列を捨てておき、signal からの resume に作り直させる（割り当て = GC）。
+  send2(b, b.wk.processor, "instVarAt:put:", smi(1), ao::Oop::nil());
+
+  b.heap.setGcStress(1);
+  const ao::Oop got = send0(b, q.slot, "next");
+  b.heap.setGcStress(0);
+  EXPECT_EQ(value.slot, got);
+}
+
+// リテラル配列の箱詰めは、配列を割り当てた（GC した）あとで、値で受けた methodClass をルートに
+// 載せていた。nursery にいたクラスが動くと、古い番地が根になり、次の full GC がそれをたどる。
+// ストレスを 2 回に 1 回にして、リテラル配列の割り当てで最初の GC、要素の Float で 4 回目の
+// GC（full GC）を起こす。
+TEST(GcSafety, LiteralArrayKeepsMethodClassAcrossGc) {
+  Boot b;
+  b.heap.setGcStress(0);  // 準備はストレスなしで行う（AO_GC_STRESS に左右されない）
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #GcSafetyLiterals\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'GcSafety'!\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root cls(b.roots, b.wk.named("GcSafetyLiterals"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  ASSERT_TRUE(b.heap.inNursery(cls.slot));
+  const auto cr =
+      ao::compiler::compileMethod("floats\n  ^#(1.5 2.5 3.5 4.5 5.5 6.5 7.5 8.5)");
+  ASSERT_TRUE(cr.ok) << cr.error.message;
+
+  b.heap.setGcStress(2);
+  ao::Root installed(b.roots, ao::installMethod(b.ctx, cls.slot, cr.image));
+  b.heap.setGcStress(0);
+  ASSERT_TRUE(installed.slot.isHeap());
+  ao::Root inst(b.roots, send0(b, cls.slot, "new"));
+  ao::Root floats(b.roots, send0(b, inst.slot, "floats"));
+  EXPECT_EQ(smi(8), send0(b, floats.slot, "size"));
+}

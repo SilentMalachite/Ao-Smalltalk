@@ -66,11 +66,12 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
       return ctx.wk.intern(lit.text);
     case compiler::LitKind::Array: {
       const auto n = static_cast<std::uint32_t>(lit.elements.size());
+      // methodClass は値で受けている。割り当て（GC）の前にルートに載せる。
+      Root mcls(ctx.roots, methodClass);
       Root arr(ctx.roots, allocateRetry(ctx, ctx.wk.arrayClass, n, 0));
       if (!arr.slot.isHeap()) {
         return Oop{};
       }
-      Root mcls(ctx.roots, methodClass);
       for (std::uint32_t i = 0; i < n; ++i) {
         Oop e = boxLiteral(ctx, lit.elements[i], mcls.slot);
         ctx.heap.slotAtPut(arr.slot, i, e);

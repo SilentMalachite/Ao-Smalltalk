@@ -386,10 +386,11 @@ Oop ao_SharedQueue_next(CallContext& ctx, const Oop& receiver, const Oop*, std::
   Oop read = ctx.heap.slotAt(q.slot, kSqRead);
   NativeMethod::invoke(ctx, ao_Semaphore_wait, read, nullptr, 0);
   Oop contents = ctx.heap.slotAt(q.slot, kSqContents);
-  Oop value = ocRemoveFirst(ctx.heap, contents);
+  // 取り出した値はキューから外れ、signal の resume が GC を走らせる。ルートに載せて返す。
+  Root value(ctx.roots, ocRemoveFirst(ctx.heap, contents));
   Oop write = ctx.heap.slotAt(q.slot, kSqWrite);
   NativeMethod::invoke(ctx, ao_Semaphore_signal, write, nullptr, 0);
-  return value;
+  return value.slot;
 }
 
 Oop ao_BlockContext_fork(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {

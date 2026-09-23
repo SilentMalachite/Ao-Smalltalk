@@ -702,18 +702,17 @@ Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uin
     return Oop::fromSmallInteger(0);
   }
   std::int64_t count = 0;
-  const Oop gt = ctx.wk.intern(">");
-  const Oop lt = ctx.wk.intern("<");
-  const Oop add = ctx.wk.intern("+");
   const bool forward = !step.isSmallInteger() || step.smallIntegerValue() > 0;
-  const Oop cmpSel = forward ? gt : lt;
+  // セレクタは send をまたいで使う。full GC の圧縮で Symbol も動くので、ルートに載せる。
+  Root cmpSel(ctx.roots, ctx.wk.intern(forward ? ">" : "<"));
+  Root add(ctx.roots, ctx.wk.intern("+"));
   for (;;) {
-    const Oop past = send(ctx, cur.slot, cmpSel, &blkStop.slot, 1, nullptr);
+    const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
     if (past.isTrue()) {
       break;
     }
     ++count;
-    cur.slot = send(ctx, cur.slot, add, &blkStep.slot, 1, nullptr);
+    cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
     if (count > (std::int64_t{1} << 20)) {
       break;
     }
@@ -761,18 +760,17 @@ Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   Root cur(ctx.roots, start);
   Root blkStop(ctx.roots, stop);
   Root blkStep(ctx.roots, step);
-  const Oop gt = ctx.wk.intern(">");
-  const Oop lt = ctx.wk.intern("<");
-  const Oop add = ctx.wk.intern("+");
   const bool forward = !step.isSmallInteger() || step.smallIntegerValue() > 0;
-  const Oop cmpSel = forward ? gt : lt;
+  // セレクタは send をまたいで使う。full GC の圧縮で Symbol も動くので、ルートに載せる。
+  Root cmpSel(ctx.roots, ctx.wk.intern(forward ? ">" : "<"));
+  Root add(ctx.roots, ctx.wk.intern("+"));
   for (std::int64_t n = 0; n <= (std::int64_t{1} << 20); ++n) {
-    const Oop past = send(ctx, cur.slot, cmpSel, &blkStop.slot, 1, nullptr);
+    const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
     if (past.isTrue()) {
       break;
     }
     send(ctx, blk.slot, ctx.wk.selValue_, &cur.slot, 1, nullptr);
-    cur.slot = send(ctx, cur.slot, add, &blkStep.slot, 1, nullptr);
+    cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
   }
   return iv.slot;
 }
