@@ -122,7 +122,7 @@ TEST(ImageRegistry, AdoptOldBytesOnce) {
   EXPECT_EQ(7, heap.hashCursor());
 
   ao::Heap empty;
-  EXPECT_FALSE(empty.adoptOldBytes(filler, empty.oldCapacity() + 1, 3));
+  EXPECT_FALSE(empty.adoptOldBytes(filler, empty.oldMaxBytes() + 1, 3));
   EXPECT_EQ(0u, empty.oldUsed());
   EXPECT_EQ(1, empty.hashCursor());
 }

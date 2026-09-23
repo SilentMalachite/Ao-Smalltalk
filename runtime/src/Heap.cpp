@@ -194,17 +194,23 @@ bool Heap::adoptOldBytes(const std::byte* src, std::size_t n, std::uint16_t next
   if (oldUsed() != 0) {
     return false;
   }
-  if (n > oldCapacity()) {
+  if (n > oldMax_) {
+    return false;
+  }
+  if (n != 0 && src == nullptr) {
+    return false;
+  }
+  if (n > oldCapacity() && !growOld(n)) {
     return false;
   }
   if (n != 0) {
-    if (src == nullptr) {
-      return false;
-    }
     std::memcpy(oldStart_, src, n);
   }
   oldBump_ = oldStart_ + n;
   nextHash_ = nextHash == 0 ? static_cast<std::uint16_t>(1) : nextHash;
+  // 取り込んだバイトは生存物として扱う。最初の full GC を collectOld 後と同じ閾値にそろえる。
+  oldLive_ = n;
+  oldThreshold_ = std::clamp(2 * n, oldInitial_, oldMax_);
   return true;
 }
 

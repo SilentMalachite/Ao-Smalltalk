@@ -261,6 +261,10 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
     globals.push_back(NamedOop{std::string(name), heap.slotAt(wk.smalltalk, i)});
   }
 
+  // 既定の上限（kOldMaxBytes）を超えるヒープは保存しない。保存できてもロードできない。
+  if (tr.end > kOldMaxBytes) {
+    return false;
+  }
   std::vector<std::byte> heapBuf(static_cast<std::size_t>(tr.end), std::byte{0});
   ImageFormat::writeFiller(heapBuf.data());
   for (Oop obj : tr.order) {
