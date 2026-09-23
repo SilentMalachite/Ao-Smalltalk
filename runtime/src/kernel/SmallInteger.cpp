@@ -6,6 +6,8 @@
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
+#include <string>
+
 namespace ao {
 namespace {
 
@@ -197,6 +199,16 @@ Oop ao_Integer_asCharacter(CallContext&, Oop receiver, const Oop*, std::uint32_t
   return Oop::fromCharacter(static_cast<char32_t>(v));
 }
 
+Oop ao_SmallInteger_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!receiver.isSmallInteger()) {
+    return ao_Object_printString(ctx, receiver, nullptr, 0);
+  }
+  return Str::fromUtf8(ctx.heap, ctx.wk, std::to_string(receiver.smallIntegerValue()));
+}
+
 namespace kernel {
 
 void installInteger(Heap& heap, WellKnown& wk) {
@@ -229,6 +241,8 @@ void installInteger(Heap& heap, WellKnown& wk) {
     putNative(heap, wk, wk.integerClass, s.selector, s.argc, s.name, s.fn);
   }
   putNative(heap, wk, wk.smallIntegerClass, "+", 1, "ao_SmallInteger_add", ao_SmallInteger_add);
+  putNative(heap, wk, wk.smallIntegerClass, "printString", 0, "ao_SmallInteger_printString",
+            ao_SmallInteger_printString);
 }
 
 }  // namespace kernel

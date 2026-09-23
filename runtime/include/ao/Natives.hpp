@@ -48,8 +48,20 @@ Oop ao_UndefinedObject_notNil(CallContext& ctx, Oop receiver, const Oop* args, s
 Oop ao_UndefinedObject_ifNil_(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
 Oop ao_UndefinedObject_ifNotNil_(CallContext& ctx, Oop receiver, const Oop* args,
                                  std::uint32_t argc);
+Oop ao_UndefinedObject_printString(CallContext& ctx, Oop receiver, const Oop* args,
+                                   std::uint32_t argc);
+
+Oop ao_True_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
+Oop ao_False_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
 
 Oop ao_SmallInteger_add(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
+Oop ao_SmallInteger_printString(CallContext& ctx, Oop receiver, const Oop* args,
+                                std::uint32_t argc);
 Oop ao_Integer_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
+
+Oop ao_Character_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
+Oop ao_String_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
+Oop ao_Array_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
+Oop ao_Float_printString(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc);
 
 }  // namespace ao

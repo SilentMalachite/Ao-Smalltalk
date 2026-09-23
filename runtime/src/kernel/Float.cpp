@@ -5,7 +5,9 @@
 #include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 
+#include <cstdio>
 #include <cstring>
+#include <string_view>
 
 namespace ao {
 namespace {
@@ -285,6 +287,25 @@ Oop ao_Fraction_divide(CallContext& ctx, Oop receiver, const Oop* args, std::uin
   return fracOp(ctx, receiver, args[0], FracOp::Div);
 }
 
+Oop ao_Float_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!receiver.isHeap() || ctx.wk.classOf(receiver) != ctx.wk.floatClass) {
+    return ao_Object_printString(ctx, receiver, nullptr, 0);
+  }
+  double value = 0;
+  if (ctx.heap.size(receiver) >= sizeof(value)) {
+    std::memcpy(&value, ctx.heap.bytes(receiver), sizeof(value));
+  }
+  char buf[64];
+  const int wrote = std::snprintf(buf, sizeof(buf), "%g", value);
+  if (wrote <= 0 || static_cast<std::size_t>(wrote) >= sizeof(buf)) {
+    return Oop{};
+  }
+  return Str::fromUtf8(ctx.heap, ctx.wk, std::string_view(buf, static_cast<std::size_t>(wrote)));
+}
+
 namespace kernel {
 
 void installFloat(Heap& heap, WellKnown& wk) {
@@ -294,6 +315,8 @@ void installFloat(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.floatClass, "/", 1, "ao_Float_divide", ao_Float_divide);
   putNative(heap, wk, wk.floatClass, "=", 1, "ao_Float_equals", ao_Float_equals);
   putNative(heap, wk, wk.floatClass, "<", 1, "ao_Float_lessThan", ao_Float_lessThan);
+  putNative(heap, wk, wk.floatClass, "printString", 0, "ao_Float_printString",
+            ao_Float_printString);
 
   putNative(heap, wk, wk.fractionClass, "+", 1, "ao_Fraction_add", ao_Fraction_add);
   putNative(heap, wk, wk.fractionClass, "-", 1, "ao_Fraction_subtract", ao_Fraction_subtract);

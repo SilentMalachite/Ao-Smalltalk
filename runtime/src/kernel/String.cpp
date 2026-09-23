@@ -7,6 +7,7 @@
 #include "ao/Symbol.hpp"
 
 #include <cstring>
+#include <string>
 
 namespace ao {
 namespace {
@@ -300,6 +301,28 @@ Oop ao_Symbol_basicAt_put_(CallContext& ctx, Oop receiver, const Oop*, std::uint
   return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
 }
 
+Oop ao_String_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  // Symbol subclasses String. Only a String quotes its bytes; every other class stays the class name.
+  if (ctx.wk.classOf(receiver) != ctx.wk.stringClass || !isBytes(ctx.heap, receiver)) {
+    return ao_Object_printString(ctx, receiver, nullptr, 0);
+  }
+  const auto n = ctx.heap.size(receiver);
+  const unsigned char* bytes = bytePayload(ctx.heap, receiver);
+  std::string out;
+  out.push_back('\'');
+  for (std::uint32_t i = 0; i < n; ++i) {
+    out.push_back(static_cast<char>(bytes[i]));
+    if (bytes[i] == static_cast<unsigned char>('\'')) {
+      out.push_back('\'');
+    }
+  }
+  out.push_back('\'');
+  return Str::fromUtf8(ctx.heap, ctx.wk, out);
+}
+
 namespace kernel {
 
 void installString(Heap& heap, WellKnown& wk) {
@@ -309,6 +332,7 @@ void installString(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, str, "at:put:", 2, "ao_String_at_put_", ao_String_at_put_);
   putNative(heap, wk, str, "=", 1, "ao_String_equals", ao_String_equals);
   putNative(heap, wk, str, "asSymbol", 0, "ao_String_asSymbol", ao_String_asSymbol);
+  putNative(heap, wk, str, "printString", 0, "ao_String_printString", ao_String_printString);
   putNative(heap, wk, wk.symbolClass, "asString", 0, "ao_Symbol_asString", ao_Symbol_asString);
   putNative(heap, wk, wk.symbolClass, "at:put:", 2, "ao_Symbol_at_put_", ao_Symbol_at_put_);
   putNative(heap, wk, wk.symbolClass, "basicAt:put:", 2, "ao_Symbol_basicAt_put_",

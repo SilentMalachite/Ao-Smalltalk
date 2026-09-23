@@ -411,6 +411,11 @@ Oop ao_UndefinedObject_ifNotNil_(CallContext&, Oop receiver, const Oop*, std::ui
   return receiver;
 }
 
+Oop ao_UndefinedObject_printString(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+  if (argc != 0) return Oop{};
+  return Str::fromUtf8(ctx.heap, ctx.wk, "nil");
+}
+
 namespace kernel {
 
 void installObject(Heap& heap, WellKnown& wk) {
@@ -460,6 +465,8 @@ void installObject(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, undef, "ifNil:", 1, "ao_UndefinedObject_ifNil_", ao_UndefinedObject_ifNil_);
   putNative(heap, wk, undef, "ifNotNil:", 1, "ao_UndefinedObject_ifNotNil_",
             ao_UndefinedObject_ifNotNil_);
+  putNative(heap, wk, undef, "printString", 0, "ao_UndefinedObject_printString",
+            ao_UndefinedObject_printString);
 }
 
 }  // namespace kernel

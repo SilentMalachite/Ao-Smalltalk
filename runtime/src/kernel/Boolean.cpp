@@ -1,6 +1,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
 namespace ao {
@@ -128,6 +129,16 @@ Oop ao_False_xor_(CallContext&, Oop, const Oop* args, std::uint32_t argc) {
   return asBool(args[0].isTrue());
 }
 
+Oop ao_True_printString(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+  if (argc != 0) return Oop{};
+  return Str::fromUtf8(ctx.heap, ctx.wk, "true");
+}
+
+Oop ao_False_printString(CallContext& ctx, Oop, const Oop*, std::uint32_t argc) {
+  if (argc != 0) return Oop{};
+  return Str::fromUtf8(ctx.heap, ctx.wk, "false");
+}
+
 namespace kernel {
 
 void installBoolean(Heap& heap, WellKnown& wk) {
@@ -160,6 +171,9 @@ void installBoolean(Heap& heap, WellKnown& wk) {
     putNative(heap, wk, wk.trueClass, s.selector, s.argc, s.trueName, s.trueFn);
     putNative(heap, wk, wk.falseClass, s.selector, s.argc, s.falseName, s.falseFn);
   }
+  putNative(heap, wk, wk.trueClass, "printString", 0, "ao_True_printString", ao_True_printString);
+  putNative(heap, wk, wk.falseClass, "printString", 0, "ao_False_printString",
+            ao_False_printString);
 }
 
 }  // namespace kernel

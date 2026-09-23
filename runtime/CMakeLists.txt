@@ -79,6 +79,7 @@ add_executable(ao_runtime_tests
   tests/behavior_test.cpp
   tests/smallinteger_arith_test.cpp
   tests/array_string_test.cpp
+  tests/print_string_test.cpp
   tests/collection_do_test.cpp
   tests/transcript_model_test.cpp
   tests/process_test.cpp

@@ -1,8 +1,11 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
+#include "ao/Gc.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
+
+#include <string>
 
 namespace ao {
 
@@ -20,6 +23,75 @@ Oop fromSlots(Heap& heap, WellKnown& wk, const Oop* p, std::uint32_t n) {
 }
 
 }  // namespace Arr
+
+namespace {
+
+constexpr int kArrayPrintMaxDepth = 4;
+
+struct Root {
+  Roots& roots;
+  Oop slot;
+  explicit Root(Roots& r, Oop v = Oop{}) : roots(r), slot(v) { roots.add(&slot); }
+  ~Root() { roots.remove(&slot); }
+  Root(const Root&) = delete;
+  Root& operator=(const Root&) = delete;
+};
+
+bool isArray(const CallContext& ctx, Oop obj) {
+  return obj.isHeap() && ctx.wk.classOf(obj) == ctx.wk.arrayClass;
+}
+
+Oop bytesFrom(CallContext& ctx, std::string_view text) {
+  Oop s = Str::fromUtf8(ctx.heap, ctx.wk, text);
+  if (s.isHeap()) {
+    return s;
+  }
+  Gc gc(ctx.heap, ctx.roots);
+  gc.collectNursery();
+  return Str::fromUtf8(ctx.heap, ctx.wk, text);
+}
+
+// Depth 1 is the outermost array. Above 4, print "..." and do not send printString.
+Oop arrayPrintString(CallContext& ctx, Oop receiver, int depth) {
+  if (depth > kArrayPrintMaxDepth) {
+    return bytesFrom(ctx, "...");
+  }
+  Root arr(ctx.roots, receiver);
+  Root sel(ctx.roots, ctx.wk.intern("printString"));
+  if (!sel.slot.isHeap()) {
+    return Oop{};
+  }
+  const auto n = ctx.heap.size(arr.slot);
+  std::string text;
+  text.append("#(");
+  for (std::uint32_t i = 0; i < n; ++i) {
+    if (i != 0) {
+      text.push_back(' ');
+    }
+    Root elt(ctx.roots, ctx.heap.slotAt(arr.slot, i));
+    Oop printed =
+        isArray(ctx, elt.slot) ? arrayPrintString(ctx, elt.slot, depth + 1)
+                               : send(ctx, elt.slot, sel.slot, nullptr, 0, nullptr);
+    if (!printed.isHeap() || (ctx.heap.flags(printed) & kFlagBytes) == 0) {
+      return Oop{};
+    }
+    text += Str::toUtf8(ctx.heap, printed);
+  }
+  text.push_back(')');
+  return bytesFrom(ctx, text);
+}
+
+}  // namespace
+
+Oop ao_Array_printString(CallContext& ctx, Oop receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!isArray(ctx, receiver)) {
+    return ao_Object_printString(ctx, receiver, nullptr, 0);
+  }
+  return arrayPrintString(ctx, receiver, 1);
+}
 
 Oop ao_ArrayedCollection_size(CallContext& ctx, Oop receiver, const Oop* args, std::uint32_t argc) {
   return ao_Object_basicSize(ctx, receiver, args, argc);
@@ -65,6 +137,8 @@ void installArray(Heap& heap, WellKnown& wk) {
             ao_ArrayedCollection_basicAt_put_);
   putNative(heap, wk, wk.arrayedCollectionMetaclass, "new:", 1, "ao_ArrayedCollection_new_",
             ao_ArrayedCollection_new_);
+  putNative(heap, wk, wk.arrayClass, "printString", 0, "ao_Array_printString",
+            ao_Array_printString);
 }
 
 }  // namespace kernel
