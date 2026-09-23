@@ -45,6 +45,12 @@ std::int64_t tallyOf(Heap& heap, Oop hashed) {
   return t.isSmallInteger() ? t.smallIntegerValue() : 0;
 }
 
+// error: の慣習どおりメッセージ文字列で失敗する。receiver はルート済みスロット（GC しても正しい）。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
+}
+
 bool ensureInner(CallContext& ctx, Root& hashed) {
   Oop inner = ctx.heap.slotAt(hashed.slot, kHashedArray);
   if (inner.isHeap()) {
@@ -181,6 +187,10 @@ Oop dictAtPut(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint3
   }
   auto n = ctx.heap.size(ctx.heap.slotAt(dict.slot, kHashedArray));
   auto tally = tallyOf(ctx.heap, dict.slot);
+  // tally は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら、伸ばす前に失敗する。
+  if (tally >= kSmiMax) {
+    return fail(ctx, dict.slot, "at:put: tally out of range");
+  }
   if (tally * 2 >= static_cast<std::int64_t>(n)) {
     if (!growInner(ctx, dict)) {
       return Oop{};
@@ -224,6 +234,10 @@ Oop setAdd(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t
   }
   auto n = ctx.heap.size(ctx.heap.slotAt(set.slot, kHashedArray));
   auto tally = tallyOf(ctx.heap, set.slot);
+  // tally は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら、伸ばす前に失敗する。
+  if (tally >= kSmiMax) {
+    return fail(ctx, set.slot, "add: tally out of range");
+  }
   if (tally >= static_cast<std::int64_t>(n)) {
     if (!growInner(ctx, set)) {
       return Oop{};
@@ -262,7 +276,10 @@ std::int64_t ocSize(Heap& heap, Oop oc) {
   if (l < f) {
     return 0;
   }
-  return l - f + 1;
+  // first と last は Smalltalk から書き換えられる。両端だと l - f + 1 は int64 も超えるので、
+  // kSmiMax + 1 で頭打ちにする（size はこれを範囲外として失敗する）。
+  const std::int64_t span = l - f;
+  return span >= kSmiMax ? kSmiMax + 1 : span + 1;
 }
 
 bool ocEnsure(CallContext& ctx, Root& oc) {
@@ -522,7 +539,11 @@ Oop ao_OrderedCollection_size(CallContext& ctx, const Oop& receiver, const Oop*,
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
-  return Oop::fromSmallInteger(ocSize(ctx.heap, receiver));
+  const auto n = ocSize(ctx.heap, receiver);
+  if (n > kSmiMax) {
+    return fail(ctx, receiver, "size out of range");
+  }
+  return Oop::fromSmallInteger(n);
 }
 
 Oop ao_OrderedCollection_add_(CallContext& ctx, const Oop& receiver, const Oop* args,

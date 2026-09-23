@@ -1,6 +1,7 @@
 #include "test_support.hpp"
 
 #include "ao/Globals.hpp"
+#include "ao/HandleScope.hpp"
 
 #include <gtest/gtest.h>
 
@@ -178,4 +179,20 @@ TEST(TranscriptModel, EachClassSkipsSmalltalkImageNonClassExtra) {
       &seen);
   EXPECT_FALSE(seen.found);
   EXPECT_EQ(extra, b.wk.named("Foo"));
+}
+
+// position は Smalltalk から書き換えられる。SmallInteger の最大値にしてから nextPut: すると、+1 が
+// SmallInteger の範囲を超える。abort せず、error: の慣習どおりメッセージ文字列で失敗する。
+TEST(TranscriptModel, NextPutAtSmiMaxPositionFails) {
+  Boot b;
+  ao::Root arr(b.roots, send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(0)));
+  ao::Root ws(b.roots, send1(b, b.wk.writeStreamClass, "on:", arr.slot));
+  ASSERT_TRUE(ws.slot.isHeap());
+  const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
+  ASSERT_EQ(max, send2(b, ws.slot, "instVarAt:put:", ao::Oop::fromSmallInteger(2), max));
+  const ao::Oop r = send1(b, ws.slot, "nextPut:", ao::Oop::fromSmallInteger(1));
+  ASSERT_TRUE(r.isHeap());
+  ASSERT_EQ(b.wk.stringClass, b.heap.klass(r));
+  EXPECT_EQ("nextPut: position out of range", ao::Str::toUtf8(b.heap, r));
+  EXPECT_EQ(max, send0(b, ws.slot, "position"));
 }

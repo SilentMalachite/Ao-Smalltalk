@@ -2,7 +2,10 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
+
+#include <string_view>
 
 namespace ao {
 namespace {
@@ -15,6 +18,19 @@ Oop makeThunk(CallContext& ctx, NativeFn fn, std::uint32_t argc) {
   return makeNativeBlock(ctx, fn, argc);
 }
 
+// error: の慣習どおりメッセージ文字列で失敗する。receiver はルート済みスロット（GC しても正しい）。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
+}
+
+// thunk の pc（添字・件数）は、ブロックを受け取った do: から書き換えられる。+1 が SmallInteger を
+// 超えるなら、その呼び出しを失敗にする。
+bool counterAtMax(const Heap& heap, Oop thunk) {
+  const Oop n = heap.slotAt(thunk, kCtxPc);
+  return n.isSmallInteger() && n.smallIntegerValue() >= kSmiMax;
+}
+
 Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop* args,
                                std::uint32_t argc) {
   if (argc != 1) {
@@ -22,6 +38,9 @@ Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop*
   }
   Root self(ctx.roots, receiver);
   Root elt(ctx.roots, args[0]);
+  if (counterAtMax(ctx.heap, self.slot)) {
+    return fail(ctx, self.slot, "collect: index out of range");
+  }
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
   Root mapped(ctx.roots, send(ctx, user, ctx.wk.selValue_, &elt.slot, 1, nullptr));
   Root arr(ctx.roots, ctx.heap.slotAt(self.slot, kBlockHome));
@@ -41,6 +60,11 @@ Oop ao_Collection_filter_count(CallContext& ctx, const Oop& receiver, const Oop*
   }
   Root self(ctx.roots, receiver);
   Root elt(ctx.roots, args[0]);
+  if (counterAtMax(ctx.heap, self.slot)) {
+    return fail(ctx, self.slot,
+                ctx.heap.slotAt(self.slot, kCtxStackp).isTrue() ? "select: count out of range"
+                                                                : "reject: count out of range");
+  }
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
   const Oop pred = send(ctx, user, ctx.wk.selValue_, &elt.slot, 1, nullptr);
   const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();
@@ -61,6 +85,11 @@ Oop ao_Collection_filter_fill(CallContext& ctx, const Oop& receiver, const Oop* 
   }
   Root self(ctx.roots, receiver);
   Root elt(ctx.roots, args[0]);
+  if (counterAtMax(ctx.heap, self.slot)) {
+    return fail(ctx, self.slot,
+                ctx.heap.slotAt(self.slot, kCtxStackp).isTrue() ? "select: index out of range"
+                                                                : "reject: index out of range");
+  }
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
   const Oop pred = send(ctx, user, ctx.wk.selValue_, &elt.slot, 1, nullptr);
   const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();

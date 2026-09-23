@@ -3,7 +3,10 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
+
+#include <string_view>
 
 namespace ao {
 namespace {
@@ -29,6 +32,12 @@ constexpr std::uint32_t kOcLast  = 2;
 
 bool hasSlots(Heap& heap, Oop obj, std::uint32_t n) {
   return obj.isHeap() && (heap.flags(obj) & kFlagBytes) == 0 && heap.size(obj) > n;
+}
+
+// error: の慣習どおりメッセージ文字列で失敗する。receiver はルート済みスロット（GC しても正しい）。
+Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
+  Oop s = Str::fromUtf8(ctx, msg);
+  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
 std::int64_t ocSize(Heap& heap, Oop oc) {
@@ -305,6 +314,10 @@ Oop ao_Semaphore_signal(CallContext& ctx, const Oop& receiver, const Oop*, std::
   if (ocSize(ctx.heap, list) == 0) {
     const Oop excess = ctx.heap.slotAt(sem.slot, kSemExcess);
     const auto n = excess.isSmallInteger() ? excess.smallIntegerValue() : 0;
+    // excessSignals は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら失敗する。
+    if (n >= kSmiMax) {
+      return fail(ctx, sem.slot, "signal: excess signals out of range");
+    }
     ctx.heap.slotAtPut(sem.slot, kSemExcess, Oop::fromSmallInteger(n + 1));
     return sem.slot;
   }

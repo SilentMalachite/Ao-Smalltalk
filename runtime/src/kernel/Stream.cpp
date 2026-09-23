@@ -313,6 +313,10 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, const Oop& receiver, const 
     return fail(ctx, self.slot, "nextPut: no collection");
   }
   const auto pos = smiOr(ctx.heap.slotAt(self.slot, kStreamPosition), 0);
+  // position は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら失敗する。
+  if (pos >= kSmiMax) {
+    return fail(ctx, self.slot, "nextPut: position out of range");
+  }
   const auto neu = pos + 1;
   const auto n = collectionSize(ctx, coll);
   if (neu > n) {

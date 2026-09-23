@@ -66,6 +66,11 @@ bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
   }
   const auto tallyOop = heap.slotAt(dict, kDictSlotTally);
   const auto tally = tallyOop.isSmallInteger() ? tallyOop.smallIntegerValue() : 0;
+  // tally は Smalltalk から書き換えられる（クラスの instVarAt: で辞書に届く）。+1 が SmallInteger
+  // を超えるなら、登録せずに失敗を返す。
+  if (tally >= kSmiMax) {
+    return false;
+  }
   if (tally * 2 == static_cast<std::int64_t>(n)) {
     if (!growInner(heap, dict, inner)) {
       return false;

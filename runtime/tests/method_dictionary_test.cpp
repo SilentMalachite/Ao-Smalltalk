@@ -133,3 +133,33 @@ TEST(MethodDictionary, AtPutFailureReachesInstallMethod) {
   EXPECT_EQ(ao::Oop::fromSmallInteger(8), b.heap.slotAt(dict, ao::kDictSlotTally));
   EXPECT_TRUE(ao::lookup(b.heap, cls.slot, b.wk.intern("m8")).isHeap());
 }
+
+// メソッド辞書の tally も Smalltalk から書き換えられる（クラスの instVarAt: 2 が辞書）。
+// SmallInteger の最大値にしてからメソッドを足すと、+1 が範囲を超える。abort せず、登録に失敗する。
+TEST(MethodDictionary, AtPutWithTallyAtSmiMaxFails) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #SmiMaxMethods\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'SmiRange'!\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root cls(b.roots, b.wk.named("SmiMaxMethods"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
+  ao::Root dict(b.roots, send1(b, cls.slot, "instVarAt:",
+                               ao::Oop::fromSmallInteger(ao::kClassSlotMethodDict + 1)));
+  ASSERT_EQ(b.heap.slotAt(cls.slot, ao::kClassSlotMethodDict), dict.slot);
+  ASSERT_EQ(max, send2(b, dict.slot, "instVarAt:put:",
+                       ao::Oop::fromSmallInteger(ao::kDictSlotTally + 1), max));
+  const auto cr = ao::compiler::compileMethod("one\n  ^1");
+  ASSERT_TRUE(cr.ok);
+  ao::Root sel(b.roots, b.wk.intern("one"));
+
+  EXPECT_FALSE(ao::installMethod(b.ctx, cls.slot, cr.image).isHeap());
+  EXPECT_FALSE(ao::lookup(b.heap, cls.slot, sel.slot).isHeap());
+  EXPECT_EQ(max, b.heap.slotAt(dict.slot, ao::kDictSlotTally));
+}

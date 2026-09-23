@@ -1,6 +1,11 @@
 #include "test_support.hpp"
 
+#include "ao/Compile.hpp"
+#include "ao/Compiler.hpp"
+#include "ao/HandleScope.hpp"
+
 #include <cstdint>
+#include <string>
 #include <gtest/gtest.h>
 #include <vector>
 
@@ -272,4 +277,115 @@ TEST(CollectionDo, BagLinkedListMappedCollectionStubs) {
     EXPECT_EQ(doNames[i], ao::NativeMethod::nameBytes(b.heap, doMeth));
     EXPECT_EQ(sizeNames[i], ao::NativeMethod::nameBytes(b.heap, sizeMeth));
   }
+}
+
+namespace {
+
+// 内部のカウンタ（Smalltalk から書き換えられるスロット）を SmallInteger の最大値にしてから操作する。
+// ±1 が SmallInteger の範囲を超えるので、abort せず、error: の慣習どおりメッセージ文字列で失敗する。
+void expectFailString(Boot& b, ao::Oop r, const char* message) {
+  ASSERT_TRUE(r.isHeap());
+  ASSERT_EQ(b.wk.stringClass, b.heap.klass(r));
+  EXPECT_EQ(message, ao::Str::toUtf8(b.heap, r));
+}
+
+ao::Oop smi(std::int64_t v) { return ao::Oop::fromSmallInteger(v); }
+
+}  // namespace
+
+TEST(CollectionDo, DictionaryAtPutWithTallyAtSmiMaxFails) {
+  Boot b;
+  ao::Root dict(b.roots, send0(b, b.wk.dictionaryClass, "new"));
+  ASSERT_TRUE(dict.slot.isHeap());
+  ASSERT_EQ(smi(ao::kSmiMax), send2(b, dict.slot, "instVarAt:put:", smi(1), smi(ao::kSmiMax)));
+  ao::Root key(b.roots, b.wk.intern("smiMaxKey"));
+  expectFailString(b, send2(b, dict.slot, "at:put:", key.slot, smi(1)),
+                   "at:put: tally out of range");
+  EXPECT_EQ(smi(ao::kSmiMax), send1(b, dict.slot, "instVarAt:", smi(1)));
+}
+
+TEST(CollectionDo, SetAddWithTallyAtSmiMaxFails) {
+  Boot b;
+  ao::Root set(b.roots, send0(b, b.wk.setClass, "new"));
+  ASSERT_TRUE(set.slot.isHeap());
+  ASSERT_EQ(smi(ao::kSmiMax), send2(b, set.slot, "instVarAt:put:", smi(1), smi(ao::kSmiMax)));
+  expectFailString(b, send1(b, set.slot, "add:", smi(7)), "add: tally out of range");
+  EXPECT_EQ(smi(ao::kSmiMax), send1(b, set.slot, "instVarAt:", smi(1)));
+}
+
+// size は last - first + 1。first と last を両端にすると SmallInteger の範囲を超える。
+TEST(CollectionDo, OrderedCollectionSizeBeyondSmiMaxFails) {
+  Boot b;
+  ao::Root oc(b.roots, send0(b, b.wk.orderedCollectionClass, "new"));
+  ASSERT_TRUE(oc.slot.isHeap());
+  send2(b, oc.slot, "instVarAt:put:", smi(2), smi(0));
+  send2(b, oc.slot, "instVarAt:put:", smi(3), smi(ao::kSmiMax));
+  expectFailString(b, send0(b, oc.slot, "size"), "size out of range");
+  send2(b, oc.slot, "instVarAt:put:", smi(2), smi(ao::kSmiMin));
+  expectFailString(b, send0(b, oc.slot, "size"), "size out of range");
+}
+
+namespace {
+
+// collect: と select: は、ネイティブのブロック（thunk）の pc を添字や件数に使う。do: を書き換えた
+// コレクションは、そのブロックを受け取って pc を書き換えられる。
+const char* kSmiMaxPoker =
+    "!Collection subclass: #SmiMaxPoker\n"
+    "  instanceVariableNames: 'results'\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'SmiRange'!\n"
+    "!SmiMaxPoker methodsFor: 'enumerating'!\n"
+    "reset\n"
+    "  results := OrderedCollection new!\n"
+    "results\n"
+    "  ^results!\n"
+    "size\n"
+    "  ^1!\n"
+    "do: aBlock\n"
+    "  | saved |\n"
+    "  saved := aBlock instVarAt: 2.\n"
+    "  aBlock instVarAt: 2 put: 4611686018427387903.\n"
+    "  results add: (aBlock value: 1).\n"
+    "  aBlock instVarAt: 2 put: saved! !\n";
+
+ao::Oop newPoker(Boot& b) {
+  std::vector<ao::compiler::CompileError> errs;
+  EXPECT_TRUE(ao::fileInString(b.ctx, kSmiMaxPoker, errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root poker(b.roots, send0(b, b.wk.named("SmiMaxPoker"), "new"));
+  send0(b, poker.slot, "reset");
+  return poker.slot;
+}
+
+}  // namespace
+
+TEST(CollectionDo, CollectIndexAtSmiMaxFails) {
+  Boot b;
+  ao::Root poker(b.roots, newPoker(b));
+  ASSERT_TRUE(poker.slot.isHeap());
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    return args[0];
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, +body, 1));
+  send1(b, poker.slot, "collect:", blk.slot);
+  ao::Root results(b.roots, send0(b, poker.slot, "results"));
+  ASSERT_EQ(smi(1), send0(b, results.slot, "size"));
+  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "collect: index out of range");
+}
+
+// select: は件数を数える do: と、詰める do: の 2 回を回す。どちらのブロックも失敗する。
+TEST(CollectionDo, SelectCountersAtSmiMaxFail) {
+  Boot b;
+  ao::Root poker(b.roots, newPoker(b));
+  ASSERT_TRUE(poker.slot.isHeap());
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+    return ao::Oop::true_();
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, +body, 1));
+  send1(b, poker.slot, "select:", blk.slot);
+  ao::Root results(b.roots, send0(b, poker.slot, "results"));
+  ASSERT_EQ(smi(2), send0(b, results.slot, "size"));
+  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "select: count out of range");
+  expectFailString(b, send1(b, results.slot, "at:", smi(2)), "select: index out of range");
 }

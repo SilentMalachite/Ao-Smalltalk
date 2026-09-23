@@ -1,6 +1,7 @@
 #include "test_support.hpp"
 
 #include "ao/Globals.hpp"
+#include "ao/HandleScope.hpp"
 
 #include <gtest/gtest.h>
 
@@ -139,4 +140,19 @@ TEST(Process, MethodContextGettersReadSlots) {
   EXPECT_EQ(sender, send0(b, ctx, "sender"));
   EXPECT_EQ(meth, send0(b, ctx, "method"));
   EXPECT_EQ(rcvr, send0(b, ctx, "receiver"));
+}
+
+// excessSignals は Smalltalk から書き換えられる。SmallInteger の最大値にしてから signal すると、
+// +1 が SmallInteger の範囲を超える。abort せず、error: の慣習どおりメッセージ文字列で失敗する。
+TEST(Process, SignalWithExcessAtSmiMaxFails) {
+  Boot b;
+  ao::Root sem(b.roots, send0(b, b.wk.semaphoreClass, "new"));
+  ASSERT_TRUE(sem.slot.isHeap());
+  const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
+  ASSERT_EQ(max, send2(b, sem.slot, "instVarAt:put:", ao::Oop::fromSmallInteger(1), max));
+  const ao::Oop r = send0(b, sem.slot, "signal");
+  ASSERT_TRUE(r.isHeap());
+  ASSERT_EQ(b.wk.stringClass, b.heap.klass(r));
+  EXPECT_EQ("signal: excess signals out of range", ao::Str::toUtf8(b.heap, r));
+  EXPECT_EQ(max, send1(b, sem.slot, "instVarAt:", ao::Oop::fromSmallInteger(1)));
 }
