@@ -8,6 +8,7 @@
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/MethodImage.hpp"
 #include "ao/Send.hpp"
@@ -121,14 +122,8 @@ Oop boxUtf8(CallContext& ctx, std::string_view utf8) {
 }
 
 void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
-  std::vector<Oop> chain;
-  Oop c = cls;
-  while (c.isHeap()) {
-    chain.push_back(c);
-    c = ctx.heap.slotAt(c, kClassSlotSuperclass);
-  }
-  for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-    const Oop names = ctx.heap.slotAt(*it, kClassSlotInstVarNames);
+  for (const Oop c : superclassChainFromRoot(ctx.heap, cls)) {
+    const Oop names = ctx.heap.slotAt(c, kClassSlotInstVarNames);
     if (!names.isHeap() || (ctx.heap.flags(names) & kFlagBytes) != 0) {
       continue;
     }

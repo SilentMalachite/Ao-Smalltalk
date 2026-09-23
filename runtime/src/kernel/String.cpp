@@ -3,6 +3,7 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Symbol.hpp"
 
@@ -93,14 +94,7 @@ bool isStringy(CallContext& ctx, Oop obj) {
   if (!obj.isHeap()) {
     return false;
   }
-  Oop cls = ctx.wk.classOf(obj);
-  while (cls.isHeap()) {
-    if (cls == ctx.wk.stringClass) {
-      return true;
-    }
-    cls = ctx.heap.slotAt(cls, kClassSlotSuperclass);
-  }
-  return false;
+  return chainIncludes(ctx.heap, ctx.wk.classOf(obj), ctx.wk.stringClass);
 }
 
 // receiver はルート済みスロット。メッセージの割り当てで GC が走っても正しい。

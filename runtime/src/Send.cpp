@@ -159,11 +159,7 @@ Oop send(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uin
 
 Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uint32_t argc,
               Oop methodClass) {
-  Oop start = Oop::nil();
-  if (methodClass.isHeap()) {
-    start = ctx.heap.slotAt(methodClass, kClassSlotSuperclass);
-  }
-  const Oop meth = lookup(ctx.heap, start, selector);
+  const Oop meth = lookup(ctx.heap, superclassOf(ctx.heap, methodClass), selector);
   if (!meth.isHeap()) {
     return doesNotUnderstand(ctx, receiver, selector, args, argc);
   }

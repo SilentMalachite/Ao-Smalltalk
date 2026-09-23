@@ -55,28 +55,14 @@ bool nameEquals(Heap& heap, Oop a, Oop b) {
   return std::memcmp(heap.header(a) + 1, heap.header(b) + 1, heap.size(a)) == 0;
 }
 
-// 親の鎖をたどる段数の上限。実際の階層はこれよりずっと浅い。
-constexpr std::uint32_t kMaxSuperclassDepth = 1024;
-
 // obj のクラスが Array か、そのサブクラスか。
 bool isKindOfArray(CallContext& ctx, Oop obj) {
   // 要素を slotAt で読むので、ポインタオブジェクトに限る（バイト列のクラスの親も書き換えられる）。
   if (!obj.isHeap() || (ctx.heap.flags(obj) & kFlagBytes) != 0) {
     return false;
   }
-  // 親の枠は instVarAt:put: で何でも入る。クラスらしくないもの（バイト列、枠の無いもの）で止め、
-  // 循環しても段数の上限で止める。
-  Oop cls = ctx.wk.classOf(obj);
-  for (std::uint32_t depth = 0; depth < kMaxSuperclassDepth && cls.isHeap(); ++depth) {
-    if (cls == ctx.wk.arrayClass) {
-      return true;
-    }
-    if ((ctx.heap.flags(cls) & kFlagBytes) != 0 || ctx.heap.size(cls) <= kClassSlotSuperclass) {
-      return false;
-    }
-    cls = ctx.heap.slotAt(cls, kClassSlotSuperclass);
-  }
-  return false;
+  // 壊れた鎖（クラスでないもの、循環）は chainIncludes が止める（SPEC §3.3）。
+  return chainIncludes(ctx.heap, ctx.wk.classOf(obj), ctx.wk.arrayClass);
 }
 
 }  // namespace
@@ -205,14 +191,7 @@ Oop ao_Object_shouldNotImplement(CallContext& ctx, const Oop&, const Oop*, std::
 Oop ao_Object_isKindOf_(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
   if (argc != 1) return Oop{};
-  Oop cls = ctx.wk.classOf(receiver);
-  while (cls.isHeap()) {
-    if (cls == args[0]) {
-      return Oop::true_();
-    }
-    cls = ctx.heap.slotAt(cls, kClassSlotSuperclass);
-  }
-  return Oop::false_();
+  return chainIncludes(ctx.heap, ctx.wk.classOf(receiver), args[0]) ? Oop::true_() : Oop::false_();
 }
 
 Oop ao_Object_isMemberOf_(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -290,15 +269,9 @@ Oop ao_Object_instVarAt_put_(CallContext& ctx, const Oop& receiver, const Oop* a
 Oop ao_Object_instVarNamed_(CallContext& ctx, const Oop& receiver, const Oop* args,
                             std::uint32_t argc) {
   if (argc != 1) return Oop{};
-  std::vector<Oop> chain;
-  Oop cls = ctx.wk.classOf(receiver);
-  while (cls.isHeap()) {
-    chain.push_back(cls);
-    cls = ctx.heap.slotAt(cls, kClassSlotSuperclass);
-  }
   std::int64_t index = 1;
-  for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-    const Oop names = ctx.heap.slotAt(*it, kClassSlotInstVarNames);
+  for (const Oop cls : superclassChainFromRoot(ctx.heap, ctx.wk.classOf(receiver))) {
+    const Oop names = ctx.heap.slotAt(cls, kClassSlotInstVarNames);
     if (!names.isHeap() || (ctx.heap.flags(names) & kFlagBytes) != 0) {
       continue;
     }

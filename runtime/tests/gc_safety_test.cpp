@@ -9,6 +9,7 @@
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/MethodDictionary.hpp"
+#include "ao/Natives.hpp"
 #include "ao/TestRunner.hpp"
 #include "ao/kernel/Install.hpp"
 
@@ -920,6 +921,182 @@ TEST(GcSafety, PerformWithArgumentsStopsOnBrokenSuperclassChain) {
     ao::Root inst(b.roots, send0(b, *cls, "new"));
     ASSERT_TRUE(inst.slot.isHeap());
     expectPerformRejects(b, inst.slot);
+  }
+}
+
+namespace {
+
+// SPEC §3.3: 壊れたスーパークラス鎖の 3 通り。親の枠は C++ から直接書き換え、テストごとに Boot を作る。
+enum class BrokenParent { Bytes, FewSlots, Itself };
+
+struct BrokenCase {
+  const char* label;
+  BrokenParent parent;
+};
+
+constexpr BrokenCase kBrokenCases[] = {
+    {"superclass is bytes", BrokenParent::Bytes},
+    {"superclass has too few slots", BrokenParent::FewSlots},
+    {"superclass is itself", BrokenParent::Itself},
+};
+
+// `Object subclass: #ChainProbe instanceVariableNames: 'x'` と methods を file-in してから、親の枠を
+// 壊す。クラス側の鎖（ChainProbe class から上）は壊さないので、new などのクラス側の送信は届く。
+ao::Oop defineBrokenClass(Boot& b, BrokenParent parent, const std::string& methods = "") {
+  std::vector<ao::compiler::CompileError> errs;
+  const std::string src =
+      "!Object subclass: #ChainProbe\n"
+      "  instanceVariableNames: 'x'\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'BrokenChain'!\n" +
+      methods;
+  EXPECT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root cls(b.roots, b.wk.named("ChainProbe"));
+  if (!cls.slot.isHeap()) {
+    return cls.slot;
+  }
+  ao::Root parentObj(b.roots, cls.slot);
+  if (parent == BrokenParent::Bytes) {
+    parentObj.slot = ao::Str::fromUtf8(b.heap, b.wk, "bad");
+  } else if (parent == BrokenParent::FewSlots) {
+    // 親の枠は Object を指すが、クラスの枠（kClassSlotCount 個）には足りない。
+    parentObj.slot = send1(b, b.wk.arrayClass, "new:", smi(2));
+    b.heap.slotAtPut(parentObj.slot, ao::kClassSlotSuperclass, b.wk.objectClass);
+  }
+  b.heap.slotAtPut(cls.slot, ao::kClassSlotSuperclass, parentObj.slot);
+  return cls.slot;
+}
+
+// x に 7 を入れた ChainProbe のインスタンス。
+ao::Oop newProbe(Boot& b, ao::Oop cls) {
+  ao::Root inst(b.roots, send0(b, cls, "new"));
+  EXPECT_TRUE(inst.slot.isHeap());
+  if (inst.slot.isHeap()) {
+    b.heap.slotAtPut(inst.slot, 0, smi(7));
+  }
+  return inst.slot;
+}
+
+// インスタンス側の鎖が壊れていると Object のメソッドへ送信が届かないので、ネイティブを直接呼ぶ。
+ao::Oop callNative(Boot& b, ao::NativeFn fn, ao::Oop receiver, ao::Oop arg) {
+  return ao::NativeMethod::invoke(b.ctx, fn, receiver, &arg, 1);
+}
+
+}  // namespace
+
+// Codex の再現: `Object instVarAt: 1 put: Object. Object new isKindOf: UndefinedObject` が止まらなかった。
+TEST(BrokenSuperclassChain, ObjectAsItsOwnSuperclassStops) {
+  Boot b;
+  ao::Root object(b.roots, b.wk.objectClass);
+  ASSERT_EQ(object.slot, send2(b, object.slot, "instVarAt:put:", smi(1), object.slot));
+  ao::Root inst(b.roots, send0(b, object.slot, "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  EXPECT_TRUE(send1(b, inst.slot, "isKindOf:", b.wk.undefinedObjectClass).isFalse());
+  EXPECT_TRUE(send1(b, inst.slot, "isKindOf:", object.slot).isTrue());
+  EXPECT_TRUE(send1(b, object.slot, "inheritsFrom:", b.wk.undefinedObjectClass).isFalse());
+  ao::Root missing(b.roots, b.wk.intern("chainProbeMissing"));
+  EXPECT_TRUE(send1(b, inst.slot, "respondsTo:", missing.slot).isFalse());
+  // 無いセレクタの探索は鎖の上限で止まり、Object の doesNotUnderstand: が Message を返す。
+  const ao::Oop dnu = send0(b, inst.slot, "chainProbeMissing");
+  ASSERT_TRUE(dnu.isHeap());
+  EXPECT_EQ(b.wk.messageClass, b.heap.klass(dnu));
+}
+
+// isKindOf: と inheritsFrom: は壊れた所で止まり、その先（Object）を見ない。
+TEST(BrokenSuperclassChain, IsKindOfAndInheritsFromStop) {
+  for (const auto& c : kBrokenCases) {
+    SCOPED_TRACE(c.label);
+    Boot b;
+    ao::Root cls(b.roots, defineBrokenClass(b, c.parent));
+    ASSERT_TRUE(cls.slot.isHeap());
+    ao::Root inst(b.roots, newProbe(b, cls.slot));
+    ASSERT_TRUE(inst.slot.isHeap());
+    EXPECT_TRUE(callNative(b, ao::ao_Object_isKindOf_, inst.slot, cls.slot).isTrue());
+    EXPECT_TRUE(callNative(b, ao::ao_Object_isKindOf_, inst.slot, b.wk.objectClass).isFalse());
+    EXPECT_TRUE(
+        callNative(b, ao::ao_Object_isKindOf_, inst.slot, b.wk.undefinedObjectClass).isFalse());
+    EXPECT_TRUE(send1(b, cls.slot, "inheritsFrom:", b.wk.objectClass).isFalse());
+    EXPECT_TRUE(send1(b, cls.slot, "inheritsFrom:", b.wk.undefinedObjectClass).isFalse());
+  }
+}
+
+// instVarNamed: は壊れた所までのクラスの変数名だけを見る。ChainProbe 自身の x は見つかる。
+TEST(BrokenSuperclassChain, InstVarNamedStops) {
+  for (const auto& c : kBrokenCases) {
+    SCOPED_TRACE(c.label);
+    Boot b;
+    ao::Root cls(b.roots, defineBrokenClass(b, c.parent));
+    ASSERT_TRUE(cls.slot.isHeap());
+    ao::Root inst(b.roots, newProbe(b, cls.slot));
+    ASSERT_TRUE(inst.slot.isHeap());
+    ao::Root x(b.roots, b.wk.intern("x"));
+    EXPECT_EQ(smi(7), callNative(b, ao::ao_Object_instVarNamed_, inst.slot, x.slot));
+    ao::Root missing(b.roots, b.wk.intern("missing"));
+    const ao::Oop failed = callNative(b, ao::ao_Object_instVarNamed_, inst.slot, missing.slot);
+    ASSERT_TRUE(failed.isHeap());
+    EXPECT_EQ("instVarNamed: not found", ao::Str::toUtf8(b.heap, failed));
+  }
+}
+
+// 送信の探索は壊れた所で打ち切る。ChainProbe 自身のメソッドは見つかる。無いセレクタは
+// doesNotUnderstand: も見つからないので、送信の値は Message になる。super 送信も、String の = が
+// 引数のクラスを調べる走査も止まる。
+TEST(BrokenSuperclassChain, SendAndDoesNotUnderstandStop) {
+  for (const auto& c : kBrokenCases) {
+    SCOPED_TRACE(c.label);
+    Boot b;
+    ao::Root cls(b.roots, defineBrokenClass(b, c.parent,
+                                            "!ChainProbe methodsFor: 'probe'!\n"
+                                            "getX\n"
+                                            "  ^x!\n"
+                                            "superMissing\n"
+                                            "  ^super chainProbeMissing! !\n"));
+    ASSERT_TRUE(cls.slot.isHeap());
+    ao::Root inst(b.roots, newProbe(b, cls.slot));
+    ASSERT_TRUE(inst.slot.isHeap());
+    EXPECT_EQ(smi(7), send0(b, inst.slot, "getX"));
+    const ao::Oop dnu = send0(b, inst.slot, "chainProbeMissing");
+    ASSERT_TRUE(dnu.isHeap());
+    EXPECT_EQ(b.wk.messageClass, b.heap.klass(dnu));
+    const ao::Oop superDnu = send0(b, inst.slot, "superMissing");
+    ASSERT_TRUE(superDnu.isHeap());
+    EXPECT_EQ(b.wk.messageClass, b.heap.klass(superDnu));
+    ao::Root missing(b.roots, b.wk.intern("chainProbeMissing"));
+    EXPECT_TRUE(callNative(b, ao::ao_Object_respondsTo_, inst.slot, missing.slot).isFalse());
+    ao::Root getX(b.roots, b.wk.intern("getX"));
+    EXPECT_TRUE(callNative(b, ao::ao_Object_respondsTo_, inst.slot, getX.slot).isTrue());
+    // 壊れた所より先（Object の ==）は無いものとして扱う。
+    ao::Root identity(b.roots, b.wk.intern("=="));
+    EXPECT_TRUE(callNative(b, ao::ao_Object_respondsTo_, inst.slot, identity.slot).isFalse());
+    ao::Root str(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "abc"));
+    EXPECT_TRUE(send1(b, str.slot, "=", inst.slot).isFalse());
+  }
+}
+
+// コンパイル: インスタンス変数を読むメソッドの accept と file-in は、壊れた所までの変数名で解決する。
+// ChainProbe 自身の x は解決でき、実行すると 7 を返す。
+TEST(BrokenSuperclassChain, CompileInstVarReferenceStops) {
+  for (const auto& c : kBrokenCases) {
+    SCOPED_TRACE(c.label);
+    Boot b;
+    ao::Root cls(b.roots, defineBrokenClass(b, c.parent));
+    ASSERT_TRUE(cls.slot.isHeap());
+    ao::compiler::CompileError err;
+    EXPECT_TRUE(ao::acceptMethodSource(b.ctx, "ChainProbe", false, "readX\n  ^x", &err))
+        << err.message;
+    std::vector<ao::compiler::CompileError> errs;
+    EXPECT_TRUE(ao::fileInString(b.ctx,
+                                 "!ChainProbe methodsFor: 'probe'!\n"
+                                 "writeX: v\n"
+                                 "  x := v! !\n",
+                                 errs))
+        << (errs.empty() ? "" : errs[0].message);
+    ao::Root inst(b.roots, newProbe(b, cls.slot));
+    ASSERT_TRUE(inst.slot.isHeap());
+    EXPECT_EQ(smi(7), send0(b, inst.slot, "readX"));
+    send1(b, inst.slot, "writeX:", smi(9));
+    EXPECT_EQ(smi(9), send0(b, inst.slot, "readX"));
   }
 }
 

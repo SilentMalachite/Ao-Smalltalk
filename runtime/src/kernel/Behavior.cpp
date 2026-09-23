@@ -4,6 +4,7 @@
 #include "ao/Context.hpp"
 #include "ao/Format.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 
 #include <cstdint>
@@ -159,14 +160,8 @@ Oop ao_Behavior_includesSelector_(CallContext& ctx, const Oop& receiver, const O
 Oop ao_Behavior_inheritsFrom_(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) return Oop{};
-  Oop super = ctx.heap.slotAt(receiver, kClassSlotSuperclass);
-  while (super.isHeap()) {
-    if (super == args[0]) {
-      return Oop::true_();
-    }
-    super = ctx.heap.slotAt(super, kClassSlotSuperclass);
-  }
-  return Oop::false_();
+  const Oop super = superclassOf(ctx.heap, receiver);
+  return chainIncludes(ctx.heap, super, args[0]) ? Oop::true_() : Oop::false_();
 }
 
 Oop ao_Behavior_instSize(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
