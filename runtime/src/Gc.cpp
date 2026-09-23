@@ -403,10 +403,15 @@ void Gc::collectOld() {
   std::byte* cursor = heap_->oldStart_;
   for (auto [a, b] : live) {
     if (a > cursor) {
+      // ストレス時は穴全体を毒で埋め、klass 語を毒のまま残す。回収済み object を指す古い Oop が
+      // header() で止まる。old space の走査は size と flags しか読まない。
+      heap_->poisonFreed(cursor, a);
       const std::size_t rem = static_cast<std::size_t>(a - cursor);
       if (rem >= sizeof(ObjectHeader)) {
         auto* fh = reinterpret_cast<ObjectHeader*>(cursor);
-        fh->klass = Oop::nil();
+        if (heap_->gcStress() == 0) {
+          fh->klass = Oop::nil();
+        }
         fh->size = static_cast<std::uint32_t>(rem - sizeof(ObjectHeader));
         fh->flags = kFlagBytes | kFlagOld;
         fh->hash = 0;

@@ -41,6 +41,25 @@ std::uint64_t rawWordAt(const void* p) {
   return w;
 }
 
+// old space の先頭に「根を外した object」、その直後に「根のある immovable」を置く。
+// collectOld は immovable を動かせないので、前者の跡は内部の穴として残る。
+void placeGarbageBeforePin(ao::Heap& heap, ao::Roots& roots, ao::Gc& gc, ao::Oop& garbage,
+                           ao::Oop& pin) {
+  garbage = heap.allocate(ao::Oop::nil(), 2, 0);
+  roots.add(&garbage);
+  gc.collectNursery();
+  roots.remove(&garbage);
+  ASSERT_TRUE(heap.inOld(garbage));
+  ASSERT_EQ(heap.oldBase(), static_cast<const std::byte*>(garbage.heapPointer()));
+
+  pin = heap.allocate(ao::Oop::nil(), 0, ao::kFlagImmovable);
+  roots.add(&pin);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(pin));
+  ASSERT_LT(static_cast<std::byte*>(garbage.heapPointer()),
+            static_cast<std::byte*>(pin.heapPointer()));
+}
+
 }  // namespace
 
 TEST(GcStress, EnvEnablesStress) {
@@ -127,4 +146,38 @@ TEST(GcStressDeathTest, StaleHeaderReadAborts) {
   ao::Gc gc(heap, roots);
   gc.safepoint();
   EXPECT_DEATH((void)heap.header(stale), "stale");
+}
+
+TEST(GcStress, HoleBeforeImmovableKeepsNilClassWhenStressIsOff) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  heap.setGcStress(0);
+  ao::Gc gc(heap, roots);
+  ao::Oop garbage;
+  ao::Oop pin;
+  ASSERT_NO_FATAL_FAILURE(placeGarbageBeforePin(heap, roots, gc, garbage, pin));
+  void* const pinAddr = pin.heapPointer();
+
+  gc.collectOld();
+
+  EXPECT_EQ(pinAddr, pin.heapPointer());
+  EXPECT_EQ(ao::Oop::nil().bits(), rawWordAt(garbage.heapPointer()));
+  roots.remove(&pin);
+}
+
+TEST(GcStressDeathTest, StaleOopBeforeImmovableSurvivorAborts) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  heap.setGcStress(1);
+  ao::Gc gc(heap, roots);
+  ao::Oop stale;
+  ao::Oop pin;
+  ASSERT_NO_FATAL_FAILURE(placeGarbageBeforePin(heap, roots, gc, stale, pin));
+  void* const pinAddr = pin.heapPointer();
+
+  gc.collectOld();
+
+  ASSERT_EQ(pinAddr, pin.heapPointer());
+  EXPECT_DEATH((void)heap.header(stale), "stale");
+  roots.remove(&pin);
 }
