@@ -69,6 +69,7 @@ add_executable(ao_runtime_tests
   tests/oop_tag_test.cpp
   tests/heap_alloc_test.cpp
   tests/gc_test.cpp
+  tests/gc_stress_test.cpp
   tests/bootstrap_test.cpp
   tests/symbol_test.cpp
   tests/method_dictionary_test.cpp
@@ -104,3 +105,7 @@ target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gte
 target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 include(GoogleTest)
 gtest_discover_tests(ao_runtime_tests)
+
+# 全テストを GC ストレス下で回す。既知の GC 安全性バグを B1 で直してから有効にする。
+add_test(NAME gcstress COMMAND ao_runtime_tests)
+set_tests_properties(gcstress PROPERTIES ENVIRONMENT "AO_GC_STRESS=1" DISABLED TRUE)
