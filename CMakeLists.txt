@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
-set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS version (matches app/Package.swift)")
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS version (matches app/Package.swift)" FORCE)
+endif()
 project(ao LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
