@@ -883,6 +883,168 @@ TEST(GcOld, NoRepeatedZeroYieldCollects) {
   }
 }
 
+namespace {
+
+// Heap(4096, 4096, 8192) の old を 1 KiB × 8 の生存物（slot0 = i）で上限まで埋め、閾値を上限の
+// 8192 B にする。そのうえで、old に入らない 3840 B の生存物（1 KiB × 3 と 768 B、slot0 = 100 + i）を
+// nursery に残す。nursery の空きは 256 B（半面の 1/8 未満）になる。
+void fillOldAndRetainYoung(ao::Heap& heap, ao::Gc& gc, ao::RootedArray& keep,
+                           ao::RootedArray& young) {
+  constexpr std::uint32_t kOneKiBSlots = (1024 - 16) / 8;
+  for (std::uint32_t i = 0; i < 8; ++i) {
+    keep[i] = heap.allocate(ao::Oop::nil(), kOneKiBSlots, 0);
+    ASSERT_TRUE(keep[i].isHeap());
+    heap.slotAtPut(keep[i], 0, ao::Oop::fromSmallInteger(i));
+    gc.collectNursery();
+  }
+  ASSERT_EQ(8192u, heap.oldUsed());
+  for (std::uint32_t i = 0; i < 4; ++i) {
+    young[i] = heap.allocate(ao::Oop::nil(), i < 3 ? kOneKiBSlots : (768 - 16) / 8, 0);
+    ASSERT_TRUE(young[i].isHeap());
+    heap.slotAtPut(young[i], 0, ao::Oop::fromSmallInteger(100 + i));
+  }
+  gc.collectNursery();
+  for (std::uint32_t i = 0; i < 4; ++i) {
+    ASSERT_TRUE(heap.inNursery(young[i])) << i;
+  }
+  ASSERT_EQ(8192u, heap.oldUsed());
+  ASSERT_EQ(256u, heap.nurseryRemaining());
+}
+
+}  // namespace
+
+// old が上限に近いと、閾値も上限に張り付き、スキャベンジ後の契機（oldUsed > 閾値）は成り立たない。
+// old の根を外しても、safepoint は空き 256 B を理由にスキャベンジを繰り返し、同じ生存物を to-space に
+// 残すだけで、full GC を走らせなかった。昇格に失敗したスキャベンジが old に死んだ object を見つけたら
+// full GC を走らせ、次のスキャベンジで生存物を昇格させる（SPEC §3.2 の第 4 契機）。
+TEST(GcOld, OldNearMaxReclaimsAfterPromotionFailure) {
+  ao::Heap heap(4096, 4096, 8192);
+  heap.setGcStress(0);  // safepoint のスキャベンジを数えるので、ストレスは切る
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  ao::RootedArray keep(roots, 8);
+  ao::RootedArray young(roots, 4);
+  ASSERT_NO_FATAL_FAILURE(fillOldAndRetainYoung(heap, gc, keep, young));
+  const auto fullBefore = heap.oldCollections();
+  const auto scavengesBefore = heap.nurseryCollections();
+
+  for (std::uint32_t i = 0; i < 4; ++i) {  // old の半分（4 KiB）を死なせる
+    keep[i] = ao::Oop::nil();
+  }
+  for (int round = 0; round < 10; ++round) {  // 小さな一時 object を作っては safepoint を通る
+    ASSERT_TRUE(heap.allocate(ao::Oop::nil(), 2, 0).isHeap()) << round;
+    gc.safepoint();
+  }
+
+  EXPECT_EQ(fullBefore + 1, heap.oldCollections());
+  EXPECT_LE(heap.nurseryCollections() - scavengesBefore, 2u);
+  for (std::uint32_t i = 0; i < 4; ++i) {
+    ASSERT_TRUE(young[i].isHeap());
+    EXPECT_TRUE(heap.inOld(young[i])) << i;
+    EXPECT_EQ(ao::Oop::fromSmallInteger(100 + i), heap.slotAt(young[i], 0)) << i;
+  }
+  for (std::uint32_t i = 4; i < 8; ++i) {
+    ASSERT_TRUE(heap.inOld(keep[i]));
+    EXPECT_EQ(ao::Oop::fromSmallInteger(i), heap.slotAt(keep[i], 0)) << i;
+  }
+  EXPECT_EQ(4096u + 3840u, heap.oldUsed());
+}
+
+// 昇格できない生存物で nursery がほぼ埋まり、old に死んだ object が無いとき、nursery への割り当ても
+// full GC も無いまま safepoint を通っても、スキャベンジを繰り返さない。同じ生存物を残すだけである。
+// 割り当てが進むか full GC が走れば、次の safepoint はスキャベンジする（SPEC §3.2）。
+TEST(GcNursery, SafepointSkipsScavengeWithoutProgress) {
+  ao::Heap heap(4096, 4096, 8192);
+  heap.setGcStress(0);  // safepoint のスキャベンジを数えるので、ストレスは切る
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  ao::RootedArray keep(roots, 8);
+  ao::RootedArray young(roots, 4);
+  ASSERT_NO_FATAL_FAILURE(fillOldAndRetainYoung(heap, gc, keep, young));
+  const auto full = heap.oldCollections();
+  const auto scavenges = heap.nurseryCollections();
+
+  for (int round = 0; round < 10; ++round) {
+    gc.safepoint();
+  }
+  EXPECT_EQ(scavenges, heap.nurseryCollections());
+  EXPECT_EQ(full, heap.oldCollections());
+  EXPECT_EQ(256u, heap.nurseryRemaining());
+
+  // 割り当てが進んだので、スキャベンジする。一時 object は回収される。old はすべて生きているので、
+  // full GC は走らない。
+  ASSERT_TRUE(heap.allocate(ao::Oop::nil(), 2, 0).isHeap());
+  gc.safepoint();
+  EXPECT_EQ(scavenges + 1, heap.nurseryCollections());
+  EXPECT_EQ(full, heap.oldCollections());
+  EXPECT_EQ(256u, heap.nurseryRemaining());
+  gc.safepoint();
+  EXPECT_EQ(scavenges + 1, heap.nurseryCollections());
+
+  // full GC で old が空いたので、割り当てが無くてもスキャベンジし、生存物を昇格させる。
+  for (std::uint32_t i = 0; i < 4; ++i) {
+    keep[i] = ao::Oop::nil();
+  }
+  gc.collectOld();
+  gc.safepoint();
+  EXPECT_EQ(scavenges + 2, heap.nurseryCollections());
+  EXPECT_EQ(heap.nurseryCapacity(), heap.nurseryRemaining());
+  for (std::uint32_t i = 0; i < 4; ++i) {
+    ASSERT_TRUE(young[i].isHeap());
+    EXPECT_TRUE(heap.inOld(young[i])) << i;
+    EXPECT_EQ(ao::Oop::fromSmallInteger(100 + i), heap.slotAt(young[i], 0)) << i;
+  }
+}
+
+// full GC が動かせない object の前に残した穴は、スキャベンジからは届かないが、次の full GC でも
+// 埋まらない。穴を死んだ object に数えると、昇格に失敗するスキャベンジのたびに回収 0 の full GC が
+// 走る。穴を除いて数え、本当に死んだ object ができたときだけ走らせる（SPEC §3.2 の第 4 契機）。
+TEST(GcOld, PromotionFailureIgnoresHolesBeforePins) {
+  ao::Heap heap(512, 64, 64);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto dead = heap.allocate(ao::Oop::nil(), 0, 0);  // 16 B。死んで穴になる
+  roots.add(&dead);
+  gc.collectNursery();
+  roots.remove(&dead);
+  auto pin = heap.allocate(ao::Oop::nil(), 0, ao::kFlagImmovable);  // 16 B
+  roots.add(&pin);
+  gc.collectNursery();
+  gc.collectOld();
+  ASSERT_EQ(32u, heap.oldUsed());  // [穴 16][pin 16]
+  void* const pinAddr = pin.heapPointer();
+
+  auto live = heap.allocate(ao::Oop::nil(), 1, 0);  // 24 B。穴 16 B には入らない
+  heap.slotAtPut(live, 0, ao::Oop::fromSmallInteger(7));
+  roots.add(&live);
+  gc.collectNursery();
+  ASSERT_TRUE(heap.inOld(live));
+  ASSERT_EQ(56u, heap.oldUsed());
+
+  auto young = heap.allocate(ao::Oop::nil(), 2, 0);  // 32 B。old の残り 8 B に入らない
+  heap.slotAtPut(young, 0, ao::Oop::fromSmallInteger(9));
+  roots.add(&young);
+  const auto full = heap.oldCollections();
+  for (int round = 0; round < 5; ++round) {
+    gc.collectNursery();
+  }
+  EXPECT_EQ(full, heap.oldCollections());
+  EXPECT_TRUE(heap.inNursery(young));
+  EXPECT_EQ(56u, heap.oldUsed());
+
+  // live が死ねば、昇格に失敗したスキャベンジが full GC を走らせ、次のスキャベンジで young が入る。
+  roots.remove(&live);
+  gc.collectNursery();
+  EXPECT_EQ(full + 1, heap.oldCollections());
+  EXPECT_EQ(32u, heap.oldUsed());
+  gc.collectNursery();
+  EXPECT_TRUE(heap.inOld(young));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(9), heap.slotAt(young, 0));
+  EXPECT_EQ(pinAddr, pin.heapPointer());
+  roots.remove(&young);
+  roots.remove(&pin);
+}
+
 // 同じスロットを 2 回登録しても、collectOld のルート更新はスロットごとに 1 回だけ行う。
 // old が [G][A][B] のとき、B の転送先は A の旧番地なので、2 回引くと A を指してしまう。
 TEST(GcRoots, DuplicateRootForwardedOnce) {

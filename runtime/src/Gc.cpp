@@ -15,9 +15,15 @@ Gc::Gc(Heap& heap, Roots& roots) : heap_(&heap), roots_(&roots) {}
 
 void Gc::safepoint() {
   stressPoint();
-  if (heap_->nurseryRemaining() < heap_->nurseryCapacity() / 8) {
+  if (heap_->nurseryRemaining() < heap_->nurseryCapacity() / 8 && scavengeCanProgress()) {
     collectNursery();
   }
+}
+
+bool Gc::scavengeCanProgress() const {
+  const auto used = static_cast<std::size_t>(heap_->fromBump_ - heap_->fromStart_);
+  return heap_->scavengeRetained_ == 0 || used != heap_->scavengeRetained_ ||
+         heap_->oldCollections_ != heap_->oldCollectionsAtScavenge_;
 }
 
 void Gc::stressPoint() {
@@ -67,13 +73,21 @@ Oop Gc::copy(Oop obj) {
 }
 
 void Gc::collectNursery() {
+  ++heap_->nurseryCollections_;
   std::unordered_set<std::uintptr_t> traced;
-  scavengeFromRoots(traced);
+  const std::size_t oldLive = scavengeFromRoots(traced);
   clearWeakAfterNursery(traced);
+  // to-space に入るのは、old に入り切らずに残した生存物だけである。
+  const auto retained = static_cast<std::size_t>(heap_->toBump_ - heap_->toStart_);
   heap_->flipNursery();
   heap_->poisonFreed(heap_->toStart_, heap_->toEnd_);
-  // full GC はスキャベンジの後、oldUsed が閾値を超えたときだけ走らせる（SPEC §3.2）。
-  if (heap_->oldUsed() > heap_->oldThreshold_) {
+  heap_->scavengeRetained_ = retained;
+  heap_->oldCollectionsAtScavenge_ = heap_->oldCollections_;
+  // full GC の契機（SPEC §3.2）: oldUsed が閾値を超えたとき（第 1）。または、昇格に失敗し、old に
+  // 死んだ object を見つけたとき（第 4）。old が上限に近いと閾値も上限に張り付き、第 1 は成り立たない。
+  // 死んだ object が無ければ走らせないので、回収 0 の full GC を繰り返さない。
+  const bool oldHasDead = heap_->oldUsed() > oldLive + heap_->oldHoleBytes_;
+  if (heap_->oldUsed() > heap_->oldThreshold_ || (retained > 0 && oldHasDead)) {
     collectOld();
   }
 }
@@ -90,8 +104,9 @@ void Gc::collectBeforeTenured(std::size_t bytes) {
   }
 }
 
-void Gc::scavengeFromRoots(std::unordered_set<std::uintptr_t>& visited) {
+std::size_t Gc::scavengeFromRoots(std::unordered_set<std::uintptr_t>& visited) {
   std::vector<Oop> stack;
+  std::size_t oldLive = 0;
 
   struct Ctx {
     Gc* gc;
@@ -124,6 +139,9 @@ void Gc::scavengeFromRoots(std::unordered_set<std::uintptr_t>& visited) {
       continue;
     }
     ObjectHeader* h = heap_->header(obj);
+    if (heap_->inOld(obj)) {
+      oldLive += heap_->objectBytes(h);
+    }
     h->klass = copy(h->klass);
     if (h->klass.isHeap()) {
       stack.push_back(h->klass);
@@ -142,6 +160,7 @@ void Gc::scavengeFromRoots(std::unordered_set<std::uintptr_t>& visited) {
       }
     }
   }
+  return oldLive;
 }
 
 void Gc::clearWeakAfterNursery(const std::unordered_set<std::uintptr_t>& traced) {
@@ -415,7 +434,9 @@ void Gc::collectOld() {
 
   std::sort(live.begin(), live.end());
   std::byte* cursor = heap_->oldStart_;
+  std::size_t markedBytes = 0;
   for (auto [a, b] : live) {
+    markedBytes += static_cast<std::size_t>(b - a);
     if (a > cursor) {
       // ストレス時は穴全体を毒で埋め、klass 語を毒のまま残す。回収済み object を指す古い Oop が
       // header() で止まる。old space の走査は size と flags しか読まない。
@@ -441,6 +462,8 @@ void Gc::collectOld() {
 
   const std::size_t liveBytes = heap_->oldUsed();
   heap_->oldThreshold_ = std::clamp(2 * liveBytes, heap_->oldInitial_, heap_->oldMax_);
+  // 動かせない object の前に残った穴。次の full GC まで埋まらず、スキャベンジからは届かない。
+  heap_->oldHoleBytes_ = liveBytes - markedBytes;
 }
 
 }  // namespace ao

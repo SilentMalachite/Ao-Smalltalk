@@ -93,6 +93,8 @@ class Heap {
   std::size_t oldMaxBytes() const { return oldMax_; }
   // Number of collectOld runs so far.
   std::uint64_t oldCollections() const { return oldCollections_; }
+  // Number of collectNursery runs so far.
+  std::uint64_t nurseryCollections() const { return nurseryCollections_; }
   const std::byte* oldBase() const;
   std::size_t nurseryRemaining() const;
   std::size_t nurseryCapacity() const;
@@ -134,6 +136,13 @@ class Heap {
   // collectNursery runs collectOld once oldUsed passes this. collectOld resets it to
   // clamp(2 × live, initial, max).
   std::size_t oldThreshold_ = 0;
+  // Free filler that the last collectOld left before immovable objects. Scavenges do not count
+  // it as dead old.
+  std::size_t oldHoleBytes_ = 0;
+  // Bytes the last scavenge left in the nursery because old could not take them, and
+  // oldCollections_ when that scavenge ran. Safepoints skip a scavenge that cannot progress.
+  std::size_t scavengeRetained_ = 0;
+  std::uint64_t oldCollectionsAtScavenge_ = 0;
   std::size_t nurseryHalf_ = 0;
   std::byte* fromStart_ = nullptr;
   std::byte* fromEnd_ = nullptr;
@@ -149,6 +158,7 @@ class Heap {
   std::uint32_t stressTicks_ = 0;
   std::uint32_t stressCollections_ = 0;
   std::uint64_t oldCollections_ = 0;
+  std::uint64_t nurseryCollections_ = 0;
   bool outOfMemory_ = false;
 };
 
