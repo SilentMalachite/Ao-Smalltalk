@@ -17,8 +17,11 @@
 namespace ao {
 namespace {
 
+// The block's value, or the empty Oop when it unwound (SPEC §3.4).
 Oop sendValue(CallContext& ctx, Oop block) {
-  return send(ctx, block, ctx.wk.selValue, nullptr, 0, nullptr);
+  Oop out;
+  callBlock(ctx, block, nullptr, 0, &out);
+  return out;
 }
 
 // receiver はネイティブが受け取ったルート済みスロット。メッセージの割り当てで GC が走っても正しい。

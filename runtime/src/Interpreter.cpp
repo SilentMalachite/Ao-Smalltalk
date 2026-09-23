@@ -9,6 +9,10 @@
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 
+#include <pthread.h>
+
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -414,6 +418,10 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
 
 Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc,
                      Oop block) {
+  // No frame starts while frames unwind (SPEC §3.4), even under a native that missed it.
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (!method.isHeap() || ctx.heap.klass(method) != ctx.wk.compiledMethodClass) {
     return Oop{};
   }
@@ -803,6 +811,15 @@ Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std
   if (!method.isHeap()) {
     return Oop{};
   }
+  // SPEC §3.4: every send, native or compiled, passes here, so unbounded recursion stops here
+  // with a reserve left for unwinding. A frame outside the known range is another thread.
+  const auto sp = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0));
+  if (sp < ctx.stackLimit || sp > ctx.stackHigh) {
+    refreshStackLimit(ctx);
+    if (sp < ctx.stackLimit) {
+      return abortEvaluation(ctx, "stack overflow");
+    }
+  }
   const Oop k = ctx.heap.klass(method);
   if (k == ctx.wk.nativeMethodClass) {
     return NativeMethod::apply(ctx, method, receiver, args, argc);
@@ -811,6 +828,15 @@ Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std
     return Interpreter::run(ctx, method, receiver, args, argc, block);
   }
   return Oop{};
+}
+
+void refreshStackLimit(CallContext& ctx) {
+  pthread_t self = pthread_self();
+  const auto high = reinterpret_cast<std::uintptr_t>(pthread_get_stackaddr_np(self));
+  const std::size_t size = pthread_get_stacksize_np(self);
+  const std::size_t reserve = std::min<std::size_t>(std::size_t{512} * 1024, size / 4);
+  ctx.stackHigh = high;
+  ctx.stackLimit = high - size + reserve;
 }
 
 }  // namespace ao

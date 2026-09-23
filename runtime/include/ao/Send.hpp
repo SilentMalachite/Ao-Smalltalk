@@ -21,5 +21,8 @@ bool unwinding(const CallContext& ctx);
 Oop abortEvaluation(CallContext& ctx, const char* reason);
 // Drops any abort or non-local return left over. Only for outermost entry points.
 void clearUnwinding(CallContext& ctx);
+// Sends value, value:, ... (n up to 4) to blk with the rooted args. False when the frames are
+// unwinding afterwards (SPEC §3.4): the caller must stop and answer the empty Oop.
+bool callBlock(CallContext& ctx, Oop blk, const Oop* args, std::uint32_t n, Oop* out);
 
 }  // namespace ao

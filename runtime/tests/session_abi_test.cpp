@@ -1,5 +1,7 @@
 #include "ao_abi.h"
 
+#include "test_support.hpp"
+
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -190,5 +192,31 @@ TEST_F(SessionAbi, OutOfMemoryInspectItDoesNotCallInspectHook) {
   EXPECT_STREQ("3", out);
   EXPECT_EQ(1, calls);
   ao_set_inspect_hook(nullptr, nullptr);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.4: 無限再帰は「stack overflow」の評価エラーになり、セッションはそのまま使える。
+TEST_F(SessionAbi, SessionUsableAfterStackOverflow) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const char* def =
+      "Object subclass: #R2Deep\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B2-Test'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def, &err));
+  ASSERT_EQ(AO_OK, ao_accept_method("R2Deep", 0, "recur: n\n  ^self recur: n + 1\n", &err));
+  char out[64];
+  const std::string src = "R2Deep new recur: 0";
+  int rc = AO_OK;
+  runOnSmallStack([&] {
+    rc = ao_eval(src.c_str(), static_cast<int>(src.size()), AO_EVAL_PRINTIT, out, 64, &err);
+  });
+  EXPECT_EQ(AO_ERR_EVAL, rc);
+  EXPECT_STREQ("stack overflow", err.message);
+  EXPECT_STREQ("", out);
+  ASSERT_EQ(AO_OK, ao_eval("1 + 2", 5, AO_EVAL_PRINTIT, out, 64, &err));
+  EXPECT_STREQ("3", out);
   ao_runtime_shutdown();
 }

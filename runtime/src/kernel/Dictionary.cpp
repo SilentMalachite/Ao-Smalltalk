@@ -420,7 +420,10 @@ Oop ao_Dictionary_do_(CallContext& ctx, const Oop& receiver, const Oop* args, st
     }
     ctx.heap.slotAtPut(assoc.slot, kAssocKey, key.slot);
     ctx.heap.slotAtPut(assoc.slot, kAssocValue, value.slot);
-    send(ctx, blk.slot, ctx.wk.selValue_, &assoc.slot, 1, nullptr);
+    Oop ignored;
+    if (!callBlock(ctx, blk.slot, &assoc.slot, 1, &ignored)) {
+      return Oop{};
+    }
   }
   return dict.slot;
 }
@@ -451,9 +454,14 @@ Oop ao_Dictionary_collect_(CallContext& ctx, const Oop& receiver, const Oop* arg
       continue;
     }
     val.slot = ctx.heap.slotAt(inner, i + 1);
-    mapped.slot = send(ctx, blk.slot, ctx.wk.selValue_, &val.slot, 1, nullptr);
+    if (!callBlock(ctx, blk.slot, &val.slot, 1, &mapped.slot)) {
+      return Oop{};
+    }
     Oop put[2] = {Oop::fromSmallInteger(idx), mapped.slot};
     send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     ++idx;
   }
   return arr.slot;
@@ -506,7 +514,10 @@ Oop ao_Set_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint
     if (elt.slot.isNil()) {
       continue;
     }
-    send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+    Oop ignored;
+    if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+      return Oop{};
+    }
   }
   return set.slot;
 }
@@ -601,7 +612,10 @@ Oop ao_OrderedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* a
   for (std::int64_t i = first; i <= last; ++i) {
     const Oop arr = ctx.heap.slotAt(oc.slot, kOcArray);
     elt.slot = ctx.heap.slotAt(arr, static_cast<std::uint32_t>(i - 1));
-    send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+    Oop ignored;
+    if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+      return Oop{};
+    }
   }
   return oc.slot;
 }
@@ -760,7 +774,10 @@ Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std:
           break;
         }
         elt.slot = Oop::fromSmallInteger(static_cast<std::int64_t>(i));
-        send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+        Oop ignored;
+        if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+          return Oop{};
+        }
       }
     } else {
       for (__int128 i = start.smallIntegerValue(); i >= stop.smallIntegerValue(); i += st) {
@@ -768,7 +785,10 @@ Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std:
           break;
         }
         elt.slot = Oop::fromSmallInteger(static_cast<std::int64_t>(i));
-        send(ctx, blk.slot, ctx.wk.selValue_, &elt.slot, 1, nullptr);
+        Oop ignored;
+        if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+          return Oop{};
+        }
       }
     }
     return iv.slot;
@@ -785,11 +805,20 @@ Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   Root add(ctx.roots, ctx.wk.intern("+"));
   for (std::int64_t n = 0; n <= (std::int64_t{1} << 20); ++n) {
     const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
     if (past.isTrue()) {
       break;
     }
-    send(ctx, blk.slot, ctx.wk.selValue_, &cur.slot, 1, nullptr);
+    Oop ignored;
+    if (!callBlock(ctx, blk.slot, &cur.slot, 1, &ignored)) {
+      return Oop{};
+    }
     cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
   }
   return iv.slot;
 }

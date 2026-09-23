@@ -12,7 +12,10 @@ class Interpreter {
                  Oop block);
 };
 
+// Aborts with "stack overflow" instead of applying when the C stack is nearly used up.
 Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc,
                 Oop block = Oop::nil());
+// Sets ctx's stack guard to the current thread's stack, keeping min(512 KiB, size/4) in reserve.
+void refreshStackLimit(CallContext& ctx);
 
 }  // namespace ao

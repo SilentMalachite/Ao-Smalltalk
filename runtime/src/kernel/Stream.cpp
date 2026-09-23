@@ -238,6 +238,9 @@ Oop ao_Stream_nextPutAll_(CallContext& ctx, const Oop& receiver, const Oop* args
   }
   ctx.heap.slotAtPut(thunk.slot, kBlockHome, self.slot);
   send(ctx, coll.slot, ctx.wk.selDo_, &thunk.slot, 1, nullptr);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   return coll.slot;
 }
 

@@ -7,6 +7,8 @@
 #include "ao/Lookup.hpp"
 #include "ao/Symbol.hpp"
 
+#include <iterator>
+
 namespace ao {
 namespace {
 
@@ -186,6 +188,27 @@ void clearUnwinding(CallContext& ctx) {
   ctx.nonlocalReturn = false;
   ctx.nonlocalHome = Oop{};
   ctx.nonlocalValue = Oop{};
+}
+
+bool callBlock(CallContext& ctx, Oop blk, const Oop* args, std::uint32_t n, Oop* out) {
+  static constexpr const char* kValueSelectors[] = {
+      "value", "value:", "value:value:", "value:value:value:", "value:value:value:value:"};
+  *out = Oop{};
+  if (n >= std::size(kValueSelectors)) {
+    return !unwinding(ctx);
+  }
+  const Oop sel = n == 0   ? ctx.wk.selValue
+                  : n == 1 ? ctx.wk.selValue_
+                           : ctx.wk.intern(kValueSelectors[n]);
+  if (!sel.isHeap()) {
+    return !unwinding(ctx);
+  }
+  const Oop result = send(ctx, blk, sel, args, n, nullptr);
+  if (unwinding(ctx)) {
+    return false;
+  }
+  *out = result;
+  return true;
 }
 
 }  // namespace ao

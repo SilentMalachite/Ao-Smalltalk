@@ -53,8 +53,10 @@ struct CallContext {
   // outermost entry reads the reason (a static string) and clears it.
   bool aborting = false;
   const char* abortReason = nullptr;
-  // Lowest frame address at which a method may still be applied (0: not checked).
+  // Stack guard (SPEC §3.4) of the thread that last applied a method: a method may be applied
+  // at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them.
   std::uintptr_t stackLimit = 0;
+  std::uintptr_t stackHigh = 0;
   // Caller-rooted temp slots. Non-null only for the ao_eval frame that matches numTemps.
   Oop* hostTemps = nullptr;
   std::uint32_t hostTempCount = 0;

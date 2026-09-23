@@ -777,23 +777,35 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser) {
   // 評価の前に立っていたフラグ（accept や file-in の途中のもの）を、この評価のせいにしない。
-  if (g_session != nullptr) {
+  if (g_session != nullptr && g_session->ctx != nullptr) {
     g_session->heap.clearOutOfMemory();
+    clearUnwinding(*g_session->ctx);
   }
   const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser);
-  // SPEC §3.2: old の上限で割り当てられなければ評価エラー「out of memory」。巻き戻し（B3）は
-  // まだ無いので、評価を走り切らせてからフラグで判定する。
-  if (g_session == nullptr || !g_session->heap.outOfMemory()) {
+  if (g_session == nullptr || g_session->ctx == nullptr) {
+    return rc;
+  }
+  // SPEC §3.4: abort は最外で理由を読んで消す。SPEC §3.2: old の上限で割り当てられなければ
+  // 評価エラー「out of memory」（巻き戻しは B3 まで無いので、走り切った後にフラグで判定する）。
+  CallContext& ctx = *g_session->ctx;
+  const char* reason = nullptr;
+  if (ctx.aborting) {
+    reason = ctx.abortReason != nullptr ? ctx.abortReason : "evaluation aborted";
+  } else if (g_session->heap.outOfMemory()) {
+    reason = "out of memory";
+  }
+  clearUnwinding(ctx);
+  if (reason == nullptr) {
     return rc;
   }
   g_session->heap.clearOutOfMemory();
   blankOut(out, outLen);
   if (err != nullptr) {
-    static constexpr char kOutOfMemory[] = "out of memory";
-    static_assert(sizeof(kOutOfMemory) <= sizeof(err->message));
+    const std::size_t n = std::min(std::strlen(reason), sizeof(err->message) - 1);
     err->start = 0;
     err->end = 0;
-    std::memcpy(err->message, kOutOfMemory, sizeof(kOutOfMemory));
+    std::memcpy(err->message, reason, n);
+    err->message[n] = '\0';
   }
   return AO_ERR_EVAL;
 }

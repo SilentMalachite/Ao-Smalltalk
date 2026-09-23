@@ -4,11 +4,15 @@
 #include "ao/Compiler.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/TestRunner.hpp"
+#include "ao/HandleScope.hpp"
+#include "ao/Send.hpp"
 
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <string>
 #include <system_error>
+#include <vector>
 
 TEST(BlockEval, ArgumentAndOuterTemp) {
   Boot b;
@@ -149,4 +153,153 @@ TEST(AoTestRunner, EarlierOutOfMemoryIsNotBlamedOnFile) {
   const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
   EXPECT_EQ(0, code);
   EXPECT_EQ(0, b.ctx.testFailures);
+}
+
+namespace {
+
+// ブロックの ^ が各コレクションの反復ネイティブを止めることを見るクラス。どのメソッドも、
+// ブロックが最初に受けた要素を log に積んで ^ で返し、呼び出し側がその値を log に足して返す。
+// 反復が止まれば log は 2 要素で、1 番目と 2 番目が同じオブジェクトになる。
+constexpr const char* kNlrProbe =
+    "!Object subclass: #R2Nlr\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: ''\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B2-Test'!\n"
+    "!R2Nlr methodsFor: 'probes'!\n"
+    "firstOf: c log: log\n"
+    "  c do: [:e | log add: e. ^e].\n"
+    "  ^nil!\n"
+    "collectFirst: c log: log\n"
+    "  c collect: [:e | log add: e. ^e].\n"
+    "  ^nil!\n"
+    "detectFirst: c log: log\n"
+    "  c detect: [:e | log add: e. ^e] ifNone: [nil].\n"
+    "  ^nil!\n"
+    "injectFirst: c log: log\n"
+    "  c inject: 0 into: [:a :e | log add: e. ^e].\n"
+    "  ^nil!\n"
+    "run: sel on: c\n"
+    "  | log |\n"
+    "  log := OrderedCollection new.\n"
+    "  log add: (self perform: sel withArguments: ((Array new: 2) at: 1 put: c; at: 2 put: log; yourself)).\n"
+    "  ^log!\n"
+    "oc\n"
+    "  ^OrderedCollection new add: 7; add: 8; add: 9; yourself!\n"
+    "set\n"
+    "  ^Set new add: 7; add: 8; add: 9; yourself!\n"
+    "dict\n"
+    "  ^Dictionary new at: 1 put: 7; at: 2 put: 8; at: 3 put: 9; yourself!\n"
+    "interval\n"
+    "  ^7 to: 9! !\n";
+
+// kNlrProbe を読み込み、`R2Nlr new run: #sel on: (R2Nlr new coll)` の log を返す。
+ao::Oop runNlrProbe(Boot& b, const char* sel, const char* coll) {
+  std::vector<ao::compiler::CompileError> errs;
+  if (!ao::fileInString(b.ctx, kNlrProbe, errs) || !errs.empty()) {
+    ADD_FAILURE() << (errs.empty() ? "file-in failed" : errs[0].message);
+    return ao::Oop{};
+  }
+  ao::Root probe(b.roots, send0(b, b.wk.named("R2Nlr"), "new"));
+  ao::Root c(b.roots, send0(b, probe.slot, coll));
+  ao::Root selector(b.roots, b.wk.intern(sel));
+  return send2(b, probe.slot, "run:on:", selector.slot, c.slot);
+}
+
+// log が 2 要素で、ブロックが受けた最初の要素（1 番目）が ^ の値（2 番目）と同じなら true。
+void expectStoppedAtFirst(Boot& b, ao::Oop log) {
+  ASSERT_TRUE(log.isHeap());
+  ao::Root held(b.roots, log);
+  const ao::Oop n = send0(b, held.slot, "size");
+  ASSERT_TRUE(n.isSmallInteger());
+  EXPECT_EQ(2, n.smallIntegerValue());
+  const ao::Oop first = send1(b, held.slot, "at:", ao::Oop::fromSmallInteger(1));
+  const ao::Oop second = send1(b, held.slot, "at:", ao::Oop::fromSmallInteger(2));
+  EXPECT_EQ(first, second);
+}
+
+}  // namespace
+
+TEST(BlockNonLocalReturn, NonLocalReturnStopsOrderedCollection) {
+  Boot b;
+  const ao::Oop log = runNlrProbe(b, "firstOf:log:", "oc");
+  expectStoppedAtFirst(b, log);
+  EXPECT_EQ(7, send1(b, log, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+}
+
+TEST(BlockNonLocalReturn, NonLocalReturnStopsSet) {
+  Boot b;
+  expectStoppedAtFirst(b, runNlrProbe(b, "firstOf:log:", "set"));
+}
+
+TEST(BlockNonLocalReturn, NonLocalReturnStopsDictionary) {
+  Boot b;
+  expectStoppedAtFirst(b, runNlrProbe(b, "firstOf:log:", "dict"));
+}
+
+TEST(BlockNonLocalReturn, NonLocalReturnStopsInterval) {
+  Boot b;
+  const ao::Oop log = runNlrProbe(b, "firstOf:log:", "interval");
+  expectStoppedAtFirst(b, log);
+  EXPECT_EQ(7, send1(b, log, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+}
+
+TEST(BlockNonLocalReturn, NonLocalReturnStopsDictionaryCollect) {
+  Boot b;
+  expectStoppedAtFirst(b, runNlrProbe(b, "collectFirst:log:", "dict"));
+}
+
+TEST(BlockNonLocalReturn, NonLocalReturnStopsDetectIfNone) {
+  Boot b;
+  const ao::Oop log = runNlrProbe(b, "detectFirst:log:", "oc");
+  expectStoppedAtFirst(b, log);
+  EXPECT_EQ(7, send1(b, log, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+}
+
+TEST(BlockNonLocalReturn, NonLocalReturnStopsInjectInto) {
+  Boot b;
+  const ao::Oop log = runNlrProbe(b, "injectFirst:log:", "oc");
+  expectStoppedAtFirst(b, log);
+  EXPECT_EQ(7, send1(b, log, "at:", ao::Oop::fromSmallInteger(2)).smallIntegerValue());
+}
+
+TEST(BlockNonLocalReturn, NonLocalReturnStopsArrayCollect) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, kNlrProbe, errs));
+  ao::Root probe(b.roots, send0(b, b.wk.named("R2Nlr"), "new"));
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, nullptr, 0));
+  ao::Oop three[3] = {ao::Oop::fromSmallInteger(7), ao::Oop::fromSmallInteger(8),
+                      ao::Oop::fromSmallInteger(9)};
+  arr.slot = ao::Arr::fromSlots(b.heap, b.wk, three, 3);
+  ao::Root selector(b.roots, b.wk.intern("collectFirst:log:"));
+  const ao::Oop log = send2(b, probe.slot, "run:on:", selector.slot, arr.slot);
+  expectStoppedAtFirst(b, log);
+}
+
+// SPEC §3.4: 無限再帰は C スタックを溢れさせず、「stack overflow」で abort する。
+TEST(BlockAbort, UnboundedRecursionReportsStackOverflow) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #R2Deep\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B2-Test'!\n"
+      "!R2Deep methodsFor: 'r'!\n"
+      "recur: n\n"
+      "  ^self recur: n + 1! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs));
+  ao::Root deep(b.roots, send0(b, b.wk.named("R2Deep"), "new"));
+  ao::Oop got = ao::Oop::fromSmallInteger(0);
+  runOnSmallStack([&] { got = send1(b, deep.slot, "recur:", ao::Oop::fromSmallInteger(0)); });
+  EXPECT_TRUE(got.isEmpty());
+  EXPECT_TRUE(b.ctx.aborting);
+  ASSERT_NE(nullptr, b.ctx.abortReason);
+  EXPECT_EQ(std::string("stack overflow"), b.ctx.abortReason);
+  ao::clearUnwinding(b.ctx);
+  // 巻き戻しのあとも、同じコンテキストで評価を続けられる。
+  EXPECT_EQ(3, send1(b, ao::Oop::fromSmallInteger(1), "+", ao::Oop::fromSmallInteger(2))
+                   .smallIntegerValue());
 }
