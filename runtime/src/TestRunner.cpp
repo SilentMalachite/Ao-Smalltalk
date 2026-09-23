@@ -118,8 +118,10 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
   if (!cls.slot.isHeap()) {
     return 1;
   }
-  kernel::putNative(ctx.heap, ctx.wk, cls.slot, "assert:equals:", 2, "ao_AoTest_assert_equals_",
-                    ao_AoTest_assert_equals_);
+  if (!kernel::putNative(ctx.heap, ctx.wk, cls.slot, "assert:equals:", 2,
+                         "ao_AoTest_assert_equals_", ao_AoTest_assert_equals_)) {
+    return 1;
+  }
   Root doIt(ctx.roots, ctx.wk.intern("doIt"));
   for (const fs::path& file : files) {
     std::string body;

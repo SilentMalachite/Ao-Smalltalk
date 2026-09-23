@@ -3,7 +3,6 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
 #include "ao/Format.hpp"
-#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/MethodDictionary.hpp"
 
@@ -229,19 +228,11 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   if (!meta.slot.isHeap()) return Oop{};
   ctx.heap.header(cls.slot)->klass = meta.slot;
 
+  // create は GC せず、nursery が満杯なら old に置く。失敗するのは old が上限のときだけ。
   Root dict(ctx.roots, MethodDictionary::create(ctx.heap, ctx.wk, 8));
-  if (!dict.slot.isHeap()) {
-    Gc gc(ctx.heap, ctx.roots);
-    gc.collectNursery();
-    dict.slot = MethodDictionary::create(ctx.heap, ctx.wk, 8);
-  }
   Root metaDict(ctx.roots, MethodDictionary::create(ctx.heap, ctx.wk, 8));
-  if (!metaDict.slot.isHeap()) {
-    Gc gc(ctx.heap, ctx.roots);
-    gc.collectNursery();
-    metaDict.slot = MethodDictionary::create(ctx.heap, ctx.wk, 8);
-  }
   if (!dict.slot.isHeap() || !metaDict.slot.isHeap()) {
+    ctx.heap.setOutOfMemory();
     return Oop{};
   }
 

@@ -4,12 +4,12 @@ namespace ao {
 namespace MethodDictionary {
 
 Oop create(Heap& heap, WellKnown& wk, std::uint32_t capacity) {
-  auto dict = heap.allocate(wk.methodDictionaryClass, 2, 0);
+  auto dict = heap.allocateNoGc(wk.methodDictionaryClass, 2, 0);
   if (!dict.isHeap()) {
     return Oop{};
   }
   heap.slotAtPut(dict, kDictSlotTally, Oop::fromSmallInteger(0));
-  auto inner = heap.allocate(Oop::nil(), capacity * 2, 0);
+  auto inner = heap.allocateNoGc(Oop::nil(), capacity * 2, 0);
   if (!inner.isHeap()) {
     return Oop{};
   }
@@ -37,7 +37,7 @@ Oop at(const Heap& heap, Oop dict, Oop key) {
 static bool growInner(Heap& heap, Oop dict, Oop& inner) {
   const auto n = heap.size(inner);
   const auto next = n == 0 ? 2u : n * 2;
-  auto grown = heap.allocate(Oop::nil(), next, 0);
+  auto grown = heap.allocateNoGc(Oop::nil(), next, 0);
   if (!grown.isHeap()) {
     return false;
   }
@@ -49,26 +49,26 @@ static bool growInner(Heap& heap, Oop dict, Oop& inner) {
   return true;
 }
 
-void atPut(Heap& heap, Oop dict, Oop key, Oop value) {
+bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
   if (!dict.isHeap()) {
-    return;
+    return false;
   }
   auto inner = heap.slotAt(dict, kDictSlotArray);
   if (!inner.isHeap()) {
-    return;
+    return false;
   }
   auto n = heap.size(inner);
   for (std::uint32_t i = 0; i + 1 < n; i += 2) {
     if (heap.slotAt(inner, i) == key) {
       heap.slotAtPut(inner, i + 1, value);
-      return;
+      return true;
     }
   }
   const auto tallyOop = heap.slotAt(dict, kDictSlotTally);
   const auto tally = tallyOop.isSmallInteger() ? tallyOop.smallIntegerValue() : 0;
   if (tally * 2 == static_cast<std::int64_t>(n)) {
     if (!growInner(heap, dict, inner)) {
-      return;
+      return false;
     }
     n = heap.size(inner);
   }
@@ -77,9 +77,10 @@ void atPut(Heap& heap, Oop dict, Oop key, Oop value) {
       heap.slotAtPut(inner, i, key);
       heap.slotAtPut(inner, i + 1, value);
       heap.slotAtPut(dict, kDictSlotTally, Oop::fromSmallInteger(tally + 1));
-      return;
+      return true;
     }
   }
+  return false;
 }
 
 }  // namespace MethodDictionary

@@ -238,9 +238,11 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
   if (!dict.isHeap()) {
     return Oop{};
   }
-  Root d(ctx.roots, dict);
   const Oop sel = ctx.heap.slotAt(cm.slot, kCmSlotSelector);
-  MethodDictionary::atPut(ctx.heap, d.slot, sel, cm.slot);
+  // atPut は GC しない。辞書を伸ばせなければ（old が上限）登録せずに失敗を返す。
+  if (!MethodDictionary::atPut(ctx.heap, dict, sel, cm.slot)) {
+    return Oop{};
+  }
   return cm.slot;
 }
 
