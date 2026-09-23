@@ -9,6 +9,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -102,6 +103,28 @@ bool listTests(const std::filesystem::path& dir, std::vector<std::filesystem::pa
   return true;
 }
 
+// body を本体とする AoTest>>doIt をコンパイルして入れ、新しいインスタンスに送る。値が得られたら true。
+bool runFile(CallContext& ctx, Root& cls, Root& doIt, const std::string& body) {
+  const std::string source = "doIt\n" + body;
+  const compiler::CompileResult compiled = compiler::compileMethod(source);
+  if (!compiled.ok) {
+    return false;
+  }
+  Root installed(ctx.roots, installMethod(ctx, cls.slot, compiled.image));
+  if (!installed.slot.isHeap()) {
+    return false;
+  }
+  Root instance(ctx.roots, send(ctx, cls.slot, ctx.wk.selNew, nullptr, 0, nullptr));
+  if (!instance.slot.isHeap()) {
+    return false;
+  }
+  // installMethod replaces the dictionary slot and leaves the global cache.
+  if (ctx.cache != nullptr) {
+    ctx.cache->forget(ctx.heap, ctx.wk.classOf(instance.slot), doIt.slot);
+  }
+  return !send(ctx, instance.slot, doIt.slot, nullptr, 0, nullptr).isEmpty();
+}
+
 }  // namespace
 
 int runSmalltalkTests(CallContext& ctx, std::string_view path) {
@@ -129,25 +152,18 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     if (!readFile(file, &body)) {
       return 1;
     }
-    const std::string source = "doIt\n" + body;
-    const compiler::CompileResult compiled = compiler::compileMethod(source);
-    if (!compiled.ok) {
+    // 前に立ったフラグ（起動時や前のファイルのもの）を、このファイルのせいにしない（sessionEval と同じ）。
+    ctx.heap.clearOutOfMemory();
+    const bool ran = runFile(ctx, cls, doIt, body);
+    // SPEC §3.2: out of memory は評価エラー。途中の文の空の結果は捨てられ、後の assert は通りうるので、
+    // 走り切った後にフラグで判定する。
+    if (ctx.heap.outOfMemory()) {
+      ctx.heap.clearOutOfMemory();
+      ctx.testFailures += 1;
+      std::fprintf(stderr, "ao --test: %s: out of memory\n", file.string().c_str());
       return 1;
     }
-    Root installed(ctx.roots, installMethod(ctx, cls.slot, compiled.image));
-    if (!installed.slot.isHeap()) {
-      return 1;
-    }
-    Root instance(ctx.roots, send(ctx, cls.slot, ctx.wk.selNew, nullptr, 0, nullptr));
-    if (!instance.slot.isHeap()) {
-      return 1;
-    }
-    // installMethod replaces the dictionary slot and leaves the global cache.
-    if (ctx.cache != nullptr) {
-      ctx.cache->forget(ctx.heap, ctx.wk.classOf(instance.slot), doIt.slot);
-    }
-    const Oop result = send(ctx, instance.slot, doIt.slot, nullptr, 0, nullptr);
-    if (result.isEmpty() || ctx.testFailures > 0) {
+    if (!ran || ctx.testFailures > 0) {
       return 1;
     }
   }
