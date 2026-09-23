@@ -159,6 +159,12 @@ bit 2:0 = 000      → ヒープオブジェクト。8 バイト整列ポイン�
 - 正確式。コンパイラとインタプリタはスタック上の OOP を GC に報告する。
 - ファイナライザと弱配列は v1 では `ephemeron` なしの弱スロットフラグまで。
 - スレッド: ミューテータは基本 1 本（Smalltalk プロセスはグリーンユーザースレッド）。GC は safepoint。AppKit メインスレッドとはブリッジキューで切る。
+- old は、上限 4 GiB（イメージヘッダの `uint32 heapBytes` の上限）の仮想領域を 1 つ予約し、必要な分だけコミットする。old のアドレスは動かない。
+- 大きなオブジェクトは nursery を通さず old に直接置く。
+- スキャベンジは失敗しない。old に入り切らない生存物は to-space に残す。
+- full GC はスキャベンジの後、`oldUsed > threshold` のときだけ走らせる。`threshold = max(初期容量, 2×生存量)`。
+- old が上限に達して割り当てられないときは、評価エラー「out of memory」にする。
+- ネイティブが受け取る receiver と引数は、ルート済みとする。ネイティブの途中で GC が走っても、転送先を指す。
 
 ### 3.3 メッセージ送信
 
@@ -409,7 +415,7 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 
 プロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ作る。既にあるときに再度呼ぶと 0 以外を返す。`ao::shutdown()` はセッションを捨て、セッションが無くても 0 を返す。
 
-中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。ヒープの既定容量は変えない。
+中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。既定の初期容量（nursery 1 MiB×2、old 4 MiB）は変えない。old は上限まで伸びる。`ao_image_load` はヘッダの heapBytes に合わせてコミットする。
 
 `ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureTranscriptClassMethods` を呼び、メタクラスに `show:` が無ければクラス側ネイティブを `putNative` する。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。探針に失敗したセッションはシャットダウンしない。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めなければ `AO_ERR`。
 
@@ -505,6 +511,8 @@ LargeInteger とそれ以外はクラス名のまま。
 
 `NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。
 
+ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
+
 ### 3.12 クラスライブラリは取り込む。自作しない
 
 巨大な Smalltalk ライブラリ（Collection の周辺、数値、ストリーム、ファイル、例外、日付、ツールモデル）を Ao 用に書き下ろすことは **禁止** する。人手もエージェントも、既存実装と同等のライブラリを再発明しない。
@@ -577,6 +585,8 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `image_save_load_test`: save 後に同一評価結果
 - `transcript_model_test`: コールバックが呼ばれる
 
+GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体をこのモードで回す。
+
 ### 4.2 compiler
 
 - パース成功 / 失敗区間
@@ -609,7 +619,7 @@ self assert: (Object new class) equals: Object.
 2. **Kernel はネイティブ。** Kernel メソッドを `.st` の実行定義にしない。
 3. **チャットは正本ではない。** 仕様変更は `SPEC.md` を先に直す。
 4. **余計なものを作らない。** 依頼されていないデバッガ、パッケージマネージャ、シンタックステーマ、ウェブサイトを追加しない。
-5. **依存は最小。** runtime は C++20 標準ライブラリ + 必要なら mimalloc 程度。GUI は AppKit のみ。Boost、Qt、SDL、SwiftUI 主系統は使わない。
+5. **依存は最小。** runtime は C++20 標準ライブラリ + 必要なら mimalloc 程度。OS の API として mmap / mprotect を使ってよい（old の予約とコミット）。GUI は AppKit のみ。Boost、Qt、SDL、SwiftUI 主系統は使わない。
 6. **Apple Silicon を第一対象。** Intel Mac は考慮しない。
 7. **C ABI 以外で Swift が C++ テンプレートに依存しない。**
 8. **例外方針:** C++ は例外を境界で使わない。エラーは Smalltalk 例外オブジェクトか `AoError` コード。
