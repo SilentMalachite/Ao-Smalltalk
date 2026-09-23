@@ -1,4 +1,5 @@
 /build/
+/build-asan/
 /.build/
 /compile_commands.json
 .serena/compile_commands.json
