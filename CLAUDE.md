@@ -155,6 +155,7 @@ graphify-out/graph.json
 - C++20。例外を境界で投げない
 - OOP は独自型 `ao::Oop`（生の `uint64_t` を散らさない）
 - 所有は明確。GC 管理オブジェクトを `std::shared_ptr` に載せない
+- receiver をローカル変数にコピーして GC をまたがない。ネイティブの `receiver` と `args` はルート済みのスロットなので、GC しうる呼び出し（send、`allocateRetry` など）の後は、そこから読み直す
 - ヘッダは最小。循環 include を作らない（Graphify のサイクルをセッションごとに見る）
 - ネイティブメソッドのシンボル名は安定させる: `ao_<Class>_<selectorMangled>`
   - 例: `ao_Object_identityEquals`（`==`）、`ao_SmallInteger_add`（`+`）
