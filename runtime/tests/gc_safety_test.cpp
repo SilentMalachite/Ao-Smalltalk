@@ -107,6 +107,59 @@ ao::Oop smi(std::int64_t v) { return ao::Oop::fromSmallInteger(v); }
 
 }  // namespace
 
+// 04 Critical: 直前の GC 以降に作ったクラス A（nursery にある）を親にして、nursery の残りが 80 B
+// 未満のときに `A subclass: #B …` を送る。最初の allocateRetry で A と名前のシンボルが動く。
+TEST(GcSafety, SubclassKeepsSuperAndMetaSuper) {
+  Boot b;
+  b.heap.setGcStress(0);  // 定義と生成はストレスなしで行う（AO_GC_STRESS に左右されない）
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #GcSafetyA\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'GcSafety'!\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root a(b.roots, b.wk.named("GcSafetyA"));
+  ASSERT_TRUE(b.heap.inNursery(a.slot));
+  ao::RootedArray args(b.roots, 5);
+  args[0] = b.wk.intern("GcSafetyB");
+  args[1] = ao::Str::fromUtf8(b.heap, b.wk, "");
+  args[2] = ao::Str::fromUtf8(b.heap, b.wk, "");
+  args[3] = ao::Str::fromUtf8(b.heap, b.wk, "");
+  args[4] = ao::Str::fromUtf8(b.heap, b.wk, "GcSafety");
+  ASSERT_TRUE(b.heap.inNursery(args[0]));
+  const ao::Oop sel = b.wk.intern(
+      "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:");
+  const ao::Oop aBefore = a.slot;
+  while (b.heap.nurseryRemaining() >= 80) {
+    ASSERT_TRUE(b.heap.allocate(ao::Oop::nil(), 0, 0).isHeap());
+  }
+
+  ao::Root created(b.roots, ao::send(b.ctx, a.slot, sel, args.ptr(), 5, nullptr));
+  ASSERT_TRUE(created.slot.isHeap());
+  ASSERT_NE(aBefore, a.slot);  // 前提: subclass: の途中で A が動いた
+
+  const auto expectShape = [&](const char* when) {
+    SCOPED_TRACE(when);
+    const ao::Oop meta = b.heap.klass(created.slot);
+    EXPECT_EQ(a.slot, b.heap.slotAt(created.slot, ao::kClassSlotSuperclass));
+    EXPECT_EQ(b.wk.intern("GcSafetyB"), b.heap.slotAt(created.slot, ao::kClassSlotName));
+    EXPECT_EQ(b.heap.klass(a.slot), b.heap.slotAt(meta, ao::kClassSlotSuperclass));
+    EXPECT_EQ(created.slot, b.heap.slotAt(meta, ao::kClassSlotThisClass));
+    EXPECT_EQ("GcSafety",
+              ao::Str::toUtf8(b.heap, b.heap.slotAt(created.slot, ao::kClassSlotCategory)));
+    EXPECT_EQ("GcSafety", ao::Str::toUtf8(b.heap, b.heap.slotAt(meta, ao::kClassSlotCategory)));
+    EXPECT_EQ(created.slot, b.wk.named("GcSafetyB"));
+  };
+  expectShape("after subclass:");
+  ao::Gc gc(b.heap, b.roots);
+  gc.collectNursery();
+  gc.collectNursery();
+  expectShape("after two more scavenges");
+}
+
 // 01 High: nursery 半面（1 MiB）を超える Array を作り、コピーできる。
 TEST(GcSafety, CopyArrayLargerThanNursery) {
   Boot b;

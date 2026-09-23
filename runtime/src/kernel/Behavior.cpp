@@ -207,11 +207,13 @@ Oop ao_Class_classPool(CallContext& ctx, const Oop& receiver, const Oop*, std::u
 Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_category_(
     CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 5 || !receiver.isHeap()) return Oop{};
-  const Oop nameArg = args[0];
-  const std::string nameBytes = Str::toUtf8(ctx.heap, nameArg);
-  if (nameBytes.empty() && !(nameArg.isHeap() && ctx.heap.size(nameArg) == 0)) {
+  // receiver と args[i] は NativeMethod::invoke がルートしたスロットを指し、GC のあとも正しい。
+  // ヒープの値はローカルにコピーして GC をまたがず、使う箇所ごとにそこから読み直す。
+  const std::string nameBytes = Str::toUtf8(ctx.heap, args[0]);
+  if (nameBytes.empty() && !(args[0].isHeap() && ctx.heap.size(args[0]) == 0)) {
     return Oop{};
   }
+  // format は SmallInteger（即値）なので、GC をまたいでも変わらない。
   const Oop superFmt = classFormat(ctx, receiver);
   const auto superInst = Format::instSize(superFmt);
   const std::string ivarSpec = Str::toUtf8(ctx.heap, args[1]);
@@ -248,14 +250,14 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   ctx.heap.slotAtPut(cls.slot, kClassSlotSuperclass, receiver);
   ctx.heap.slotAtPut(cls.slot, kClassSlotMethodDict, dict.slot);
   ctx.heap.slotAtPut(cls.slot, kClassSlotFormat, fmt);
-  ctx.heap.slotAtPut(cls.slot, kClassSlotName, nameArg);
+  ctx.heap.slotAtPut(cls.slot, kClassSlotName, args[0]);
   ctx.heap.slotAtPut(cls.slot, kClassSlotThisClass, Oop::nil());
   ctx.heap.slotAtPut(cls.slot, kClassSlotCategory, args[4]);
   ctx.heap.slotAtPut(cls.slot, kClassSlotClassPool, Oop::nil());
   ctx.heap.slotAtPut(cls.slot, kClassSlotInstVarNames, ivarNames.slot);
 
-  const Oop metaSuper = ctx.heap.klass(receiver);
-  ctx.heap.slotAtPut(meta.slot, kClassSlotSuperclass, metaSuper);
+  // 親のメタクラスは、最後の割り当てのあとでルート済みの receiver から求める。
+  ctx.heap.slotAtPut(meta.slot, kClassSlotSuperclass, ctx.heap.klass(receiver));
   ctx.heap.slotAtPut(meta.slot, kClassSlotMethodDict, metaDict.slot);
   ctx.heap.slotAtPut(meta.slot, kClassSlotFormat, classFmt);
   ctx.heap.slotAtPut(meta.slot, kClassSlotName, metaNameOop.slot);
