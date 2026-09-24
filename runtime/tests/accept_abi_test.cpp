@@ -413,6 +413,24 @@ TEST(AcceptAbi, AcceptClassReadsDoubledBangCharacter) {
   ao_runtime_shutdown();
 }
 
+// B7 review / SPEC §3.8 チャンク形式: 行の途中の単独の `!` もチャンクを終える。1 行の 2 つの
+// クラス定義を、両方とも受け付ける。
+TEST(AcceptAbi, AcceptClassSplitsChunksAtMidLineBang) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7MidC! Object subclass: #B7MidD!\n"
+                                   "!B7MidD methodsFor: 'a'!\nfoo ^1! bar ^2! !\n",
+                                   &err))
+      << err.message;
+  char out[64];
+  const char* expr = "(Smalltalk includesKey: #B7MidC) & ((B7MidD new foo) + (B7MidD new bar) = 3)";
+  ASSERT_EQ(AO_OK, ao_eval(expr, static_cast<int>(std::strlen(expr)), AO_EVAL_PRINTIT, out, 64,
+                           &err))
+      << err.message;
+  EXPECT_STREQ("true", out);
+  ao_runtime_shutdown();
+}
+
 // 指摘 8 / SPEC §3.10: クラス定義メッセージのあとに文が続けば、何も適用せずに拒む。
 TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());

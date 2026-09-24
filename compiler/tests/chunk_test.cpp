@@ -60,6 +60,35 @@ TEST(Chunk, BangInCharacterDoesNotSplit) {
   EXPECT_EQ("Foo initialize", acts[1].source);
 }
 
+// SPEC §3.8 チャンク形式: a single `!` outside strings and comments ends a chunk wherever it is,
+// not only at line end.
+TEST(Chunk, MidLineBangEndsChunk) {
+  const char* methods = "!Q4 methodsFor: 'a'!\nfoo ^1! bar ^2! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(methods, errs);
+  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(2u, acts[0].methods.size());
+  EXPECT_EQ("foo ^1", acts[0].methods[0].source);
+  EXPECT_EQ("bar ^2", acts[0].methods[1].source);
+
+  const char* defs = "Object subclass: #A! Object subclass: #B!\n";
+  acts = ao::compiler::parseChunks(defs, errs);
+  ASSERT_EQ(2u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::ClassDef, acts[0].kind);
+  EXPECT_EQ("A", acts[0].className);
+  EXPECT_TRUE(acts[0].soleDefinition);
+  EXPECT_EQ(ao::compiler::ChunkKind::ClassDef, acts[1].kind);
+  EXPECT_EQ("B", acts[1].className);
+
+  const char* trailing = "!Foo methodsFor: 'a'!\nfoo\n  ^1! ! \"end\"\nFoo initialize!\n";
+  acts = ao::compiler::parseChunks(trailing, errs);
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("foo\n  ^1", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("\"end\"\nFoo initialize", acts[1].source);
+}
+
 // SPEC §3.8 チャンク形式: `$'` and `$"` are character literals. They open no string or comment,
 // so the bang after them still ends the chunk.
 TEST(Chunk, QuoteCharacterLiteralsOpenNoStringOrComment) {

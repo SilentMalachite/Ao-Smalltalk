@@ -25,38 +25,9 @@ bool isBlank(std::string_view s) {
 struct RawChunk {
   std::string text;
   SourceSpan span;
-  // Ended by "! !", which closes a methodsFor: section.
+  // Followed by an empty chunk, which closes a methodsFor: section.
   bool endsSection = false;
-  // Led by "!", which closes the section before it (an empty chunk in standard chunk format).
-  bool introduced = false;
 };
-
-bool atLineEnd(std::string_view src, std::uint32_t p) {
-  while (p < src.size() && (src[p] == ' ' || src[p] == '\t')) {
-    p++;
-  }
-  return p >= src.size() || src[p] == '\n' || src[p] == '\r';
-}
-
-// Cuis ends a chunk with "! !" (bang, spaces or tabs, bang) at line end.
-// That first bang is the terminator. "!!" with no space stays a literal bang.
-bool bangSpaceBangAt(std::string_view src, std::uint32_t i, std::uint32_t& second) {
-  std::uint32_t p = i + 1;
-  if (p >= src.size() || (src[p] != ' ' && src[p] != '\t')) {
-    return false;
-  }
-  while (p < src.size() && (src[p] == ' ' || src[p] == '\t')) {
-    ++p;
-  }
-  if (p >= src.size() || src[p] != '!') {
-    return false;
-  }
-  if (!atLineEnd(src, p + 1)) {
-    return false;
-  }
-  second = p;
-  return true;
-}
 
 // The character at i is the value of a `$x` literal: an odd run of `$` comes right before it.
 bool isCharacterLiteral(std::string_view src, std::uint32_t i) {
@@ -88,6 +59,9 @@ bool firstLineHas(std::string_view text, std::string_view needle) {
   return text.substr(0, n).find(needle) != std::string_view::npos;
 }
 
+// SPEC §3.8 チャンク形式: a chunk ends at a single `!` outside strings and comments, wherever it
+// is, and `!!` is one `!` everywhere. An empty chunk ends the methodsFor: section of the chunk
+// before it: the second bang of `! !`, or a bang that leads a chunk (`!Foo methodsFor: 'x'!`).
 // The chunk after a `commentStamp:` header is class-comment prose. A `"` in
 // that prose must not open a code comment, or the next class definition is
 // swallowed.
@@ -103,46 +77,26 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     if (i >= n) {
       break;
     }
-    const bool introduced = src[i] == '!';
-    if (introduced) {
-      i++;
-    }
     const bool prose = proseNext;
     const std::uint32_t start = i;
     std::string text;
     bool inStr = false;
     bool inCmt = false;
-    bool endsSection = false;
-    // Where the chunk's bytes end: its terminating `!` (the first one of `! !`), or the end of src.
-    std::uint32_t end = n;
     while (i < n) {
       const char c = src[i];
-      if (!inStr && !inCmt && c == '!') {
+      if (c == '!') {
         // `$!` is written `$!!` like any other bang: no exemption for characters here.
         if (i + 1 < n && src[i + 1] == '!') {
           text.push_back('!');
           i += 2;
           continue;
         }
-        std::uint32_t secondBang = 0;
-        if (bangSpaceBangAt(src, i, secondBang)) {
-          end = i;
-          i = secondBang;
-          endsSection = true;
+        if (!inStr && !inCmt) {
           break;
         }
-        if (atLineEnd(src, i + 1)) {
-          end = i;
-          break;
-        }
+        // A single `!` in a string or comment does not end the chunk.
         text.push_back(c);
         i++;
-        continue;
-      }
-      // `!!` is one `!` in strings and comments too. A single `!` there does not end the chunk.
-      if ((inStr || inCmt) && c == '!' && i + 1 < n && src[i + 1] == '!') {
-        text.push_back('!');
-        i += 2;
         continue;
       }
       // `$'` and `$"` are characters. They open no string or comment.
@@ -177,11 +131,13 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
       text.push_back(c);
       i++;
     }
-    if (i < n && src[i] == '!') {
+    // The chunk's bytes end at its terminating `!`, or at the end of src.
+    const std::uint32_t end = i;
+    if (i < n) {
       i++;
     }
     if (isBlank(text)) {
-      // An empty chunk ends a methodsFor: section too (`! !` on a line of its own).
+      // An empty chunk ends the methodsFor: section of the chunk before it.
       if (!out.empty()) {
         out.back().endsSection = true;
       }
@@ -192,8 +148,6 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     raw.text = std::move(text);
     raw.span.start = start;
     raw.span.end = end;
-    raw.endsSection = endsSection;
-    raw.introduced = introduced;
     out.push_back(std::move(raw));
   }
   return out;
@@ -346,11 +300,6 @@ std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileEr
     }
   };
   for (const RawChunk& raw : splitChunks(src)) {
-    // SPEC §3.8: the `!` that leads a chunk ends the section before it, so a `!` header is a
-    // header wherever it is.
-    if (raw.introduced) {
-      flush();
-    }
     if (collecting) {
       // Inside a section every chunk is a method, also one whose pattern is `subclass: x`.
       ChunkMethod m;

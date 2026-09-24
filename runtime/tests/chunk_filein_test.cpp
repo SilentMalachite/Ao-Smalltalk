@@ -339,3 +339,28 @@ TEST(ChunkFileIn, CommentProseUndoublesBangs) {
   ASSERT_TRUE(cls.isHeap());
   EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("foo")).isHeap());
 }
+
+// B7 review / SPEC §3.8 チャンク形式: 文字列とコメントの外の単独の `!` は、行の途中でもチャンクを
+// 終える。1 行の 2 つのクラス定義も 2 つのメソッドも別のチャンクで、`! !` のあとの式はメソッドに
+// しない。
+TEST(ChunkFileIn, MidLineBangEndsChunk) {
+  Boot b;
+  const char* src =
+      "Object subclass: #B7MidA! Object subclass: #B7MidB!\n"
+      "!B7MidA methodsFor: 'a'!\n"
+      "foo ^1! bar ^2! !\n"
+      "!B7MidB methodsFor: 'b'!\n"
+      "baz\n"
+      "  ^3! ! \"end\"\n"
+      "B7MidB initialize!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop a = b.wk.named("B7MidA");
+  const ao::Oop bb = b.wk.named("B7MidB");
+  ASSERT_TRUE(a.isHeap());
+  ASSERT_TRUE(bb.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, a, b.wk.intern("foo")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, a, b.wk.intern("bar")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, bb, b.wk.intern("baz")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, bb, b.wk.intern("B7MidB")).isNil());
+}
