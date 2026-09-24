@@ -81,6 +81,54 @@ final class ToolWindowTests: XCTestCase {
     }
   }
 
+  func testEditMenuUndoAndRedoGoToTheFirstResponder() {
+    let menu = MainMenu.build(actions: MainMenu.Actions())
+    let edit = menu.item(withTitle: "Edit")?.submenu
+    XCTAssertEqual(
+      edit?.items.map(\.title),
+      ["Undo", "Redo", "", "Cut", "Copy", "Paste", "Select All"]
+    )
+    let undo = edit?.item(withTitle: "Undo")
+    XCTAssertEqual(undo?.action, Selector(("undo:")))
+    XCTAssertNil(undo?.target)
+    XCTAssertEqual(undo?.keyEquivalent, "z")
+    XCTAssertEqual(undo?.keyEquivalentModifierMask, [.command])
+    let redo = edit?.item(withTitle: "Redo")
+    XCTAssertEqual(redo?.action, Selector(("redo:")))
+    XCTAssertNil(redo?.target)
+    XCTAssertEqual(redo?.keyEquivalent, "z")
+    XCTAssertEqual(redo?.keyEquivalentModifierMask, [.command, .shift])
+  }
+
+  func testTypingInWorkspaceAndBrowserIsUndoable() {
+    let workspace = WorkspaceWindow()
+    let browser = BrowserWindow()
+    defer {
+      workspace.window.close()
+      browser.window.close()
+    }
+    selectFirstClassDefinition(in: browser)
+    let editors = [
+      ("Workspace", textViews(in: workspace.window.contentView).first),
+      ("Browser", textViews(in: browser.window.contentView).first),
+    ]
+    for (name, found) in editors {
+      guard let view = found, let undo = view.undoManager else {
+        XCTFail("missing \(name) text view or undo manager")
+        continue
+      }
+      XCTAssertTrue(view.allowsUndo, name)
+      let before = view.string
+      type("zork", into: view)
+      XCTAssertEqual(view.string, before + "zork", name)
+      XCTAssertTrue(undo.canUndo, name)
+      undo.undo()
+      XCTAssertEqual(view.string, before, name)
+      undo.redo()
+      XCTAssertEqual(view.string, before + "zork", name)
+    }
+  }
+
   // Typing path: one insertText per character at the caret, as the key bindings send it. The
   // automatic substitutions run from the run loop, so it turns after every character.
   private func type(_ text: String, into view: NSTextView) {

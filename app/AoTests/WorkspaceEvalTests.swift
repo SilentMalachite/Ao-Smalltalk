@@ -109,6 +109,39 @@ final class WorkspaceEvalTests: XCTestCase {
     XCTAssertEqual(String(workspace.text.dropFirst("1 + 2\n4 + 5".count)), "9")
   }
 
+  func testUndoRemovesPrintItResultAndRedoPutsItBack() {
+    let workspace = workspace("1 + 2")
+    defer { workspace.window.close() }
+    guard let view = textView(in: workspace.window.contentView), let undo = view.undoManager else {
+      XCTFail("missing Workspace text view or undo manager")
+      return
+    }
+    workspace.selectAll()
+    workspace.printIt()
+    XCTAssertEqual(workspace.text, "1 + 23")
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+    XCTAssertTrue(undo.canUndo)
+    undo.undo()
+    XCTAssertEqual(workspace.text, "1 + 2")
+    undo.redo()
+    XCTAssertEqual(workspace.text, "1 + 23")
+  }
+
+  private func textView(in root: NSView?) -> NSTextView? {
+    guard let root else {
+      return nil
+    }
+    if let match = root as? NSTextView {
+      return match
+    }
+    for child in root.subviews {
+      if let found = textView(in: child) {
+        return found
+      }
+    }
+    return nil
+  }
+
   private func workspace(_ text: String) -> WorkspaceWindow {
     let workspace = WorkspaceWindow()
     workspace.replaceText(text)

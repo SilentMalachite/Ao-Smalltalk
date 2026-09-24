@@ -315,13 +315,20 @@ final class WorkspaceWindow {
     return String(whole[swiftRange])
   }
 
+  // Through shouldChangeText and didChangeText, so Undo takes the printed text out again. The
+  // coalescing breaks keep it one undo step apart from the typing around it.
   private func insert(_ printed: String, after range: NSRange) {
-    let whole = textView.string
     let at = NSRange(location: range.location + range.length, length: 0)
-    guard let swiftRange = Range(at, in: whole) else {
+    guard Range(at, in: textView.string) != nil, let storage = textView.textStorage else {
       return
     }
-    textView.string = whole.replacingCharacters(in: swiftRange, with: printed)
+    textView.breakUndoCoalescing()
+    guard textView.shouldChangeText(in: at, replacementString: printed) else {
+      return
+    }
+    storage.replaceCharacters(in: at, with: printed)
+    textView.didChangeText()
+    textView.breakUndoCoalescing()
     let inserted = (printed as NSString).length
     textView.setSelectedRange(NSRange(location: at.location + inserted, length: 0))
   }
