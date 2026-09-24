@@ -218,6 +218,19 @@ std::string quoteSmalltalk(std::string_view text) {
   return out;
 }
 
+// Chunk format writes every `!` of a chunk's text twice (SPEC §3.8 チャンク形式). The reader
+// turns `!!` back into `!`, also in strings, comments and `$!`.
+std::string doubleBangs(std::string_view text) {
+  std::string out;
+  for (const char c : text) {
+    if (c == '!') {
+      out.push_back('!');
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
 std::string trimTrailingWs(std::string text) {
   while (!text.empty()) {
     const char c = text.back();
@@ -509,13 +522,13 @@ std::string render(const std::string& name, const KeptClass& cls) {
   text += " subclass: #";
   text += name;
   text += "\n  instanceVariableNames: ";
-  text += quoteSmalltalk(cls.instVars);
+  text += doubleBangs(quoteSmalltalk(cls.instVars));
   text += "\n  classVariableNames: ";
-  text += quoteSmalltalk(cls.classVars);
+  text += doubleBangs(quoteSmalltalk(cls.classVars));
   text += "\n  poolDictionaries: ";
-  text += quoteSmalltalk(cls.pools);
+  text += doubleBangs(quoteSmalltalk(cls.pools));
   text += "\n  category: ";
-  text += quoteSmalltalk(cls.category);
+  text += doubleBangs(quoteSmalltalk(cls.category));
   text += "!\n";
 
   std::size_t i = 0;
@@ -528,11 +541,11 @@ std::string render(const std::string& name, const KeptClass& cls) {
       text += " class";
     }
     text += " methodsFor: ";
-    text += quoteSmalltalk(protocol);
+    text += doubleBangs(quoteSmalltalk(protocol));
     text += "!\n";
     while (i < cls.methods.size() && cls.methods[i].meta == meta &&
            cls.methods[i].protocol == protocol) {
-      text += trimTrailingWs(cls.methods[i].source);
+      text += doubleBangs(trimTrailingWs(cls.methods[i].source));
       text += "!\n";
       ++i;
     }
