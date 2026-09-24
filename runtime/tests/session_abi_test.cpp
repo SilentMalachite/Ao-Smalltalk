@@ -512,3 +512,121 @@ TEST_F(SessionAbi, ExceptionInsideEvalDoesNotCrossTheAbi) {
   ASSERT_EQ(AO_OK, ao_eval("1 + 2", 5, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
   EXPECT_STREQ("3", out);
 }
+
+namespace {
+
+// A hook that calls back into the ABI while the runtime runs, once, and keeps each call's answer.
+struct Reentry {
+  std::string image;
+  std::string loadOrder;
+  std::vector<int> codes;
+  std::string loadReason;
+  std::string evalOut = "unchanged";
+  bool entered = false;
+};
+
+void reenterEverything(Reentry& r) {
+  if (r.entered) {
+    return;
+  }
+  r.entered = true;
+  AoSpan err{};
+  char out[16] = "unchanged";
+  r.codes.push_back(ao_image_save(r.image.c_str()));
+  r.codes.push_back(ao_image_load(r.image.c_str(), &err));
+  r.loadReason = err.message;
+  r.codes.push_back(ao_runtime_shutdown());
+  r.codes.push_back(ao_runtime_boot());
+  r.codes.push_back(ao_eval("1", 1, AO_EVAL_PRINTIT, out, 16, &err));
+  r.evalOut = out;
+  r.codes.push_back(ao_accept_method("Object", 0, "b6reentry\n  ^1\n", &err));
+  r.codes.push_back(ao_accept_class("Object subclass: #B6Reentry\n  instanceVariableNames: ''\n"
+                                    "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                    "  category: 'B6-Test'\n",
+                                    &err));
+  r.codes.push_back(ao_workspace_reset());
+  r.codes.push_back(ao_filein_load_order(r.loadOrder.c_str()));
+}
+
+// A saved image and a LOAD_ORDER that files in cleanly, both of which work outside a hook.
+Reentry reentryFixture(const std::filesystem::path& dir) {
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir);
+  Reentry r;
+  r.image = (dir / "reentry.aoimage").string();
+  r.loadOrder = (dir / "LOAD_ORDER").string();
+  std::ofstream(dir / "LOAD_ORDER") << "a.st\n";
+  std::ofstream(dir / "a.st") << "!Object subclass: #B6FileIn\n  instanceVariableNames: ''\n"
+                                 "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                 "  category: 'B6-Test'!\n";
+  EXPECT_EQ(AO_OK, ao_image_save(r.image.c_str()));
+  EXPECT_EQ(AO_OK, ao_filein_load_order(r.loadOrder.c_str()));
+  return r;
+}
+
+void expectAllRefused(const Reentry& r) {
+  ASSERT_TRUE(r.entered);
+  EXPECT_EQ(std::vector<int>(9, AO_ERR), r.codes);
+  EXPECT_EQ("runtime is busy", r.loadReason);
+  EXPECT_EQ("", r.evalOut);
+}
+
+// After the refused calls the session is the one that ran: its workspace binding is there, the
+// refused accepts added nothing, and outside a hook the same calls work again.
+void expectSessionUntouched() {
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_eval("b6x", 3, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("40", out);
+  EXPECT_EQ(AO_ERR_EVAL, ao_eval("nil b6reentry", 13, AO_EVAL_PRINTIT, out, 64, &err));
+  ASSERT_EQ(AO_OK, ao_eval("Smalltalk includesKey: #B6Reentry", 33, AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("false", out);
+  EXPECT_EQ(AO_OK, ao_accept_method("Object", 0, "b6reentry\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_eval("nil b6reentry", 13, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("1", out);
+}
+
+}  // namespace
+
+// B6 review (06 Low) / SPEC §3.10: 失敗シナリオ。評価中の transcript フックから ao_image_load を呼ぶと、
+// フックの中のロードは 0 を返してセッションを差し替え、実行中のインタプリタが古いヒープを読んで SIGSEGV に
+// なった。ランタイムが動いている間の boot / shutdown / save / load / filein / workspace reset / eval /
+// accept は AO_ERR で、評価はそのまま続く。
+TEST_F(SessionAbi, ReentrantCallsFromTranscriptHookAreRefused) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  Reentry r = reentryFixture(std::filesystem::temp_directory_path() / "ao-b6-reentry-transcript");
+  ao_set_transcript_hook(
+      [](const char*, int, int, void* user) { reenterEverything(*static_cast<Reentry*>(user)); },
+      &r);
+  char out[64];
+  AoSpan err{};
+  const char* src = "b6x := 40. Transcript show: 'a'. Transcript show: 'b'. b6x + 2";
+  ASSERT_EQ(AO_OK, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("42", out);
+  ao_set_transcript_hook(nullptr, nullptr);
+  expectAllRefused(r);
+  expectSessionUntouched();
+}
+
+// SPEC §3.10: the inspect hook runs after the doIt has returned, outside the interpreter, but the
+// ABI entry (ao_eval) still runs: the same calls are refused there too.
+TEST_F(SessionAbi, ReentrantCallsFromInspectHookAreRefused) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  Reentry r = reentryFixture(std::filesystem::temp_directory_path() / "ao-b6-reentry-inspect");
+  ao_set_inspect_hook(
+      [](const char*, const char*, void* user) { reenterEverything(*static_cast<Reentry*>(user)); },
+      &r);
+  char out[64];
+  AoSpan err{};
+  const char* src = "b6x := 40. b6x + 2";
+  ASSERT_EQ(AO_OK,
+            ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_INSPECTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("42", out);
+  ao_set_inspect_hook(nullptr, nullptr);
+  expectAllRefused(r);
+  expectSessionUntouched();
+}

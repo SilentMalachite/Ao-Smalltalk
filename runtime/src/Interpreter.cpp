@@ -909,4 +909,6 @@ void refreshStackLimit(CallContext& ctx) {
   ctx.stackCleanupLimit = high - size + reserve / 2;
 }
 
+bool interpreterRunning() { return gInterpreterDepth > 0; }
+
 }  // namespace ao

@@ -1,9 +1,11 @@
 #include "ao_abi.h"
 #include "ao/Compile.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/Runtime.hpp"
 #include "Session.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -22,6 +24,37 @@ int guarded(int failed, Body&& body) noexcept {
   }
 }
 
+// ABI entries running now (a refused call does not count). Atomic: a second thread's call while
+// one runs is refused like a hook's.
+std::atomic<int> g_entries{0};
+
+// SPEC §3.10: the one test for a call that re-enters the runtime while it runs, from a host hook
+// (an ABI entry is running) or from under the interpreter. B10 adds "a process is running".
+bool runtimeBusy() { return g_entries.load() > 0 || ao::interpreterRunning(); }
+
+// Marks the ABI entries that run Smalltalk, call a hook or replace the session: boot, shutdown,
+// save, load, filein, workspace reset, eval, accept. When the runtime is busy, entered() is false
+// and the call answers AO_ERR without touching the session.
+class AbiEntry {
+ public:
+  AbiEntry() : entered_(!runtimeBusy()) {
+    if (entered_) {
+      ++g_entries;
+    }
+  }
+  ~AbiEntry() {
+    if (entered_) {
+      --g_entries;
+    }
+  }
+  AbiEntry(const AbiEntry&) = delete;
+  AbiEntry& operator=(const AbiEntry&) = delete;
+  bool entered() const { return entered_; }
+
+ private:
+  bool entered_;
+};
+
 }  // namespace
 
 extern "C" int ao_version(char* buf, int buf_len) {
@@ -35,18 +68,34 @@ extern "C" int ao_version(char* buf, int buf_len) {
 }
 
 extern "C" int ao_runtime_boot(void) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [] { return ao::boot() == 0 ? AO_OK : AO_ERR; });
 }
 
 extern "C" int ao_runtime_shutdown(void) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [] { return ao::shutdown() == 0 ? AO_OK : AO_ERR; });
 }
 
 extern "C" int ao_image_save(const char* path) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [&] { return ao::sessionImageSave(path) == 0 ? AO_OK : AO_ERR; });
 }
 
 extern "C" int ao_filein_load_order(const char* path) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [&] { return ao::sessionFileInLoadOrder(path) == 0 ? AO_OK : AO_ERR; });
 }
 
@@ -157,18 +206,24 @@ extern "C" void ao_set_inspect_hook(AoInspectFn fn, void* user) {
 }
 
 extern "C" int ao_workspace_reset(void) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [] { return ao::sessionWorkspaceReset() == 0 ? AO_OK : AO_ERR; });
 }
 
 extern "C" int ao_eval(const char* source, int source_len, int mode, char* out, int out_len,
                        AoSpan* err) {
-  const int rc = guarded(-1, [&] {
+  const AbiEntry entry;
+  const int rc = !entry.entered() ? -1 : guarded(-1, [&] {
     return ao::sessionEval(source, source_len, mode, out, out_len, err, g_inspectFn,
                            g_inspectUser);
   });
   if (rc != -1) {
     return rc;
   }
+  // Refused while the runtime is busy, or an exception: nothing to show.
   clearSpan(err);
   if (out != nullptr && out_len > 0) {
     out[0] = '\0';
@@ -178,6 +233,10 @@ extern "C" int ao_eval(const char* source, int source_len, int mode, char* out, 
 
 extern "C" int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err) {
   clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [&] {
     ao::Session* s = ao::session();
     if (s == nullptr || s->ctx == nullptr || class_name == nullptr || source == nullptr ||
@@ -199,6 +258,10 @@ extern "C" int ao_accept_method(const char* class_name, int meta, const char* so
 
 extern "C" int ao_accept_class(const char* source, AoSpan* err) {
   clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [&] {
     ao::Session* s = ao::session();
     if (s == nullptr || s->ctx == nullptr || source == nullptr) {
@@ -215,6 +278,11 @@ extern "C" int ao_accept_class(const char* source, AoSpan* err) {
 
 extern "C" int ao_image_load(const char* path, AoSpan* err) {
   clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    setMessage(err, "runtime is busy");
+    return AO_ERR;
+  }
   std::string reason;
   const int rc = guarded(-1, [&] {
     return ao::sessionImageLoad(path, &reason) == 0 ? AO_OK : AO_ERR;

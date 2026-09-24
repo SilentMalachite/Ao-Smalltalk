@@ -28,10 +28,21 @@ typedef struct AoSpan {
 /* SPEC §3.10. String buffers end in NUL when their length is > 0; an answer that does not fit
    is AO_ERR_RANGE (ao_browser_source's AO_ERR_NOSOURCE wins over it). */
 
+/* SPEC §3.10. The runtime is busy while ao_runtime_boot, ao_runtime_shutdown, ao_image_save,
+   ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method or
+   ao_accept_class runs, or the interpreter does. Called then (from a transcript or inspect hook,
+   or a native), each of these nine does nothing and answers AO_ERR: ao_image_load with the reason
+   "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook setters,
+   ao_version and the ao_browser_* reads may be called then. No C++ exception leaves any of these
+   functions: it becomes AO_ERR (-1 for the *_count functions). */
+
 /* AO_ERR_RANGE when cut (buf still ends in NUL). AO_ERR when buf is NULL or buf_len < 1. */
 int ao_version(char* buf, int buf_len);
 int ao_runtime_boot(void);
 int ao_runtime_shutdown(void);
+/* Writes a temporary file next to path, syncs it and renames it over path (SPEC §3.11). On
+   AO_ERR (a failed write, a heap over the old space limit, a native whose name does not resolve)
+   the file at path is left as it was. */
 int ao_image_save(const char* path);
 /* Loads into a new session and replaces the current one only when the load and the probes
    (1 + 2, nil isNil) pass. On AO_ERR the current session stays in use, and err (when not NULL)
