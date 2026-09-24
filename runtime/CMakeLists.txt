@@ -20,6 +20,7 @@ add_library(ao_runtime
   src/WellKnown.cpp
   src/Bootstrap.cpp
   src/Globals.cpp
+  src/ClassPool.cpp
   src/Symbol.cpp
   src/MethodDictionary.cpp
   src/NativeMethod.cpp

@@ -5,6 +5,7 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/Bytecode.hpp"
+#include "ao/ClassPool.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
@@ -13,6 +14,7 @@
 #include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/MethodImage.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Parser.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
@@ -59,6 +61,7 @@ bool boxedOk(const compiler::Literal& lit, Oop boxed) {
     case compiler::LitKind::ByteArray:
     case compiler::LitKind::Method:
     case compiler::LitKind::Binding:
+    case compiler::LitKind::ClassVariable:
       return boxed.isHeap();
   }
   return boxed.isHeap();
@@ -124,6 +127,16 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
         return Oop{};
       }
       return ctx.bindingHook(ctx, lit.text);
+    case compiler::LitKind::ClassVariable: {
+      // SPEC §3.8: the binding in the classPool of methodClass (thisClass for a metaclass) or of
+      // a superclass. It must be an Association-shaped object, which LitVar reads and writes.
+      const Oop binding = ClassPool::visibleBinding(ctx.heap, ctx.wk, methodClass, lit.text);
+      if (!binding.isHeap() || (ctx.heap.flags(binding) & kFlagBytes) != 0 ||
+          ctx.heap.size(binding) <= kAssocValue) {
+        return Oop{};
+      }
+      return binding;
+    }
   }
   return Oop{};
 }
@@ -145,6 +158,12 @@ void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
       env.instVarNames.push_back("<slot " + std::to_string(i + 1) + ">");
     }
   }
+}
+
+// SPEC §3.8: the class variables a method of cls sees, those of cls (its thisClass for a
+// metaclass) and of its superclasses, nearest first. Does not collect.
+void fillClassVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
+  env.classVarNames = ClassPool::visibleNames(ctx.heap, ctx.wk, cls);
 }
 
 // A Kernel class (SPEC §3.6): file-in does not redefine it (SPEC §3.12), and accept does not
@@ -269,6 +288,7 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
   Root tgt(ctx.roots, target);
   compiler::CompileEnv env;
   fillInstVars(ctx, tgt.slot, env);
+  fillClassVars(ctx, tgt.slot, env);
   // SPEC §3.12: a method-level error names its method and does not stop the rest.
   for (const auto& m : action.methods) {
     compiler::CompileResult cr = compiler::compileMethod(m.source, env);
@@ -393,8 +413,9 @@ std::string carriedMethodName(const std::string& className, const CarriedMethod&
 }
 
 // SPEC §3.9: the first of `removed` that image, or a block inside it, reads by name, or "". A name
-// that is no local and no instance variable compiles to PushGlobal of its Symbol; the compiler
-// has no other global access outside the workspace (an assignment does not compile).
+// that is no local, no instance variable and no class variable compiles to PushGlobal of its
+// Symbol; the compiler has no other global access outside the workspace (an assignment does not
+// compile).
 std::string readRemovedName(const compiler::MethodImage& image,
                             const std::vector<std::string>& removed) {
   for (std::size_t pc = 0; pc < image.bytes.size();) {
@@ -908,6 +929,7 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
   Root tgt(ctx.roots, side);
   compiler::CompileEnv env;
   fillInstVars(ctx, tgt.slot, env);
+  fillClassVars(ctx, tgt.slot, env);
   compiler::CompileResult cr = compiler::compileMethod(source, env);
   if (!cr.ok) {
     if (error != nullptr) {

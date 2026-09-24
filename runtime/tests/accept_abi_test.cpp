@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -1435,5 +1436,176 @@ TEST(AcceptAbi, SmalltalkIsTheGlobalDictionary) {
   EXPECT_STREQ("4", out);
   ASSERT_EQ(AO_OK, printIt("Zap")) << err.message;
   EXPECT_STREQ("4", out);
+  ao_runtime_shutdown();
+}
+
+namespace {
+
+// A class definition message with class variables, for ao_accept_class.
+std::string b4Definition(const char* superName, const char* name, const char* instVars,
+                         const char* classVars, const char* category = "B4-Test") {
+  std::string def = superName;
+  def += " subclass: #";
+  def += name;
+  def += "\n  instanceVariableNames: '";
+  def += instVars;
+  def += "'\n  classVariableNames: '";
+  def += classVars;
+  def += "'\n  poolDictionaries: ''\n  category: '";
+  def += category;
+  def += "'\n";
+  return def;
+}
+
+struct Check {
+  const char* source;
+  const char* printed;
+};
+
+// Prints each source in turn and expects its printString. The checks run in order, so a later
+// one sees what an earlier one did.
+void expectPrints(const std::vector<Check>& checks, const char* when = "") {
+  for (const Check& c : checks) {
+    char out[128];
+    AoSpan err{};
+    ASSERT_EQ(AO_OK, ao_eval(c.source, static_cast<int>(std::strlen(c.source)), AO_EVAL_PRINTIT,
+                             out, 128, &err))
+        << when << ": " << c.source << ": " << err.message;
+    EXPECT_STREQ(c.printed, out) << when << ": " << c.source;
+  }
+}
+
+// Accepts each method source on the given side of className.
+void acceptMethods(const char* className, int meta, const std::vector<const char*>& sources) {
+  for (const char* src : sources) {
+    AoSpan err{};
+    ASSERT_EQ(AO_OK, ao_accept_method(className, meta, src, &err))
+        << className << (meta ? " class" : "") << ": " << src << ": " << err.message;
+  }
+}
+
+}  // namespace
+
+// B4 (docs/claude-review/05 High, 04「既報との関係」) / SPEC §3.6, §3.8: 失敗シナリオ。
+// classVariableNames: 'Count' のクラスで bump Count := 1 を Accept でき（cannot assign にならない）、
+// count ^Count がそのあと 1 を返す。ブロックの中、展開したブロックの中の読み書きも同じ変数である。
+// classPool は名前から束縛（Association）への Dictionary で、束縛の value がクラス変数の値。
+// 束縛はメソッドと共有する。名前は Smalltalk に登録しない。
+TEST(AcceptAbi, ClassVariablesAreReadAndWrittenByMethods) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CV", "", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CV", 0,
+                {"bump\n  Count := 1\n", "count\n  ^Count\n", "incr\n  ^Count := Count + 1\n",
+                 "blockSet: v\n  [:w | Count := w] value: v\n",
+                 "inlined\n  Count isNil ifFalse: [Count := Count * 10].\n  ^Count\n"});
+  expectPrints({
+      {"B4CV new count", "nil"},
+      {"B4CV new bump; count", "1"},
+      {"B4CV new count", "1"},
+      {"B4CV new incr", "2"},
+      {"B4CV new blockSet: 7; count", "7"},
+      {"B4CV new inlined", "70"},
+      {"B4CV classPool class == Dictionary", "true"},
+      {"B4CV classPool size", "1"},
+      {"(B4CV classPool at: #Count) class == Association", "true"},
+      {"(B4CV classPool at: #Count) key == #Count", "true"},
+      {"(B4CV classPool at: #Count) value", "70"},
+      {"(B4CV classPool at: #Count) value: 3. B4CV new count", "3"},
+      {"Smalltalk includesKey: #Count", "false"},
+      {"(B4CV class instVarNamed: #classPool) isNil", "true"},
+      {"Object classPool isNil", "true"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.6: サブクラスのメソッドは親のクラス変数を読み書きし、親と同じ値を共有する。
+// クラス側のメソッドで書いた値をインスタンス側で読め、その逆もできる。サブクラスの classPool には
+// 自分のクラス変数だけがある。
+TEST(AcceptAbi, SubclassesAndClassSideShareClassVariables) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvSup", "", "Shared").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4CvSup", "B4CvSub", "", "Own").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvSup", 0, {"shared\n  ^Shared\n", "shared: v\n  Shared := v\n"});
+  acceptMethods("B4CvSup", 1, {"setShared: v\n  Shared := v\n"});
+  acceptMethods("B4CvSub", 0,
+                {"subShared\n  ^Shared\n", "subShared: v\n  Shared := v\n", "own\n  ^Own\n"});
+  acceptMethods("B4CvSub", 1, {"classShared\n  ^Shared\n", "classOwn: v\n  Own := v\n"});
+  expectPrints({
+      {"B4CvSub new subShared: 3. B4CvSup new shared", "3"},
+      {"B4CvSup new shared: 4. B4CvSub new subShared", "4"},
+      {"B4CvSub classShared", "4"},
+      {"B4CvSup setShared: 5. B4CvSub new subShared", "5"},
+      {"B4CvSub classOwn: 6. B4CvSub new own", "6"},
+      {"(B4CvSup classPool at: #Shared) value", "5"},
+      {"B4CvSub classPool includesKey: #Shared", "false"},
+      {"(B4CvSub classPool at: #Own) value", "6"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.8: 解決順はローカル → インスタンス変数 → 擬変数 → クラス変数 → グローバル。同じ名前の
+// グローバル（Smalltalk at: #Count put: 99）があっても、メソッドの Count はクラス変数を読む。temp と
+// 引数はクラス変数を隠す。クラス側では Behavior の枠の名前（name）がクラス変数を隠す。
+TEST(AcceptAbi, ClassVariablesResolveBetweenLocalsAndGlobals) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("Object", "B4CvOrd", "", "Count name").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvOrd", 0,
+                {"count\n  ^Count\n", "count: v\n  Count := v\n",
+                 "temp\n  | Count |\n  Count := 5.\n  ^Count\n", "arg: Count\n  ^Count\n",
+                 "blockArg\n  ^[:Count | Count] value: 8\n", "name\n  ^name\n",
+                 "name: v\n  name := v\n"});
+  acceptMethods("B4CvOrd", 1, {"probeName\n  ^name\n"});
+  expectPrints({{"Smalltalk at: #Count put: 99", "99"}});
+  acceptMethods("B4CvOrd", 0, {"countLate\n  ^Count\n"});
+  expectPrints({
+      {"B4CvOrd new count: 1; count", "1"},
+      {"B4CvOrd new countLate", "1"},
+      {"Count", "99"},
+      {"B4CvOrd new temp", "5"},
+      {"B4CvOrd new arg: 7", "7"},
+      {"B4CvOrd new blockArg", "8"},
+      {"B4CvOrd new count", "1"},
+      {"B4CvOrd new name: 4; name", "4"},
+      {"B4CvOrd probeName == #B4CvOrd", "true"},
+      {"(B4CvOrd classPool at: #name) value", "4"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.11: 保存して読み直したイメージでも、クラス変数の値と、メソッドと classPool の共有は
+// 保たれる。読み直したあとに Accept したメソッドも同じ束縛を使う。
+TEST(AcceptAbi, ClassVariablesSurviveImageSaveAndLoad) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvImg", "", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvImg", 0, {"count\n  ^Count\n", "count: v\n  Count := v\n"});
+  acceptMethods("B4CvImg", 1, {"classCount\n  ^Count\n"});
+  expectPrints({{"B4CvImg new count: 3; count", "3"}});
+  const char* path = "b4-class-variables.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path));
+  std::remove(path);
+  acceptMethods("B4CvImg", 0, {"twice\n  ^Count * 2\n"});
+  expectPrints(
+      {
+          {"B4CvImg new count", "3"},
+          {"B4CvImg classCount", "3"},
+          {"B4CvImg new count: 4. (B4CvImg classPool at: #Count) value", "4"},
+          {"B4CvImg classCount", "4"},
+          {"B4CvImg new twice", "8"},
+          {"(B4CvImg classPool at: #Count) value: 5. B4CvImg new twice", "10"},
+      },
+      "loaded");
   ao_runtime_shutdown();
 }

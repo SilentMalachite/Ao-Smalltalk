@@ -1,6 +1,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/ClassPool.hpp"
 #include "ao/Context.hpp"
 #include "ao/Format.hpp"
 #include "ao/HandleScope.hpp"
@@ -54,6 +55,16 @@ Oop makeInstVarNames(CallContext& ctx, std::string_view spec) {
     ctx.heap.slotAtPut(arr.slot, i, sym);
   }
   return arr.slot;
+}
+
+// SPEC §3.6: the classPool for classVariableNames, one binding per name split as instance
+// variable names are. A spec that is no String or Symbol names none.
+Oop makeClassPool(CallContext& ctx, Oop spec) {
+  const std::string text =
+      spec.isHeap() && (ctx.heap.flags(spec) & kFlagBytes) != 0 ? Str::toUtf8(ctx.heap, spec) : "";
+  std::vector<std::string_view> names;
+  splitNames(text, names);
+  return ClassPool::make(ctx, std::vector<std::string>(names.begin(), names.end()));
 }
 
 }  // namespace
@@ -195,6 +206,8 @@ Oop ao_Class_category(CallContext& ctx, const Oop& receiver, const Oop*, std::ui
   return ctx.heap.slotAt(receiver, kClassSlotCategory);
 }
 
+// SPEC §3.6: the Dictionary from each class variable's name to its binding (ClassPool). nil for a
+// Kernel class and for a metaclass.
 Oop ao_Class_classPool(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotClassPool);
@@ -242,6 +255,10 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   if (!ivarNames.slot.isHeap()) {
     return Oop{};
   }
+  Root pool(ctx.roots, makeClassPool(ctx, args[2]));
+  if (!pool.slot.isHeap()) {
+    return Oop{};
+  }
 
   std::string metaName = nameBytes;
   metaName += " class";
@@ -256,7 +273,7 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   ctx.heap.slotAtPut(cls.slot, kClassSlotName, args[0]);
   ctx.heap.slotAtPut(cls.slot, kClassSlotThisClass, Oop::nil());
   ctx.heap.slotAtPut(cls.slot, kClassSlotCategory, args[4]);
-  ctx.heap.slotAtPut(cls.slot, kClassSlotClassPool, Oop::nil());
+  ctx.heap.slotAtPut(cls.slot, kClassSlotClassPool, pool.slot);
   ctx.heap.slotAtPut(cls.slot, kClassSlotInstVarNames, ivarNames.slot);
 
   // 親のメタクラスは、最後の割り当てのあとでルート済みの receiver から求める。
