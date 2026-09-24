@@ -8,6 +8,7 @@
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -716,4 +717,61 @@ TEST_F(KernelNumeric, RectangleComparisonsFailOnANonBooleanAnswer) {
                            "y: 0) corner: (Point x: 10 y: 10))";
   EXPECT_EQ("<eval error: cmp>", printIt(boom + " containsPoint: (Point x: 1 y: 1)"));
   EXPECT_EQ("<eval error: cmp>", printIt(boom + " intersect: " + r));
+}
+
+// B8 レビュー: 右シフトは床（-∞ 側）で、桁の境界の前後、割り切れるときと割り切れないとき、
+// 正負のどれでも // (2^k) と同じ答え。収まる答えは SmallInteger に戻る。
+TEST_F(KernelNumeric, RightShiftFloorsAcrossDigitBoundaries) {
+  EXPECT_EQ("0", printIt(
+                     "| vals ks bad | vals := Array new: 10. "
+                     "vals at: 1 put: (1 bitShift: 100) + 12345; "
+                     "at: 2 put: 0 - ((1 bitShift: 100) + 12345); "
+                     "at: 3 put: (1 bitShift: 96); at: 4 put: 0 - (1 bitShift: 96); "
+                     "at: 5 put: (1 bitShift: 64) - 1; at: 6 put: 0 - ((1 bitShift: 64) - 1); "
+                     "at: 7 put: 12345; at: 8 put: -12345; "
+                     "at: 9 put: (1 bitShift: 200) - 1; at: 10 put: 0 - (1 bitShift: 200). "
+                     "ks := #(1 2 31 32 33 63 64 65 95 96 97 128 199 200 201 300). bad := 0. "
+                     "vals do: [:v | ks do: [:k | "
+                     "(v bitShift: 0 - k) = (v // (1 bitShift: k)) ifFalse: [bad := bad + 1]]]. "
+                     "bad"));
+  EXPECT_EQ("1", printIt("((1 bitShift: 64) + 5) bitShift: -64"));
+  EXPECT_EQ("true", printIt("(((1 bitShift: 64) + 5) bitShift: -64) class == SmallInteger"));
+  EXPECT_EQ("-1", printIt("(0 - (1 bitShift: 64)) bitShift: -64"));
+  EXPECT_EQ("-2", printIt("(0 - ((1 bitShift: 64) + 1)) bitShift: -64"));
+  EXPECT_EQ("4294967295", printIt("((1 bitShift: 64) - 1) bitShift: -32"));
+  EXPECT_EQ("-4294967296", printIt("(0 - ((1 bitShift: 64) - 1)) bitShift: -32"));
+  EXPECT_EQ("0", printIt("(1 bitShift: 70) bitShift: -71"));
+  EXPECT_EQ("-1", printIt("(0 - (1 bitShift: 70)) bitShift: -71"));
+  EXPECT_EQ("-1", printIt("(0 - (1 bitShift: 70)) bitShift: -70"));
+  EXPECT_EQ("-1", printIt("-1 bitShift: -1"));
+  EXPECT_EQ("true", printIt("((1 bitShift: 100) bitShift: -36) = (1 bitShift: 64)"));
+}
+
+// B8 レビュー: 大きな右シフトは桁とビットの移動で、ビット長に比例する時間で終わる（以前は
+// 1 ビットずつ割って 2 乗の時間。Debug で 18 秒）。上限はゆるく取る。
+TEST(KernelBench, RightShiftOfAMillionBitsIsLinear) {
+  Boot b;
+  ao::Root big(b.roots, send1(b, ao::Oop::fromSmallInteger(1), "bitShift:",
+                              ao::Oop::fromSmallInteger(1048576)));
+  ASSERT_TRUE(big.slot.isHeap());
+  ao::Root neg(b.roots, send1(b, ao::Oop::fromSmallInteger(0), "-", big.slot));
+  ASSERT_TRUE(neg.slot.isHeap());
+  neg.slot = send1(b, neg.slot, "-", ao::Oop::fromSmallInteger(1));
+  const auto start = std::chrono::steady_clock::now();
+  ao::Root down(b.roots, send1(b, big.slot, "bitShift:", ao::Oop::fromSmallInteger(-524288)));
+  ao::Root negDown(b.roots,
+                   send1(b, neg.slot, "bitShift:", ao::Oop::fromSmallInteger(-524288)));
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - start)
+                      .count();
+  std::printf("B8 right shift of 2^1048576 by 524288, twice: %lld ms\n",
+              static_cast<long long>(ms));
+  // 2^524288 は 524289 ビット、16385 桁（65540 バイト）。
+  ASSERT_TRUE(down.slot.isHeap());
+  EXPECT_EQ(65540u, b.heap.size(down.slot));
+  EXPECT_EQ(b.wk.largePositiveIntegerClass, b.heap.klass(down.slot));
+  ASSERT_TRUE(negDown.slot.isHeap());
+  EXPECT_EQ(b.wk.largeNegativeIntegerClass, b.heap.klass(negDown.slot));
+  EXPECT_EQ(65540u, b.heap.size(negDown.slot));
+  EXPECT_LT(ms, 3000);
 }

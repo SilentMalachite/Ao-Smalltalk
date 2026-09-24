@@ -176,6 +176,34 @@ void magShl(Digits& d, unsigned k) {
   }
 }
 
+// d >> k by moving digits and bits (time linear in the length). *lost is set when a 1 bit was
+// shifted out, so a negative value can round toward -inf.
+void magShr(Digits& d, std::uint64_t k, bool* lost) {
+  *lost = false;
+  const std::uint64_t words = k / 32;
+  const unsigned bits = static_cast<unsigned>(k % 32);
+  if (words >= d.size()) {
+    *lost = !d.empty();
+    d.clear();
+    return;
+  }
+  const auto w = static_cast<std::size_t>(words);
+  for (std::size_t i = 0; i < w && !*lost; ++i) {
+    *lost = d[i] != 0;
+  }
+  if (bits != 0 && (d[w] & ((1u << bits) - 1u)) != 0) {
+    *lost = true;
+  }
+  d.erase(d.begin(), d.begin() + static_cast<std::ptrdiff_t>(w));
+  if (bits != 0) {
+    for (std::size_t i = 0; i < d.size(); ++i) {
+      const std::uint32_t high = i + 1 < d.size() ? d[i + 1] : 0;
+      d[i] = (d[i] >> bits) | (high << (32 - bits));
+    }
+  }
+  strip(d);
+}
+
 void magFromU128(unsigned __int128 v, Digits& d) {
   d.clear();
   while (v != 0) {
@@ -837,13 +865,19 @@ Oop bitShift(CallContext& ctx, Oop a, Oop n) {
     magShl(A.d, static_cast<unsigned>(sh));
     return box(ctx, A);
   }
-  Big den;
-  den.d.push_back(1);
-  magShl(den.d, static_cast<unsigned>(-sh));
-  Big q;
-  Big r;
-  floorDivMod(A, den, q, r);
-  return box(ctx, q);
+  // Right shift: floor(A / 2^-sh). The magnitude moves right; a negative value from which a 1 bit
+  // fell off is one further from zero.
+  bool lost = false;
+  magShr(A.d, static_cast<std::uint64_t>(-sh), &lost);
+  if (A.neg && lost) {
+    Digits bumped;
+    magAdd(A.d, Digits{1}, bumped);
+    A.d = std::move(bumped);
+  }
+  if (A.d.empty()) {
+    A.neg = false;
+  }
+  return box(ctx, A);
 }
 
 Oop gcd(CallContext& ctx, Oop a, Oop b) {
