@@ -2,11 +2,16 @@
 
 @MainActor
 final class BrowserModel {
+  // SPEC §3.10: an accepted method is a CompiledMethod, so it lands in this protocol.
+  static let newMethodProtocol = "user"
+
   private(set) var categories: [String] = []
   private(set) var classes: [String] = []
   private(set) var protocols: [String] = []
   private(set) var selectors: [String] = []
   private(set) var source: String = ""
+  // The selected method has no source (AO_ERR_NOSOURCE): `source` is the runtime's placeholder.
+  private(set) var sourceIsPlaceholder = false
 
   private var didBoot = false
   private var selectedCategory: String?
@@ -45,14 +50,14 @@ final class BrowserModel {
     if let current = selectedSelector, !selectors.contains(current) {
       selectedSelector = nil
     }
-    source = loadSource()
+    (source, sourceIsPlaceholder) = loadSource()
   }
 
   func select(
     category: String,
     className: String,
     meta: Bool,
-    protocol protocolName: String,
+    protocol protocolName: String?,
     selector: String? = nil
   ) {
     selectedCategory = category
@@ -80,6 +85,11 @@ final class BrowserModel {
     return names
   }
 
+  // The category the runtime lists for the class; nil when it lists no class of that name.
+  func category(ofClass name: String) -> String? {
+    loadClasses().first { $0.name == name }?.category
+  }
+
   // Class-list rows only. Protocols stay unless the selected class changed under us.
   func applyHierarchyList(_ names: [String], selecting name: String) {
     let previous = selectedClass
@@ -98,7 +108,7 @@ final class BrowserModel {
     if let current = selectedSelector, !selectors.contains(current) {
       selectedSelector = nil
     }
-    source = loadSource()
+    (source, sourceIsPlaceholder) = loadSource()
   }
 
   private struct ListedClass {
@@ -146,17 +156,39 @@ final class BrowserModel {
     return nil
   }
 
+  // Selector of the listed method whose source is `text`. The source table keeps the accepted
+  // text as is, so this finds the method just accepted without parsing its pattern. A NOSOURCE
+  // placeholder is a lone comment and never equals an accepted method.
+  func selector(withSource text: String) -> String? {
+    guard let selectedClass else {
+      return nil
+    }
+    let meta = metaFlag
+    return selectors.first { selector in
+      let source = copyText { buffer, length in
+        ao_browser_source(selectedClass, meta, selector, buffer, length)
+      }
+      return source == text
+    }
+  }
+
+  // The runtime lists only non-empty protocols. The new-method protocol is always offered,
+  // so a class without methods on this side can still take its first one.
   private func loadProtocols() -> [String] {
     guard let selectedClass else {
       return []
     }
     let meta = metaFlag
-    return loadList(
+    var names = loadList(
       count: { ao_browser_protocol_count(selectedClass, meta) },
       at: { index, buffer, length in
         ao_browser_protocol_at(selectedClass, meta, index, buffer, length)
       }
     )
+    if !names.contains(Self.newMethodProtocol) {
+      names.append(Self.newMethodProtocol)
+    }
+    return names
   }
 
   private func loadSelectors() -> [String] {
@@ -172,19 +204,26 @@ final class BrowserModel {
     )
   }
 
-  private func loadSource() -> String {
+  // `placeholder` is true when the selected method answered AO_ERR_NOSOURCE.
+  private func loadSource() -> (text: String, placeholder: Bool) {
     guard let selectedClass else {
-      return ""
+      return ("", false)
     }
     let meta = metaFlag
     if let selectedSelector {
-      return copyText { buffer, length in
+      let copied = copyReportingNoSource { buffer, length in
         ao_browser_source(selectedClass, meta, selectedSelector, buffer, length)
-      } ?? ""
+      }
+      return (copied?.text ?? "", copied?.noSource ?? false)
     }
-    return copyText { buffer, length in
+    // A protocol with no selector is a new method; no protocol is the class definition.
+    if selectedProtocol != nil {
+      return ("", false)
+    }
+    let definition = copyText { buffer, length in
       ao_browser_class_definition(selectedClass, buffer, length)
-    } ?? ""
+    }
+    return (definition ?? "", false)
   }
 
   private var metaFlag: Int32 {
@@ -227,6 +266,12 @@ final class BrowserModel {
   }
 
   private func copyText(_ read: (UnsafeMutablePointer<CChar>, Int32) -> Int32) -> String? {
+    copyReportingNoSource(read)?.text
+  }
+
+  private func copyReportingNoSource(
+    _ read: (UnsafeMutablePointer<CChar>, Int32) -> Int32
+  ) -> (text: String, noSource: Bool)? {
     var capacity = 256
     while capacity <= 1_048_576 {
       var buffer = [CChar](repeating: 0, count: capacity)
@@ -237,9 +282,16 @@ final class BrowserModel {
         return read(base, Int32(capacity))
       }
       if rc == Int32(AO_OK) {
-        return decode(buffer)
+        return (decode(buffer), false)
       }
-      if rc != Int32(AO_ERR_RANGE) {
+      // SPEC §3.10: a method without source answers its placeholder with AO_ERR_NOSOURCE, also
+      // when cut, so a full buffer asks for a larger one.
+      if rc == Int32(AO_ERR_NOSOURCE) {
+        let text = decode(buffer)
+        if text.utf8.count < capacity - 1 {
+          return (text, true)
+        }
+      } else if rc != Int32(AO_ERR_RANGE) {
         return nil
       }
       capacity *= 2

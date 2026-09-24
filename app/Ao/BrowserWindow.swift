@@ -18,11 +18,25 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private var categoryName = "Kernel"
   private var selectedClass = "Object"
   private var meta = false
-  private var protocolName = "native"
+  // nil protocol: the pane is the class definition. A protocol with no selector: a new method.
+  private var protocolName: String? = "native"
   private var selectorName: String? = "printString"
   private var applying = false
   private var showingHierarchy = false
   private var hierarchyNames: [String] = []
+  // The text the pane got from the model; the pane differs from it after an unaccepted edit.
+  private var shownSource = ""
+  // A discard question is waiting for its answer.
+  private var confirming = false
+
+  // Asked before a selection change would replace an unaccepted edit. The callback gets true to
+  // discard the edit and change the selection, false to keep both. Tests replace it.
+  typealias DiscardConfirmation = @MainActor (NSWindow, @escaping @MainActor (Bool) -> Void) -> Void
+  var confirmDiscard: DiscardConfirmation = BrowserWindow.askToDiscard
+
+  var hasUnacceptedChanges: Bool {
+    sourceView.isEditable && sourceView.string != shownSource
+  }
 
   var title: String {
     window.title
@@ -170,26 +184,39 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     guard !applying, let table = notification.object as? NSTableView else {
       return
     }
+    let row = table.selectedRow
+    // A new category, class or side shows the class definition: no protocol, no selector.
     if table === categoryTable {
-      if let name = value(at: table.selectedRow, in: model.categories) {
-        categoryName = name
+      guard let name = value(at: row, in: model.categories) else {
+        showSelection()
+        return
+      }
+      changeSelection {
+        self.categoryName = name
+        self.protocolName = nil
+        self.selectorName = nil
       }
     } else if table === classTable {
-      if let name = value(at: table.selectedRow, in: model.classes) {
-        selectedClass = name
+      let name = value(at: row, in: model.classes)
+      changeSelection {
+        if let name {
+          self.selectedClass = name
+        }
+        self.protocolName = nil
+        self.selectorName = nil
       }
-      selectorName = nil
     } else if table === protocolTable {
-      if let name = value(at: table.selectedRow, in: model.protocols) {
-        protocolName = name
+      let name = value(at: row, in: model.protocols)
+      changeSelection {
+        self.protocolName = name
+        self.selectorName = nil
       }
-      selectorName = nil
     } else if table === selectorTable {
-      selectorName = value(at: table.selectedRow, in: model.selectors)
-    } else {
-      return
+      let name = value(at: row, in: model.selectors)
+      changeSelection {
+        self.selectorName = name
+      }
     }
-    publish()
   }
 
   func ownsWindow(_ candidate: NSWindow?) -> Bool {
@@ -201,16 +228,76 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   func accept() {
-    let outcome = submit(sourceView.string)
+    // SPEC §3.10: a method without source shows a placeholder; accepting it would replace the
+    // method, so the read-only pane never goes to the runtime.
+    guard !model.sourceIsPlaceholder else {
+      errorField.stringValue = "source not available"
+      return
+    }
+    let source = sourceView.string
+    let method = acceptsMethod
+    let outcome = submit(source, method: method)
     guard outcome.status == Int32(AO_OK) else {
       errorField.stringValue = failureText(status: outcome.status, message: outcome.message)
       return
     }
     errorField.stringValue = ""
+    guard method else {
+      showDefinedClass(from: source)
+      return
+    }
+    // The accepted method is a CompiledMethod: show it in its protocol with its own source.
+    protocolName = BrowserModel.newMethodProtocol
+    selectorName = nil
+    publish()
+    selectorName = model.selector(withSource: source)
     publish()
   }
 
+  // The accepted definition's class, in the category the runtime now lists for it. The rows the
+  // pane came from may be another class, or a category the class has just left.
+  private func showDefinedClass(from source: String) {
+    if let name = BrowserWindow.definedClassName(in: source),
+       let category = model.category(ofClass: name) {
+      categoryName = category
+      selectedClass = name
+    }
+    publish()
+  }
+
+  // The argument of the first subclass: keyword (#Name, #'Name', 'Name' or Name), as the chunk
+  // parser takes it. A subclass: in a comment or a literal is not that keyword.
+  private static func definedClassName(in source: String) -> String? {
+    var scanner = DefinitionScanner(source)
+    while let token = scanner.next() {
+      guard token == .keyword("subclass:") else {
+        continue
+      }
+      guard case .value(let name)? = scanner.next() else {
+        return nil
+      }
+      return name
+    }
+    return nil
+  }
+
   func showHierarchy() {
+    // The question already up decides alone.
+    guard !confirming else {
+      return
+    }
+    guard hasUnacceptedChanges else {
+      toggleHierarchy()
+      return
+    }
+    confirmBeforeDiscarding { proceed in
+      if proceed {
+        self.toggleHierarchy()
+      }
+    }
+  }
+
+  private func toggleHierarchy() {
     if showingHierarchy {
       showingHierarchy = false
       hierarchyNames = []
@@ -233,9 +320,47 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     guard !applying else {
       return
     }
-    meta = sender.selectedSegment == 1
-    selectorName = nil
-    publish()
+    let classSide = sender.selectedSegment == 1
+    changeSelection {
+      self.meta = classSide
+      self.protocolName = nil
+      self.selectorName = nil
+    }
+  }
+
+  // An unaccepted edit asks first: discarding applies the change, cancelling puts the rows and
+  // the side switch back and keeps the edit. A change while the question is up is not asked
+  // again; its rows and switch go back at once.
+  private func changeSelection(_ change: @escaping () -> Void) {
+    let apply = {
+      change()
+      self.publish()
+    }
+    guard !confirming else {
+      showSelection()
+      return
+    }
+    guard hasUnacceptedChanges else {
+      apply()
+      return
+    }
+    confirmBeforeDiscarding { proceed in
+      if proceed {
+        apply()
+      } else {
+        self.showSelection()
+      }
+    }
+  }
+
+  // One question at a time. The answer meets the pane as it is when it comes: with no unaccepted
+  // edit left, Cancel has nothing to keep, so the change goes ahead.
+  private func confirmBeforeDiscarding(_ proceed: @escaping @MainActor (Bool) -> Void) {
+    confirming = true
+    confirmDiscard(window) { discard in
+      self.confirming = false
+      proceed(discard || !self.hasUnacceptedChanges)
+    }
   }
 
   private func showInitialSelection() {
@@ -266,9 +391,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       model.applyHierarchyList(hierarchyNames, selecting: keepClass)
     }
     selectedClass = model.selectedClass ?? ""
-    if let kept = model.selectedProtocol {
-      protocolName = kept
-    }
+    protocolName = model.selectedProtocol
     selectorName = model.selectedSelector
     reloadLists()
   }
@@ -279,15 +402,30 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     classTable.reloadData()
     protocolTable.reloadData()
     selectorTable.reloadData()
+    applying = false
+    showSelection()
+    sourceView.string = model.source
+    shownSource = model.source
+    sourceView.isEditable = !model.sourceIsPlaceholder
+    // Undo steps recorded against the old text would act on the new one.
+    sourceView.undoManager?.removeAllActions()
+  }
+
+  // The rows and the side switch follow the shown selection. The source pane is left alone.
+  private func showSelection() {
+    applying = true
     select(categoryName, in: categoryTable, values: model.categories)
     select(selectedClass, in: classTable, values: model.classes)
-    select(protocolName, in: protocolTable, values: model.protocols)
+    if let protocolName {
+      select(protocolName, in: protocolTable, values: model.protocols)
+    } else {
+      protocolTable.deselectAll(nil)
+    }
     if let selectorName {
       select(selectorName, in: selectorTable, values: model.selectors)
     } else {
       selectorTable.deselectAll(nil)
     }
-    sourceView.string = model.source
     sideControl.selectedSegment = meta ? 1 : 0
     applying = false
   }
@@ -394,12 +532,29 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     text.isEditable = true
     text.isSelectable = true
     text.isRichText = false
+    configureSourceEditing(text)
     if let container = text.textContainer {
       container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
       container.widthTracksTextView = true
     }
     scroll.documentView = text
     return (scroll, text)
+  }
+
+  // The macOS form of a destructive question: Discard first and destructive, which leaves the
+  // sheet without a default button, so Return answers nothing; Cancel keeps the Escape key that
+  // NSAlert gives a button titled Cancel.
+  private static func askToDiscard(_ window: NSWindow, _ decide: @escaping @MainActor (Bool) -> Void) {
+    let alert = NSAlert()
+    alert.messageText = "Discard the changes you have not accepted?"
+    alert.informativeText = "The source pane has edits that were not accepted."
+    alert.addButton(withTitle: "Discard").hasDestructiveAction = true
+    alert.addButton(withTitle: "Cancel")
+    alert.beginSheetModal(for: window) { response in
+      MainActor.assumeIsolated {
+        decide(response == .alertFirstButtonReturn)
+      }
+    }
   }
 
   private static func makeErrorField() -> NSTextField {
@@ -411,11 +566,17 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     return field
   }
 
+  // A selected protocol or selector sends a method; only the class with neither sends a class
+  // definition.
+  private var acceptsMethod: Bool {
+    protocolName != nil || selectorName != nil
+  }
+
   // Failure leaves sourceView.string alone. refresh runs only after AO_OK.
-  private func submit(_ source: String) -> (status: Int32, message: String) {
+  private func submit(_ source: String, method: Bool) -> (status: Int32, message: String) {
     var err = AoSpan()
     let status: Int32
-    if selectorName == nil {
+    if !method {
       status = source.withCString { src in
         withUnsafeMutablePointer(to: &err) { errPtr in
           ao_accept_class(src, errPtr)
@@ -433,6 +594,142 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       }
     }
     return (status, spanMessage(err))
+  }
+}
+
+// The tokens BrowserWindow.definedClassName needs, read as compiler/src/Scanner.cpp reads them: a
+// comment is skipped, and a string, symbol or character literal is one token, so a subclass:
+// inside one is not a keyword.
+private struct DefinitionScanner {
+  enum Token: Equatable {
+    case keyword(String)
+    // An identifier, a symbol or a string: the tokens whose text the chunk parser takes as a
+    // definition keyword's argument.
+    case value(String)
+    case other
+  }
+
+  private let chars: [Unicode.Scalar]
+  private var index = 0
+
+  init(_ source: String) {
+    chars = Array(source.unicodeScalars)
+  }
+
+  // nil at the end, and where the Scanner answers an error token and stops: a comment or string
+  // that does not end, or a lone # or $.
+  mutating func next() -> Token? {
+    guard skipTrivia(), let c = peek() else {
+      return nil
+    }
+    if isLetter(c) {
+      let word = readWord()
+      if peek() == ":" && peek(1) != "=" {
+        index += 1
+        return .keyword(word + ":")
+      }
+      return .value(word)
+    }
+    switch c {
+    case "'":
+      return readString().map(Token.value)
+    case "#":
+      index += 1
+      return readSymbol()
+    case "$":
+      // One character, whatever it is ($' and $" too).
+      guard index + 1 < chars.count else {
+        return nil
+      }
+      index += 2
+      return .other
+    default:
+      index += 1
+      return .other
+    }
+  }
+
+  private func peek(_ offset: Int = 0) -> Unicode.Scalar? {
+    index + offset < chars.count ? chars[index + offset] : nil
+  }
+
+  private func isLetter(_ c: Unicode.Scalar) -> Bool {
+    ("A"..."Z").contains(c) || ("a"..."z").contains(c)
+  }
+
+  private func isLetterOrDigit(_ c: Unicode.Scalar) -> Bool {
+    isLetter(c) || ("0"..."9").contains(c)
+  }
+
+  // False inside a comment that does not end.
+  private mutating func skipTrivia() -> Bool {
+    while let c = peek() {
+      if [" ", "\t", "\n", "\r", "\u{0C}", "\u{0B}"].contains(c) {
+        index += 1
+        continue
+      }
+      guard c == "\"" else {
+        return true
+      }
+      guard let end = chars[(index + 1)...].firstIndex(of: "\"") else {
+        return false
+      }
+      index = end + 1
+    }
+    return true
+  }
+
+  // At a letter.
+  private mutating func readWord() -> String {
+    var word = ""
+    while let c = peek(), isLetterOrDigit(c) {
+      word.unicodeScalars.append(c)
+      index += 1
+    }
+    return word
+  }
+
+  // At the opening quote. '' inside is one quote.
+  private mutating func readString() -> String? {
+    var text = ""
+    index += 1
+    while let c = peek() {
+      index += 1
+      guard c == "'" else {
+        text.unicodeScalars.append(c)
+        continue
+      }
+      guard peek() == "'" else {
+        return text
+      }
+      text.unicodeScalars.append(c)
+      index += 1
+    }
+    return nil
+  }
+
+  // After the #: #'text', #name or #key:words: is a value. #( #[ and a binary selector are not,
+  // and the token after the # is read on its own.
+  private mutating func readSymbol() -> Token? {
+    guard let c = peek() else {
+      return nil
+    }
+    if c == "'" {
+      return readString().map(Token.value)
+    }
+    guard isLetter(c) else {
+      return .other
+    }
+    var text = ""
+    while let part = peek(), isLetter(part) {
+      text += readWord()
+      guard peek() == ":" else {
+        break
+      }
+      text += ":"
+      index += 1
+    }
+    return .value(text)
   }
 }
 

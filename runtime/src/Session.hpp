@@ -49,6 +49,9 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
                 AoInspectFn inspect, void* inspectUser);
 // `replaced`, when a heap object, is dropped from the rooted table before `method` is stored.
 void rememberMethodSource(Oop method, Oop text, Oop replaced);
+// SPEC §3.9: a class whose shape changed takes its methods' sources along. The pair of `from`
+// names `to` from now on. False when `from` has no source.
+bool moveMethodSource(Oop from, Oop to);
 bool methodSource(Oop method, std::string& utf8);
 void clearMethodSources();
 void ensureKernelNatives(Session& s);

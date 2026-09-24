@@ -30,7 +30,12 @@ enum MainMenu {
       .separator(),
       responderItem("Close", key: "w", action: #selector(NSWindow.performClose(_:)))
     ]))
+    let redo = responderItem("Redo", key: "z", action: Selector(("redo:")))
+    redo.keyEquivalentModifierMask = [.command, .shift]
     bar.addItem(top("Edit", items: [
+      responderItem("Undo", key: "z", action: Selector(("undo:"))),
+      redo,
+      .separator(),
       responderItem("Cut", key: "x", action: #selector(NSText.cut(_:))),
       responderItem("Copy", key: "c", action: #selector(NSText.copy(_:))),
       responderItem("Paste", key: "v", action: #selector(NSText.paste(_:))),

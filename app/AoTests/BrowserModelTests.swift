@@ -15,9 +15,13 @@ final class BrowserModelTests: XCTestCase {
     model.refresh()
     let cats = model.categories
     XCTAssertTrue(cats.contains("Kernel"))
+    model.select(category: "Kernel", className: "Object", meta: false, protocol: nil)
+    XCTAssertEqual(model.selectors, [])
+    XCTAssertTrue(model.source.contains("subclass: #Object"))
+    // A protocol without a selector is a new method: the pane starts empty.
     model.select(category: "Kernel", className: "Object", meta: false, protocol: "native")
     XCTAssertTrue(model.selectors.contains("printString"))
-    XCTAssertTrue(model.source.contains("subclass: #Object"))
+    XCTAssertEqual(model.source, "")
     model.select(
       category: "Kernel",
       className: "Object",
@@ -27,6 +31,17 @@ final class BrowserModelTests: XCTestCase {
     )
     XCTAssertTrue(model.source.contains("ao_Object_printString"))
     ao_runtime_shutdown()
+  }
+
+  func testProtocolListAlwaysOffersUserForNewMethods() {
+    let model = BrowserModel()
+    XCTAssertEqual(model.boot(), 0)
+    model.select(category: "Kernel", className: "Object", meta: false, protocol: nil)
+    XCTAssertEqual(model.protocols, ["native", "user"])
+    model.select(category: "Kernel", className: "Object", meta: false, protocol: "user")
+    XCTAssertEqual(model.selectedProtocol, "user")
+    XCTAssertEqual(model.selectors, [])
+    XCTAssertEqual(model.source, "")
   }
 
   func testEmptyCategoryClearsClassProtocolsAndSource() {
@@ -165,6 +180,10 @@ final class BrowserModelTests: XCTestCase {
       return
     }
     classTable.selectRowIndexes(IndexSet(integer: classRow), byExtendingSelection: false)
+    // A class row shows its definition with no protocol; the protocol row lists its selectors.
+    XCTAssertNil(browser.model.selectedProtocol)
+    XCTAssertTrue(browser.model.source.contains("subclass: #Class"))
+    selectRow("native", in: protocolTable, values: browser.model.protocols)
     let subclassSelector =
       "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:"
     XCTAssertEqual(selectorTable.numberOfRows, browser.model.selectors.count)
@@ -187,9 +206,24 @@ final class BrowserModelTests: XCTestCase {
       return
     }
     classTable.selectRowIndexes(IndexSet(integer: transcriptRow), byExtendingSelection: false)
+    selectRow("native", in: protocolTable, values: browser.model.protocols)
     XCTAssertEqual(selectorTable.numberOfRows, browser.model.selectors.count)
     XCTAssertTrue(browser.model.selectors.contains("show:"))
     XCTAssertFalse(browser.model.selectors.contains("printString"))
+  }
+
+  private func selectRow(
+    _ name: String,
+    in table: NSTableView,
+    values: [String],
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    guard let row = values.firstIndex(of: name) else {
+      XCTFail("missing row \(name)", file: file, line: line)
+      return
+    }
+    table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
   }
 
   private func assertPositiveFrame(

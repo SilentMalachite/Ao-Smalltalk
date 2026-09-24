@@ -415,9 +415,26 @@ Oop ao_Object_printString(CallContext& ctx, const Oop& receiver, const Oop*, std
 
 Oop ao_Object_printOn_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
-  Oop str = ao_Object_printString(ctx, receiver, nullptr, 0);
-  auto sel = Symbol::intern(ctx.wk, "nextPutAll:");
-  return send(ctx, args[0], sel, &str, 1, nullptr);
+  // SPEC §3.10 printString: printOn: sends #printString, so a native printString (SmallInteger's
+  // decimal, ...) and a user's override both show on the stream. receiver and args[0] are rooted
+  // slots and are read again after the send; the answer is rooted across the next one. intern
+  // does not collect.
+  Root printed(ctx.roots, send(ctx, receiver, ctx.wk.intern("printString"), nullptr, 0, nullptr));
+  // SPEC §3.4: a send that returns while the frames unwind ends this native, with no more sends.
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  if (printed.slot.isEmpty()) {
+    // SPEC §3.3: printString failed without a reason; the Symbol is fetched again after the send.
+    return abortFailedSend(ctx, ctx.wk.intern("printString"));
+  }
+  const Oop written = send(ctx, args[0], ctx.wk.intern("nextPutAll:"), &printed.slot, 1, nullptr);
+  // An abort in nextPutAll:, or its failure without a reason, ends printOn: as it did before.
+  if (unwinding(ctx) || written.isEmpty()) {
+    return Oop{};
+  }
+  // SPEC §3.10: the answer is the receiver, read again from its rooted slot after the sends.
+  return receiver;
 }
 
 Oop ao_Object_storeOn_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {

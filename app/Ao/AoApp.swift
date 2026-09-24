@@ -70,6 +70,37 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     app.activate()
   }
 
+  // Shows the alert for a failed Save or Open Image. Tests replace it.
+  var presentAlert: @MainActor (NSAlert) -> Void = { alert in
+    _ = alert.runModal()
+  }
+
+  // The ABI answers only AO_OK or AO_ERR, so the alert names the file and no reason.
+  func saveImage(to url: URL) -> Bool {
+    guard saveImageFile(at: url) == Int32(AO_OK) else {
+      reportImageFailure("Could not save the image", url: url)
+      return false
+    }
+    return true
+  }
+
+  func openImage(from url: URL) -> Bool {
+    guard openImageFile(at: url, transcript: launch?.transcript) == Int32(AO_OK) else {
+      reportImageFailure("Could not open the image", url: url)
+      return false
+    }
+    browser?.noteImageLoaded()
+    return true
+  }
+
+  private func reportImageFailure(_ message: String, url: URL) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = message
+    alert.informativeText = url.path
+    presentAlert(alert)
+  }
+
   private func presentSaveImage() {
     let panel = NSSavePanel()
     panel.canCreateDirectories = true
@@ -78,7 +109,7 @@ public final class AoApp: NSObject, NSApplicationDelegate {
         guard response == .OK, let url = panel.url else {
           return
         }
-        _ = saveImageFile(at: url)
+        _ = self.saveImage(to: url)
       }
     }
   }
@@ -93,9 +124,7 @@ public final class AoApp: NSObject, NSApplicationDelegate {
         guard response == .OK, let url = panel.url else {
           return
         }
-        if openImageFile(at: url, transcript: self.launch?.transcript) == Int32(AO_OK) {
-          self.browser?.noteImageLoaded()
-        }
+        _ = self.openImage(from: url)
       }
     }
   }
