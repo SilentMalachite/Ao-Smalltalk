@@ -32,6 +32,10 @@ Oop ao_AoTest_assert_equals_(CallContext& ctx, const Oop& receiver, const Oop* a
   Root expected(ctx.roots, args[1]);
   const Oop eq = ctx.wk.intern("=");
   const Oop same = send(ctx, actual.slot, eq, &expected.slot, 1, nullptr);
+  // SPEC §3.4: a send that returns while the frames unwind ends this native, with no more sends.
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   if (same.isTrue()) {
     return self.slot;
   }
@@ -39,7 +43,13 @@ Oop ao_AoTest_assert_equals_(CallContext& ctx, const Oop& receiver, const Oop* a
   // 1 回目の printString が full GC を起こすと Symbol も動く。セレクタはルートに載せる。
   Root printSel(ctx.roots, ctx.wk.intern("printString"));
   Root left(ctx.roots, send(ctx, actual.slot, printSel.slot, nullptr, 0, nullptr));
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   Root right(ctx.roots, send(ctx, expected.slot, printSel.slot, nullptr, 0, nullptr));
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
   std::string message = Str::toUtf8(ctx.heap, left.slot);
   message.append(" ~= ");
   message += Str::toUtf8(ctx.heap, right.slot);
@@ -55,7 +65,9 @@ Oop ao_AoTest_assert_equals_(CallContext& ctx, const Oop& receiver, const Oop* a
 }
 
 // The only subclass: that calls WellKnown::define is the five-keyword Class method.
-Oop makeAoTest(CallContext& ctx) {
+// SPEC §3.4: the send is an outermost entry. An abort it ends in is read into reason and cleared,
+// and no class is answered.
+Oop makeAoTest(CallContext& ctx, std::string* reason) {
   Root name(ctx.roots, ctx.wk.intern("AoTest"));
   Root empty(ctx.roots, ctx.wk.intern(""));
   if (!name.slot.isHeap() || !empty.slot.isHeap()) {
@@ -64,7 +76,19 @@ Oop makeAoTest(CallContext& ctx) {
   Oop args[5] = {name.slot, empty.slot, empty.slot, empty.slot, empty.slot};
   const Oop sel = ctx.wk.intern(
       "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:");
-  return send(ctx, ctx.wk.objectClass, sel, args, 5, nullptr);
+  // Neither clearing nor refreshing collects, so args stay valid.
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
+  Root cls(ctx.roots, send(ctx, ctx.wk.objectClass, sel, args, 5, nullptr));
+  const bool aborted = unwinding(ctx);
+  if (ctx.aborting) {
+    *reason = abortReasonText(ctx);
+  }
+  if (aborted && reason->empty()) {
+    *reason = "evaluation aborted";
+  }
+  clearUnwinding(ctx);
+  return aborted ? Oop{} : cls.slot;
 }
 
 bool readFile(const std::filesystem::path& path, std::string* out) {
@@ -164,11 +188,13 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     std::fprintf(stderr, "ao --test: %s: no .st files\n", dir.string().c_str());
     return 1;
   }
-  Root cls(ctx.roots, makeAoTest(ctx));
+  std::string reason;
+  Root cls(ctx.roots, makeAoTest(ctx, &reason));
   if (!cls.slot.isHeap() ||
       !kernel::putNative(ctx.heap, ctx.wk, ctx.cache, cls.slot, "assert:equals:", 2,
                          "ao_AoTest_assert_equals_", ao_AoTest_assert_equals_)) {
-    std::fputs("ao --test: cannot define AoTest\n", stderr);
+    std::fprintf(stderr, "ao --test: cannot define AoTest%s%s\n", reason.empty() ? "" : ": ",
+                 reason.c_str());
     return 1;
   }
   Root doIt(ctx.roots, ctx.wk.intern("doIt"));

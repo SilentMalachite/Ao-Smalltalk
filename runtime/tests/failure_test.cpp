@@ -10,6 +10,10 @@
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/Send.hpp"
+#include "ao/kernel/Install.hpp"
+
+// 最外の入口（ワークスペースの作成）がセッションに残す状態を見る。公開ヘッダではない。
+#include "../src/Session.hpp"
 
 #include <cstring>
 #include <string>
@@ -201,4 +205,136 @@ TEST(FailureAbortBoot, SendToEmptyReceiverAborts) {
   ASSERT_TRUE(b.ctx.aborting);
   EXPECT_EQ("failed: #class", ao::abortReasonText(b.ctx));
   ao::clearUnwinding(b.ctx);
+}
+
+namespace {
+
+int acceptClassNamed(const char* name) {
+  const std::string def = std::string("Object subclass: #") + name +
+                          "\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+                          "  poolDictionaries: ''\n  category: 'B3-Test'\n";
+  AoSpan err{};
+  return ao_accept_class(def.c_str(), &err);
+}
+
+}  // namespace
+
+// 指摘 2 / SPEC §3.4: abort の途中の後始末が非局所リターン（^）を始めても、abort を優先する。
+// 後始末の ^ は捨て、最初の理由で最外まで戻る。
+TEST_F(FailureAbort, CleanupReturnDoesNotSwallowAbort) {
+  EXPECT_EQ(AO_ERR_EVAL, print("[:k | [nil error: 'boom'] ensure: [^k]] value: 7"));
+  EXPECT_STREQ("boom", err_.message);
+  EXPECT_STREQ("", out_);
+  ASSERT_EQ(AO_OK, acceptClassNamed("B3Ens"));
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("B3Ens", 0,
+                                    "swallow\n  [nil error: 'boom'] ensure: [^#swallowed].\n"
+                                    "  ^#after\n",
+                                    &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B3Ens", 0,
+                                    "curtailed\n  [nil zork] ifCurtailed: [^#curtailed].\n"
+                                    "  ^#after\n",
+                                    &err))
+      << err.message;
+  EXPECT_EQ(AO_ERR_EVAL, print("B3Ens new swallow"));
+  EXPECT_STREQ("boom", err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, print("B3Ens new curtailed"));
+  EXPECT_STREQ("doesNotUnderstand: #zork", err_.message);
+  // 後始末そのものは走る。
+  ASSERT_EQ(AO_OK, doIt("log := OrderedCollection new")) << err_.message;
+  EXPECT_EQ(AO_ERR_EVAL,
+            doIt("[:k | [nil error: 'boom'] ensure: [log add: #cleanup. ^k]] value: 7"));
+  EXPECT_STREQ("boom", err_.message);
+  EXPECT_EQ("1", printed("log size"));
+  EXPECT_EQ("7", printed("3 + 4"));
+}
+
+// SPEC §3.4: 止めていたのが非局所リターンなら、後始末が始めた巻き戻しを優先する（従来の規則）。
+TEST_F(FailureAbort, CleanupUnwindingWinsOverPausedReturn) {
+  ASSERT_EQ(AO_OK, acceptClassNamed("B3Nlr"));
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("B3Nlr", 0, "twice\n  [^1] ensure: [^2]\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B3Nlr", 0, "curtailedTwice\n  [^1] ifCurtailed: [^2]\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B3Nlr", 0, "thenAbort\n  [^1] ensure: [nil zap]\n", &err))
+      << err.message;
+  EXPECT_EQ("2", printed("B3Nlr new twice"));
+  EXPECT_EQ("2", printed("B3Nlr new curtailedTwice"));
+  EXPECT_EQ(AO_ERR_EVAL, print("B3Nlr new thenAbort"));
+  EXPECT_STREQ("doesNotUnderstand: #zap", err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, print("[:k | [^k] ensure: [nil zap]] value: 3"));
+  EXPECT_STREQ("doesNotUnderstand: #zap", err_.message);
+}
+
+// 指摘 3 / SPEC §3.3: 後始末が abort しても、最初の理由を保つ。
+TEST_F(FailureAbort, CleanupFailureKeepsFirstReason) {
+  EXPECT_EQ(AO_ERR_EVAL, doIt("[nil error: 'first'] ensure: [nil second]"));
+  EXPECT_STREQ("first", err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, doIt("[nil error: 'first'] ensure: [nil error: 'second']"));
+  EXPECT_STREQ("first", err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, doIt("[nil first] ensure: [nil error: 'second']"));
+  EXPECT_STREQ("doesNotUnderstand: #first", err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, doIt("[nil zork] ifCurtailed: [nil error: 'second']"));
+  EXPECT_STREQ("doesNotUnderstand: #zork", err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, doIt("[[nil error: 'first'] ensure: [nil error: 'second']]"
+                              " ensure: [nil error: 'third']"));
+  EXPECT_STREQ("first", err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, doIt("[1/0] ensure: [nil error: 'second']"));
+  EXPECT_STREQ("division by zero", err_.message);
+}
+
+// 指摘 3: 後始末の理由のハンドルは解放し、退避した最初の理由のハンドルは最外まで保つ。
+// 漏れれば表が伸び、先に解放すれば GC のあとで理由が読めない。
+TEST(FailureAbortBoot, CleanupFailureReleasesItsReasonHandle) {
+  Boot b;
+  ao::Gc gc(b.heap, b.roots);
+  for (int i = 0; i < 64; ++i) {
+    EXPECT_TRUE(runDoIt(b, "^[nil error: 'first'] ensure: [nil error: 'second'. nil third]")
+                    .isEmpty());
+    ASSERT_TRUE(b.ctx.aborting);
+    for (int k = 0; k < 200; ++k) {
+      (void)ao::allocateRetry(b.ctx, b.wk.arrayClass, 64, 0);
+    }
+    gc.collectNursery();
+    gc.collectOld();
+    EXPECT_EQ("first", ao::abortReasonText(b.ctx));
+    ao::clearUnwinding(b.ctx);
+  }
+  const std::uint32_t probe = b.roots.pushHandle(ao::Oop::nil());
+  EXPECT_LT(probe, 8u);
+  b.roots.dropHandle(probe);
+}
+
+namespace {
+
+ao::Oop abortingNew(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+  return ao::abortEvaluation(ctx, std::string("workspace refused"));
+}
+
+}  // namespace
+
+// 指摘 5 / SPEC §3.4: ワークスペースの作成は最外である。前の abort を持ち越さずに作り、
+// 自分の abort は失敗（AO_ERR）にして、理由を読んで消す。
+TEST(FailureOutermost, WorkspaceResetStartsAndEndsClean) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  ao::CallContext& ctx = *s->ctx;
+  (void)ao::abortEvaluation(ctx, std::string("left over"));
+  ASSERT_TRUE(ao::unwinding(ctx));
+  EXPECT_EQ(AO_OK, ao_workspace_reset());
+  EXPECT_FALSE(ao::unwinding(ctx));
+  EXPECT_EQ("", ao::abortReasonText(ctx));
+
+  ASSERT_TRUE(ao::kernel::putNative(s->heap, s->wk, s->cache.get(), s->wk.dictionaryMetaclass,
+                                    "new", 0, "b3_test_abortingNew", abortingNew));
+  EXPECT_EQ(AO_ERR, ao_workspace_reset());
+  EXPECT_FALSE(ao::unwinding(ctx));
+  EXPECT_EQ("", ao::abortReasonText(ctx));
+  const std::uint32_t probe = s->roots.pushHandle(ao::Oop::nil());
+  EXPECT_LT(probe, 8u);
+  s->roots.dropHandle(probe);
+  ao_runtime_shutdown();
 }

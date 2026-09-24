@@ -6,6 +6,7 @@
 #include "ao/TestRunner.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Send.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -1198,4 +1199,100 @@ TEST(NativeSendUnwind, NativesAnswerEmptyWhenTheirSendAborts) {
     ASSERT_FALSE(arg.slot.isEmpty());
     expectAbortedEmpty(b, send1(b, rcvr.slot, c.sel, arg.slot));
   }
+}
+
+namespace {
+
+int gB3PrintStrings = 0;
+
+ao::Oop countingPrintString(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+  ++gB3PrintStrings;
+  return ao::Str::fromUtf8(ctx, "B3Eq");
+}
+
+}  // namespace
+
+// 指摘 4 / SPEC §3.4: assert:equals: は、= が abort したら printString も error: も送らない。
+// Smalltalk のメソッドは巻き戻しの最中に始まらないので、数えるネイティブの printString で見る。
+TEST(AoTestRunner, AssertEqualsStopsAfterAbortingEquals) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #B3Eq\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B3-Test'!\n"
+                               "!B3Eq methodsFor: 'b3'!\n"
+                               "= other\n"
+                               "  ^self kaboom! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B3Eq");
+  ASSERT_TRUE(cls.isHeap());
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, &b.cache, cls, "printString", 0,
+                                    "b3_test_countingPrintString", countingPrintString));
+  TestDir dir("ao-test-runner-aborting-equals");
+  ASSERT_TRUE(dir.write("a.st", "self assert: B3Eq new equals: 1.\n"));
+  gB3PrintStrings = 0;
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string err = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(1, code);
+  EXPECT_NE(std::string::npos, err.find("a.st: doesNotUnderstand: #kaboom")) << err;
+  EXPECT_EQ(0, gB3PrintStrings);
+  // 一致しないだけなら、従来どおり両方の printString を理由にする。
+  ASSERT_TRUE(dir.write("a.st", "self assert: 1 equals: B3Eq new.\n"));
+  testing::internal::CaptureStderr();
+  EXPECT_EQ(1, ao::runSmalltalkTests(b.ctx, dir.path.string()));
+  const std::string mismatch = testing::internal::GetCapturedStderr();
+  EXPECT_NE(std::string::npos, mismatch.find("a.st: 1 ~= B3Eq")) << mismatch;
+  EXPECT_EQ(1, gB3PrintStrings);
+}
+
+namespace {
+
+ao::Oop abortingSubclass(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+  return ao::abortEvaluation(ctx, std::string("no test class"));
+}
+
+}  // namespace
+
+// 指摘 5 / SPEC §3.4: テストクラスの作成は最外である。前の abort を持ち越さずに作る。
+// クラス側の subclass:… が Smalltalk のメソッドなら、持ち越した abort で途中から巻き戻ってしまう。
+TEST(AoTestRunner, TestClassIsMadeAfterLeftOverAbort) {
+  Boot b;
+  TestDir dir("ao-test-runner-left-over-abort");
+  ASSERT_TRUE(dir.write("a.st", "self assert: 1 + 2 equals: 3.\n"));
+  auto img = ao::compiler::compileMethod(
+      "subclass: a instanceVariableNames: b classVariableNames: c poolDictionaries: d "
+      "category: e\n"
+      "  ^super subclass: a instanceVariableNames: b classVariableNames: c poolDictionaries: d "
+      "category: e");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ASSERT_TRUE(ao::installMethod(b.ctx, b.heap.klass(b.wk.objectClass), img.image).isHeap());
+  (void)ao::abortEvaluation(b.ctx, std::string("left over"));
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string err = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(0, code) << err;
+  EXPECT_FALSE(ao::unwinding(b.ctx));
+}
+
+// 指摘 5 / SPEC §3.4: テストクラスの作成の abort は ao --test の失敗で、理由を読んで消す。
+TEST(AoTestRunner, AbortingTestClassFailsAndClears) {
+  Boot b;
+  TestDir dir("ao-test-runner-aborting-class");
+  ASSERT_TRUE(dir.write("a.st", "self assert: 1 + 2 equals: 3.\n"));
+  ASSERT_TRUE(ao::kernel::putNative(
+      b.heap, b.wk, &b.cache, b.heap.klass(b.wk.objectClass),
+      "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:", 5,
+      "b3_test_abortingSubclass", abortingSubclass));
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string err = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(1, code);
+  EXPECT_NE(std::string::npos, err.find("no test class")) << err;
+  EXPECT_FALSE(ao::unwinding(b.ctx));
+  EXPECT_EQ("", ao::abortReasonText(b.ctx));
 }

@@ -51,8 +51,16 @@ bool installEmptyWorkspace(Session& session) {
   if (!sel.isHeap()) {
     return false;
   }
-  const Oop dict = send(*session.ctx, session.wk.dictionaryClass, sel, nullptr, 0, nullptr);
-  if (!dict.isHeap()) {
+  // SPEC §3.4: making the workspace is an outermost entry. What an earlier entry left over is not
+  // blamed on it, and an abort it ends in is its failure, read and cleared here. Neither clearing
+  // nor refreshing collects.
+  CallContext& ctx = *session.ctx;
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
+  const Oop dict = send(ctx, session.wk.dictionaryClass, sel, nullptr, 0, nullptr);
+  const bool aborted = unwinding(ctx);
+  clearUnwinding(ctx);
+  if (aborted || !dict.isHeap()) {
     return false;
   }
   session.workspace = dict;
@@ -60,11 +68,22 @@ bool installEmptyWorkspace(Session& session) {
 }
 
 bool loadedImageProbes(Session& session) {
+  // SPEC §3.4 / §3.10: each probe is an outermost entry, and an abort is a failed probe.
+  CallContext& ctx = *session.ctx;
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
   Oop arg = Oop::fromSmallInteger(2);
-  const Oop three =
-      send(*session.ctx, Oop::fromSmallInteger(1), session.wk.intern("+"), &arg, 1, nullptr);
-  const Oop isNil = send(*session.ctx, Oop::nil(), session.wk.intern("isNil"), nullptr, 0, nullptr);
-  return three.isSmallInteger() && three.smallIntegerValue() == 3 && isNil.isTrue();
+  const Oop three = send(ctx, Oop::fromSmallInteger(1), session.wk.intern("+"), &arg, 1, nullptr);
+  const bool added = !unwinding(ctx) && three.isSmallInteger() && three.smallIntegerValue() == 3;
+  clearUnwinding(ctx);
+  if (!added) {
+    return false;
+  }
+  refreshStackLimit(ctx);
+  const Oop isNil = send(ctx, Oop::nil(), session.wk.intern("isNil"), nullptr, 0, nullptr);
+  const bool answered = !unwinding(ctx) && isNil.isTrue();
+  clearUnwinding(ctx);
+  return answered;
 }
 
 void unrootMethodSources(Session& session) {

@@ -71,12 +71,16 @@ void runAside(CallContext& ctx, Oop cleanup) {
   ++ctx.cleanupDepth;
   const bool ran = callBlock(ctx, blk.slot, nullptr, 0, &ignored);
   --ctx.cleanupDepth;
-  if (!ran) {
+  // SPEC §3.4: unwinding the cleanup started itself wins over a paused non-local return, but not
+  // over a paused abort. Then the cleanup's ^ is dropped, and so is its own abort's reason: the
+  // first reason stays (SPEC §3.3).
+  if (!ran && !aborting) {
     if (reasonHandle != CallContext::kNoAbortReasonHandle) {
       ctx.roots.dropHandle(reasonHandle);
     }
     return;
   }
+  clearUnwinding(ctx);
   ctx.nonlocalReturn = nonlocal;
   ctx.nonlocalHome = home.slot;
   ctx.nonlocalValue = value.slot;
