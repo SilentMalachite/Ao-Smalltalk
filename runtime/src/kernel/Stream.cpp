@@ -574,6 +574,9 @@ void installStream(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.streamClass, "nextPut:", 1, "ao_Stream_nextPut_", ao_Stream_nextPut_);
   putNative(heap, wk, wk.streamClass, "nextPutAll:", 1, "ao_Stream_nextPutAll_",
             ao_Stream_nextPutAll_);
+  // SPEC §3.11: the thunk nextPutAll: passes to do: takes this name, so an image holding one that
+  // a user's do: kept rebinds it at load.
+  (void)NativeRegistry::addNamed("ao_Stream_nextPutAll_each", ao_Stream_nextPutAll_each, nullptr);
   putNative(heap, wk, wk.streamClass, "cr", 0, "ao_Stream_cr", ao_Stream_cr);
 
   putNative(heap, wk, wk.positionableStreamMetaclass, "on:", 1, "ao_PositionableStream_on_",

@@ -936,3 +936,70 @@ TEST(ImageSave, UnwritableDirectoryFailsWithoutFiles) {
   std::error_code ec;
   fs::remove_all(dir, ec);
 }
+
+// B6 review (06 High #2) / SPEC §3.11: 失敗シナリオ。nextPutAll: が do: に渡すネイティブのブロック（thunk）
+// を利用者の do: がリテラル配列に残すと、ao_image_save は AO_OK なのに、同じファイルの ao_image_load は
+// AO_ERR だった（thunk の NativeMethod の名前 ao_NativeBlock_thunk を結び直せない）。thunk は関数の登録名を
+// 持つので、そのイメージはロードでき、逃げた thunk はロードのあとも同じストリームに書く。
+TEST(ImageSaveLoad, EscapedStreamThunkSurvivesSaveAndLoad) {
+  const auto path = std::filesystem::path(testing::TempDir()) / "b6-escaped-thunk.aoimage";
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const char* def =
+      "Object subclass: #B6Keeper\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B6-Test'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B6Keeper", 0, "holder\n  ^#(1)\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B6Keeper", 0, "do: aBlock\n  self holder at: 1 put: aBlock\n",
+                                    &err))
+      << err.message;
+  char out[64];
+  auto eval = [&](const std::string& src, int mode) {
+    return ao_eval(src.c_str(), static_cast<int>(src.size()), mode, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, eval("Smalltalk at: #B6KeptStream put: (WriteStream on: String new)",
+                        AO_EVAL_DOIT))
+      << err.message;
+  ASSERT_EQ(AO_OK, eval("B6KeptStream nextPutAll: B6Keeper new", AO_EVAL_DOIT)) << err.message;
+  ASSERT_EQ(AO_OK, eval("(B6Keeper new holder at: 1) class == BlockContext", AO_EVAL_PRINTIT))
+      << err.message;
+  ASSERT_STREQ("true", out);
+
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  EXPECT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, eval("(B6Keeper new holder at: 1) value: $z. B6KeptStream contents",
+                        AO_EVAL_PRINTIT))
+      << err.message;
+  EXPECT_STREQ("'z'", out);
+  ao_runtime_shutdown();
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.11: 名前を登録していない関数の thunk（ao_NativeBlock_thunk）がヒープに逃げていれば、保存は失敗
+// する。そのイメージはロードで結び直せないからである。保存先の旧イメージは残る。
+TEST(ImageSave, UnresolvableNativeNameFailsAndKeepsOldImage) {
+  const auto dir = freshDir("b6-unnamed-thunk");
+  const auto path = dir / "old.aoimage";
+  Boot b;
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> before = readAll(path);
+  auto body = [](ao::CallContext&, const ao::Oop& receiver, const ao::Oop*, std::uint32_t) {
+    return receiver;
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 0));
+  ASSERT_TRUE(blk.slot.isHeap());
+  const ao::Oop method = b.heap.slotAt(blk.slot, ao::kCtxMethod);
+  EXPECT_EQ("ao_NativeBlock_thunk", ao::NativeMethod::nameBytes(b.heap, method));
+  EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> after = readAll(path);
+  EXPECT_TRUE(before == after);
+  EXPECT_EQ(std::vector<std::string>{"old.aoimage"}, fileNames(dir));
+  // 逃げた thunk を手放せば、保存できる。
+  blk.slot = ao::Oop::nil();
+  EXPECT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}

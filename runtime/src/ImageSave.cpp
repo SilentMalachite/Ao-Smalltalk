@@ -2,6 +2,7 @@
 
 #include "ao/Globals.hpp"
 #include "ao/ImageFormat.hpp"
+#include "ao/NativeMethod.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -98,6 +99,29 @@ bool traceStrong(Heap& heap, Roots& roots, Trace& tr) {
     }
   }
   return !tr.failed && tr.end >= ImageFormat::kImageFillerBytes && (tr.end % 8u) == 0;
+}
+
+// SPEC §3.11: a load rebinds every NativeMethod by its name, so a heap holding one whose name this
+// runtime has not registered (an unnamed thunk) saves as an image that cannot load. The shape is
+// the one the load checks.
+bool nativeNamesResolve(Heap& heap, const WellKnown& wk, const Trace& tr) {
+  for (Oop obj : tr.order) {
+    if (heap.klass(obj) != wk.nativeMethodClass) {
+      continue;
+    }
+    if ((heap.flags(obj) & kFlagBytes) != 0 || heap.size(obj) < kNativeSlotCount) {
+      return false;
+    }
+    const Oop name = heap.slotAt(obj, kNativeSlotName);
+    if (!name.isHeap() || (heap.flags(name) & kFlagBytes) == 0 || !heap.klass(name).isNil()) {
+      return false;
+    }
+    const std::string_view bytes(reinterpret_cast<const char*>(heap.bytes(name)), heap.size(name));
+    if (!NativeRegistry::findName(bytes, nullptr)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool encodeOop(const Trace& tr, Oop obj, bool missingBecomesNil, std::uint64_t* bits) {
@@ -298,7 +322,7 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   }
 
   Trace tr;
-  if (!traceStrong(heap, roots, tr)) {
+  if (!traceStrong(heap, roots, tr) || !nativeNamesResolve(heap, wk, tr)) {
     return false;
   }
 

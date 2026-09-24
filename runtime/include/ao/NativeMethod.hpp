@@ -93,6 +93,9 @@ namespace NativeRegistry {
 std::uint32_t add(NativeFn fn);
 bool addNamed(std::string_view name, NativeFn fn, std::uint32_t* outIndex);
 bool findName(std::string_view name, std::uint32_t* outIndex);
+// The name the function at idx was first registered under (addNamed), or empty. The view is valid
+// until the next add or addNamed.
+std::string_view nameAt(std::uint32_t idx);
 std::uint32_t size();
 }
 
