@@ -186,23 +186,20 @@ double nearestDouble(const Mag& num, const Mag& den) {
   return std::ldexp(static_cast<double>(kept), drop - shift);
 }
 
-// SPEC §3.8: the Float nearest digits.fraction × radix^exp, computed exactly. (std::from_chars
-// for double is not available before macOS 26, and it only reads radix 10 and 16.)
-double nearestFloat(std::string_view digits, std::string_view fraction, int radix,
-                    std::int64_t exp) {
+// The double nearest mantissa × radix^scale, or nearest (mantissa + 1) × radix^scale when plusOne.
+double exactFloat(std::string_view mantissa, int radix, std::int64_t scale, bool plusOne) {
   const auto r = static_cast<std::uint32_t>(radix);
   Mag num;
-  for (const char c : digits) {
+  for (const char c : mantissa) {
     magMulAdd(num, r, static_cast<std::uint32_t>(digitValue(c, radix)));
   }
-  for (const char c : fraction) {
-    magMulAdd(num, r, static_cast<std::uint32_t>(digitValue(c, radix)));
+  if (plusOne) {
+    magMulAdd(num, 1, 1);
   }
   if (num.empty()) {
     return 0.0;
   }
-  // num × radix^scale. Far outside the double range it is infinity or zero without computing.
-  const std::int64_t scale = exp - static_cast<std::int64_t>(fraction.size());
+  // Far outside the double range it is infinity or zero without computing.
   const double log2 = magBits(num) + static_cast<double>(scale) * std::log2(radix);
   if (log2 > 1100) {
     return std::numeric_limits<double>::infinity();
@@ -216,6 +213,38 @@ double nearestFloat(std::string_view digits, std::string_view fraction, int radi
     magMulAdd(scaled, r, 0);
   }
   return nearestDouble(num, den);
+}
+
+// The digits that decide a long mantissa. An even radix writes every halfway point between two
+// doubles in fewer significant digits.
+constexpr std::size_t kRoundingDigits = 1100;
+
+// SPEC §3.8: the Float nearest digits.fraction × radix^exp, computed exactly. (std::from_chars
+// for double is not available before macOS 26, and it only reads radix 10 and 16.)
+double nearestFloat(std::string_view digits, std::string_view fraction, int radix,
+                    std::int64_t exp) {
+  std::string mantissa(digits);
+  mantissa += fraction;
+  const std::size_t first = mantissa.find_first_not_of('0');
+  if (first == std::string::npos) {
+    return 0.0;
+  }
+  const std::string_view significant = std::string_view(mantissa).substr(first);
+  const std::int64_t scale = exp - static_cast<std::int64_t>(fraction.size());
+  if (significant.size() <= kRoundingDigits) {
+    return exactFloat(significant, radix, scale, false);
+  }
+  // The value lies from the first digits up to less than one unit in their last place above them.
+  // Rounding keeps order, so when both ends round to the same double, so does the value. Only
+  // digits that start like a halfway point need the rest, which takes time quadratic in them.
+  const std::string_view kept = significant.substr(0, kRoundingDigits);
+  const std::int64_t keptScale =
+      scale + static_cast<std::int64_t>(significant.size() - kRoundingDigits);
+  const double low = exactFloat(kept, radix, keptScale, false);
+  if (low == exactFloat(kept, radix, keptScale, true)) {
+    return low;
+  }
+  return exactFloat(significant, radix, scale, false);
 }
 
 }  // namespace

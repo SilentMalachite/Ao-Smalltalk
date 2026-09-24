@@ -1,4 +1,5 @@
 #include "ao/Scanner.hpp"
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <gtest/gtest.h>
@@ -185,6 +186,43 @@ TEST(Scanner, FloatIsCorrectlyRounded) {
             value("2r1.1111111111111111111111111111111111111111111111111111e1023"));
   EXPECT_EQ(std::numeric_limits<double>::infinity(), value("2r1.0e99999999999999999999"));
   EXPECT_EQ(0.0, value("2r1.0e-99999999999999999999"));
+}
+
+// Codex review of PR #7: a Float built two numbers as long as its mantissa, one digit at a time,
+// so 100 000 digits took 4 s (quadratic; before B7 it was linear). The first digits decide the
+// value unless they are those of a halfway point between two doubles. Then every digit counts.
+TEST(Scanner, LongFloatMantissaIsRoundedInLinearTime) {
+  auto value = [](const std::string& src) {
+    Scanner s(src);
+    auto t = s.next();
+    EXPECT_EQ(Tok::Number, t.kind);
+    EXPECT_TRUE(t.isFloat);
+    EXPECT_EQ(Tok::Eof, s.next().kind);
+    return t.number;
+  };
+  constexpr std::size_t kLong = 200000;
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_EQ(1.0, value("1." + std::string(kLong, '0')));
+  EXPECT_EQ(1.0, value("1." + std::string(kLong, '0') + "1"));
+  EXPECT_EQ(1.0 / 3.0, value("0." + std::string(kLong, '3')));
+  EXPECT_EQ(0.5, value("3r0." + std::string(kLong, '1')));
+  std::string thirds = "2r0.";
+  for (std::size_t k = 0; k < kLong / 2; ++k) {
+    thirds += "01";
+  }
+  EXPECT_EQ(1.0 / 3.0, value(thirds));
+  EXPECT_EQ(std::numeric_limits<double>::infinity(), value("5" + std::string(kLong, '0') + ".0"));
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - start)
+                      .count();
+  EXPECT_LT(ms, 3000);
+
+  // 2^53 + 1 is halfway between 2^53 and 2^53 + 2. Past 1100 digits the tie goes to even, and
+  // any digit other than 0 at the end rounds up.
+  const std::string halfway = "9007199254740993.";
+  EXPECT_EQ(9007199254740992.0, value(halfway + std::string(1200, '0')));
+  EXPECT_EQ(9007199254740994.0, value(halfway + std::string(1199, '0') + "1"));
+  EXPECT_EQ(9007199254740992.0, value("9007199254740992." + std::string(1199, '9')));
 }
 
 // SPEC §3.8: an integer mantissa with an exponent of 0 or more is the Integer
