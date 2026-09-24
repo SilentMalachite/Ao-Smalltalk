@@ -180,6 +180,95 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(pane.isEditable)
   }
 
+  // 07 Medium: an unaccepted edit asks before any selection change; Cancel puts the rows back
+  // and keeps the edit.
+  func testUnacceptedEditAsksBeforeSelectionChangeAndCancelKeepsIt() {
+    var err = AoSpan()
+    let other = "Object subclass: #B5Other\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'B5-Other'\n"
+    let defined = other.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+    XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var asked = 0
+    browser.confirmDiscard = { window, decide in
+      XCTAssertTrue(window === browser.window)
+      asked += 1
+      decide(false)
+    }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b5a\n  ^1\n")
+    browser.accept()
+    browser.replaceSource("b5b\n  ^2\n")
+    browser.accept()
+    XCTAssertEqual(browser.model.selectedSelector, "b5b")
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+    XCTAssertEqual(asked, 0)
+
+    let edited = "b5b\n  ^3\n"
+    browser.replaceSource(edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    selectSelector("b5a", in: browser, expecting: "b5b")
+    selectProtocol("native", in: browser, expecting: "user")
+    selectClass("Array", in: browser, expecting: "Object")
+    selectCategory("B5-Other", in: browser)
+    guard let side = segmentedControls(in: browser.window.contentView).first else {
+      XCTFail("missing instance/class switch")
+      return
+    }
+    side.selectedSegment = 1
+    XCTAssertTrue(side.sendAction(side.action, to: side.target))
+    let classes = browser.model.classes
+    browser.showHierarchy()
+    XCTAssertEqual(asked, 6)
+
+    XCTAssertEqual(browser.sourceText, edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    XCTAssertEqual(side.selectedSegment, 0)
+    XCTAssertEqual(browser.model.classes, classes)
+    XCTAssertEqual(selectedName(in: categoryTable(in: browser), values: browser.model.categories), "Kernel")
+    XCTAssertEqual(selectedName(in: classTable(in: browser), values: browser.model.classes), "Object")
+    XCTAssertEqual(selectedName(in: protocolTable(in: browser), values: browser.model.protocols), "user")
+    XCTAssertEqual(selectedName(in: selectorTable(in: browser), values: browser.model.selectors), "b5b")
+    XCTAssertEqual(printIt("Object new b5b"), "2")
+  }
+
+  func testDiscardingAnUnacceptedEditChangesTheSelectionAndClearsUndo() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var asked = 0
+    browser.confirmDiscard = { _, decide in
+      asked += 1
+      decide(true)
+    }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b5a\n  ^1\n")
+    browser.accept()
+    selectProtocol("native", in: browser)
+    XCTAssertEqual(asked, 0)
+    selectProtocol("user", in: browser)
+    selectSelector("b5a", in: browser)
+    guard let pane = sourceView(in: browser), let undo = pane.undoManager else {
+      XCTFail("missing source view or undo manager")
+      return
+    }
+    pane.window?.makeFirstResponder(pane)
+    pane.setSelectedRange(NSRange(location: (pane.string as NSString).length, length: 0))
+    pane.insertText("0", replacementRange: NSRange(location: NSNotFound, length: 0))
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    XCTAssertTrue(undo.canUndo)
+
+    selectClass("Array", in: browser)
+    XCTAssertEqual(asked, 1)
+    XCTAssertTrue(browser.sourceText.contains("subclass: #Array"))
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+    // The old edit's undo would act on the new text, so the reload drops it.
+    XCTAssertFalse(undo.canUndo)
+    XCTAssertEqual(printIt("Object new b5a"), "1")
+  }
+
   func testClassDefinitionPaneAcceptsClassSource() {
     let browser = BrowserWindow()
     selectClass("Array", in: browser)
@@ -327,14 +416,16 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(transcript.text.contains("z"))
   }
 
-  private func selectClass(_ name: String, in browser: BrowserWindow) {
+  // `expecting` is the selection after the click when it differs from the clicked row
+  // (a cancelled change keeps the old one).
+  private func selectClass(_ name: String, in browser: BrowserWindow, expecting: String? = nil) {
     guard let table = classTable(in: browser),
           let row = browser.model.classes.firstIndex(of: name) else {
       XCTFail("missing class \(name)")
       return
     }
     table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-    XCTAssertEqual(browser.model.selectedClass, name)
+    XCTAssertEqual(browser.model.selectedClass, expecting ?? name)
   }
 
   private func selectCategory(_ name: String, in browser: BrowserWindow) {
@@ -347,14 +438,14 @@ final class AcceptTests: XCTestCase {
   }
 
   // nil deselects the protocol row.
-  private func selectProtocol(_ name: String?, in browser: BrowserWindow) {
+  private func selectProtocol(_ name: String?, in browser: BrowserWindow, expecting: String? = nil) {
     guard let table = protocolTable(in: browser) else {
       XCTFail("missing protocol table")
       return
     }
     guard let name else {
       table.deselectAll(nil)
-      XCTAssertNil(browser.model.selectedProtocol)
+      XCTAssertEqual(browser.model.selectedProtocol, expecting)
       return
     }
     guard let row = browser.model.protocols.firstIndex(of: name) else {
@@ -362,17 +453,17 @@ final class AcceptTests: XCTestCase {
       return
     }
     table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-    XCTAssertEqual(browser.model.selectedProtocol, name)
+    XCTAssertEqual(browser.model.selectedProtocol, expecting ?? name)
   }
 
-  private func selectSelector(_ name: String, in browser: BrowserWindow) {
+  private func selectSelector(_ name: String, in browser: BrowserWindow, expecting: String? = nil) {
     guard let table = selectorTable(in: browser),
           let row = browser.model.selectors.firstIndex(of: name) else {
       XCTFail("missing selector \(name)")
       return
     }
     table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-    XCTAssertEqual(browser.model.selectedSelector, name)
+    XCTAssertEqual(browser.model.selectedSelector, expecting ?? name)
   }
 
   private func sourceView(in browser: BrowserWindow) -> NSTextView? {

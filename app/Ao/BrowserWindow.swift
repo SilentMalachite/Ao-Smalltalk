@@ -24,6 +24,17 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private var applying = false
   private var showingHierarchy = false
   private var hierarchyNames: [String] = []
+  // The text the pane got from the model; the pane differs from it after an unaccepted edit.
+  private var shownSource = ""
+
+  // Asked before a selection change would replace an unaccepted edit. The callback gets true to
+  // discard the edit and change the selection, false to keep both. Tests replace it.
+  typealias DiscardConfirmation = @MainActor (NSWindow, @escaping @MainActor (Bool) -> Void) -> Void
+  var confirmDiscard: DiscardConfirmation = BrowserWindow.askToDiscard
+
+  var hasUnacceptedChanges: Bool {
+    sourceView.isEditable && sourceView.string != shownSource
+  }
 
   var title: String {
     window.title
@@ -171,28 +182,39 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     guard !applying, let table = notification.object as? NSTableView else {
       return
     }
+    let row = table.selectedRow
     // A new category, class or side shows the class definition: no protocol, no selector.
     if table === categoryTable {
-      if let name = value(at: table.selectedRow, in: model.categories) {
-        categoryName = name
-        protocolName = nil
-        selectorName = nil
+      guard let name = value(at: row, in: model.categories) else {
+        showSelection()
+        return
+      }
+      changeSelection {
+        self.categoryName = name
+        self.protocolName = nil
+        self.selectorName = nil
       }
     } else if table === classTable {
-      if let name = value(at: table.selectedRow, in: model.classes) {
-        selectedClass = name
+      let name = value(at: row, in: model.classes)
+      changeSelection {
+        if let name {
+          self.selectedClass = name
+        }
+        self.protocolName = nil
+        self.selectorName = nil
       }
-      protocolName = nil
-      selectorName = nil
     } else if table === protocolTable {
-      protocolName = value(at: table.selectedRow, in: model.protocols)
-      selectorName = nil
+      let name = value(at: row, in: model.protocols)
+      changeSelection {
+        self.protocolName = name
+        self.selectorName = nil
+      }
     } else if table === selectorTable {
-      selectorName = value(at: table.selectedRow, in: model.selectors)
-    } else {
-      return
+      let name = value(at: row, in: model.selectors)
+      changeSelection {
+        self.selectorName = name
+      }
     }
-    publish()
   }
 
   func ownsWindow(_ candidate: NSWindow?) -> Bool {
@@ -231,6 +253,18 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   func showHierarchy() {
+    guard hasUnacceptedChanges else {
+      toggleHierarchy()
+      return
+    }
+    confirmDiscard(window) { discard in
+      if discard {
+        self.toggleHierarchy()
+      }
+    }
+  }
+
+  private func toggleHierarchy() {
     if showingHierarchy {
       showingHierarchy = false
       hierarchyNames = []
@@ -253,10 +287,32 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     guard !applying else {
       return
     }
-    meta = sender.selectedSegment == 1
-    protocolName = nil
-    selectorName = nil
-    publish()
+    let classSide = sender.selectedSegment == 1
+    changeSelection {
+      self.meta = classSide
+      self.protocolName = nil
+      self.selectorName = nil
+    }
+  }
+
+  // An unaccepted edit asks first: discarding applies the change, cancelling puts the rows and
+  // the side switch back and keeps the edit.
+  private func changeSelection(_ change: @escaping () -> Void) {
+    let apply = {
+      change()
+      self.publish()
+    }
+    guard hasUnacceptedChanges else {
+      apply()
+      return
+    }
+    confirmDiscard(window) { discard in
+      if discard {
+        apply()
+      } else {
+        self.showSelection()
+      }
+    }
   }
 
   private func showInitialSelection() {
@@ -298,6 +354,18 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     classTable.reloadData()
     protocolTable.reloadData()
     selectorTable.reloadData()
+    applying = false
+    showSelection()
+    sourceView.string = model.source
+    shownSource = model.source
+    sourceView.isEditable = !model.sourceIsPlaceholder
+    // Undo steps recorded against the old text would act on the new one.
+    sourceView.undoManager?.removeAllActions()
+  }
+
+  // The rows and the side switch follow the shown selection. The source pane is left alone.
+  private func showSelection() {
+    applying = true
     select(categoryName, in: categoryTable, values: model.categories)
     select(selectedClass, in: classTable, values: model.classes)
     if let protocolName {
@@ -310,8 +378,6 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     } else {
       selectorTable.deselectAll(nil)
     }
-    sourceView.string = model.source
-    sourceView.isEditable = !model.sourceIsPlaceholder
     sideControl.selectedSegment = meta ? 1 : 0
     applying = false
   }
@@ -425,6 +491,19 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     }
     scroll.documentView = text
     return (scroll, text)
+  }
+
+  private static func askToDiscard(_ window: NSWindow, _ decide: @escaping @MainActor (Bool) -> Void) {
+    let alert = NSAlert()
+    alert.messageText = "Discard the changes you have not accepted?"
+    alert.informativeText = "The source pane has edits that were not accepted."
+    alert.addButton(withTitle: "Discard")
+    alert.addButton(withTitle: "Cancel")
+    alert.beginSheetModal(for: window) { response in
+      MainActor.assumeIsolated {
+        decide(response == .alertFirstButtonReturn)
+      }
+    }
   }
 
   private static func makeErrorField() -> NSTextField {
