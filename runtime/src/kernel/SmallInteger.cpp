@@ -249,12 +249,13 @@ Oop ao_Integer_timesRepeat_(CallContext& ctx, const Oop& receiver, const Oop* ar
   return receiver;
 }
 
+// SPEC §3.6: Unicode scalar values only (SPEC §5.9): 0 to 0x10FFFF without the surrogates.
 Oop ao_Integer_asCharacter(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isSmallInteger()) {
     return Oop{};
   }
   const auto v = receiver.smallIntegerValue();
-  if (v < 0 || v > 0x10FFFF) {
+  if (v < 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) {
     return Oop{};
   }
   return Oop::fromCharacter(static_cast<char32_t>(v));

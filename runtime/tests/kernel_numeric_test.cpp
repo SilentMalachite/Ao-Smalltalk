@@ -509,3 +509,18 @@ TEST_F(KernelNumeric, PointAndRectangleSubclassesUseTheNatives) {
                             "intersect: (Rectangle origin: (Point x: 5 y: 5) corner: "
                             "(Point x: 20 y: 20))) origin = (Point x: 5 y: 5)"));
 }
+
+// 03 Low: asCharacter は Unicode スカラー値だけを受け付ける（サロゲート、負数、0x10FFFF 超は失敗）。
+TEST_F(KernelNumeric, AsCharacterAcceptsOnlyUnicodeScalarValues) {
+  EXPECT_EQ("0", printIt("0 asCharacter asInteger"));
+  EXPECT_EQ("$A", printIt("65 asCharacter"));
+  EXPECT_EQ("55295", printIt("55295 asCharacter asInteger"));
+  EXPECT_EQ("57344", printIt("57344 asCharacter asInteger"));
+  EXPECT_EQ("1114111", printIt("1114111 asCharacter asInteger"));
+  EXPECT_EQ("<eval error: failed: #asCharacter>", printIt("55296 asCharacter"));
+  EXPECT_EQ("<eval error: failed: #asCharacter>", printIt("56320 asCharacter"));
+  EXPECT_EQ("<eval error: failed: #asCharacter>", printIt("57343 asCharacter"));
+  EXPECT_EQ("<eval error: failed: #asCharacter>", printIt("-1 asCharacter"));
+  EXPECT_EQ("<eval error: failed: #asCharacter>", printIt("1114112 asCharacter"));
+  EXPECT_EQ("<eval error: failed: #asCharacter>", printIt("(1 bitShift: 70) asCharacter"));
+}
