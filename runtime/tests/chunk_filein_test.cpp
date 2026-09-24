@@ -238,3 +238,34 @@ TEST(ChunkFileIn, ChunksAfterSectionEndAreExpressions) {
   EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("Smalltalk")).isNil());
   EXPECT_TRUE(b.wk.named("B7Bar").isNil());
 }
+
+// 05 Low / SPEC §3.8 チャンク形式: セクションの中では、パターンが `subclass: x` や `methodsFor: y`
+// のチャンクもメソッドである。クラス定義と読んでファイルの残りを止めない。
+TEST(ChunkFileIn, SubclassPatternInSectionIsAMethod) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Pat\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Pat methodsFor: 'a'!\n"
+      "subclass: x\n"
+      "  ^x + 1!\n"
+      "methodsFor: y\n"
+      "  ^y + 2! !\n"
+      "!Object subclass: #B7PatAfter\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root inst(b.roots, send0(b, b.wk.named("B7Pat"), "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  EXPECT_EQ(ao::Oop::fromSmallInteger(5),
+            send1(b, inst.slot, "subclass:", ao::Oop::fromSmallInteger(4)));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(6),
+            send1(b, inst.slot, "methodsFor:", ao::Oop::fromSmallInteger(4)));
+  EXPECT_TRUE(b.wk.named("B7PatAfter").isHeap());
+}

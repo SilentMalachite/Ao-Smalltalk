@@ -27,6 +27,8 @@ struct RawChunk {
   SourceSpan span;
   // Ended by "! !", which closes a methodsFor: section.
   bool endsSection = false;
+  // Led by "!", which closes the section before it (an empty chunk in standard chunk format).
+  bool introduced = false;
 };
 
 bool atLineEnd(std::string_view src, std::uint32_t p) {
@@ -101,7 +103,8 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     if (i >= n) {
       break;
     }
-    if (src[i] == '!') {
+    const bool introduced = src[i] == '!';
+    if (introduced) {
       i++;
     }
     const bool prose = proseNext;
@@ -191,6 +194,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     raw.span.start = start;
     raw.span.end = end;
     raw.endsSection = endsSection;
+    raw.introduced = introduced;
     out.push_back(std::move(raw));
   }
   return out;
@@ -347,29 +351,35 @@ std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileEr
     }
   };
   for (const RawChunk& raw : splitChunks(src)) {
-    const HeadKind hk = classify(raw.text);
-    if (hk == HeadKind::MethodsFor) {
+    // SPEC §3.8: the `!` that leads a chunk ends the section before it, so a `!` header is a
+    // header wherever it is.
+    if (raw.introduced) {
       flush();
-      pending = parseMethodsFor(raw.text);
-      pending.span = raw.span;
-      collecting = true;
-    } else if (hk == HeadKind::ClassDef) {
-      flush();
-      acts.push_back(parseClassDef(raw.text));
-      acts.back().span = raw.span;
-    } else if (collecting) {
+    }
+    if (collecting) {
+      // Inside a section every chunk is a method, also one whose pattern is `subclass: x`.
       ChunkMethod m;
       m.source = std::string(raw.text);
       m.span = raw.span;
       pending.methods.push_back(std::move(m));
     } else {
-      // SPEC §3.8: outside a section, also right after the `! !` that ended one, a chunk that is
-      // not a header or a class definition is an expression.
-      ChunkAction doit;
-      doit.kind = ChunkKind::DoIt;
-      doit.source = std::string(raw.text);
-      doit.span = raw.span;
-      acts.push_back(std::move(doit));
+      const HeadKind hk = classify(raw.text);
+      if (hk == HeadKind::MethodsFor) {
+        pending = parseMethodsFor(raw.text);
+        pending.span = raw.span;
+        collecting = true;
+      } else if (hk == HeadKind::ClassDef) {
+        acts.push_back(parseClassDef(raw.text));
+        acts.back().span = raw.span;
+      } else {
+        // Outside a section, also right after the `! !` that ended one, a chunk that is not a
+        // header or a class definition is an expression.
+        ChunkAction doit;
+        doit.kind = ChunkKind::DoIt;
+        doit.source = std::string(raw.text);
+        doit.span = raw.span;
+        acts.push_back(std::move(doit));
+      }
     }
     if (raw.endsSection) {
       flush();

@@ -260,6 +260,44 @@ TEST(Chunk, ChunksAfterSectionEndAreExpressions) {
   EXPECT_EQ("3 + 4", acts[1].source);
 }
 
+// SPEC §3.8 チャンク形式: inside a section every chunk that is not a `!` header is a method, also
+// one whose pattern is `subclass: x` or `methodsFor: x`. A chunk led by `!` ends the section. A
+// header without the `!` is a header outside a section only.
+TEST(Chunk, SectionChunksAreMethodsUntilABangLedChunk) {
+  const char* src =
+      "!Foo methodsFor: 'a'!\n"
+      "subclass: x\n"
+      "  ^x!\n"
+      "methodsFor: y\n"
+      "  ^y!\n"
+      "!Transcript show: 'x'!\n"
+      "two\n"
+      "  ^2!\n"
+      "!Object subclass: #Bar\n"
+      "  category: 'T'!\n"
+      "Bar methodsFor: 'b'!\n"
+      "three\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(5u, acts.size());
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
+  EXPECT_EQ("Foo", acts[0].className);
+  ASSERT_EQ(2u, acts[0].methods.size());
+  EXPECT_EQ("subclass: x\n  ^x", acts[0].methods[0].source);
+  EXPECT_EQ("methodsFor: y\n  ^y", acts[0].methods[1].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Transcript show: 'x'", acts[1].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[2].kind);
+  EXPECT_EQ("two\n  ^2", acts[2].source);
+  ASSERT_EQ(ao::compiler::ChunkKind::ClassDef, acts[3].kind);
+  EXPECT_EQ("Bar", acts[3].className);
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[4].kind);
+  EXPECT_EQ("Bar", acts[4].className);
+  ASSERT_EQ(1u, acts[4].methods.size());
+  EXPECT_EQ("three\n  ^3", acts[4].methods[0].source);
+}
+
 // SPEC §3.10: a class definition chunk is the definition message alone.
 TEST(Chunk, SoleDefinitionIsTheMessageAlone) {
   struct Case {

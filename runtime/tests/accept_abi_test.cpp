@@ -356,6 +356,34 @@ TEST(AcceptAbi, AcceptClassRefusesChunksAfterSectionEnd) {
   ao_runtime_shutdown();
 }
 
+// 05 Low / SPEC §3.8 チャンク形式: セクションの中では、パターンが `subclass: x` のチャンクもメソッド
+// である。クラス定義と読んで「not a class definition」で拒まない。前に `!` が無いヘッダも、
+// セクションの外ならヘッダである。
+TEST(AcceptAbi, AcceptClassKeepsSubclassPatternAMethod) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const char* src =
+      "Object subclass: #B7AccPat\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7AccPat methodsFor: 'a'!\n"
+      "subclass: x\n"
+      "  ^x + 1! !\n"
+      "B7AccPat methodsFor: 'b'!\n"
+      "methodsFor: y\n"
+      "  ^y + 2! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(src, &err)) << err.message;
+  char out[64];
+  const char* expr = "(B7AccPat new subclass: 4) + (B7AccPat new methodsFor: 4)";
+  ASSERT_EQ(AO_OK, ao_eval(expr, static_cast<int>(std::strlen(expr)), AO_EVAL_PRINTIT, out, 64,
+                           &err))
+      << err.message;
+  EXPECT_STREQ("11", out);
+  ao_runtime_shutdown();
+}
+
 // 指摘 8 / SPEC §3.10: クラス定義メッセージのあとに文が続けば、何も適用せずに拒む。
 TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
