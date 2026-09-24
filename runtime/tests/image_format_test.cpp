@@ -62,10 +62,10 @@ TEST(ImageFormat, HeaderRoundTripAndRejects) {
   EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
   EXPECT_EQ("not an Ao image", reason);
   ao::ImageFormat::writeHeader(buf.data(), h);
-  buf[4] = std::byte{3};
+  buf[4] = std::byte{4};
   buf[5] = std::byte{0};
   EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
-  EXPECT_EQ("unsupported image version 3", reason);
+  EXPECT_EQ("unsupported image version 4", reason);
   ao::ImageFormat::writeHeader(buf.data(), h);
   buf[6] = std::byte{32};
   EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
@@ -90,9 +90,10 @@ TEST(ImageFormat, HeaderRoundTripAndRejects) {
 }
 
 // B4 review (Codex P2) / SPEC §3.11: 失敗シナリオ。版が 1 のままで、B4 より前の旧形式と壊れた
-// ファイルが区別できなかった。形式の版は 2 で、版 1 はヘッダの段階で理由付きで拒む。
+// ファイルが区別できなかった。版 1 はヘッダの段階で理由付きで拒む。B9 で Dictionary と Set が
+// ハッシュ表になり、形式の版は 3 になった。版 2 も同じく拒む。
 TEST(ImageFormat, VersionOneIsRefusedWithReason) {
-  EXPECT_EQ(2u, ao::ImageFormat::kImageVersion);
+  EXPECT_EQ(3u, ao::ImageFormat::kImageVersion);
   ao::ImageFormat::ImageHeader h;
   h.version = 1;
   h.pointerBits = ao::ImageFormat::kImagePointerBits;
@@ -106,4 +107,8 @@ TEST(ImageFormat, VersionOneIsRefusedWithReason) {
   std::string reason;
   EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
   EXPECT_EQ("unsupported image version 1", reason);
+  h.version = 2;
+  ao::ImageFormat::writeHeader(buf.data(), h);
+  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
+  EXPECT_EQ("unsupported image version 2", reason);
 }

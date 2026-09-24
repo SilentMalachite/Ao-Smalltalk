@@ -832,12 +832,23 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
   std::vector<char> bytes = readAll(path);
   ASSERT_GT(bytes.size(), 6u);
-  EXPECT_EQ(2, bytes[4]);
+  EXPECT_EQ(3, bytes[4]);
   EXPECT_EQ(0, bytes[5]);
   {
     Loaded current;
     std::string reason = "unchanged";
     ASSERT_TRUE(ao::Image::load(current.heap, current.roots, current.wk, path.string(), &reason));
+  }
+  // B9 / SPEC §3.11: version 2 has the flat Dictionary and Set pairs the hashed natives cannot
+  // read, so it is refused at the header like version 1.
+  bytes[4] = 2;
+  ASSERT_TRUE(writeAll(path, bytes));
+  {
+    Loaded old;
+    std::string reason;
+    EXPECT_FALSE(ao::Image::load(old.heap, old.roots, old.wk, path.string(), &reason));
+    EXPECT_EQ("unsupported image version 2", reason);
+    EXPECT_EQ(0u, old.heap.oldUsed());
   }
   bytes[4] = 1;
   ASSERT_TRUE(writeAll(path, bytes));
@@ -872,6 +883,10 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ASSERT_EQ(AO_OK, ao_eval("b4keep + 1", 10, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
   EXPECT_STREQ("42", out);
   bytes[4] = 2;
+  ASSERT_TRUE(writeAll(path, bytes));
+  EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str(), &err));
+  EXPECT_STREQ("unsupported image version 2", err.message);
+  bytes[4] = 3;
   ASSERT_TRUE(writeAll(path, bytes));
   EXPECT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err));
   EXPECT_STREQ("", err.message);
