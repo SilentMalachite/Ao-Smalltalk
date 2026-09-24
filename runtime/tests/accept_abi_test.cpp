@@ -380,8 +380,8 @@ TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   EXPECT_EQ(before, ao_browser_class_count());
   char buf[256];
   EXPECT_EQ(AO_ERR, ao_browser_class_definition("B3Pq", buf, 256));
-  ASSERT_EQ(AO_OK, printIt("(Smalltalk at: #B3Zz) isNil")) << err.message;
-  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("Smalltalk includesKey: #B3Zz")) << err.message;
+  EXPECT_STREQ("false", out);
   // 末尾の `.` だけなら受け付ける。
   ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B3Pq instanceVariableNames: '' "
                                    "classVariableNames: '' poolDictionaries: '' category: 'P'.\n",
@@ -1346,5 +1346,94 @@ TEST(AcceptAbi, ClassNamesAreSymbolsAndMetaclassNamesFollowThem) {
   ASSERT_EQ(AO_OK, ao_image_load(path));
   std::remove(path);
   expectChecks("loaded");
+  ao_runtime_shutdown();
+}
+
+// 01 Medium / 00 High / SPEC §3.6: Smalltalk は SmalltalkImage で、名前（Symbol）から値への辞書を
+// 持つ。Workspace も Accept したメソッドも、グローバルの名前を実行時にこの辞書で引くので、Accept が
+// 先でも後でも Smalltalk at:put: の値を読む。subclass: で作ったクラスと at:put: で足した名前は辞書に
+// 入り、保存して読み直しても残る。
+TEST(AcceptAbi, SmalltalkIsTheGlobalDictionary) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto run = [&](const char* src, int mode) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), mode, out, 128, &err);
+  };
+  auto printIt = [&](const char* src) { return run(src, AO_EVAL_PRINTIT); };
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "probeB4ZapEarly\n  ^Zap\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("3 probeB4ZapEarly")) << err.message;
+  EXPECT_STREQ("nil", out);
+  ASSERT_EQ(AO_OK, printIt("Smalltalk at: #Zap put: 3")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "probeB4ZapLate\n  ^Zap\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "probeStIsNil\n  ^Smalltalk isNil\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, run(b5Definition("Object", "B4Reg", "", "B4-Test").c_str(), AO_EVAL_DOIT))
+      << err.message;
+  const struct {
+    const char* source;
+    const char* printed;
+  } checks[] = {
+      {"Smalltalk isNil", "false"},
+      {"Smalltalk class == SmalltalkImage", "true"},
+      {"3 probeStIsNil", "false"},
+      {"(Smalltalk at: #Object) == Object", "true"},
+      {"(Smalltalk at: 'Object') == Object", "true"},
+      {"(Smalltalk at: #Smalltalk) == Smalltalk", "true"},
+      {"(Smalltalk at: #Processor) == Processor", "true"},
+      {"Smalltalk includesKey: #Nope", "false"},
+      {"Smalltalk includesKey: #Object", "true"},
+      {"Smalltalk includesKey: 3", "false"},
+      {"Smalltalk at: #Nope ifAbsent: [7]", "7"},
+      {"(Smalltalk at: #Object ifAbsent: [7]) == Object", "true"},
+      {"Zap", "3"},
+      {"Smalltalk at: #Zap", "3"},
+      {"3 probeB4ZapEarly", "3"},
+      {"3 probeB4ZapLate", "3"},
+      {"Smalltalk includesKey: #B4Reg", "true"},
+      {"(Smalltalk at: #B4Reg) == B4Reg", "true"},
+      {"B4Reg new class == B4Reg", "true"},
+  };
+  const struct {
+    const char* source;
+    const char* reason;
+  } failures[] = {
+      {"Smalltalk at: #Nope", "key not found: #Nope"},
+      {"Smalltalk at: 3", "key not found"},
+      {"Smalltalk at: #Object put: 3", "cannot rebind Kernel global: Object"},
+      {"Smalltalk at: #Smalltalk put: 3", "cannot rebind Kernel global: Smalltalk"},
+      {"Smalltalk at: #Processor put: 3", "cannot rebind Kernel global: Processor"},
+      {"Smalltalk at: 3 put: 4", "key must be a Symbol or String"},
+  };
+  auto expectChecks = [&](const char* when) {
+    for (const auto& c : checks) {
+      ASSERT_EQ(AO_OK, printIt(c.source)) << when << ": " << c.source << ": " << err.message;
+      EXPECT_STREQ(c.printed, out) << when << ": " << c.source;
+    }
+    for (const auto& f : failures) {
+      EXPECT_EQ(AO_ERR_EVAL, printIt(f.source)) << when << ": " << f.source;
+      EXPECT_STREQ(f.reason, err.message) << when << ": " << f.source;
+    }
+    // 拒んだ at:put: は何も変えない。
+    ASSERT_EQ(AO_OK, printIt("(Smalltalk at: #Object) == Object")) << err.message;
+    EXPECT_STREQ("true", out) << when;
+    ASSERT_EQ(AO_OK, printIt("Smalltalk class == SmalltalkImage")) << err.message;
+    EXPECT_STREQ("true", out) << when;
+  };
+  expectChecks("booted");
+  const char* path = "b4-smalltalk-dictionary.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path));
+  std::remove(path);
+  expectChecks("loaded");
+  // 読み直したあとも、メソッドは実行時の値を読む。
+  ASSERT_EQ(AO_OK, printIt("Smalltalk at: #Zap put: 4")) << err.message;
+  ASSERT_EQ(AO_OK, printIt("3 probeB4ZapEarly")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, printIt("Zap")) << err.message;
+  EXPECT_STREQ("4", out);
   ao_runtime_shutdown();
 }

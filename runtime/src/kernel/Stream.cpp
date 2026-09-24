@@ -172,11 +172,19 @@ Oop copyPrefix(CallContext& ctx, Root& coll, std::int64_t n) {
   return dst.slot;
 }
 
-std::string nameBytes(CallContext& ctx, Oop key) {
-  if (!isBytes(ctx.heap, key)) {
-    return {};
+// SPEC §3.6: a global's name is a Symbol or a String. False when key is neither.
+bool globalName(CallContext& ctx, Oop key, std::string* out) {
+  if (!isStringy(ctx, key)) {
+    return false;
   }
-  return Str::toUtf8(ctx.heap, key);
+  *out = Str::toUtf8(ctx.heap, key);
+  return true;
+}
+
+// The value Smalltalk binds to key, or the empty Oop when key names nothing it binds.
+Oop globalAt(CallContext& ctx, Oop key) {
+  std::string name;
+  return globalName(ctx, key, &name) ? Globals::lookup(ctx.wk, ctx.wk.findSymbol(name)) : Oop{};
 }
 
 void callTranscriptHook(CallContext& ctx, Oop value) {
@@ -491,27 +499,62 @@ Oop ao_Transcript_class_clear(CallContext& ctx, const Oop& receiver, const Oop*,
   return forwardTranscriptClass(ctx, receiver, "clear", nullptr, 0);
 }
 
+// SPEC §3.6: the SmalltalkImage natives read and write Smalltalk, whatever the receiver.
 Oop ao_SmalltalkImage_at_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  const std::string name = nameBytes(ctx, args[0]);
-  if (name.empty() && !isBytes(ctx.heap, args[0])) {
-    return Oop::nil();
+  const Oop value = globalAt(ctx, args[0]);
+  if (!value.isEmpty()) {
+    return value;
   }
-  return Globals::at(ctx.wk, name);
+  std::string name;
+  if (!globalName(ctx, args[0], &name)) {
+    return abortEvaluation(ctx, "key not found");
+  }
+  return abortEvaluation(ctx, std::string_view("key not found: #" + name));
 }
 
 Oop ao_SmalltalkImage_at_put_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 2) {
     return Oop{};
   }
-  const std::string name = nameBytes(ctx, args[0]);
-  if (name.empty() && !isBytes(ctx.heap, args[0])) {
-    return Oop::nil();
+  std::string name;
+  if (!globalName(ctx, args[0], &name)) {
+    return abortEvaluation(ctx, "key must be a Symbol or String");
   }
-  ctx.wk.define(name, args[1]);
+  if (ctx.wk.isFixedGlobal(name)) {
+    return abortEvaluation(ctx, std::string_view("cannot rebind Kernel global: " + name));
+  }
+  // define does not collect. It fails only at old's max, and flags out of memory for the send.
+  if (!ctx.wk.define(name, args[1])) {
+    return Oop{};
+  }
   return args[1];
+}
+
+Oop ao_SmalltalkImage_at_ifAbsent_(CallContext& ctx, const Oop&, const Oop* args,
+                                   std::uint32_t argc) {
+  if (argc != 2) {
+    return Oop{};
+  }
+  const Oop value = globalAt(ctx, args[0]);
+  if (!value.isEmpty()) {
+    return value;
+  }
+  Oop answer;
+  if (!callBlock(ctx, args[1], nullptr, 0, &answer)) {
+    return Oop{};
+  }
+  return answer;
+}
+
+Oop ao_SmalltalkImage_includesKey_(CallContext& ctx, const Oop&, const Oop* args,
+                                   std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  return globalAt(ctx, args[0]).isEmpty() ? Oop::false_() : Oop::true_();
 }
 
 Oop ao_SmalltalkImage_globals(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
@@ -571,6 +614,10 @@ void installStream(Heap& heap, WellKnown& wk) {
             ao_SmalltalkImage_at_);
   putNative(heap, wk, wk.smalltalkImageClass, "at:put:", 2, "ao_SmalltalkImage_at_put_",
             ao_SmalltalkImage_at_put_);
+  putNative(heap, wk, wk.smalltalkImageClass, "at:ifAbsent:", 2, "ao_SmalltalkImage_at_ifAbsent_",
+            ao_SmalltalkImage_at_ifAbsent_);
+  putNative(heap, wk, wk.smalltalkImageClass, "includesKey:", 1, "ao_SmalltalkImage_includesKey_",
+            ao_SmalltalkImage_includesKey_);
   putNative(heap, wk, wk.smalltalkImageClass, "globals", 0, "ao_SmalltalkImage_globals",
             ao_SmalltalkImage_globals);
 }
