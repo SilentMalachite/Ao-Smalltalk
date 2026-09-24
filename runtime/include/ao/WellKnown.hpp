@@ -55,7 +55,9 @@ class WellKnown {
   // Grows whenever define or rebind changes the global names, so caches of them can tell.
   std::uint64_t globalsVersion() const { return globalsVersion_; }
   // The classes Smalltalk binds, in the order they were bound (an alias again); before
-  // Globals::install, the catalog's.
+  // Globals::install, the catalog's. fn must not collect or bind a global: the walk reads
+  // Smalltalk's pair array as raw Oops (Globals::each), which a collection would move and a bind
+  // could replace.
   void eachClass(void (*fn)(void* baton, Oop cls), void* baton) const;
   void eachNativeRequiredClass(void (*fn)(void* baton, Oop cls), void* baton) const;
   void eachImageSlot(void (*fn)(void*, const char* name, Oop value), void* baton) const;
