@@ -840,6 +840,18 @@ bool methodSource(Oop method, std::string& utf8) {
   return false;
 }
 
+std::vector<const Oop*> methodSourceRootSlots() {
+  std::vector<const Oop*> slots;
+  if (Session* s = session()) {
+    slots.reserve(2 * s->methodSources.size());
+    for (const auto& pair : s->methodSources) {
+      slots.push_back(&pair->method);
+      slots.push_back(&pair->text);
+    }
+  }
+  return slots;
+}
+
 void clearMethodSources() {
   if (Session* s = session()) {
     releaseMethodSources(*s);

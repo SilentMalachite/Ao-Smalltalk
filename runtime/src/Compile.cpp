@@ -22,11 +22,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace ao {
@@ -376,20 +379,70 @@ std::string ownClassName(CallContext& ctx, Oop cls) {
   return Str::toUtf8(ctx.heap, name);
 }
 
-// Whether a named class has cls as its superclass. Does not collect.
-bool hasSubclass(CallContext& ctx, Oop cls) {
-  struct Probe {
-    const Heap& heap;
-    Oop cls;
-    bool found;
-  } probe{ctx.heap, cls, false};
-  ctx.wk.eachClass(
-      [](void* baton, Oop each) {
-        auto* p = static_cast<Probe*>(baton);
-        p->found = p->found || superclassOf(p->heap, each) == p->cls;
+// SPEC §3.9: every class alive now, whether Smalltalk binds a name to it or not (the class of an
+// instance a variable holds, a class a reshape left behind). A class is alive when a live object
+// reaches it, traced the way Gc::collectOld marks: from the roots, through each object's class and
+// its pointer slots, not through weak ones. The method cache and the method source table are roots
+// no Smalltalk object reaches, and they keep methods (so their classes) nothing else does, so the
+// trace does not start from them. A class no other root reaches is not answered, collected yet or
+// not; nor is a metaclass. Does not collect: the answer is raw Oops.
+std::vector<Oop> liveClasses(CallContext& ctx) {
+  struct Start {
+    std::unordered_set<const Oop*> hidden;
+    std::uintptr_t cacheBegin = 0;
+    std::uintptr_t cacheEnd = 0;
+    std::vector<Oop> work;
+  } start;
+  for (const Oop* slot : methodSourceRootSlots()) {
+    start.hidden.insert(slot);
+  }
+  if (ctx.cache != nullptr) {
+    start.cacheBegin = reinterpret_cast<std::uintptr_t>(std::begin(ctx.cache->entries));
+    start.cacheEnd = reinterpret_cast<std::uintptr_t>(std::end(ctx.cache->entries));
+  }
+  ctx.roots.visitAll(
+      [](void* p, Oop* slot) {
+        auto* s = static_cast<Start*>(p);
+        const auto at = reinterpret_cast<std::uintptr_t>(slot);
+        if (slot != nullptr && (at < s->cacheBegin || at >= s->cacheEnd) &&
+            s->hidden.count(slot) == 0) {
+          s->work.push_back(*slot);
+        }
       },
-      &probe);
-  return probe.found;
+      &start);
+  std::vector<Oop>& work = start.work;
+  std::unordered_set<std::uintptr_t> seen;
+  std::vector<Oop> classes;
+  while (!work.empty()) {
+    const Oop obj = work.back();
+    work.pop_back();
+    if (!obj.isHeap() || !seen.insert(reinterpret_cast<std::uintptr_t>(obj.heapPointer())).second) {
+      continue;
+    }
+    const Oop meta = ctx.heap.klass(obj);
+    work.push_back(meta);
+    if ((ctx.heap.flags(obj) & (kFlagBytes | kFlagWeak)) != 0) {
+      continue;
+    }
+    const std::uint32_t n = ctx.heap.size(obj);
+    for (std::uint32_t i = 0; i < n; ++i) {
+      work.push_back(ctx.heap.slotAt(obj, i));
+    }
+    // A class is the thisClass of its metaclass, which is an instance of Metaclass.
+    if (isClassShaped(ctx.heap, obj) && isClassShaped(ctx.heap, meta) &&
+        ctx.heap.klass(meta) == ctx.wk.metaclassClass &&
+        ctx.heap.slotAt(meta, kClassSlotThisClass) == obj) {
+      classes.push_back(obj);
+    }
+  }
+  return classes;
+}
+
+// SPEC §3.9: whether a live class, named or not, has cls as its superclass. Does not collect.
+bool hasSubclass(CallContext& ctx, Oop cls) {
+  const std::vector<Oop> live = liveClasses(ctx);
+  return std::any_of(live.begin(), live.end(),
+                     [&](Oop each) { return superclassOf(ctx.heap, each) == cls; });
 }
 
 // Binds name to cls again, the way subclass: and applyClassDef bound it (a vendor stub through its
@@ -538,9 +591,11 @@ bool holdsBinding(CallContext& ctx, Oop method, const std::vector<Oop>& bindings
   });
 }
 
-// SPEC §3.9: the first method of cls or of a class below it, on either side, that holds the binding
-// of one of `dropped` (names in cls's classPool): "<Class>>><selector>" (" class" on the class side)
-// and the name, or "" when no method holds one. Does not collect.
+// SPEC §3.9: the first method of a live class, on either side, that holds the binding of one of
+// `dropped` (names in cls's classPool): "<Class>>><selector>" (" class" on the class side) and the
+// name, or "" when no method holds one. The classes that can hold one are cls, the classes below
+// it, named or not, and the old versions of those a reshape left behind, which share the bindings.
+// Does not collect.
 std::pair<std::string, std::string> methodHoldingDropped(CallContext& ctx, Oop cls,
                                                          const std::vector<std::string>& dropped) {
   std::vector<Oop> bindings;
@@ -556,7 +611,7 @@ std::pair<std::string, std::string> methodHoldingDropped(CallContext& ctx, Oop c
   if (bindings.empty()) {
     return {};
   }
-  // cls first, then the named classes below it.
+  // cls first, then the named classes below it, then every other live class.
   struct Probe {
     const Heap& heap;
     Oop cls;
@@ -571,6 +626,13 @@ std::pair<std::string, std::string> methodHoldingDropped(CallContext& ctx, Oop c
         }
       },
       &probe);
+  const auto named = static_cast<std::ptrdiff_t>(probe.classes.size());
+  for (const Oop each : liveClasses(ctx)) {
+    const auto namedEnd = probe.classes.begin() + named;
+    if (std::find(probe.classes.begin(), namedEnd, each) == namedEnd) {
+      probe.classes.push_back(each);
+    }
+  }
   for (const Oop c : probe.classes) {
     for (const bool meta : {false, true}) {
       const Oop side = meta ? ctx.heap.klass(c) : c;
@@ -716,15 +778,15 @@ bool compileCarried(CallContext& ctx, const Root& old, const RootedArray& oldMet
   return true;
 }
 
-// SPEC §3.9: a new shape. Every check runs before anything changes: the class has no subclass,
-// each method on either side has its source in the source table, each source compiles for the
-// new shape, and no old method reads or writes, as it was compiled, an instance variable the new
-// shape drops (instance side) or a class variable it drops (either side). Then applyClassDef makes
-// the new class and binds the name to it, the new classPool takes the old bindings of the names it
-// keeps, the methods go in (compiled again when the class the send answered has another layout or
-// other class variables), and their sources move over. When the subclass: send, that compile or an
-// install fails (old at its max), the name goes back to the old class, whose methods were never
-// touched.
+// SPEC §3.9: a new shape. Every check runs before anything changes: the class has no live
+// subclass, each method on either side has its source in the source table, each source compiles
+// for the new shape, and no old method reads or writes, as it was compiled, an instance variable
+// the new shape drops (instance side) or a class variable it drops (either side). Then
+// applyClassDef makes the new class and binds the name to it, the new classPool takes the old
+// bindings of the names it keeps, the methods go in (compiled again when the class the send
+// answered has another layout or other class variables), and their sources move over. When the
+// subclass: send, that compile or an install fails (old at its max), the name goes back to the old
+// class, whose methods were never touched.
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";

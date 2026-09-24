@@ -1826,6 +1826,87 @@ TEST(AcceptAbi, ShapeChangeRefusesMovingAVariableToTheOtherKind) {
   ao_runtime_shutdown();
 }
 
+// B4 review (Codex P2) / SPEC §3.9: 失敗シナリオ。Smalltalk に束縛されていなくても、生きている
+// サブクラス（インスタンスが変数に残るクラス、形の変更で残った旧クラス）は「子孫すべて」に数える。
+// どこからも届かないクラス（メソッドのソースとメソッドのキャッシュからしか届かないもの）は数えない。
+TEST(AcceptAbi, ReacceptCountsLiveSubclassesThatNoNameBinds) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  // 名前を外したサブクラスのインスタンスが残っている。
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvPar", "", "Gone").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4LvPar", "B4LvChild", "", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvChild", 0, {"gone\n  ^Gone\n"});
+  expectPrints({{"(B4LvPar classPool at: #Gone) value: 42. survivor := B4LvChild new. Smalltalk "
+                 "at: #B4LvChild put: nil. survivor gone",
+                 "42"}});
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4LvPar", "", "", "B4-Other").c_str(), &e));
+  EXPECT_STREQ("class variable change refused: B4LvChild>>gone refers to removed class variable Gone",
+               e.message);
+  EXPECT_EQ("B4-Test", b5Category("B4LvPar"));
+  expectPrints({{"survivor gone", "42"}, {"B4LvPar classPool includesKey: #Gone", "true"}});
+  e = AoSpan{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4LvPar", "a", "Gone").c_str(), &e));
+  EXPECT_STREQ("shape change refused: B4LvPar has subclasses", e.message);
+  expectPrints({{"survivor class superclass == B4LvPar", "true"}});
+
+  // 形の変更で残った旧クラスのインスタンスが残っている。新しいクラスはもう Gone を使わない。
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvOld", "", "Gone").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4LvOld", "B4LvOldKid", "a", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvOldKid", 0, {"gone\n  ^Gone\n"});
+  expectPrints({{"(B4LvOld classPool at: #Gone) value: 43. oldKid := B4LvOldKid new. oldKid gone",
+                 "43"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4LvOld", "B4LvOldKid", "a b", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvOldKid", 0, {"gone\n  ^nil\n"});
+  expectPrints({{"oldKid class == B4LvOldKid", "false"}, {"B4LvOldKid new gone", "nil"}});
+  e = AoSpan{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4LvOld", "", "").c_str(), &e));
+  EXPECT_STREQ(
+      "class variable change refused: B4LvOldKid>>gone refers to removed class variable Gone",
+      e.message);
+  expectPrints({{"oldKid gone", "43"}});
+
+  // 形の変更で残った、そのクラス自身の旧クラス。束縛を今のクラスと共有する。
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvSelf", "", "Gone").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvSelf", 0, {"gone\n  ^Gone\n"});
+  expectPrints({{"(B4LvSelf classPool at: #Gone) value: 44. oldSelf := B4LvSelf new. oldSelf gone",
+                 "44"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvSelf", "a", "Gone").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvSelf", 0, {"gone\n  ^nil\n"});
+  e = AoSpan{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4LvSelf", "a", "").c_str(), &e));
+  EXPECT_STREQ("class variable change refused: B4LvSelf>>gone refers to removed class variable Gone",
+               e.message);
+  expectPrints({{"oldSelf gone", "44"}, {"B4LvSelf classPool includesKey: #Gone", "true"}});
+
+  // 何も届かないサブクラスは数えない。ソースの表とメソッドのキャッシュはメソッドを持つが、数えない。
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvGc", "", "Gone").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4LvGc", "B4LvGcKid", "", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvGcKid", 0, {"gone\n  ^Gone\n"});
+  expectPrints({{"tmp := B4LvGcKid new. tmp gone. tmp := nil. Smalltalk at: #B4LvGcKid put: nil. "
+                 "tmp",
+                 "nil"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvGc", "", "").c_str(), &err))
+      << err.message;
+  expectPrints({{"B4LvGc classPool includesKey: #Gone", "false"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvGc", "a", "").c_str(), &err))
+      << err.message;
+  ao_runtime_shutdown();
+}
+
 // B4 review (Claude L1) / SPEC §3.9: 失敗シナリオ。65 段に入れ子にしたブロックの中で使うクラス変数を
 // 消せていた（64 段で探索を打ち切り、未使用とみなしていた）。深さによらず数える。形が変わるときの
 // 消える変数の検査も同じ。
