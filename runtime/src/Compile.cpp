@@ -778,15 +778,42 @@ bool compileCarried(CallContext& ctx, const Root& old, const RootedArray& oldMet
   return true;
 }
 
+// A new method dictionary with the pairs of dict, or the empty Oop when dict is none or the copy
+// cannot be allocated (old at its max). Does not collect.
+Oop copyMethodDictionary(CallContext& ctx, Oop dict) {
+  if (!dict.isHeap() || (ctx.heap.flags(dict) & kFlagBytes) != 0 ||
+      ctx.heap.size(dict) <= kDictSlotArray) {
+    return Oop{};
+  }
+  const Oop inner = ctx.heap.slotAt(dict, kDictSlotArray);
+  if (!inner.isHeap() || (ctx.heap.flags(inner) & kFlagBytes) != 0) {
+    return Oop{};
+  }
+  const std::uint32_t n = ctx.heap.size(inner);
+  const Oop copy = MethodDictionary::create(ctx.heap, ctx.wk, std::max<std::uint32_t>(n / 2, 1));
+  if (!copy.isHeap()) {
+    return Oop{};
+  }
+  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
+    const Oop key = ctx.heap.slotAt(inner, i);
+    const Oop method = ctx.heap.slotAt(inner, i + 1);
+    if (key.isHeap() && !MethodDictionary::atPut(ctx.heap, copy, key, method)) {
+      return Oop{};
+    }
+  }
+  return copy;
+}
+
 // SPEC §3.9: a new shape. Every check runs before anything changes: the class has no live
 // subclass, each method on either side has its source in the source table, each source compiles
 // for the new shape, and no old method reads or writes, as it was compiled, an instance variable
 // the new shape drops (instance side) or a class variable it drops (either side). Then
-// applyClassDef makes the new class and binds the name to it, the new classPool takes the old
-// bindings of the names it keeps, the methods go in (compiled again when the class the send
-// answered has another layout or other class variables), and their sources move over. When the
-// subclass: send, that compile or an install fails (old at its max), the name goes back to the old
-// class, whose methods were never touched.
+// applyClassDef makes the new class and binds the name to it, and the checks run again when the
+// class the send answered has another layout or other class variables. Only then does that class
+// change: its classPool takes the old bindings of the names it keeps, the methods go in, and their
+// sources move over. When the subclass: send, that second check or an allocation fails (old at its
+// max), the name goes back to the old class, whose methods were never touched, and the class the
+// send answered gets its classPool and method dictionaries back.
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
@@ -869,18 +896,15 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     return false;
   }
   Root fresh(ctx.roots, ctx.wk.named(action.className));
-  if (!isClassShaped(ctx.heap, fresh.slot) || fresh.slot == old.slot) {
+  if (!isClassShaped(ctx.heap, fresh.slot) ||
+      !isClassShaped(ctx.heap, ctx.heap.klass(fresh.slot)) || fresh.slot == old.slot) {
     rebindClassName(ctx, action.className, old.slot);
     addError(errors, {action.span, "subclass failed: " + action.className});
     return false;
   }
-  // SPEC §3.9: a name the old classPool binds keeps its binding in the new class, so its value and
-  // the old class's methods stay shared, and the moved methods box that binding. The send may have
-  // collected; read the roots. adopt does not collect.
-  ClassPool::adopt(ctx.heap, ctx.heap.slotAt(fresh.slot, kClassSlotClassPool),
-                   ctx.heap.slotAt(old.slot, kClassSlotClassPool));
   // SPEC §3.9: the methods move in the shape and with the class variables the send answered,
-  // which a superclass's class-side override can make differ from the definition's.
+  // which a superclass's class-side override can make differ from the definition's. Checked before
+  // the class the send answered, which may be an existing class, changes at all.
   {
     compiler::CompileEnv freshInstanceEnv;
     compiler::CompileEnv freshClassEnv;
@@ -898,16 +922,51 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
       return false;
     }
   }
+
+  // Nothing is refused from here on; only an allocation can fail (old at its max). The class the
+  // send answered takes a new classPool and new method dictionaries, copies of its own that the
+  // moves go into, and gets its own objects back when a move fails.
+  Root pool(ctx.roots, ctx.heap.slotAt(fresh.slot, kClassSlotClassPool));
+  Root dict(ctx.roots, ctx.heap.slotAt(fresh.slot, kClassSlotMethodDict));
+  Root metaDict(ctx.roots, ctx.heap.slotAt(ctx.heap.klass(fresh.slot), kClassSlotMethodDict));
+  auto putBack = [&](const std::string& why) {
+    ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, pool.slot);
+    ctx.heap.slotAtPut(fresh.slot, kClassSlotMethodDict, dict.slot);
+    ctx.heap.slotAtPut(ctx.heap.klass(fresh.slot), kClassSlotMethodDict, metaDict.slot);
+    rebindClassName(ctx, action.className, old.slot);
+    addError(errors, {action.span, "shape change failed: " + why});
+    return false;
+  };
+  // SPEC §3.9: a name the old classPool binds keeps its binding in the new class, so its value and
+  // the old class's methods stay shared, and the moved methods box that binding. adopt does not
+  // collect.
+  const std::vector<std::string> poolNames = ClassPool::names(ctx.heap, pool.slot);
+  if (std::any_of(poolNames.begin(), poolNames.end(), [&](const std::string& name) {
+        return ClassPool::bindingAt(ctx.heap, ctx.heap.slotAt(old.slot, kClassSlotClassPool), name)
+            .isHeap();
+      })) {
+    const Oop copy = ClassPool::make(ctx, poolNames);
+    if (!copy.isHeap()) {
+      return putBack(action.className + " classPool allocation failed");
+    }
+    ClassPool::adopt(ctx.heap, copy, pool.slot);
+    ClassPool::adopt(ctx.heap, copy, ctx.heap.slotAt(old.slot, kClassSlotClassPool));
+    ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, copy);
+  }
+  for (const bool meta : {false, true}) {
+    const Oop side = meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
+    const Oop copy = copyMethodDictionary(ctx, ctx.heap.slotAt(side, kClassSlotMethodDict));
+    if (!copy.isHeap()) {
+      return putBack(action.className + (meta ? " class" : "") + " methodDict allocation failed");
+    }
+    ctx.heap.slotAtPut(side, kClassSlotMethodDict, copy);
+  }
   RootedArray installed(ctx.roots, count);
   for (std::uint32_t i = 0; i < count; ++i) {
     const Oop side = carried[i].meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
     const Oop method = installMethod(ctx, side, carried[i].image);
     if (!method.isHeap()) {
-      rebindClassName(ctx, action.className, old.slot);
-      addError(errors, {action.span, "shape change failed: " +
-                                         carriedMethodName(action.className, carried[i]) +
-                                         " install failed"});
-      return false;
+      return putBack(carriedMethodName(action.className, carried[i]) + " install failed");
     }
     installed[i] = method;
   }

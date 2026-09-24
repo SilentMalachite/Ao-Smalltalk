@@ -1774,6 +1774,52 @@ TEST(AcceptAbi, ShapeChangeRefusesMethodReadingRemovedClassVariable) {
   ao_runtime_shutdown();
 }
 
+// B4 review (Codex P2) / SPEC §3.9: 失敗シナリオ。superclass のクラス側の上書きが、名前を既存の別の
+// クラス（B4AtTarget。クラス変数 Count は 99）に付け替えてそれを答えると、その並びでは read が消える
+// インスタンス変数 gone を読むので拒否される。拒否されたら、答えたクラスの classPool も束縛も
+// メソッド辞書も変わらない（旧クラスの Count の束縛は移らず、99 のまま）。名前は旧クラスに戻る。
+TEST(AcceptAbi, RefusedShapeChangeLeavesTheAnsweredClassUntouched) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4AtSup", "", "").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4AtTarget", "", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4AtTarget", 1, {"count\n  ^Count\n", "count: v\n  Count := v\n"});
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("B4AtSup", "B4AtVictim", "gone", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4AtVictim", 0, {"read\n  ^gone\n"});
+  acceptMethods("B4AtVictim", 1, {"count\n  ^Count\n", "count: v\n  Count := v\n"});
+  acceptMethods("B4AtSup", 1,
+                {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+                 "category: k\n  Smalltalk at: n put: B4AtTarget.\n  ^B4AtTarget\n"});
+  expectPrints({{"B4AtTarget count: 99. B4AtVictim count: 7. oldVictim := B4AtVictim. "
+                 "oldTargetPool := B4AtTarget classPool. oldTargetBinding := oldTargetPool at: "
+                 "#Count. oldVictimBinding := B4AtVictim classPool at: #Count. B4AtTarget count",
+                 "99"}});
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("B4AtSup", "B4AtVictim", "gone y", "Count").c_str(), &e));
+  EXPECT_STREQ("shape change refused: B4AtVictim>>read refers to removed instance variable gone",
+               e.message);
+  expectPrints({
+      {"oldVictim == B4AtVictim", "true"},
+      {"B4AtTarget count", "99"},
+      {"B4AtTarget classPool == oldTargetPool", "true"},
+      {"(B4AtTarget classPool at: #Count) == oldTargetBinding", "true"},
+      {"(B4AtTarget classPool at: #Count) value", "99"},
+      {"oldTargetBinding value", "99"},
+      {"B4AtTarget selectors size", "0"},
+      {"B4AtTarget class selectors size", "2"},
+      {"B4AtVictim count", "7"},
+      {"(B4AtVictim classPool at: #Count) == oldVictimBinding", "true"},
+      {"B4AtTarget count: 100. B4AtVictim count", "7"},
+  });
+  ao_runtime_shutdown();
+}
+
 // B4 review (Codex P2) / SPEC §3.9: 失敗シナリオ。インスタンス変数 x を同じ名前のクラス変数に
 // 付け替える（ivar y、classvar x）と、x を読み書きしていたメソッドは、黙ってクラス変数を読み書き
 // するようになっていた。逆向き（classvar x を ivar x に）も同じ。変更前にコンパイルされたメソッドが
