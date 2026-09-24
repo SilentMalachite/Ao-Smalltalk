@@ -133,19 +133,16 @@ Oop boxUtf8(CallContext& ctx, std::string_view utf8) {
                   static_cast<std::uint32_t>(utf8.size()));
 }
 
+// SPEC §3.6: the instance variables of cls, one per named slot (namedSlotNames). A slot with no
+// name gets "<slot N>", which no identifier matches, so source cannot name it and the names after
+// it keep their slots.
 void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
-  for (const Oop c : superclassChainFromRoot(ctx.heap, cls)) {
-    const Oop names = ctx.heap.slotAt(c, kClassSlotInstVarNames);
-    if (!names.isHeap() || (ctx.heap.flags(names) & kFlagBytes) != 0) {
-      continue;
-    }
-    const auto n = ctx.heap.size(names);
-    for (std::uint32_t i = 0; i < n; ++i) {
-      const Oop name = ctx.heap.slotAt(names, i);
-      if (!name.isHeap()) {
-        continue;
-      }
-      env.instVarNames.push_back(Str::toUtf8(ctx.heap, name));
+  const std::vector<Oop> names = namedSlotNames(ctx.heap, cls);
+  for (std::size_t i = 0; i < names.size(); ++i) {
+    if (names[i].isHeap()) {
+      env.instVarNames.push_back(Str::toUtf8(ctx.heap, names[i]));
+    } else {
+      env.instVarNames.push_back("<slot " + std::to_string(i + 1) + ">");
     }
   }
 }

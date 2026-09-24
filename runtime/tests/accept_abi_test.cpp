@@ -1089,3 +1089,187 @@ TEST(AcceptAbi, AcceptClassStopsAtRefusedDefinitionKeepingEarlierChunks) {
   EXPECT_EQ(AO_ERR_EVAL, printIt("B5First new two"));
   ao_runtime_shutdown();
 }
+
+// B4 (docs/claude-review/05 Critical) / SPEC §3.6: 失敗シナリオ。OrderedCollection のサブクラスが
+// 足す x は、親の 3 つのスロット（array firstIndex lastIndex）の後ろに置かれる。getX は内部配列では
+// なく x を返す。x y z に文字列と整数を入れても、add: は親のスロットを読んで動く。
+TEST(AcceptAbi, KernelSubclassVariablesFollowParentSlots) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "R5OC", "x", "B4-Test").c_str(),
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OC", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("R5OC new getX")) << err.message;
+  EXPECT_STREQ("nil", out);
+  ASSERT_EQ(AO_OK, printIt("R5OC new instVarNamed: #x")) << err.message;
+  EXPECT_STREQ("nil", out);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(
+                       b5Definition("OrderedCollection", "R5OCz", "x y z", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OCz", 0,
+                                    "fill\n  x := 'ab'. y := 1000000. z := 1000000\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OCz", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("r := R5OCz new. r fill. r add: 7. r add: 8. r size")) << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, printIt("r at: 2")) << err.message;
+  EXPECT_STREQ("8", out);
+  ASSERT_EQ(AO_OK, printIt("r getX")) << err.message;
+  EXPECT_STREQ("'ab'", out);
+  ASSERT_EQ(AO_OK, printIt("r instVarAt: 6")) << err.message;
+  EXPECT_STREQ("1000000", out);
+  ao_runtime_shutdown();
+}
+
+// B4 (docs/claude-review/04「既報との関係」) / SPEC §3.6: Kernel クラスのスロットは名前を持つ。
+// instVarNamed: は見つけ、Accept したメソッドはグローバルではなくスロットを読む。
+TEST(AcceptAbi, KernelClassSlotsHaveNames) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) instVarNamed: #key")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) instVarNamed: #value")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Association", 0, "probeKey\n  ^key\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) probeKey")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Point", 0, "probeY\n  ^y\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("(Point x: 3 y: 4) probeY")) << err.message;
+  EXPECT_STREQ("4", out);
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.6 / §3.9: 形を変える再 Accept も、Kernel の親のスロットの後ろに変数を置く。親を
+// Object に替える定義は、親のスロットの名前（firstIndex）を読むメソッドがあれば拒む。
+TEST(AcceptAbi, ShapeChangeUnderKernelSuperclassKeepsParentSlots) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "B4Re", "x", "B4-Test").c_str(),
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Re", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Re", 0, "setX: v\n  x := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Re", 0, "readFirst\n  ^firstIndex\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(
+                       b5Definition("OrderedCollection", "B4Re", "w x", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("b := B4Re new setX: 5. b add: 9. b getX")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("b instVarAt: 5")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("b size")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("b readFirst")) << err.message;
+  EXPECT_STREQ("1", out);
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("Object", "B4Re", "w x", "B4-Test").c_str(), &e));
+  EXPECT_STREQ("shape change refused: B4Re>>readFirst refers to removed instance variable "
+               "firstIndex",
+               e.message);
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.6 / §3.11: 名前を持たない Kernel クラス（B4 より前のイメージ）でも、サブクラスの変数は
+// 親のスロットと重ならない。名前の無いスロットはソースから読めない（firstIndex はグローバルになる）。
+// チャンクの file-in、Accept、形を変える再 Accept の 3 経路とも同じ。
+TEST(AcceptAbi, UnnamedKernelSlotsKeepSubclassVariablesApart) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, printIt("OrderedCollection instVarAt: 8 put: nil. 0")) << err.message;
+  const std::string chunks = b5Definition("OrderedCollection", "B4Chunk", "x", "B4-Test") + "!\n" +
+                             "!B4Chunk methodsFor: 'b4'!\nsetX: v\n  x := v!\ngetX\n  ^x! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(chunks.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("c := B4Chunk new setX: 4. c add: 9. c getX")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, printIt("c instVarAt: 4")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, printIt("c size")) << err.message;
+  EXPECT_STREQ("1", out);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "B4Old", "x", "B4-Test").c_str(),
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Old", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Old", 0, "setX: v\n  x := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Old", 0, "readFirst\n  ^firstIndex\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("o := B4Old new setX: 5. o add: 9. o getX")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("o instVarAt: 4")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("o instVarNamed: #x")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("o size")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("o readFirst")) << err.message;
+  EXPECT_STREQ("nil", out);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(
+                       b5Definition("OrderedCollection", "B4Old", "w x", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("p := B4Old new setX: 6. p add: 9. p getX")) << err.message;
+  EXPECT_STREQ("6", out);
+  ASSERT_EQ(AO_OK, printIt("p instVarAt: 5")) << err.message;
+  EXPECT_STREQ("6", out);
+  ASSERT_EQ(AO_OK, printIt("p size")) << err.message;
+  EXPECT_STREQ("1", out);
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.6: 保存して読み直したイメージでも、Kernel クラスの名前は残る。読み直す前に
+// コンパイルしたメソッドも、あとでコンパイルするメソッドも、親のスロットの後ろの x を読む。
+TEST(AcceptAbi, KernelSlotNamesSurviveImageSaveAndLoad) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "R5OC", "x", "B4-Test").c_str(),
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OC", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("Association", 0, "probeKey\n  ^key\n", &err)) << err.message;
+  const char* path = "b4-kernel-slots.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path));
+  std::remove(path);
+
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OC", 0, "setX: v\n  x := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("r := R5OC new setX: 5. r add: 9. r getX")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("r size")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) instVarNamed: #key")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) probeKey")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Association", 0, "probeValue\n  ^value\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) probeValue")) << err.message;
+  EXPECT_STREQ("4", out);
+  ao_runtime_shutdown();
+}

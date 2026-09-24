@@ -9,8 +9,11 @@
 #include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
+#include <vector>
 
 namespace ao {
 namespace Bootstrap {
@@ -144,6 +147,39 @@ constexpr ClassDef kDefs[] = {
      "Time"},
 };
 
+// SPEC §3.6: the names of the slots a Kernel class adds to its superclass's, in slot order, as the
+// natives use the slots. A class not listed adds none. The test
+// Bootstrap.KernelInstVarNamesFillTheSlotsEachClassAdds checks each list against its instSize.
+struct SlotNames {
+  Oop WellKnown::* cls;
+  const char* names;
+};
+
+constexpr SlotNames kSlotNames[] = {
+    {&WellKnown::behaviorClass,
+     "superclass methodDict format name thisClass category classPool instVarNames"},
+    {&WellKnown::fractionClass, "numerator denominator"},
+    {&WellKnown::intervalClass, "start stop step"},
+    {&WellKnown::dictionaryClass, "tally array"},
+    {&WellKnown::setClass, "tally array"},
+    {&WellKnown::orderedCollectionClass, "array firstIndex lastIndex"},
+    {&WellKnown::associationClass, "key value"},
+    {&WellKnown::compiledMethodClass, "header literals bytecodes nativeCode selector methodClass"},
+    {&WellKnown::nativeMethodClass, "selector argc primitive name methodClass registryIndex"},
+    {&WellKnown::messageClass, "selector args"},
+    {&WellKnown::methodDictionaryClass, "tally array"},
+    {&WellKnown::methodContextClass, "sender pc stackp method receiver argc"},
+    {&WellKnown::blockContextClass, "home copied"},
+    {&WellKnown::processClass, "nextLink suspendedContext priority myList"},
+    {&WellKnown::processorSchedulerClass, "quiescentProcesses activeProcess"},
+    {&WellKnown::semaphoreClass, "excessSignals linkedList"},
+    {&WellKnown::sharedQueueClass, "contents readSynch writeSynch"},
+    {&WellKnown::pointClass, "x y"},
+    {&WellKnown::rectangleClass, "origin corner"},
+    {&WellKnown::positionableStreamClass, "collection position readLimit"},
+    {&WellKnown::writeStreamClass, "writeLimit"},
+};
+
 static Oop allocClass(Heap& heap) { return heap.allocate(Oop::nil(), kClassSlotCount, 0); }
 
 static Oop makeName(Heap& heap, const char* s) {
@@ -183,6 +219,38 @@ static void internHotSelectors(WellKnown& wk) {
   wk.selClass = wk.intern("class");
   wk.selIdentityEquals = wk.intern("==");
   wk.internSpecialSelectors();
+}
+
+// An Array of the interned Symbols in the space-separated names, or nil when old is full. Does not
+// GC, so the raw Oop stays valid.
+static Oop makeSlotNames(Heap& heap, WellKnown& wk, std::string_view names) {
+  std::vector<std::string_view> parts;
+  for (std::size_t i = 0; i < names.size();) {
+    const std::size_t end = std::min(names.find(' ', i), names.size());
+    if (end > i) {
+      parts.push_back(names.substr(i, end - i));
+    }
+    i = end + 1;
+  }
+  const Oop arr = heap.allocateNoGc(wk.arrayClass, static_cast<std::uint32_t>(parts.size()), 0);
+  if (!arr.isHeap()) {
+    return Oop::nil();
+  }
+  for (std::uint32_t i = 0; i < parts.size(); ++i) {
+    const Oop sym = wk.intern(parts[i]);
+    if (!sym.isHeap()) {
+      return Oop::nil();
+    }
+    heap.slotAtPut(arr, i, sym);
+  }
+  return arr;
+}
+
+// SPEC §3.7 step 5: after the cycle is wired, so Array and Symbol are classes.
+static void nameKernelSlots(Heap& heap, WellKnown& wk) {
+  for (const auto& s : kSlotNames) {
+    heap.slotAtPut(wk.*(s.cls), kClassSlotInstVarNames, makeSlotNames(heap, wk, s.names));
+  }
 }
 
 static void ensureMethodDict(Heap& heap, WellKnown& wk, Oop cls) {
@@ -262,6 +330,7 @@ void installNatives(Heap& heap, Roots& roots, WellKnown& wk) {
 void run(Heap& heap, Roots& roots, WellKnown& wk) {
   allocateSkeletons(heap, roots, wk);
   wireCycle(heap, wk);
+  nameKernelSlots(heap, wk);
   installNatives(heap, roots, wk);
   Globals::install(heap, roots, wk);
   wk.checkSmallIntegerFastPath();
