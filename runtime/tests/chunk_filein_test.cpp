@@ -293,3 +293,49 @@ TEST(ChunkFileIn, DoubledBangCharacterFromAFileOut) {
   ao::Root inst(b.roots, send0(b, cls, "new"));
   EXPECT_EQ(ao::Oop::fromCharacter(U'!'), send0(b, inst.slot, "bang"));
 }
+
+// B7 review / SPEC §3.8 チャンク形式: 式の中の `subclass:` はクラス定義ではない。式は評価せずに
+// 読み飛ばし、ファイルの残りを止めない。
+TEST(ChunkFileIn, SubclassSendInsideAnExpressionIsNotADefinition) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Q1\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "Smalltalk at: #B7K put: (B7Q1 subclass: #B7Z1 instanceVariableNames: '' "
+      "classVariableNames: '' poolDictionaries: '' category: 'B7')!\n"
+      "!B7Q1 methodsFor: 'a'!\n"
+      "foo\n"
+      "  ^1! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B7Q1");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("foo")).isHeap());
+  EXPECT_TRUE(b.wk.named("B7Z1").isNil());
+}
+
+// B7 review / SPEC §3.8 チャンク形式: クラスコメントの文章でも `!!` は `!` である。行末の `!!` で
+// 文章を切らず、次の行をクラス定義と読まない。
+TEST(ChunkFileIn, CommentProseUndoublesBangs) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Prose\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Prose commentStamp: 'x' prior: 0!\n"
+      "Warning!!\n"
+      "I am a subclass: of Object.!\n"
+      "!B7Prose methodsFor: 'a'!\n"
+      "foo\n"
+      "  ^1! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B7Prose");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("foo")).isHeap());
+}

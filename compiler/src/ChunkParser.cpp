@@ -119,7 +119,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
       const char c = src[i];
       if (!inStr && !inCmt && c == '!') {
         // `$!` is written `$!!` like any other bang: no exemption for characters here.
-        if (!prose && i + 1 < n && src[i + 1] == '!') {
+        if (i + 1 < n && src[i + 1] == '!') {
           text.push_back('!');
           i += 2;
           continue;
@@ -140,7 +140,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         continue;
       }
       // `!!` is one `!` in strings and comments too. A single `!` there does not end the chunk.
-      if (!prose && (inStr || inCmt) && c == '!' && i + 1 < n && src[i + 1] == '!') {
+      if ((inStr || inCmt) && c == '!' && i + 1 < n && src[i + 1] == '!') {
         text.push_back('!');
         i += 2;
         continue;
@@ -201,28 +201,24 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
 
 enum class HeadKind { MethodsFor, ClassDef, Other };
 
-std::string_view firstLine(std::string_view text) {
-  std::size_t n = 0;
-  while (n < text.size() && text[n] != '\n' && text[n] != '\r') {
-    n++;
-  }
-  return text.substr(0, n);
-}
-
+// SPEC §3.8: a class definition is a `subclass:` message sent to a name, and a header a
+// `methodsFor:` message sent to a name or to `Name class`: the message's first keyword.
 HeadKind classify(std::string_view text) {
-  Scanner s(firstLine(text));
-  for (;;) {
-    const Token t = s.next();
-    if (t.kind == Tok::Eof || t.kind == Tok::Error) {
-      return HeadKind::Other;
-    }
-    if (t.kind == Tok::Keyword && t.text == "methodsFor:") {
-      return HeadKind::MethodsFor;
-    }
-    if (t.kind == Tok::Keyword && t.text == "subclass:") {
-      return HeadKind::ClassDef;
-    }
+  Scanner s(text);
+  if (s.next().kind != Tok::Ident) {
+    return HeadKind::Other;
   }
+  Token t = s.next();
+  if (t.kind == Tok::Keyword && t.text == "subclass:") {
+    return HeadKind::ClassDef;
+  }
+  if (t.kind == Tok::Ident && t.text == "class") {
+    t = s.next();
+  }
+  if (t.kind == Tok::Keyword && t.text == "methodsFor:") {
+    return HeadKind::MethodsFor;
+  }
+  return HeadKind::Other;
 }
 
 std::string tokenValue(const Token& t) {

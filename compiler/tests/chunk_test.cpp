@@ -304,6 +304,53 @@ TEST(Chunk, SectionChunksAreMethodsUntilABangLedChunk) {
   EXPECT_EQ("three\n  ^3", acts[4].methods[0].source);
 }
 
+// SPEC §3.8 チャンク形式: outside a section a chunk is a class definition only when it is a
+// `subclass:` message sent to a name, and a header only when it is a `methodsFor:` message sent to
+// a name or `Name class`. The same keyword further in (inside parentheses, after another keyword)
+// makes an expression.
+TEST(Chunk, ClassificationNeedsTheMessageShape) {
+  const char* src =
+      "Object subclass: #Q1\n  category: 'T'!\n"
+      "Smalltalk at: #K put: (Q1 subclass: #Z1 instanceVariableNames: '' classVariableNames: '' "
+      "poolDictionaries: '' category: 'B7')!\n"
+      "Smalltalk at: #Pq put: (Object subclass: #Pq)!\n"
+      "Transcript show: (Q1 methodsFor: 'x') printString!\n"
+      "Q1 class methodsFor: 'c'!\n"
+      "one\n"
+      "  ^1! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(5u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::ClassDef, acts[0].kind);
+  EXPECT_EQ("Q1", acts[0].className);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[2].kind);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[3].kind);
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[4].kind);
+  EXPECT_EQ("Q1", acts[4].className);
+  EXPECT_TRUE(acts[4].meta);
+  EXPECT_EQ(1u, acts[4].methods.size());
+}
+
+// SPEC §3.8 チャンク形式: `!!` is one `!` in class-comment prose too, so a doubled bang at line end
+// does not split the prose, and its next line is not read as a class definition.
+TEST(Chunk, CommentProseUndoublesBangs) {
+  const char* src =
+      "!Foo commentStamp: 'x' prior: 0!\n"
+      "Warning!!\n"
+      "I am a subclass: of Object.!\n"
+      "!Object subclass: #Foo\n"
+      "  category: 'T'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(3u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[0].kind);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Warning!\nI am a subclass: of Object.", acts[1].source);
+  ASSERT_EQ(ao::compiler::ChunkKind::ClassDef, acts[2].kind);
+  EXPECT_EQ("Foo", acts[2].className);
+}
+
 // SPEC §3.10: a class definition chunk is the definition message alone.
 TEST(Chunk, SoleDefinitionIsTheMessageAlone) {
   struct Case {
@@ -327,7 +374,6 @@ TEST(Chunk, SoleDefinitionIsTheMessageAlone) {
       {"Object subclass: #Pq category: 'P' instanceVariableNames: ''", false},
       {"Object subclass: #Pq category: 'P'. .", false},
       {"Object subclass: #Pq category: 'P' , 'Q'", false},
-      {"Smalltalk at: #Pq put: (Object subclass: #Pq)", false},
       {"Object subclass: #Pq; yourself", false},
   };
   for (const Case& c : cases) {
