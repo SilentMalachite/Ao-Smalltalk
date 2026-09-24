@@ -54,6 +54,34 @@ TEST(Chunk, BangInCharacterDoesNotSplit) {
   EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("$!"));
 }
 
+// SPEC §3.8 チャンク形式: `$'` and `$"` are character literals. They open no string or comment,
+// so the bang after them still ends the chunk.
+TEST(Chunk, QuoteCharacterLiteralsOpenNoStringOrComment) {
+  const char* src =
+      "!Foo methodsFor: 'a'!\n"
+      "quote\n"
+      "  ^$'!\n"
+      "isDq: c\n"
+      "  ^c = $\"!\n"
+      "two\n"
+      "  ^2! !\n"
+      "!Foo class methodsFor: 'b'!\n"
+      "three\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(3u, acts[0].methods.size());
+  EXPECT_EQ("quote\n  ^$'", acts[0].methods[0].source);
+  EXPECT_EQ("isDq: c\n  ^c = $\"", acts[0].methods[1].source);
+  EXPECT_EQ("two\n  ^2", acts[0].methods[2].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[1].kind);
+  EXPECT_TRUE(acts[1].meta);
+  ASSERT_EQ(1u, acts[1].methods.size());
+  EXPECT_EQ("three\n  ^3", acts[1].methods[0].source);
+}
+
 TEST(Chunk, SubclassSendInMethodStaysMethodsFor) {
   const char* src =
       "!Foo methodsFor: 't'!\n"

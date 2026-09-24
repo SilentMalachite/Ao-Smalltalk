@@ -2,6 +2,7 @@
 #include "ao/Chunk.hpp"
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Lookup.hpp"
 #include <cstring>
 #include <gtest/gtest.h>
@@ -153,4 +154,35 @@ TEST(ChunkFileIn, ChunkLevelErrorsCarryTheChunkSpan) {
     EXPECT_EQ(chunk, src.substr(errs[0].span.start, errs[0].span.end - errs[0].span.start));
     EXPECT_FALSE(b.wk.named("B3After").isHeap());
   }
+}
+
+// 05 High / SPEC §3.8 チャンク形式: `$'` と `$"` は文字リテラルで、文字列もコメントも開かない。
+// そのあとのメソッドとクラス側のセクションも読み込む。
+TEST(ChunkFileIn, QuoteCharacterLiteralsKeepLaterChunks) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Quote\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Quote methodsFor: 'a'!\n"
+      "quote\n"
+      "  ^$'!\n"
+      "isDq: c\n"
+      "  ^c = $\"!\n"
+      "two\n"
+      "  ^2! !\n"
+      "!B7Quote class methodsFor: 'b'!\n"
+      "three\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root cls(b.roots, b.wk.named("B7Quote"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  ao::Root inst(b.roots, send0(b, cls.slot, "new"));
+  EXPECT_EQ(ao::Oop::fromCharacter(U'\''), send0(b, inst.slot, "quote"));
+  EXPECT_EQ(ao::Oop::true_(), send1(b, inst.slot, "isDq:", ao::Oop::fromCharacter(U'"')));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(2), send0(b, inst.slot, "two"));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(3), send0(b, cls.slot, "three"));
 }

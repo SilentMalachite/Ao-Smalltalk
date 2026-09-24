@@ -56,7 +56,8 @@ bool bangSpaceBangAt(std::string_view src, std::uint32_t i, std::uint32_t& secon
   return true;
 }
 
-bool isCharacterBang(std::string_view src, std::uint32_t i) {
+// The character at i is the value of a `$x` literal: an odd run of `$` comes right before it.
+bool isCharacterLiteral(std::string_view src, std::uint32_t i) {
   std::uint32_t dollars = 0;
   while (i > 0 && src[i - 1] == '$') {
     dollars++;
@@ -112,7 +113,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     while (i < n) {
       const char c = src[i];
       if (!inStr && !inCmt && c == '!') {
-        if (!prose && isCharacterBang(src, i)) {
+        if (!prose && isCharacterLiteral(src, i)) {
           text.push_back(c);
           i++;
           continue;
@@ -131,6 +132,12 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         if (atLineEnd(src, i + 1)) {
           break;
         }
+        text.push_back(c);
+        i++;
+        continue;
+      }
+      // `$'` and `$"` are characters. They open no string or comment.
+      if (!inStr && !inCmt && (c == '\'' || c == '"') && isCharacterLiteral(src, i)) {
         text.push_back(c);
         i++;
         continue;
