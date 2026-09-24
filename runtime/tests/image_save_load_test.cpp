@@ -30,6 +30,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -1596,4 +1597,128 @@ TEST(ImageSave, FileSizeLimitFailsWithoutTheSignal) {
   EXPECT_TRUE(fileNames(dir).empty());
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
+}
+
+namespace {
+
+// A Collection whose do: keeps every block it is given (the Kernel natives pass their thunks) in
+// the class variable Kept, then runs it on 1 and 2.
+const char kThunkKeeper[] =
+    "!Collection subclass: #B6Keeper\n"
+    "  instanceVariableNames: ''\n"
+    "  classVariableNames: 'Kept N'\n"
+    "  poolDictionaries: ''\n"
+    "  category: 'B6-Test'!\n"
+    "!B6Keeper methodsFor: 't'!\n"
+    "size\n"
+    "  ^2!\n"
+    "do: aBlock\n"
+    "  Kept isNil ifTrue: [Kept := Array new: 16. N := 0].\n"
+    "  N := N + 1.\n"
+    "  Kept at: N put: aBlock.\n"
+    "  aBlock value: 1.\n"
+    "  aBlock value: 2! !\n"
+    "!B6Keeper class methodsFor: 't'!\n"
+    "kept\n"
+    "  ^Kept!\n"
+    "count\n"
+    "  ^N! !\n";
+
+// Each Kernel native that passes a thunk to do:, and the thunk functions' names it uses.
+const char* const kThunkSends[] = {
+    "B6Keeper new collect: [:x | x * 10]",
+    "B6Keeper new select: [:x | x > 1]",
+    "B6Keeper new reject: [:x | x > 1]",
+    "B6Keeper new detect: [:x | x > 5] ifNone: [0]",
+    "B6Keeper new inject: 0 into: [:a :b | a + b]",
+    "B6Keeper new includes: 2",
+    "(WriteStream on: (Array new: 4)) nextPutAll: B6Keeper new",
+};
+
+}  // namespace
+
+// B6 review (Claude Low) / SPEC §3.11: each Kernel thunk's NativeMethod carries the name its
+// function was registered under, and that name resolves to the function the thunk calls (the
+// registry index in the method), not merely to some function.
+TEST(ImageRegistry, KernelThunksCarryTheNameOfTheirFunction) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(fileInSource(b, kThunkKeeper, &errs)) << (errs.empty() ? "" : errs[0].message);
+  for (const char* send : kThunkSends) {
+    const std::string source = std::string("f\n  ^") + send;
+    runSource(b.ctx, source.c_str());
+    ASSERT_FALSE(b.ctx.aborting) << send;
+  }
+  ao::Root kept(b.roots, runSource(b.ctx, "f\n  ^B6Keeper kept"));
+  const ao::Oop count = runSource(b.ctx, "f\n  ^B6Keeper count");
+  ASSERT_TRUE(kept.slot.isHeap());
+  ASSERT_TRUE(count.isSmallInteger());
+  std::set<std::string> names;
+  for (std::int64_t i = 0; i < count.smallIntegerValue(); ++i) {
+    const ao::Oop blk = b.heap.slotAt(kept.slot, static_cast<std::uint32_t>(i));
+    ASSERT_EQ(b.wk.blockContextClass, b.heap.klass(blk));
+    const ao::Oop method = b.heap.slotAt(blk, ao::kCtxMethod);
+    ASSERT_EQ(b.wk.nativeMethodClass, b.heap.klass(method));
+    const std::string name(ao::NativeMethod::nameBytes(b.heap, method));
+    std::uint32_t found = 0;
+    ASSERT_TRUE(ao::NativeRegistry::findName(name, &found)) << name;
+    const ao::Oop index = b.heap.slotAt(method, ao::kNativeSlotRegistryIndex);
+    ASSERT_TRUE(index.isSmallInteger());
+    EXPECT_EQ(index.smallIntegerValue(), static_cast<std::int64_t>(found)) << name;
+    names.insert(name);
+  }
+  EXPECT_EQ((std::set<std::string>{"ao_Collection_collect_fill", "ao_Collection_filter_count",
+                                   "ao_Collection_filter_fill", "ao_Collection_detect_scan",
+                                   "ao_Collection_inject_scan", "ao_Collection_includes_scan",
+                                   "ao_Stream_nextPutAll_each"}),
+            names);
+}
+
+// B6 review (Claude Low) / SPEC §3.11: the Collection thunks (collect, select, reject, detect,
+// inject, includes) and the stream's, kept by a user's do:, survive save and load and run after
+// it on their saved state. None crashes; inject's goes on from its sum 3.
+TEST(ImageSaveLoad, EscapedCollectionThunksRunAfterSaveAndLoad) {
+  const auto path = std::filesystem::path(testing::TempDir()) / "b6-collection-thunks.aoimage";
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Collection subclass: #B6Keeper\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: 'Kept N'\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B6-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B6Keeper", 0, "size\n  ^2\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B6Keeper", 0,
+                                    "do: aBlock\n"
+                                    "  Kept isNil ifTrue: [Kept := Array new: 16. N := 0].\n"
+                                    "  N := N + 1.\n"
+                                    "  Kept at: N put: aBlock.\n"
+                                    "  aBlock value: 1.\n"
+                                    "  aBlock value: 2\n",
+                                    &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B6Keeper", 1, "kept\n  ^Kept\n", &err)) << err.message;
+  char out[128];
+  auto eval = [&](const std::string& src) {
+    return ao_eval(src.c_str(), static_cast<int>(src.size()), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  for (const char* send : kThunkSends) {
+    ASSERT_EQ(AO_OK, eval(send)) << send << ": " << err.message;
+  }
+  ASSERT_EQ(AO_OK, eval("(B6Keeper kept select: [:e | e notNil]) size")) << err.message;
+  EXPECT_STREQ("9", out);  // select: and reject: pass two thunks each.
+
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  for (int i = 1; i <= 9; ++i) {
+    const int rc = eval("(B6Keeper kept at: " + std::to_string(i) + ") value: 5");
+    EXPECT_TRUE(rc == AO_OK || rc == AO_ERR_EVAL) << i << ": " << rc;
+  }
+  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 7) value: 5")) << err.message;  // inject:into:
+  EXPECT_STREQ("13", out);  // 3, then 8 above, then 13
+  ASSERT_EQ(AO_OK, eval("1 + 2")) << err.message;
+  EXPECT_STREQ("3", out);
+  ao_runtime_shutdown();
+  std::filesystem::remove(path);
 }
