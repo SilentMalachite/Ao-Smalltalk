@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -490,4 +491,24 @@ TEST_F(SessionAbi, EvalWithoutOutBufferRefusesBeforeEvaluating) {
   EXPECT_STREQ("nil", out);
   ao_set_transcript_hook(nullptr, nullptr);
   ao_runtime_shutdown();
+}
+
+// B6 review (06 Low) / SPEC §3.10: C++ の例外は ABI の境界を越えない。境界を越えると std::terminate で
+// プロセスが落ちる。例外を投げるフック（ホストの不具合）で評価が途中で止まっても、ao_eval は AO_ERR を
+// 返す。止まったセッションは捨て、新しいセッションはふつうに動く。
+TEST_F(SessionAbi, ExceptionInsideEvalDoesNotCrossTheAbi) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao_set_transcript_hook([](const char*, int, int, void*) { throw std::runtime_error("host bug"); },
+                         nullptr);
+  char out[64];
+  AoSpan err{};
+  const char* show = "Transcript show: 'x'. 3";
+  EXPECT_EQ(AO_ERR, ao_eval(show, static_cast<int>(std::strlen(show)), AO_EVAL_PRINTIT, out, 64,
+                            &err));
+  EXPECT_STREQ("", out);
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_eval("1 + 2", 5, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("3", out);
 }

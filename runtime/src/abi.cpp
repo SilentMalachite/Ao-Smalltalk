@@ -5,29 +5,49 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string>
+#include <string_view>
+
+namespace {
+
+// SPEC §3.10: no C++ exception leaves the ABI. body runs; an exception (std::bad_alloc, a host
+// hook that throws) makes the call answer failed. An evaluation it cut short may leave the session
+// half way; shutting it down and booting again is always safe.
+template <typename Body>
+int guarded(int failed, Body&& body) noexcept {
+  try {
+    return body();
+  } catch (...) {
+    return failed;
+  }
+}
+
+}  // namespace
 
 extern "C" int ao_version(char* buf, int buf_len) {
-  if (buf == nullptr || buf_len < 1) {
-    return AO_ERR;
-  }
-  // SPEC §3.10: snprintf still NUL-terminates what it cut.
-  return ao::version_string(buf, buf_len) == 0 ? AO_OK : AO_ERR_RANGE;
+  return guarded(AO_ERR, [&] {
+    if (buf == nullptr || buf_len < 1) {
+      return AO_ERR;
+    }
+    // SPEC §3.10: snprintf still NUL-terminates what it cut.
+    return ao::version_string(buf, buf_len) == 0 ? AO_OK : AO_ERR_RANGE;
+  });
 }
 
 extern "C" int ao_runtime_boot(void) {
-  return ao::boot() == 0 ? AO_OK : AO_ERR;
+  return guarded(AO_ERR, [] { return ao::boot() == 0 ? AO_OK : AO_ERR; });
 }
 
 extern "C" int ao_runtime_shutdown(void) {
-  return ao::shutdown() == 0 ? AO_OK : AO_ERR;
+  return guarded(AO_ERR, [] { return ao::shutdown() == 0 ? AO_OK : AO_ERR; });
 }
 
 extern "C" int ao_image_save(const char* path) {
-  return ao::sessionImageSave(path) == 0 ? AO_OK : AO_ERR;
+  return guarded(AO_ERR, [&] { return ao::sessionImageSave(path) == 0 ? AO_OK : AO_ERR; });
 }
 
 extern "C" int ao_filein_load_order(const char* path) {
-  return ao::sessionFileInLoadOrder(path) == 0 ? AO_OK : AO_ERR;
+  return guarded(AO_ERR, [&] { return ao::sessionFileInLoadOrder(path) == 0 ? AO_OK : AO_ERR; });
 }
 
 namespace {
@@ -88,6 +108,20 @@ void fillSpan(AoSpan* err, const ao::compiler::CompileError& error) {
   err->message[n] = '\0';
 }
 
+// A span at 0-0 whose message is text, cut to what fits. Allocates nothing.
+void setMessage(AoSpan* err, std::string_view text) {
+  if (err == nullptr) {
+    return;
+  }
+  err->start = 0;
+  err->end = 0;
+  const std::size_t n = std::min(text.size(), sizeof(err->message) - 1);
+  if (n != 0) {
+    std::memcpy(err->message, text.data(), n);
+  }
+  err->message[n] = '\0';
+}
+
 void deliverTranscript(ao::CallContext& ctx, ao::Oop value) {
   if (g_transcriptFn == nullptr) {
     return;
@@ -123,55 +157,74 @@ extern "C" void ao_set_inspect_hook(AoInspectFn fn, void* user) {
 }
 
 extern "C" int ao_workspace_reset(void) {
-  return ao::sessionWorkspaceReset() == 0 ? AO_OK : AO_ERR;
+  return guarded(AO_ERR, [] { return ao::sessionWorkspaceReset() == 0 ? AO_OK : AO_ERR; });
 }
 
 extern "C" int ao_eval(const char* source, int source_len, int mode, char* out, int out_len,
                        AoSpan* err) {
-  return ao::sessionEval(source, source_len, mode, out, out_len, err, g_inspectFn, g_inspectUser);
+  const int rc = guarded(-1, [&] {
+    return ao::sessionEval(source, source_len, mode, out, out_len, err, g_inspectFn,
+                           g_inspectUser);
+  });
+  if (rc != -1) {
+    return rc;
+  }
+  clearSpan(err);
+  if (out != nullptr && out_len > 0) {
+    out[0] = '\0';
+  }
+  return AO_ERR;
 }
 
 extern "C" int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err) {
   clearSpan(err);
-  ao::Session* s = ao::session();
-  if (s == nullptr || s->ctx == nullptr || class_name == nullptr || source == nullptr ||
-      (meta != 0 && meta != 1)) {
-    return AO_ERR;
-  }
-  // SPEC §3.10: a name that does not resolve to a class is not a compile error.
-  if (!ao::namesBehavior(*s->ctx, class_name)) {
-    return AO_ERR;
-  }
-  ao::compiler::CompileError error;
-  if (!ao::acceptMethodSource(*s->ctx, class_name, meta == 1, source, &error)) {
-    fillSpan(err, error);
-    return AO_ERR_COMPILE;
-  }
-  return AO_OK;
+  return guarded(AO_ERR, [&] {
+    ao::Session* s = ao::session();
+    if (s == nullptr || s->ctx == nullptr || class_name == nullptr || source == nullptr ||
+        (meta != 0 && meta != 1)) {
+      return AO_ERR;
+    }
+    // SPEC §3.10: a name that does not resolve to a class is not a compile error.
+    if (!ao::namesBehavior(*s->ctx, class_name)) {
+      return AO_ERR;
+    }
+    ao::compiler::CompileError error;
+    if (!ao::acceptMethodSource(*s->ctx, class_name, meta == 1, source, &error)) {
+      fillSpan(err, error);
+      return AO_ERR_COMPILE;
+    }
+    return AO_OK;
+  });
 }
 
 extern "C" int ao_accept_class(const char* source, AoSpan* err) {
   clearSpan(err);
-  ao::Session* s = ao::session();
-  if (s == nullptr || s->ctx == nullptr || source == nullptr) {
-    return AO_ERR;
-  }
-  ao::compiler::CompileError error;
-  if (!ao::acceptClassSource(*s->ctx, source, &error)) {
-    fillSpan(err, error);
-    return AO_ERR_COMPILE;
-  }
-  return AO_OK;
+  return guarded(AO_ERR, [&] {
+    ao::Session* s = ao::session();
+    if (s == nullptr || s->ctx == nullptr || source == nullptr) {
+      return AO_ERR;
+    }
+    ao::compiler::CompileError error;
+    if (!ao::acceptClassSource(*s->ctx, source, &error)) {
+      fillSpan(err, error);
+      return AO_ERR_COMPILE;
+    }
+    return AO_OK;
+  });
 }
 
 extern "C" int ao_image_load(const char* path, AoSpan* err) {
   clearSpan(err);
   std::string reason;
-  if (ao::sessionImageLoad(path, &reason) == 0) {
+  const int rc = guarded(-1, [&] {
+    return ao::sessionImageLoad(path, &reason) == 0 ? AO_OK : AO_ERR;
+  });
+  if (rc == AO_OK) {
     return AO_OK;
   }
-  // SPEC §3.10: an AO_ERR says why, never with an empty message.
-  fillSpan(err, ao::compiler::CompileError{{}, reason.empty() ? "image load failed" : reason});
+  // SPEC §3.10: an AO_ERR says why, never with an empty message. An exception is
+  // "image load failed". Copying the reason allocates nothing.
+  setMessage(err, rc == -1 || reason.empty() ? std::string_view("image load failed") : reason);
   return AO_ERR;
 }
 
@@ -191,48 +244,54 @@ extern "C" void ao_set_transcript_hook(AoTranscriptFn fn, void* user) {
   };
 }
 
-extern "C" int ao_browser_class_count(void) { return ao::browserClassCount(); }
+extern "C" int ao_browser_class_count(void) {
+  return guarded(-1, [] { return ao::browserClassCount(); });
+}
 
 extern "C" int ao_browser_class_at(int index, char* name, int name_len, char* category,
                                     int category_len) {
-  return ao::browserClassAt(index, name, name_len, category, category_len);
+  return guarded(AO_ERR, [&] {
+    return ao::browserClassAt(index, name, name_len, category, category_len);
+  });
 }
 
 extern "C" int ao_browser_protocol_count(const char* class_name, int meta) {
-  return ao::browserProtocolCount(class_name, meta);
+  return guarded(-1, [&] { return ao::browserProtocolCount(class_name, meta); });
 }
 
 extern "C" int ao_browser_protocol_at(const char* class_name, int meta, int index, char* buf,
                                        int len) {
-  return ao::browserProtocolAt(class_name, meta, index, buf, len);
+  return guarded(AO_ERR, [&] { return ao::browserProtocolAt(class_name, meta, index, buf, len); });
 }
 
 extern "C" int ao_browser_selector_count(const char* class_name, int meta, const char* protocol) {
-  return ao::browserSelectorCount(class_name, meta, protocol);
+  return guarded(-1, [&] { return ao::browserSelectorCount(class_name, meta, protocol); });
 }
 
 extern "C" int ao_browser_selector_at(const char* class_name, int meta, const char* protocol,
                                       int index, char* buf, int len) {
-  return ao::browserSelectorAt(class_name, meta, protocol, index, buf, len);
+  return guarded(AO_ERR, [&] {
+    return ao::browserSelectorAt(class_name, meta, protocol, index, buf, len);
+  });
 }
 
 extern "C" int ao_browser_source(const char* class_name, int meta, const char* selector, char* buf,
                                  int len) {
-  return ao::browserSource(class_name, meta, selector, buf, len);
+  return guarded(AO_ERR, [&] { return ao::browserSource(class_name, meta, selector, buf, len); });
 }
 
 extern "C" int ao_browser_class_definition(const char* class_name, char* buf, int len) {
-  return ao::browserClassDefinition(class_name, buf, len);
+  return guarded(AO_ERR, [&] { return ao::browserClassDefinition(class_name, buf, len); });
 }
 
 extern "C" int ao_browser_superclass(const char* class_name, int meta, char* buf, int len) {
-  return ao::browserSuperclass(class_name, meta, buf, len);
+  return guarded(AO_ERR, [&] { return ao::browserSuperclass(class_name, meta, buf, len); });
 }
 
 extern "C" int ao_browser_subclass_count(const char* class_name) {
-  return ao::browserSubclassCount(class_name);
+  return guarded(-1, [&] { return ao::browserSubclassCount(class_name); });
 }
 
 extern "C" int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len) {
-  return ao::browserSubclassAt(class_name, index, buf, len);
+  return guarded(AO_ERR, [&] { return ao::browserSubclassAt(class_name, index, buf, len); });
 }
