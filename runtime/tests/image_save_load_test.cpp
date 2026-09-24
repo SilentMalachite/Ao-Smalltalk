@@ -18,6 +18,10 @@
 #include "ao/MethodDictionary.hpp"
 #include "ao/Symbol.hpp"
 
+#include <sys/resource.h>
+
+#include <algorithm>
+#include <csignal>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -247,6 +251,53 @@ void expectOnePlusTwo(Loaded& image) {
   auto three = send1(image, ao::Oop::fromSmallInteger(1), "+", ao::Oop::fromSmallInteger(2));
   ASSERT_TRUE(three.isSmallInteger());
   EXPECT_EQ(3, three.smallIntegerValue());
+}
+
+// While it lives, a write that would make a file longer than bytes fails with EFBIG instead of
+// killing the process (RLIMIT_FSIZE with SIGXFSZ ignored), as a full disk makes a write fail.
+class FileSizeLimit {
+ public:
+  explicit FileSizeLimit(rlim_t bytes) {
+    struct sigaction ignore {};
+    ignore.sa_handler = SIG_IGN;
+    sigemptyset(&ignore.sa_mask);
+    sigaction(SIGXFSZ, &ignore, &oldAction_);
+    getrlimit(RLIMIT_FSIZE, &oldLimit_);
+    struct rlimit limit = oldLimit_;
+    limit.rlim_cur = bytes;
+    armed_ = setrlimit(RLIMIT_FSIZE, &limit) == 0;
+  }
+  ~FileSizeLimit() {
+    setrlimit(RLIMIT_FSIZE, &oldLimit_);
+    sigaction(SIGXFSZ, &oldAction_, nullptr);
+  }
+  FileSizeLimit(const FileSizeLimit&) = delete;
+  FileSizeLimit& operator=(const FileSizeLimit&) = delete;
+  bool armed() const { return armed_; }
+
+ private:
+  struct sigaction oldAction_ {};
+  struct rlimit oldLimit_ {};
+  bool armed_ = false;
+};
+
+// The names of the files in dir, sorted.
+std::vector<std::string> fileNames(const std::filesystem::path& dir) {
+  std::vector<std::string> names;
+  for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+    names.push_back(entry.path().filename().string());
+  }
+  std::sort(names.begin(), names.end());
+  return names;
+}
+
+// A fresh directory under the test temp directory, for tests that look at what a save leaves.
+std::filesystem::path freshDir(const char* name) {
+  const auto dir = std::filesystem::path(testing::TempDir()) / name;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir);
+  return dir;
 }
 
 }  // namespace
@@ -823,4 +874,65 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ao_runtime_shutdown();
   std::filesystem::remove(path);
   std::filesystem::remove(garbage);
+}
+
+// B6 review (06 High #1) / SPEC §3.11: 失敗シナリオ。保存は保存先を切り詰めて直接書いていたので、書き込みが
+// 途中で失敗する（ファイルサイズの上限、ディスクフル）と、正常だった旧イメージが縮んでロードできなくなった。
+// 保存は一時ファイルに書いてから置き換えるので、失敗しても旧イメージはそのまま残り、一時ファイルも残らない。
+TEST(ImageSave, FailedWriteKeepsOldImage) {
+  const auto dir = freshDir("b6-failed-write");
+  const auto path = dir / "keep.aoimage";
+  Boot b;
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> before = readAll(path);
+  ASSERT_GT(before.size(), std::size_t{32} << 10);
+  {
+    FileSizeLimit limit(16u << 10);
+    ASSERT_TRUE(limit.armed());
+    EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  }
+  const std::vector<char> after = readAll(path);
+  EXPECT_EQ(before.size(), after.size());
+  EXPECT_TRUE(before == after);
+  EXPECT_EQ(std::vector<std::string>{"keep.aoimage"}, fileNames(dir));
+  Loaded loaded;
+  ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, path.string()));
+  expectOnePlusTwo(loaded);
+  // 保存したセッションもそのまま使える。
+  auto three = send1(b, ao::Oop::fromSmallInteger(1), "+", ao::Oop::fromSmallInteger(2));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(3), three);
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// SPEC §3.11: 置き換えた保存先は、旧イメージのパーミッションを引き継ぐ。一時ファイルは残らない。
+TEST(ImageSave, ReplacingSaveKeepsPermissionsAndLeavesNoTemporaryFile) {
+  namespace fs = std::filesystem;
+  const auto dir = freshDir("b6-replace");
+  const auto path = dir / "replace.aoimage";
+  Boot b;
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const auto mode = fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read;
+  fs::permissions(path, mode, fs::perm_options::replace);
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  EXPECT_EQ(mode, fs::status(path).permissions() & fs::perms::mask);
+  EXPECT_EQ(std::vector<std::string>{"replace.aoimage"}, fileNames(dir));
+  Loaded loaded;
+  ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, path.string()));
+  expectOnePlusTwo(loaded);
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+// SPEC §3.11: 保存先のディレクトリに書けなければ保存は失敗し、何も残さない。
+TEST(ImageSave, UnwritableDirectoryFailsWithoutFiles) {
+  namespace fs = std::filesystem;
+  const auto dir = freshDir("b6-unwritable");
+  Boot b;
+  fs::permissions(dir, fs::perms::owner_read | fs::perms::owner_exec, fs::perm_options::replace);
+  EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, (dir / "none.aoimage").string()));
+  fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace);
+  EXPECT_TRUE(fileNames(dir).empty());
+  std::error_code ec;
+  fs::remove_all(dir, ec);
 }

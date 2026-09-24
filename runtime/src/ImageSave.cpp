@@ -3,11 +3,17 @@
 #include "ao/Globals.hpp"
 #include "ao/ImageFormat.hpp"
 
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <atomic>
 #include <bit>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <fstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -197,15 +203,90 @@ bool writeObject(const Heap& heap, const Trace& tr, Oop obj, std::byte* dst) {
   return true;
 }
 
+bool writeAllBytes(int fd, const std::byte* data, std::size_t n) {
+  while (n > 0) {
+    const std::size_t chunk = std::min<std::size_t>(n, std::size_t{1} << 30);
+    const ssize_t w = ::write(fd, data, chunk);
+    if (w < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+    if (w == 0) {
+      return false;
+    }
+    data += w;
+    n -= static_cast<std::size_t>(w);
+  }
+  return true;
+}
+
+// On macOS fsync leaves the data in the drive's cache; F_FULLFSYNC flushes it. A file system
+// without F_FULLFSYNC still takes fsync.
+bool syncFile(int fd) {
+#ifdef F_FULLFSYNC
+  if (::fcntl(fd, F_FULLFSYNC) == 0) {
+    return true;
+  }
+#endif
+  return ::fsync(fd) == 0;
+}
+
+// Makes the rename that put path in place durable. Best effort: the image is already in place, and
+// some file systems refuse fsync on a directory.
+void syncParentDirectory(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  const std::string dir =
+      slash == std::string::npos ? std::string(".") : (slash == 0 ? std::string("/") : path.substr(0, slash));
+  const int fd = ::open(dir.c_str(), O_RDONLY | O_CLOEXEC);
+  if (fd < 0) {
+    return;
+  }
+  (void)syncFile(fd);
+  ::close(fd);
+}
+
+// SPEC §3.11 (保存): the image goes to a temporary file next to path, which replaces path only once
+// all of it is on disk. Any failure removes the temporary file and leaves path as it was.
 bool writeFile(std::string_view path, const std::byte* data, std::size_t n) {
-  const std::string pathStr(path);
-  std::ofstream out(pathStr.c_str(), std::ios::binary | std::ios::trunc);
-  if (!out) {
+  static std::atomic<unsigned> serial{0};
+  const std::string target(path);
+  if (target.empty()) {
     return false;
   }
-  out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(n));
-  out.close();
-  return !out.fail();
+  std::string temp;
+  int fd = -1;
+  for (int attempt = 0; attempt < 64 && fd < 0; ++attempt) {
+    temp = target + ".tmp-" + std::to_string(::getpid()) + "-" + std::to_string(serial++);
+    // 0666 under the umask, as the file the save wrote before.
+    fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    if (fd < 0 && errno != EEXIST) {
+      return false;
+    }
+  }
+  if (fd < 0) {
+    return false;
+  }
+  bool ok = true;
+  // A save over an image keeps that image's permissions.
+  struct stat old {};
+  if (::stat(target.c_str(), &old) == 0 && S_ISREG(old.st_mode)) {
+    ok = ::fchmod(fd, old.st_mode & 07777) == 0;
+  }
+  ok = ok && writeAllBytes(fd, data, n) && syncFile(fd);
+  if (::close(fd) != 0) {
+    ok = false;
+  }
+  if (ok && ::rename(temp.c_str(), target.c_str()) != 0) {
+    ok = false;
+  }
+  if (!ok) {
+    ::unlink(temp.c_str());
+    return false;
+  }
+  syncParentDirectory(target);
+  return true;
 }
 
 }  // namespace
