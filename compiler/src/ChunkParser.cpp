@@ -25,6 +25,8 @@ bool isBlank(std::string_view s) {
 struct RawChunk {
   std::string text;
   SourceSpan span;
+  // Ended by "! !", which closes a methodsFor: section.
+  bool endsSection = false;
 };
 
 bool atLineEnd(std::string_view src, std::uint32_t p) {
@@ -106,6 +108,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     std::string text;
     bool inStr = false;
     bool inCmt = false;
+    bool endsSection = false;
     while (i < n) {
       const char c = src[i];
       if (!inStr && !inCmt && c == '!') {
@@ -122,6 +125,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         std::uint32_t secondBang = 0;
         if (bangSpaceBangAt(src, i, secondBang)) {
           i = secondBang;
+          endsSection = true;
           break;
         }
         if (atLineEnd(src, i + 1)) {
@@ -162,6 +166,10 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
       i++;
     }
     if (isBlank(text)) {
+      // An empty chunk ends a methodsFor: section too (`! !` on a line of its own).
+      if (!out.empty()) {
+        out.back().endsSection = true;
+      }
       continue;
     }
     proseNext = firstLineHas(text, "commentStamp:");
@@ -169,6 +177,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     raw.text = std::move(text);
     raw.span.start = start;
     raw.span.end = end;
+    raw.endsSection = endsSection;
     out.push_back(std::move(raw));
   }
   return out;
@@ -238,10 +247,47 @@ ChunkAction parseMethodsFor(std::string_view text) {
   return a;
 }
 
+// SPEC §3.10: the chunk is `Super subclass: #Name` followed by the other definition keywords in
+// this order (any may be left out), each argument one token, and nothing after it but a period.
+bool isSoleDefinition(std::string_view text) {
+  static constexpr std::string_view kKeywords[] = {"subclass:", "instanceVariableNames:",
+                                                   "classVariableNames:", "poolDictionaries:",
+                                                   "category:"};
+  Scanner s(text);
+  if (s.next().kind != Tok::Ident) {
+    return false;
+  }
+  Token t = s.next();
+  std::size_t next = 0;
+  while (t.kind == Tok::Keyword) {
+    std::size_t k = next;
+    while (k < std::size(kKeywords) && kKeywords[k] != t.text) {
+      ++k;
+    }
+    if (k == std::size(kKeywords) || (next == 0 && k != 0)) {
+      return false;
+    }
+    next = k + 1;
+    const Token v = s.next();
+    if (v.kind != Tok::String && v.kind != Tok::Symbol && v.kind != Tok::Ident) {
+      return false;
+    }
+    t = s.next();
+  }
+  if (next == 0) {
+    return false;
+  }
+  if (t.kind == Tok::Period) {
+    t = s.next();
+  }
+  return t.kind == Tok::Eof;
+}
+
 ChunkAction parseClassDef(std::string_view text) {
   ChunkAction a;
   a.kind = ChunkKind::ClassDef;
   a.source = std::string(text);
+  a.soleDefinition = isSoleDefinition(text);
   Scanner s(text);
   Token t = s.next();
   if (t.kind == Tok::Ident) {
@@ -278,6 +324,8 @@ std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileEr
   std::vector<ChunkAction> acts;
   ChunkAction pending;
   bool collecting = false;
+  // False once `! !` (or an empty chunk) has ended the methodsFor: section being collected.
+  bool sectionOpen = false;
   auto flush = [&] {
     if (collecting) {
       acts.push_back(std::move(pending));
@@ -290,24 +338,30 @@ std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileEr
     if (hk == HeadKind::MethodsFor) {
       flush();
       pending = parseMethodsFor(raw.text);
+      pending.span = raw.span;
       collecting = true;
+      sectionOpen = !raw.endsSection;
       continue;
     }
     if (hk == HeadKind::ClassDef) {
       flush();
       acts.push_back(parseClassDef(raw.text));
+      acts.back().span = raw.span;
       continue;
     }
     if (collecting) {
       ChunkMethod m;
       m.source = std::string(raw.text);
       m.span = raw.span;
+      m.afterSectionEnd = !sectionOpen;
+      sectionOpen = sectionOpen && !raw.endsSection;
       pending.methods.push_back(std::move(m));
       continue;
     }
     ChunkAction doit;
     doit.kind = ChunkKind::DoIt;
     doit.source = std::string(raw.text);
+    doit.span = raw.span;
     acts.push_back(std::move(doit));
   }
   flush();

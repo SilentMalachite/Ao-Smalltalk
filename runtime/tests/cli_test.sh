@@ -67,7 +67,14 @@ EOF
 bad
   ^1 +! !
 EOF
-  mkdir -p plain deferred missing
+  cat >kern.st <<'EOF'
+!Object subclass: #Object
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Kernel'!
+EOF
+  mkdir -p plain deferred missing kernel
   cp good.st bad.st plain/
   cp good.st bad.st deferred/
   printf 'good.st\nbad.st\n' >plain/LOAD_ORDER
@@ -75,10 +82,14 @@ EOF
   printf '# Deferred\nCliBad>>bad: kept out on purpose\n' >deferred/DEFERRED.md
   cp good.st missing/
   printf 'good.st\nnone.st\n' >missing/LOAD_ORDER
+  cp kern.st good.st kernel/
+  printf 'kern.st\ngood.st\n' >kernel/LOAD_ORDER
 }
 
 # bad.st の `^1 +` は `+`（ファイル本文の 166-167 バイト目）の後に式が無い。
 BAD_LINE='bad.st:166-167: expected expression'
+# kern.st のクラス定義のチャンクは、先頭の ! の後（1 バイト目）から閉じる ! の手前（122）まで。
+KERN_LINE='kern.st:1-122: refusing to redefine kernel class: Object'
 
 case "$CASE" in
   filein)
@@ -97,6 +108,10 @@ case "$CASE" in
     stderr_is 'missing/none.st:0-0: cannot read: missing/none.st'
     run 1 "$AO" filein --load-order no-such/LOAD_ORDER
     stderr_is 'no-such/LOAD_ORDER:0-0: cannot read: no-such/LOAD_ORDER'
+    run 1 "$AO" filein kern.st
+    stderr_is "$KERN_LINE"
+    run 1 "$AO" filein --load-order kernel/LOAD_ORDER
+    stderr_is "kernel/$KERN_LINE"
     ;;
   image_save)
     write_fixtures

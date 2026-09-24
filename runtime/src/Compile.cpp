@@ -192,10 +192,10 @@ std::string methodKey(const compiler::ChunkAction& action, std::string_view sele
   return key;
 }
 
-bool refusesKernelRedefinition(bool kernel, std::string_view className,
+bool refusesKernelRedefinition(bool kernel, const compiler::ChunkAction& action,
                                std::vector<FileInError>& errors) {
   if (kernel) {
-    addError(errors, {{}, "refusing to redefine kernel class: " + std::string(className)});
+    addError(errors, {action.span, "refusing to redefine kernel class: " + action.className});
     return true;
   }
   return false;
@@ -205,13 +205,12 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
                    std::vector<FileInError>& errors) {
   // subclass: makes a new class and rebinds only the name (an alias too), never a Kernel class in
   // place. A catalog name is refused: define keeps its well-known slot.
-  if (refusesKernelRedefinition(isKernelClassName(ctx.wk, action.className), action.className,
-                                errors)) {
+  if (refusesKernelRedefinition(isKernelClassName(ctx.wk, action.className), action, errors)) {
     return false;
   }
   Root super(ctx.roots, ctx.wk.named(action.superName));
   if (!super.slot.isHeap()) {
-    addError(errors, {{}, "missing class: " + action.superName});
+    addError(errors, {action.span, "missing class: " + action.superName});
     return false;
   }
   Root name(ctx.roots, ctx.wk.intern(action.className));
@@ -221,7 +220,7 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
   Root cat(ctx.roots, boxUtf8(ctx, action.category));
   if (!name.slot.isHeap() || !ivars.slot.isHeap() || !cvars.slot.isHeap() || !pools.slot.isHeap() ||
       !cat.slot.isHeap()) {
-    addError(errors, {{}, "class definition allocation failed: " + action.className});
+    addError(errors, {action.span, "class definition allocation failed: " + action.className});
     return false;
   }
   const Oop sel = Symbol::intern(
@@ -238,17 +237,17 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
   if (unwinding(ctx)) {
     const std::string reason = abortReasonText(ctx);
     clearUnwinding(ctx);
-    addError(errors, {{},
+    addError(errors, {action.span,
                       "subclass failed: " + action.className + ": " +
                           (reason.empty() ? std::string("evaluation aborted") : reason)});
     return false;
   }
   if (!created.isHeap()) {
-    addError(errors, {{}, "subclass failed: " + action.className});
+    addError(errors, {action.span, "subclass failed: " + action.className});
     return false;
   }
   if (isVendorStub(action.className) && !ctx.wk.rebind(action.className, created)) {
-    addError(errors, {{}, "rebind failed: " + action.className});
+    addError(errors, {action.span, "rebind failed: " + action.className});
     return false;
   }
   return true;
@@ -258,15 +257,15 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                      std::vector<FileInError>& errors) {
   Root cls(ctx.roots, ctx.wk.named(action.className));
   if (!cls.slot.isHeap()) {
-    addError(errors, {{}, "missing class: " + action.className});
+    addError(errors, {action.span, "missing class: " + action.className});
     return false;
   }
-  if (refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action.className, errors)) {
+  if (refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action, errors)) {
     return false;
   }
   const Oop target = action.meta ? ctx.heap.klass(cls.slot) : cls.slot;
   if (!target.isHeap()) {
-    addError(errors, {{}, "missing class: " + action.className});
+    addError(errors, {action.span, "missing class: " + action.className});
     return false;
   }
   Root tgt(ctx.roots, target);
@@ -638,11 +637,22 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
   std::vector<compiler::CompileError> errors;
   const std::vector<compiler::ChunkAction> actions = compiler::parseChunks(source, errors);
   // SPEC §3.10: only class definitions and methodsFor: chunks. Every chunk is checked before any
-  // is applied, so a stray expression or method body leaves the image as it was.
+  // is applied, so a stray expression or method body leaves the image as it was. A definition
+  // chunk is its message alone, and a chunk after the `! !` that ended a methodsFor: section is an
+  // expression, not one of its methods.
   const bool definitionsOnly =
       !actions.empty() &&
-      std::none_of(actions.begin(), actions.end(), [](const compiler::ChunkAction& action) {
-        return action.kind == compiler::ChunkKind::DoIt;
+      std::all_of(actions.begin(), actions.end(), [](const compiler::ChunkAction& action) {
+        switch (action.kind) {
+          case compiler::ChunkKind::ClassDef:
+            return action.soleDefinition;
+          case compiler::ChunkKind::MethodsFor:
+            return std::none_of(action.methods.begin(), action.methods.end(),
+                                [](const compiler::ChunkMethod& m) { return m.afterSectionEnd; });
+          case compiler::ChunkKind::DoIt:
+            return false;
+        }
+        return false;
       });
   if (!definitionsOnly) {
     assignError(error, "not a class definition");
