@@ -403,6 +403,7 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 
 - インスタンス変数の名前と添字は、スーパークラス鎖を根から順にたどって決める。鎖の各クラスは、自分の instSize が 1 つ前のクラスの instSize より増えた分のスロットに、自分の instVarNames を先頭から順に当てる。名前が足りなければ、残りのスロットは名前を持たず、ソースから参照できない（コンパイラは識別子にならない仮の名前で埋める）。名前が足りなくなるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など）だけである。増えた分より多い名前は使わない。コンパイラ（§3.8）と `instVarNamed:` はこの規則に従う。これで、Kernel クラスのサブクラスが足す変数は、親のスロットと重ならない。
 - `subclass:instanceVariableNames:…` は、スーパークラスがバイト列のクラス（`isBytes`）で、instanceVariableNames が 1 つ以上あれば、クラスを作らずに評価を中断する（§3.3）。理由は `bytes class cannot have instance variables` である。バイト列のオブジェクトには名前付きのスロットが無いからである。インスタンス変数の無いサブクラスは今までどおり作れる。
+- Kernel クラスのクラス側の生成ネイティブ `Association key:value:`、`Point x:y:`、`Rectangle origin:corner:`、`Interval from:to:by:` は、`basicNew` と同じく、レシーバのクラスの instSize だけのスロットを割り当てる（format はランタイムと同じに読む。Kernel のスロットの数を下回らない）。Kernel のスロットに値を入れ、サブクラスが足したスロットは nil である。`Association subclass: #X instanceVariableNames: 'extra'` のあとの `X key: 1 value: 2` は 3 スロットで、`extra` を読み書きでき、そのインスタンスはクラスの format に合う（§3.11 のロードの検査に通り、保存できる）。
 - `subclass:instanceVariableNames:…` は、instanceVariableNames の名前が、スーパークラス鎖の名前付きスロットの名前（上の規則で決まる名前。名前の無いスロットは数えない）にあるか、同じ instanceVariableNames に 2 度現れれば、クラスを作らずに評価を中断する（§3.3）。理由は `duplicate instance variable: <名前>` で、最初に当たった名前を示す。コンパイラは名前を先頭に近いスロットに解決するので、あとのスロットにはソースから届かないからである。検査はバイト列の検査のあと、何も割り当てる前にする。
 - Kernel クラスが足したスロットは、コンパイルしたコードからは読み取り専用である。読みは今までどおりインスタンス変数として読む（`Association>>probeKey ^key` は key を読む）。代入はコンパイルエラーで、理由は `cannot assign to Kernel instance variable <名前>` である（§3.8）。ネイティブは、これらのスロットに決まった種類の値（`OrderedCollection` の `array` なら Array）があるものとして読み書きするので、ソースから別の値を入れるとネイティブが壊れるからである。
   - 読み取り専用のスロットは、メソッドのクラスのスーパークラス鎖（そのクラス自身を含む）でいちばん近い Kernel クラスの instSize までの、先頭のスロットである。サブクラスが継承したスロットも含む。クラス側のメソッドでは、鎖でいちばん近いのは Kernel クラスのメタクラス（`Object class` など）なので、Behavior の 8 つの枠（`superclass methodDict format name thisClass category classPool instVarNames`）が読み取り専用になる。vendor のスタブ（§3.12）は Kernel クラスに数えない。
@@ -649,7 +650,19 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 
 中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。既定の初期容量（nursery 1 MiB×2、old 4 MiB）は変えない。old は上限まで伸びる。`ao_image_load` はヘッダの heapBytes に合わせてコミットする。
 
-`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureKernelNatives` を呼ぶ。これは、Kernel のネイティブ（Transcript のクラス側の転送を含む）のうち、ロードしたイメージのメソッド辞書に無いセレクタだけを `putNative` する。既にあるセレクタは上書きしない。後から足したネイティブが、古いイメージにも入る。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。ロードと探針は新しいセッションに対して行い、どちらも成功したときだけ現在のセッションと差し替える。どちらかに失敗したら `AO_ERR` を返し、ロード前のセッションをそのまま使い続ける（差し替えも、シャットダウンもしない）。`AO_ERR` のとき、`err` が NULL でなければ `AoSpan.message` に理由を入れる（空にしない。`start` と `end` は 0）。理由は、`Image::load` が拒否したときはその理由（§3.11。`unsupported image version 1` など）、探針が失敗したときは `image probes failed`、それ以外（セッションが無い、`path` が NULL、ワークスペースを作れない）は `image load failed` である。`AO_OK` のときは空文字にする。CLI の `ao image load <path>` は、失敗したとき標準エラーに `ao: image load failed: <理由>` を 1 行出す。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めないとき、または file-in のエラー（§3.12。`DEFERRED.md` で除外したものを除く）が 1 件でもあるときは `AO_ERR`。
+`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック（`ao_set_transcript_hook`）は ABI 側が保持し、`ao::boot()` と `ao_image_load` は、作った新しいセッションにそれを配線する。boot の前に設定したフックも、shutdown→boot のあとも、ロードのあとも届く。NULL を設定すると外れる。ロードのあと `ensureKernelNatives` を呼ぶ。これは、Kernel のネイティブ（Transcript のクラス側の転送を含む）のうち、ロードしたイメージのメソッド辞書に無いセレクタだけを `putNative` する。既にあるセレクタは上書きしない。後から足したネイティブが、古いイメージにも入る。`ao_image_save` の呼び出し規約は `Image::save` と同じ（§3.11。原子的に書き、失敗しても旧イメージは残る）。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。ロードと探針は新しいセッションに対して行い、どちらも成功したときだけ現在のセッションと差し替える。どちらかに失敗したら `AO_ERR` を返し、ロード前のセッションをそのまま使い続ける（差し替えも、シャットダウンもしない）。`AO_ERR` のとき、`err` が NULL でなければ `AoSpan.message` に理由を入れる（空にしない。`start` と `end` は 0）。理由は、`Image::load` が拒否したときはその理由（§3.11。`unsupported image version 1` など）、探針が失敗したときは `image probes failed`、それ以外（セッションが無い、`path` が NULL、ワークスペースを作れない）は `image load failed` である。`AO_OK` のときは空文字にする。CLI の `ao image load <path>` は、失敗したとき標準エラーに `ao: image load failed: <理由>` を 1 行出す。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めないとき、または file-in のエラー（§3.12。`DEFERRED.md` で除外したものを除く）が 1 件でもあるときは `AO_ERR`。
+
+#### 再入と例外
+
+ランタイムが動いている間、つまり次の ABI の入口のどれかが実行中か、インタプリタが実行中の間は、ランタイムは busy である。busy のときに、フック（transcript、inspect）やネイティブから次の関数を呼ぶと、何もせずに `AO_ERR` を返す。
+
+- `ao_runtime_boot`、`ao_runtime_shutdown`
+- `ao_image_save`、`ao_image_load`、`ao_filein_load_order`
+- `ao_workspace_reset`、`ao_eval`、`ao_accept_method`、`ao_accept_class`
+
+拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）とブラウザの読み取り（`ao_browser_*`、`ao_version`）は busy でも呼べる。busy の判定は 1 か所にまとめる（B10 の協調スケジューラは、実行中のプロセスがあることをここに足す）。
+
+ABI の関数は C++ の例外を境界の外へ出さない。関数の中で捕捉し、int を返す関数は `AO_ERR`（件数を返す関数は -1）を返す。`ao_image_load` の理由は `image load failed` である。
 
 #### C ABI
 
@@ -771,6 +784,8 @@ LargeInteger とそれ以外はクラス名のまま。
 
 `NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。
 
+ネイティブのブロック（`makeNativeBlock` が作る thunk。`nextPutAll:` や `collect:` などのネイティブが、内部で `do:` に渡す BlockContext）も、NativeMethod を 1 つ持つ。その名前は、thunk の関数を Kernel のインストールで登録した名前（例: `ao_Stream_nextPutAll_each`、`ao_Collection_collect_fill`）である。thunk が捕捉する状態（ストリーム、数え上げ、結果の配列など）はすべてブロックのスロットにあり、関数はランタイムの静的な関数なので、ヒープに逃げた thunk（利用者の `do:` がブロックを保持した場合）は、ロードで名前から結び直せば保存したときと同じに動く。名前を登録していない関数の thunk（テストの関数など）の名前は `ao_NativeBlock_thunk` で、これは結び直せない。
+
 形式の版は 2 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。ロードは版 1 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 2 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
 
 ロードが拒否するときの理由は次のとおりである。`ao_image_load`（§3.10）と CLI の `ao image load` はこれを出す。
@@ -787,6 +802,41 @@ LargeInteger とそれ以外はクラス名のまま。
 グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。辞書より前に保存した旧イメージ（`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つもの）は版 1 なので、ヘッダの段階で拒否する。版 2 で `Smalltalk` がグローバル辞書でないイメージと、extra のレコードを持つイメージは、壊れたイメージとして拒否する。
 
 ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
+
+#### 保存
+
+保存（`Image::save`、`ao_image_save`、`ao image save`）が成功したイメージは、同じ版のランタイムの `Image::load` で必ず読める。保存は、書く前に、書こうとするファイルのバイト列に下の「ロードの検査」をそのまま当てる（ロードと同じ関数を使う）。どれかに反すれば、何も書かずに失敗する。失敗の理由（`Image::save` の reason。`ao image save` は標準エラーに `ao: image save failed: <理由>` を 1 行出す）は、どのオブジェクト（クラスならその名前、インスタンスならそのクラスの名前）がどの規則に反したかを言う。`ao_image_save` は理由を返さず `AO_ERR` である。この約束は `Image::load` までで、`ao_image_load` の探針（§3.10。`1 + 2` と `nil isNil`）は含まない。例えば `SmallInteger>>+` を壊したイメージは保存できるが、`ao_image_load` は探針で拒む。
+
+- ロードの検査の old の上限には、保存するヒープの old の上限を使う（セッションでは 4 GiB − 1 MiB。§3.2）。生存データは nursery と old の両方にあり、ロードはそれを 1 つの old に並べるので、old の上限より小さい old に収まっていたセッションでも超えることがある。
+- 名前の無い thunk（上）がヒープに逃げていれば、NativeMethod の名前の規則に反する。
+- `Smalltalk` がグローバル辞書でないときも失敗する（今までどおり）。
+
+書き方は次のとおりである。
+
+- 保存先がシンボリックリンクなら、リンクをたどった先（32 段まで）を置き換え、リンクは残す。リンク先がまだ無くてもよい。保存先がまだ無ければ、そのパスに作る。
+- 保存先が既にあって書き込めない（`access(W_OK)` が失敗する）なら、何も書かずに失敗する。読み取り専用のイメージは置き換えない（保存先を開いて書いていた以前の実装と同じ）。
+- 保存先と同じディレクトリに一時ファイル `.aoimage-XXXXXX`（X は英数字 6 文字。`O_EXCL` で作る）を作る。名前の長さは保存先の名前によらないので、長い名前（255 バイトまで）の保存先にも保存できる。パーミッションは、保存先が既にあればそれを写し、無ければ 0666 から umask を引いたもの（作るときにカーネルが引く）とする。
+- 一時ファイルに書く。書いている間だけ SIGXFSZ を無視する。ファイルサイズの上限を超える write は、プロセスを終わらせずに EFBIG で失敗する。書き終えたら SIGXFSZ の扱いを元に戻す。
+- 一時ファイルを fsync（macOS では `F_FULLFSYNC`。効かないファイルシステムでは `fsync`）し、`rename(2)` で保存先に置き換える。rename より前のどこかで失敗したら、一時ファイルを消して失敗する。保存先の旧イメージには触れないので、失敗した保存のあとも旧イメージはそのままロードできる。
+- rename が成功した時点で保存は成功である。そのあとディレクトリを fsync するが、ベストエフォートであり、失敗しても保存を失敗にしない（置き換えは済んでいて、失敗を返すと実態と食い違う）。rename のあとは、メモリの割り当てを含めて、失敗しうる処理をしない（ディレクトリのパスは rename の前に用意する）。
+
+#### ロードの検査
+
+ロードは、まずヘッダの 48 バイトだけを読んで確かめる。heapBytes が old の上限を超えるなら、本体を読まずに `image heap exceeds the old space limit` で拒否する。続いてファイルの大きさを確かめる。ファイルは、ヘッダ、heapBytes のヒープ、レコード 184 件（well-known 127、グローバル 57。1 件は 16〜268 バイト）からなるので、その範囲に無ければ本体を読まずに `damaged image` で拒否する。
+
+本体を読んだら、ヒープを old に載せる前に次を確かめる。保存も、書く前に同じ関数で確かめる。どれかが成り立たなければ、ロードは `damaged image` で拒否する。
+
+以下で「Behavior のオブジェクト」とは、klass から親（superclass）をたどると Behavior に着くオブジェクトをいう。クラス、メタクラス、`Behavior new` で作った無名のクラスがこれに当たる。親は lookup（§3.3）と同じく 1024 段までたどる。循環もそこで止まるので、循環そのものは拒否しない。
+
+- オブジェクトヘッダの flags は、`Bytes` と `Weak` のほかを立てない（保存はこの 2 つだけを書く。`Marked` などが残ると GC が壊れる）。先頭の詰め物は、klass が nil、大きさが 0、flags が `Bytes` だけである。
+- klass は、nil か Behavior のオブジェクトである。klass が nil なのは、メソッド辞書の中の配列や NativeMethod の名前などの内部のオブジェクトである。
+- klass が nil でないオブジェクトは、klass の format（§3.6。instSize、可変長か、バイト列か）に合う形をしている。format はランタイムと同じに読む。SmallInteger でない format は 0（名前付きのスロットが 0 個、固定長、ポインタ）とみなす。
+  - `Bytes` は、format がバイト列のクラスのインスタンスにだけ立つ。`Weak` は klass が nil のオブジェクトにだけ立つ（弱参照を持つクラスは無い）。
+  - ポインタのオブジェクトのスロット数は instSize 以上で、可変長でないクラスなら instSize と等しい。
+- Behavior のオブジェクトは、インスタンスの有無によらず、クラスの形（ポインタ形で `kClassSlotCount` 以上のスロット）をしている。methodDict は nil か MethodDictionary のインスタンス、superclass は nil か Behavior のオブジェクトである。
+- well-known 表のクラスとメタクラスは Behavior のオブジェクトである。well-known 表のセレクタ（`value` など）は Symbol である。
+- MethodDictionary のインスタンスは 2 つ以上のスロットを持つポインタ形で、配列のスロットは nil かポインタ形のオブジェクトである。
+- CompiledMethod のインスタンスは `kCmSlotCount`（6）以上のスロットを持つポインタ形である。NativeMethod のインスタンスは `kNativeSlotCount`（6）以上のスロットを持つポインタ形で、名前がこのランタイムの登録名で解決できる。Symbol は同じバイト列のものが 2 つ無い。
 
 ### 3.12 クラスライブラリは取り込む。自作しない
 
@@ -869,7 +919,8 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `collection_do_test`: Array/String/Dictionary の中核プロトコル
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
-- `image_save_load_test`: save 後に同一評価結果
+- `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
+- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる。transcript フックが boot の前後とロードをまたいで届く
 - `transcript_model_test`: コールバックが呼ばれる
 
 GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体（時間計測の `KernelBench.*` を除く）を 1 プロセスでこのモードで回す。`gcstress_vendor` 項目は、vendor の file-in（`ao filein --load-order image/vendor/LOAD_ORDER`）と `ao --test image/tests` をこのモードで回す。`ao filein` の stderr と終了コードは §3.12 の「file-in のエラー」に従う。`gcstress_vendor` はストレスなしの 1 回の出力を基準にし、ストレス下の出力がそれと一致すること、どちらも exit 0 であることを確かめる。

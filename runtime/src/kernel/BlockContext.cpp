@@ -99,7 +99,12 @@ Oop makeNativeBlock(CallContext& ctx, NativeFn fn, std::uint32_t argc) {
     return Oop{};
   }
   const Oop sel = (argc == 0) ? ctx.wk.selValue : ctx.wk.selValue_;
-  const Oop meth = NativeMethod::create(ctx.heap, ctx.wk, sel, argc, "ao_NativeBlock_thunk", idx,
+  // SPEC §3.11: the registered name, read here because the view lasts only until the next add.
+  std::string_view name = NativeRegistry::nameAt(idx);
+  if (name.empty()) {
+    name = "ao_NativeBlock_thunk";
+  }
+  const Oop meth = NativeMethod::create(ctx.heap, ctx.wk, sel, argc, name, idx,
                                         ctx.wk.blockContextClass);
   if (!meth.isHeap()) {
     return Oop{};

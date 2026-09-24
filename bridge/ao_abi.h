@@ -28,10 +28,24 @@ typedef struct AoSpan {
 /* SPEC §3.10. String buffers end in NUL when their length is > 0; an answer that does not fit
    is AO_ERR_RANGE (ao_browser_source's AO_ERR_NOSOURCE wins over it). */
 
+/* SPEC §3.10. The runtime is busy while ao_runtime_boot, ao_runtime_shutdown, ao_image_save,
+   ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method or
+   ao_accept_class runs, or the interpreter does. Called then (from a transcript or inspect hook,
+   or a native), each of these nine does nothing and answers AO_ERR: ao_image_load with the reason
+   "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook setters,
+   ao_version and the ao_browser_* reads may be called then. No C++ exception leaves any of these
+   functions: it becomes AO_ERR (-1 for the *_count functions). */
+
 /* AO_ERR_RANGE when cut (buf still ends in NUL). AO_ERR when buf is NULL or buf_len < 1. */
 int ao_version(char* buf, int buf_len);
 int ao_runtime_boot(void);
 int ao_runtime_shutdown(void);
+/* SPEC §3.11. An image this answers AO_OK for passes this runtime's load checks: the bytes are
+   checked before anything is written, and a heap that breaks a check is AO_ERR. The file goes to
+   a temporary .aoimage-XXXXXX next to the file it replaces (a symbolic link at path is followed
+   and stays a link), is synced and renamed over it. On AO_ERR (a check, an existing file that is
+   not writable, a failed write) the file at path is left as it was. After the rename the save has
+   succeeded; the directory sync that follows is best effort. */
 int ao_image_save(const char* path);
 /* Loads into a new session and replaces the current one only when the load and the probes
    (1 + 2, nil isNil) pass. On AO_ERR the current session stays in use, and err (when not NULL)
@@ -43,6 +57,8 @@ int ao_filein_load_order(const char* path);
 typedef void (*AoTranscriptFn)(const char* utf8, int len, int is_clear, void* user);
 typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, void* user);
 
+/* The hook stays set across ao_runtime_shutdown, ao_runtime_boot and ao_image_load, and may be
+   set before the first boot. NULL removes it. */
 void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
 void ao_set_inspect_hook(AoInspectFn fn, void* user);
 

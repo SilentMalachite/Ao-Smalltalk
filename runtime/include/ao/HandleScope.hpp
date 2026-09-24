@@ -57,4 +57,10 @@ class RootedArray {
 // flag and returns an empty Oop.
 Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t flags);
 
+// SPEC §3.6: a new instance of cls for a Kernel class-side constructor (Association key:value:,
+// Point x:y:, ...): as many pointer slots as cls's format gives (read as the runtime reads it, 0
+// when cls is not class-shaped), never fewer than kernelSlots, all nil, so a subclass that adds
+// variables gets them. Runs the GC like allocateRetry: the caller reads its roots again after it.
+Oop allocateInstance(CallContext& ctx, Oop cls, std::uint32_t kernelSlots);
+
 }  // namespace ao

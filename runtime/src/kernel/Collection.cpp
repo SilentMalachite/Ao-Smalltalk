@@ -397,6 +397,15 @@ void installCollection(Heap& heap, WellKnown& wk) {
             ao_Collection_inject_into_);
   putNative(heap, wk, cls, "includes:", 1, "ao_Collection_includes_", ao_Collection_includes_);
   putNative(heap, wk, cls, "isEmpty", 0, "ao_Collection_isEmpty", ao_Collection_isEmpty);
+  // SPEC §3.11: the thunks (makeThunk) the natives above pass to do: take these names, so an image
+  // holding one that a user's do: kept rebinds it at load.
+  (void)NativeRegistry::addNamed("ao_Collection_collect_fill", ao_Collection_collect_fill, nullptr);
+  (void)NativeRegistry::addNamed("ao_Collection_filter_count", ao_Collection_filter_count, nullptr);
+  (void)NativeRegistry::addNamed("ao_Collection_filter_fill", ao_Collection_filter_fill, nullptr);
+  (void)NativeRegistry::addNamed("ao_Collection_detect_scan", ao_Collection_detect_scan, nullptr);
+  (void)NativeRegistry::addNamed("ao_Collection_inject_scan", ao_Collection_inject_scan, nullptr);
+  (void)NativeRegistry::addNamed("ao_Collection_includes_scan", ao_Collection_includes_scan,
+                                 nullptr);
 }
 
 }  // namespace kernel

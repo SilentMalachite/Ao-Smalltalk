@@ -63,6 +63,13 @@ bool findName(std::string_view name, std::uint32_t* outIndex) {
   return true;
 }
 
+std::string_view nameAt(std::uint32_t idx) {
+  if (idx >= gNativeNames.size()) {
+    return {};
+  }
+  return gNativeNames[idx];
+}
+
 std::uint32_t size() { return static_cast<std::uint32_t>(gNativeFns.size()); }
 
 }  // namespace NativeRegistry

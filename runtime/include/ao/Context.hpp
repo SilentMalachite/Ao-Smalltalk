@@ -25,6 +25,10 @@ Oop createBlock(CallContext& ctx, Oop method, Oop receiver, Oop home, Oop copied
                 std::uint8_t argc);
 }
 
+// A BlockContext whose method is a NativeMethod calling fn (a native block thunk). SPEC §3.11: the
+// method takes the name fn was registered under (the Kernel registers its thunk functions at
+// install), so an image holding the thunk rebinds it at load. A thunk of an unregistered function
+// is named ao_NativeBlock_thunk, which does not resolve: saving a heap that holds one fails.
 Oop makeNativeBlock(CallContext& ctx, NativeFn fn, std::uint32_t argc);
 
 Oop ao_BlockContext_value(CallContext& ctx, const Oop& receiver, const Oop* args,

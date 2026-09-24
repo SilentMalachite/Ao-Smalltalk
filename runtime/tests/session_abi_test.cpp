@@ -6,15 +6,23 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
+#include <stdexcept>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 class SessionAbi : public ::testing::Test {
  protected:
-  void TearDown() override { ao_runtime_shutdown(); }
+  // SPEC §3.10: the hooks outlive the session, so a test's hook must not reach the next test.
+  void TearDown() override {
+    ao_runtime_shutdown();
+    ao_set_transcript_hook(nullptr, nullptr);
+    ao_set_inspect_hook(nullptr, nullptr);
+  }
 };
 
 TEST_F(SessionAbi, BootThenImageRoundTripKeepsOnePlusTwo) {
@@ -490,4 +498,288 @@ TEST_F(SessionAbi, EvalWithoutOutBufferRefusesBeforeEvaluating) {
   EXPECT_STREQ("nil", out);
   ao_set_transcript_hook(nullptr, nullptr);
   ao_runtime_shutdown();
+}
+
+// B6 review (06 Low) / SPEC §3.10: C++ の例外は ABI の境界を越えない。境界を越えると std::terminate で
+// プロセスが落ちる。例外を投げるフック（ホストの不具合）で評価が途中で止まっても、ao_eval は AO_ERR を
+// 返す。止まったセッションは捨て、新しいセッションはふつうに動く。
+TEST_F(SessionAbi, ExceptionInsideEvalDoesNotCrossTheAbi) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao_set_transcript_hook([](const char*, int, int, void*) { throw std::runtime_error("host bug"); },
+                         nullptr);
+  char out[64];
+  AoSpan err{};
+  const char* show = "Transcript show: 'x'. 3";
+  EXPECT_EQ(AO_ERR, ao_eval(show, static_cast<int>(std::strlen(show)), AO_EVAL_PRINTIT, out, 64,
+                            &err));
+  EXPECT_STREQ("", out);
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_eval("1 + 2", 5, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("3", out);
+}
+
+namespace {
+
+// A hook that calls back into the ABI while the runtime runs, once, and keeps each call's answer.
+struct Reentry {
+  std::string image;
+  std::string loadOrder;
+  std::vector<int> codes;
+  std::string loadReason;
+  std::string evalOut = "unchanged";
+  bool entered = false;
+};
+
+void reenterEverything(Reentry& r) {
+  if (r.entered) {
+    return;
+  }
+  r.entered = true;
+  AoSpan err{};
+  char out[16] = "unchanged";
+  r.codes.push_back(ao_image_save(r.image.c_str()));
+  r.codes.push_back(ao_image_load(r.image.c_str(), &err));
+  r.loadReason = err.message;
+  r.codes.push_back(ao_runtime_shutdown());
+  r.codes.push_back(ao_runtime_boot());
+  r.codes.push_back(ao_eval("1", 1, AO_EVAL_PRINTIT, out, 16, &err));
+  r.evalOut = out;
+  r.codes.push_back(ao_accept_method("Object", 0, "b6reentry\n  ^1\n", &err));
+  r.codes.push_back(ao_accept_class("Object subclass: #B6Reentry\n  instanceVariableNames: ''\n"
+                                    "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                    "  category: 'B6-Test'\n",
+                                    &err));
+  r.codes.push_back(ao_workspace_reset());
+  r.codes.push_back(ao_filein_load_order(r.loadOrder.c_str()));
+}
+
+// A saved image and a LOAD_ORDER that files in cleanly, both of which work outside a hook.
+Reentry reentryFixture(const std::filesystem::path& dir) {
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir);
+  Reentry r;
+  r.image = (dir / "reentry.aoimage").string();
+  r.loadOrder = (dir / "LOAD_ORDER").string();
+  std::ofstream(dir / "LOAD_ORDER") << "a.st\n";
+  std::ofstream(dir / "a.st") << "!Object subclass: #B6FileIn\n  instanceVariableNames: ''\n"
+                                 "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                 "  category: 'B6-Test'!\n";
+  EXPECT_EQ(AO_OK, ao_image_save(r.image.c_str()));
+  EXPECT_EQ(AO_OK, ao_filein_load_order(r.loadOrder.c_str()));
+  return r;
+}
+
+void expectAllRefused(const Reentry& r) {
+  ASSERT_TRUE(r.entered);
+  EXPECT_EQ(std::vector<int>(9, AO_ERR), r.codes);
+  EXPECT_EQ("runtime is busy", r.loadReason);
+  EXPECT_EQ("", r.evalOut);
+}
+
+// After the refused calls the session is the one that ran: its workspace binding is there, the
+// refused accepts added nothing, and outside a hook the same calls work again.
+void expectSessionUntouched() {
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_eval("b6x", 3, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("40", out);
+  EXPECT_EQ(AO_ERR_EVAL, ao_eval("nil b6reentry", 13, AO_EVAL_PRINTIT, out, 64, &err));
+  ASSERT_EQ(AO_OK, ao_eval("Smalltalk includesKey: #B6Reentry", 33, AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("false", out);
+  EXPECT_EQ(AO_OK, ao_accept_method("Object", 0, "b6reentry\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_eval("nil b6reentry", 13, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("1", out);
+}
+
+}  // namespace
+
+// B6 review (06 Low) / SPEC §3.10: 失敗シナリオ。評価中の transcript フックから ao_image_load を呼ぶと、
+// フックの中のロードは 0 を返してセッションを差し替え、実行中のインタプリタが古いヒープを読んで SIGSEGV に
+// なった。ランタイムが動いている間の boot / shutdown / save / load / filein / workspace reset / eval /
+// accept は AO_ERR で、評価はそのまま続く。
+TEST_F(SessionAbi, ReentrantCallsFromTranscriptHookAreRefused) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  Reentry r = reentryFixture(std::filesystem::temp_directory_path() / "ao-b6-reentry-transcript");
+  ao_set_transcript_hook(
+      [](const char*, int, int, void* user) { reenterEverything(*static_cast<Reentry*>(user)); },
+      &r);
+  char out[64];
+  AoSpan err{};
+  const char* src = "b6x := 40. Transcript show: 'a'. Transcript show: 'b'. b6x + 2";
+  ASSERT_EQ(AO_OK, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("42", out);
+  ao_set_transcript_hook(nullptr, nullptr);
+  expectAllRefused(r);
+  expectSessionUntouched();
+}
+
+// SPEC §3.10: the inspect hook runs after the doIt has returned, outside the interpreter, but the
+// ABI entry (ao_eval) still runs: the same calls are refused there too.
+TEST_F(SessionAbi, ReentrantCallsFromInspectHookAreRefused) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  Reentry r = reentryFixture(std::filesystem::temp_directory_path() / "ao-b6-reentry-inspect");
+  ao_set_inspect_hook(
+      [](const char*, const char*, void* user) { reenterEverything(*static_cast<Reentry*>(user)); },
+      &r);
+  char out[64];
+  AoSpan err{};
+  const char* src = "b6x := 40. b6x + 2";
+  ASSERT_EQ(AO_OK,
+            ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_INSPECTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("42", out);
+  ao_set_inspect_hook(nullptr, nullptr);
+  expectAllRefused(r);
+  expectSessionUntouched();
+}
+
+namespace {
+
+void collectTranscript(const char* utf8, int len, int is_clear, void* user) {
+  auto* chunks = static_cast<std::vector<std::string>*>(user);
+  if (is_clear == 0 && utf8 != nullptr && len >= 0) {
+    chunks->emplace_back(utf8, static_cast<std::size_t>(len));
+  }
+}
+
+int evalDoIt(const char* src) {
+  char out[64];
+  AoSpan err{};
+  return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DOIT, out, 64, &err);
+}
+
+}  // namespace
+
+// B6 review (06 Low) / SPEC §3.10: 失敗シナリオ。ao_set_transcript_hook を boot の前に呼ぶと、そのあとの
+// Transcript show: は何も届けなかった。shutdown→boot のあとも同じだった（新しいセッションの ctx にフックを
+// 戻していなかった）。フックは ABI 側が持ち、boot とロードが作るセッションに配線する。NULL で外れる。
+TEST_F(SessionAbi, TranscriptHookReachesEverySession) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectTranscript, &seen);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'one'"));
+  EXPECT_EQ(std::vector<std::string>{"one"}, seen);
+
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'two'"));
+  EXPECT_EQ((std::vector<std::string>{"one", "two"}), seen);
+
+  const auto path = std::filesystem::temp_directory_path() / "ao-b6-hook.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), nullptr));
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'three'"));
+  EXPECT_EQ((std::vector<std::string>{"one", "two", "three"}), seen);
+
+  ao_set_transcript_hook(nullptr, nullptr);
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'four'"));
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'five'"));
+  EXPECT_EQ((std::vector<std::string>{"one", "two", "three"}), seen);
+  std::filesystem::remove(path);
+}
+
+// B6 review (Claude Low) / SPEC §3.10: the busy test and the taking of the entry are one atomic
+// step, so a call from another thread while an evaluation runs is refused like a hook's, and the
+// evaluation goes on.
+TEST_F(SessionAbi, CallFromAnotherThreadWhileEvaluatingIsRefused) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  struct Gate {
+    std::promise<void> inHook;
+    std::promise<void> release;
+    bool first = true;
+  } gate;
+  std::future<void> released = gate.release.get_future();
+  struct Hook {
+    Gate* gate;
+    std::future<void>* released;
+  } hook{&gate, &released};
+  ao_set_transcript_hook(
+      [](const char*, int, int, void* user) {
+        auto* h = static_cast<Hook*>(user);
+        if (!h->gate->first) return;
+        h->gate->first = false;
+        h->gate->inHook.set_value();
+        h->released->wait();
+      },
+      &hook);
+  int rc = -1;
+  char out[64];
+  std::thread evaluator([&] {
+    AoSpan err{};
+    const char* src = "Transcript show: 'x'. 6 * 7";
+    rc = ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  });
+  gate.inHook.get_future().wait();
+  char other[16];
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR, ao_eval("1", 1, AO_EVAL_PRINTIT, other, 16, &err));
+  EXPECT_EQ(AO_ERR, ao_runtime_shutdown());
+  gate.release.set_value();
+  evaluator.join();
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_STREQ("42", out);
+  ASSERT_EQ(AO_OK, ao_eval("1", 1, AO_EVAL_PRINTIT, other, 16, &err)) << err.message;
+  EXPECT_STREQ("1", other);
+}
+
+// B6 review follow-up / SPEC §3.6: 失敗シナリオ。Association key:value:、Point x:y:、
+// Rectangle origin:corner:、Interval from:to:by: はレシーバのクラスによらず 2 か 3 スロットで割り当てた。
+// 変数を足したサブクラスのインスタンスは足した変数を読み書きできず、B6 の format の検査で保存もできな
+// かった。生成ネイティブはクラスの instSize だけ割り当て、足した変数は nil から始まる。
+TEST_F(SessionAbi, ClassSideConstructorsAllocateTheSubclassInstSize) {
+  struct Case {
+    const char* kernel;
+    const char* make;
+    int kernelSlots;
+    const char* firstSlot;
+  };
+  const Case cases[] = {
+      {"Association", "B6X key: 1 value: 2", 2, "1"},
+      {"Point", "B6X x: 1 y: 2", 2, "1"},
+      {"Rectangle", "B6X origin: 1 corner: 2", 2, "1"},
+      {"Interval", "B6X from: 1 to: 3 by: 1", 3, "1"},
+  };
+  const auto path = std::filesystem::temp_directory_path() / "ao-b6-constructors.aoimage";
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.kernel);
+    ASSERT_EQ(AO_OK, ao_runtime_boot());
+    AoSpan err{};
+    const std::string def = std::string(c.kernel) +
+                            " subclass: #B6X\n  instanceVariableNames: 'extra'\n"
+                            "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                            "  category: 'B6-Test'\n";
+    ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method("B6X", 0, "extra\n  ^extra\n", &err)) << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method("B6X", 0, "extra: x\n  extra := x\n", &err))
+        << err.message;
+    char out[128];
+    auto eval = [&](const std::string& src) {
+      return ao_eval(src.c_str(), static_cast<int>(src.size()), AO_EVAL_PRINTIT, out, 128, &err);
+    };
+    ASSERT_EQ(AO_OK, eval(std::string("Smalltalk at: #B6K put: (") + c.make + ")")) << err.message;
+    const std::string extraIndex = std::to_string(c.kernelSlots + 1);
+    ASSERT_EQ(AO_OK, eval("B6K instVarAt: " + extraIndex)) << err.message;
+    EXPECT_STREQ("nil", out);
+    EXPECT_EQ(AO_ERR_EVAL, eval("B6K instVarAt: " + std::to_string(c.kernelSlots + 2)));
+    ASSERT_EQ(AO_OK, eval("B6K instVarAt: 1")) << err.message;
+    EXPECT_STREQ(c.firstSlot, out);
+    ASSERT_EQ(AO_OK, eval("B6K extra: 9. B6K extra")) << err.message;
+    EXPECT_STREQ("9", out);
+
+    ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+    ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+    ASSERT_EQ(AO_OK, eval("B6K extra")) << err.message;
+    EXPECT_STREQ("9", out);
+    ASSERT_EQ(AO_OK, eval("B6K instVarAt: 1")) << err.message;
+    EXPECT_STREQ(c.firstSlot, out);
+    ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  }
+  std::filesystem::remove(path);
 }

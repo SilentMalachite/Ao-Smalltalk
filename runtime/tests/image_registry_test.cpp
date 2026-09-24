@@ -208,3 +208,16 @@ TEST(ImageRegistry, RememberSymbolRegistersWithoutAllocating) {
   EXPECT_FALSE(b.wk.rememberSymbol(ao::Oop::nil()));
   EXPECT_FALSE(b.wk.rememberSymbol(ao::Oop::fromSmallInteger(1)));
 }
+
+// SPEC §3.11: the Kernel registers the functions of its native block thunks by name, so a thunk an
+// image holds rebinds at load like any NativeMethod.
+TEST(ImageRegistry, KernelThunkFunctionsHaveNames) {
+  Boot b;
+  for (const char* name :
+       {"ao_Stream_nextPutAll_each", "ao_Collection_collect_fill", "ao_Collection_filter_count",
+        "ao_Collection_filter_fill", "ao_Collection_detect_scan", "ao_Collection_inject_scan",
+        "ao_Collection_includes_scan"}) {
+    std::uint32_t idx = 0;
+    EXPECT_TRUE(ao::NativeRegistry::findName(name, &idx)) << name;
+  }
+}

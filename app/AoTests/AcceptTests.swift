@@ -567,6 +567,8 @@ final class AcceptTests: XCTestCase {
   func testOpenImagePathDeliversTranscriptShow() {
     let transcript = TranscriptWindow()
     transcript.installHook()
+    // SPEC §3.10: the hook outlives the session; it must not reach the next test's session.
+    defer { ao_set_transcript_hook(nil, nil) }
     let url = FileManager.default.temporaryDirectory
       .appendingPathComponent("ao-accept-\(UUID().uuidString).aoimage")
     defer { try? FileManager.default.removeItem(at: url) }

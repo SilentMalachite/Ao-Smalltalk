@@ -3,11 +3,19 @@
 #include "ao/Globals.hpp"
 #include "ao/ImageFormat.hpp"
 
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <algorithm>
 #include <bit>
+#include <cerrno>
+#include <climits>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -197,35 +205,195 @@ bool writeObject(const Heap& heap, const Trace& tr, Oop obj, std::byte* dst) {
   return true;
 }
 
-bool writeFile(std::string_view path, const std::byte* data, std::size_t n) {
-  const std::string pathStr(path);
-  std::ofstream out(pathStr.c_str(), std::ios::binary | std::ios::trunc);
-  if (!out) {
-    return false;
+bool writeAllBytes(int fd, const std::byte* data, std::size_t n) {
+  while (n > 0) {
+    const std::size_t chunk = std::min<std::size_t>(n, std::size_t{1} << 30);
+    const ssize_t w = ::write(fd, data, chunk);
+    if (w < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+    if (w == 0) {
+      return false;
+    }
+    data += w;
+    n -= static_cast<std::size_t>(w);
   }
-  out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(n));
-  out.close();
-  return !out.fail();
+  return true;
+}
+
+// On macOS fsync leaves the data in the drive's cache; F_FULLFSYNC flushes it. A file system
+// without F_FULLFSYNC still takes fsync.
+bool syncFile(int fd) {
+#ifdef F_FULLFSYNC
+  if (::fcntl(fd, F_FULLFSYNC) == 0) {
+    return true;
+  }
+#endif
+  return ::fsync(fd) == 0;
+}
+
+// Makes the rename in dir durable. Best effort and allocation-free: the image is already in
+// place, and some file systems refuse fsync on a directory.
+void syncDirectory(const std::string& dir) noexcept {
+  const int fd = ::open(dir.c_str(), O_RDONLY | O_CLOEXEC);
+  if (fd < 0) {
+    return;
+  }
+  (void)syncFile(fd);
+  ::close(fd);
+}
+
+// The directory part of path, "." when it has none.
+std::string directoryOf(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  if (slash == std::string::npos) {
+    return ".";
+  }
+  return slash == 0 ? std::string("/") : path.substr(0, slash);
+}
+
+// SPEC §3.11: the file a save replaces. A symbolic link at path is followed (32 links at most, a
+// relative one against its link's directory) to a file that may not exist yet, and stays a link.
+// Empty when the links do not end.
+std::string saveTarget(const std::string& path) {
+  std::string current = path;
+  for (int hops = 0; hops <= 32; ++hops) {
+    struct stat st {};
+    if (::lstat(current.c_str(), &st) != 0 || !S_ISLNK(st.st_mode)) {
+      return current;
+    }
+    char buf[PATH_MAX];
+    const ssize_t n = ::readlink(current.c_str(), buf, sizeof buf);
+    if (n <= 0 || static_cast<std::size_t>(n) >= sizeof buf) {
+      return {};
+    }
+    const std::string link(buf, static_cast<std::size_t>(n));
+    current = link[0] == '/' ? link : directoryOf(current) + "/" + link;
+  }
+  return {};
+}
+
+// SPEC §3.11: a temporary file .aoimage-XXXXXX in dir, whatever the image's name. It is made with
+// O_EXCL and mode 0666, so the kernel applies the umask (mkstemp makes 0600, and reading the umask
+// back would change it for other threads a moment). -1 when none can be made.
+int makeTemporary(const std::string& dir, std::string* name) {
+  static constexpr char kChars[] =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  for (int attempt = 0; attempt < 64; ++attempt) {
+    std::string candidate = dir + "/.aoimage-";
+    for (int i = 0; i < 6; ++i) {
+      candidate += kChars[arc4random_uniform(sizeof kChars - 1)];
+    }
+    const int fd = ::open(candidate.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    if (fd >= 0) {
+      *name = std::move(candidate);
+      return fd;
+    }
+    if (errno != EEXIST) {
+      return -1;
+    }
+  }
+  return -1;
+}
+
+// SPEC §3.11: while the image is written, a write past RLIMIT_FSIZE fails with EFBIG instead of
+// ending the process with SIGXFSZ. The disposition from before comes back afterwards.
+class IgnoreFileSizeSignal {
+ public:
+  IgnoreFileSizeSignal() {
+    struct sigaction ignore {};
+    ignore.sa_handler = SIG_IGN;
+    sigemptyset(&ignore.sa_mask);
+    saved_ = ::sigaction(SIGXFSZ, &ignore, &old_) == 0;
+  }
+  ~IgnoreFileSizeSignal() {
+    if (saved_) {
+      ::sigaction(SIGXFSZ, &old_, nullptr);
+    }
+  }
+  IgnoreFileSizeSignal(const IgnoreFileSizeSignal&) = delete;
+  IgnoreFileSizeSignal& operator=(const IgnoreFileSizeSignal&) = delete;
+
+ private:
+  struct sigaction old_ {};
+  bool saved_ = false;
+};
+
+// SPEC §3.11 (保存): the image goes to a temporary file next to the file it replaces, which it
+// replaces only once all of it is on disk. Before the rename, any failure removes the temporary
+// file and leaves the old image as it was; after it, nothing can fail. *why says what failed.
+bool writeFile(std::string_view path, const std::byte* data, std::size_t n, std::string* why) {
+  auto fail = [why](const char* what) {
+    *why = what;
+    return false;
+  };
+  const std::string target = saveTarget(std::string(path));
+  if (target.empty()) {
+    return fail("the symbolic links at the image path do not end");
+  }
+  // An image that is there but not writable is not replaced (the save opened it for writing and
+  // failed there before B6).
+  struct stat old {};
+  const bool exists = ::stat(target.c_str(), &old) == 0;
+  if (exists && ::access(target.c_str(), W_OK) != 0) {
+    return fail("the image file is not writable");
+  }
+  // What the steps after the rename use is made before it.
+  const std::string dir = directoryOf(target);
+  std::string temp;
+  const int fd = makeTemporary(dir, &temp);
+  if (fd < 0) {
+    return fail("cannot make a temporary file next to the image");
+  }
+  // A save over an image keeps that image's permissions.
+  bool ok = !exists || !S_ISREG(old.st_mode) || ::fchmod(fd, old.st_mode & 07777) == 0;
+  {
+    const IgnoreFileSizeSignal quiet;
+    ok = ok && writeAllBytes(fd, data, n);
+  }
+  ok = ok && syncFile(fd);
+  if (::close(fd) != 0) {
+    ok = false;
+  }
+  if (ok && ::rename(temp.c_str(), target.c_str()) != 0) {
+    ok = false;
+  }
+  if (!ok) {
+    ::unlink(temp.c_str());
+    return fail("cannot write the image file");
+  }
+  syncDirectory(dir);
+  return true;
 }
 
 }  // namespace
 
-bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path) {
+bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
+                 std::string* reason) {
+  auto refuse = [reason](std::string why) {
+    if (reason != nullptr) {
+      *reason = std::move(why);
+    }
+    return false;
+  };
   // SPEC §3.11: the global dictionary goes with the heap. Nothing else records a global.
   if (!Globals::isDictionary(wk, wk.smalltalk)) {
-    return false;
+    return refuse("Smalltalk is not the global dictionary");
   }
 
   Trace tr;
   if (!traceStrong(heap, roots, tr)) {
-    return false;
+    return refuse("the heap could not be traced");
   }
 
   std::vector<NamedOop> wellKnown;
   NameCollect wkCollect{&wellKnown, false};
   wk.eachImageSlot(collectImageSlot, &wkCollect);
   if (wkCollect.failed) {
-    return false;
+    return refuse("a well-known name cannot be recorded");
   }
 
   std::vector<NamedOop> globals;
@@ -233,46 +401,49 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   for (std::uint32_t i = 0; i < Globals::kSmalltalkCount; ++i) {
     const char* name = Globals::nameAt(i);
     if (name == nullptr || !validName(name)) {
-      return false;
+      return refuse("a global name cannot be recorded");
     }
     // The values the load checks the dictionary against.
     const Oop value = Globals::lookup(wk, wk.findSymbol(name));
     if (value.isEmpty()) {
-      return false;
+      return refuse(std::string("the global ") + name + " is not bound");
     }
     globals.push_back(NamedOop{std::string(name), value});
   }
 
-  // 既定の上限（kOldMaxBytes）を超えるヒープは保存しない。保存できてもロードできない。
-  if (tr.end > kOldMaxBytes) {
-    return false;
+  // SPEC §3.11: the load lays the live objects of nursery and old out in one old space, so a heap
+  // bigger than the old space limit (a session's: kOldMaxBytes, 4 GiB − 1 MiB) is not saved. It
+  // could be saved but not loaded back. Image::check below makes the same check; this one keeps
+  // such a heap from being laid out in memory first.
+  const std::size_t oldMax = std::min(kOldMaxBytes, heap.oldMaxBytes());
+  if (tr.end > oldMax) {
+    return refuse("the heap is " + std::to_string(tr.end) + " bytes; the old space limit is " +
+                  std::to_string(oldMax));
   }
   std::vector<std::byte> heapBuf(static_cast<std::size_t>(tr.end), std::byte{0});
   ImageFormat::writeFiller(heapBuf.data());
   for (Oop obj : tr.order) {
     const auto it = tr.at.find(reinterpret_cast<std::uintptr_t>(obj.heapPointer()));
     if (it == tr.at.end()) {
-      return false;
+      return refuse("the heap could not be laid out");
     }
     const std::size_t off = static_cast<std::size_t>(it->second);
     const std::size_t nbytes = heap.objectBytes(heap.header(obj));
-    if (off > heapBuf.size() || nbytes > heapBuf.size() - off) {
-      return false;
-    }
-    if (!writeObject(heap, tr, obj, heapBuf.data() + off)) {
-      return false;
+    if (off > heapBuf.size() || nbytes > heapBuf.size() - off ||
+        !writeObject(heap, tr, obj, heapBuf.data() + off)) {
+      return refuse("the heap could not be laid out");
     }
   }
 
   std::vector<std::byte> tail;
   for (const NamedOop& rec : wellKnown) {
     if (!appendRecord(tail, tr, rec)) {
-      return false;
+      return refuse("the well-known " + rec.name + " is not in the heap");
     }
   }
   for (const NamedOop& rec : globals) {
     if (!appendRecord(tail, tr, rec)) {
-      return false;
+      return refuse("the global " + rec.name + " is not in the heap");
     }
   }
 
@@ -296,7 +467,18 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   if (!tail.empty()) {
     appendRaw(file, tail.data(), tail.size());
   }
-  return writeFile(path, file.data(), file.size());
+  // SPEC §3.11: a save that succeeds writes an image this runtime loads, so the bytes pass the
+  // load's own checks before anything is written. The reason names the object and the rule.
+  std::string refusal;
+  std::string detail;
+  if (!Image::check(heap, wk, file, oldMax, &refusal, &detail)) {
+    return refuse(detail.empty() ? refusal : detail);
+  }
+  std::string why;
+  if (!writeFile(path, file.data(), file.size(), &why)) {
+    return refuse(why);
+  }
+  return true;
 }
 
 }  // namespace ao
