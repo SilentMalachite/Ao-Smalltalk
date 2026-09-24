@@ -17,6 +17,7 @@ final class AcceptTests: XCTestCase {
 
   func testAcceptFooThenPrintItInsertsOneAndFailedAcceptKeepsText() {
     let browser = BrowserWindow()
+    defer { browser.window.close() }
     selectProtocol("user", in: browser)
     let foo = "foo\n  ^1\n"
     browser.replaceSource(foo)
@@ -24,6 +25,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(browser.errorText, "")
 
     let workspace = WorkspaceWindow()
+    defer { workspace.window.close() }
     let expr = "Object new foo"
     workspace.replaceText(expr)
     workspace.selectAll()
@@ -44,6 +46,7 @@ final class AcceptTests: XCTestCase {
 
   func testPrintStringOverwriteKeepsTextAndNativeResult() {
     let browser = BrowserWindow()
+    defer { browser.window.close() }
     // A new method named printString: the runtime refuses to replace the native.
     selectProtocol("user", in: browser)
     let source = "printString\n  ^1\n"
@@ -53,6 +56,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertFalse(browser.errorText.isEmpty)
 
     let workspace = WorkspaceWindow()
+    defer { workspace.window.close() }
     let expr = "Object new printString"
     workspace.replaceText(expr)
     workspace.selectAll()
@@ -269,8 +273,109 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(printIt("Object new b5a"), "1")
   }
 
+  // While the question waits for an answer, another row, the side switch and Show Hierarchy do
+  // not ask again: the rows and the switch go back, and the first answer decides alone.
+  func testChangesWhileTheDiscardQuestionWaitsAreNotAskedAgain() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var pending: [@MainActor (Bool) -> Void] = []
+    browser.confirmDiscard = { _, decide in pending.append(decide) }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b5w\n  ^1\n")
+    browser.accept()
+    browser.replaceSource("b5w\n  ^2\n")
+
+    selectClass("Array", in: browser, expecting: "Object")
+    XCTAssertEqual(pending.count, 1)
+    selectClass("SmallInteger", in: browser, expecting: "Object")
+    guard let side = segmentedControls(in: browser.window.contentView).first else {
+      XCTFail("missing instance/class switch")
+      return
+    }
+    side.selectedSegment = 1
+    XCTAssertTrue(side.sendAction(side.action, to: side.target))
+    let classes = browser.model.classes
+    browser.showHierarchy()
+    XCTAssertEqual(pending.count, 1)
+    XCTAssertEqual(side.selectedSegment, 0)
+    XCTAssertEqual(selectedName(in: classTable(in: browser), values: browser.model.classes), "Object")
+    XCTAssertEqual(browser.model.classes, classes)
+
+    pending.first?(true)
+    XCTAssertEqual(pending.count, 1)
+    XCTAssertEqual(browser.model.selectedClass, "Array")
+    XCTAssertTrue(browser.sourceText.contains("subclass: #Array"))
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+    XCTAssertEqual(browser.model.classes, classes)
+  }
+
+  // The answer is applied to the pane as it is when the answer comes: with no unaccepted edit
+  // left, Cancel has nothing to keep and the change goes through.
+  func testTheDiscardAnswerLooksAtThePaneAgain() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var pending: [@MainActor (Bool) -> Void] = []
+    browser.confirmDiscard = { _, decide in pending.append(decide) }
+    selectClass("Array", in: browser)
+    let shown = browser.sourceText
+    browser.replaceSource(shown + " ")
+    selectClass("SmallInteger", in: browser, expecting: "Array")
+    browser.replaceSource(shown)
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+    pending.first?(false)
+    XCTAssertEqual(pending.count, 1)
+    XCTAssertEqual(browser.model.selectedClass, "SmallInteger")
+    XCTAssertTrue(browser.sourceText.contains("subclass: #SmallInteger"))
+  }
+
+  // The default question is one sheet: Show Hierarchy while it is up adds none. Return answers
+  // Cancel; Discard is marked destructive and discards.
+  func testDiscardSheetIsNotStackedAndReturnCancels() {
+    let browser = BrowserWindow()
+    defer {
+      for sheet in browser.window.sheets {
+        browser.window.endSheet(sheet)
+      }
+      browser.window.close()
+    }
+    selectProtocol("user", in: browser)
+    let edited = "b5s\n  ^1\n"
+    browser.replaceSource(edited)
+    selectClass("Array", in: browser, expecting: "Object")
+    XCTAssertTrue(turnRunLoop(until: { browser.window.sheets.count == 1 }))
+    browser.showHierarchy()
+    _ = turnRunLoop(until: { browser.window.sheets.count > 1 }, seconds: 0.3)
+    XCTAssertEqual(browser.window.sheets.count, 1)
+
+    guard let sheet = browser.window.attachedSheet else {
+      XCTFail("missing sheet")
+      return
+    }
+    // The shown alert answers Return with the sheet's default button cell.
+    let buttons = views(in: sheet.contentView, of: NSButton.self)
+    let returnButton = buttons.first { $0.cell === sheet.defaultButtonCell }
+    XCTAssertEqual(returnButton?.title, "Cancel")
+    XCTAssertEqual(buttons.first { $0.title == "Discard" }?.hasDestructiveAction, true)
+    returnButton?.performClick(nil)
+    XCTAssertTrue(turnRunLoop(until: { browser.window.sheets.isEmpty }))
+    XCTAssertEqual(browser.sourceText, edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+    XCTAssertEqual(selectedName(in: classTable(in: browser), values: browser.model.classes), "Object")
+
+    selectClass("Array", in: browser, expecting: "Object")
+    XCTAssertTrue(turnRunLoop(until: { browser.window.sheets.count == 1 }))
+    views(in: browser.window.attachedSheet?.contentView, of: NSButton.self)
+      .first { $0.title == "Discard" }?
+      .performClick(nil)
+    XCTAssertTrue(turnRunLoop(until: { browser.window.sheets.isEmpty }))
+    XCTAssertEqual(browser.model.selectedClass, "Array")
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+  }
+
   func testClassDefinitionPaneAcceptsClassSource() {
     let browser = BrowserWindow()
+    defer { browser.window.close() }
     selectClass("Array", in: browser)
     XCTAssertNil(browser.model.selectedSelector)
     XCTAssertNil(browser.model.selectedProtocol)
@@ -287,8 +392,31 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(browser.model.categories.contains("P9-Test"))
   }
 
+  // An accepted class definition selects the class it defines, in its category, and shows its
+  // definition: for a new class, and for a class whose category alone changed.
+  func testClassDefinitionAcceptSelectsTheDefinedClassInItsCategory() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectClass("Array", in: browser)
+    let def =
+      "Object subclass: #B5Defined\n  instanceVariableNames: 'a'\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'B5-Defined'\n"
+    browser.replaceSource(def)
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    assertShowsDefinition(of: "B5Defined", in: "B5-Defined", browser: browser)
+
+    let moved = def.replacingOccurrences(of: "'B5-Defined'", with: "'B5-Moved'")
+    browser.replaceSource(moved)
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    assertShowsDefinition(of: "B5Defined", in: "B5-Moved", browser: browser)
+    XCTAssertFalse(browser.model.categories.contains("B5-Defined"))
+  }
+
   func testClassSideAcceptUsesMeta() {
     let browser = BrowserWindow()
+    defer { browser.window.close() }
     selectClass("Transcript", in: browser)
     guard let side = segmentedControls(in: browser.window.contentView).first else {
       XCTFail("missing instance/class switch")
@@ -308,6 +436,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(browser.model.selectedSelector, "extra")
 
     let workspace = WorkspaceWindow()
+    defer { workspace.window.close() }
     let expr = "Transcript extra"
     workspace.replaceText(expr)
     workspace.selectAll()
@@ -317,9 +446,11 @@ final class AcceptTests: XCTestCase {
 
   func testAcceptRunsOnlyWhenBrowserIsKey() {
     let browser = BrowserWindow()
+    defer { browser.window.close() }
     selectProtocol("user", in: browser)
     browser.replaceSource("foo\n  ^1\n")
     let workspace = WorkspaceWindow()
+    defer { workspace.window.close() }
     sendToKeyBrowser(browser, keyWindow: workspace.window) { $0.accept() }
     let expr = "Object new foo"
     workspace.replaceText(expr)
@@ -336,6 +467,7 @@ final class AcceptTests: XCTestCase {
 
   func testShowHierarchyIncludesIntegerThenReturnsToClassList() {
     let browser = BrowserWindow()
+    defer { browser.window.close() }
     selectClass("SmallInteger", in: browser)
     browser.showHierarchy()
     XCTAssertTrue(browser.model.classes.contains("Integer"))
@@ -416,8 +548,6 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(transcript.text.contains("z"))
   }
 
-  // `expecting` is the selection after the click when it differs from the clicked row
-  // (a cancelled change keeps the old one).
   // 00 High: a failed Save or Open Image shows an alert; a successful one does not.
   func testSaveAndOpenImageFailuresShowAnAlert() {
     let app = AoApp()
@@ -449,6 +579,8 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(alerts.last?.informativeText.contains(garbage.path) ?? false)
   }
 
+  // `expecting` is the selection after the click when it differs from the clicked row
+  // (a cancelled change keeps the old one).
   private func selectClass(_ name: String, in browser: BrowserWindow, expecting: String? = nil) {
     guard let table = classTable(in: browser),
           let row = browser.model.classes.firstIndex(of: name) else {
@@ -495,6 +627,40 @@ final class AcceptTests: XCTestCase {
     }
     table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     XCTAssertEqual(browser.model.selectedSelector, expecting ?? name)
+  }
+
+  private func assertShowsDefinition(
+    of name: String,
+    in category: String,
+    browser: BrowserWindow,
+    line: UInt = #line
+  ) {
+    XCTAssertEqual(browser.model.selectedClass, name, line: line)
+    XCTAssertNil(browser.model.selectedProtocol, line: line)
+    XCTAssertNil(browser.model.selectedSelector, line: line)
+    XCTAssertEqual(
+      selectedName(in: categoryTable(in: browser), values: browser.model.categories),
+      category,
+      line: line
+    )
+    XCTAssertEqual(browser.model.classes, [name], line: line)
+    XCTAssertEqual(
+      selectedName(in: classTable(in: browser), values: browser.model.classes),
+      name,
+      line: line
+    )
+    XCTAssertTrue(browser.sourceText.contains("subclass: #\(name)"), line: line)
+    XCTAssertTrue(browser.sourceText.contains("category: '\(category)'"), line: line)
+    XCTAssertFalse(browser.hasUnacceptedChanges, line: line)
+  }
+
+  // Sheets come and go on the run loop. True when `done` holds within `seconds`.
+  private func turnRunLoop(until done: () -> Bool, seconds: TimeInterval = 2) -> Bool {
+    let deadline = Date(timeIntervalSinceNow: seconds)
+    while !done(), Date() < deadline {
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+    }
+    return done()
   }
 
   private func sourceView(in browser: BrowserWindow) -> NSTextView? {

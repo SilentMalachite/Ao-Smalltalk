@@ -85,6 +85,11 @@ final class BrowserModel {
     return names
   }
 
+  // The category the runtime lists for the class; nil when it lists no class of that name.
+  func category(ofClass name: String) -> String? {
+    loadClasses().first { $0.name == name }?.category
+  }
+
   // Class-list rows only. Protocols stay unless the selected class changed under us.
   func applyHierarchyList(_ names: [String], selecting name: String) {
     let previous = selectedClass

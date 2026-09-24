@@ -26,6 +26,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private var hierarchyNames: [String] = []
   // The text the pane got from the model; the pane differs from it after an unaccepted edit.
   private var shownSource = ""
+  // A discard question is waiting for its answer.
+  private var confirming = false
 
   // Asked before a selection change would replace an unaccepted edit. The callback gets true to
   // discard the edit and change the selection, false to keep both. Tests replace it.
@@ -241,7 +243,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     }
     errorField.stringValue = ""
     guard method else {
-      publish()
+      showDefinedClass(from: source)
       return
     }
     // The accepted method is a CompiledMethod: show it in its protocol with its own source.
@@ -252,13 +254,35 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     publish()
   }
 
+  // The accepted definition's class, in the category the runtime now lists for it. The rows the
+  // pane came from may be another class, or a category the class has just left.
+  private func showDefinedClass(from source: String) {
+    if let name = BrowserWindow.definedClassName(in: source),
+       let category = model.category(ofClass: name) {
+      categoryName = category
+      selectedClass = name
+    }
+    publish()
+  }
+
+  // The argument of the first subclass: keyword (#Name, #'Name', 'Name' or Name), as the chunk
+  // parser takes it.
+  private static func definedClassName(in source: String) -> String? {
+    let pattern = /(?:^|[^A-Za-z0-9_])subclass:\s*#?'?([A-Za-z_][A-Za-z0-9_]*)/
+    return source.firstMatch(of: pattern).map { String($0.1) }
+  }
+
   func showHierarchy() {
+    // The question already up decides alone.
+    guard !confirming else {
+      return
+    }
     guard hasUnacceptedChanges else {
       toggleHierarchy()
       return
     }
-    confirmDiscard(window) { discard in
-      if discard {
+    confirmBeforeDiscarding { proceed in
+      if proceed {
         self.toggleHierarchy()
       }
     }
@@ -296,22 +320,37 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   // An unaccepted edit asks first: discarding applies the change, cancelling puts the rows and
-  // the side switch back and keeps the edit.
+  // the side switch back and keeps the edit. A change while the question is up is not asked
+  // again; its rows and switch go back at once.
   private func changeSelection(_ change: @escaping () -> Void) {
     let apply = {
       change()
       self.publish()
     }
+    guard !confirming else {
+      showSelection()
+      return
+    }
     guard hasUnacceptedChanges else {
       apply()
       return
     }
-    confirmDiscard(window) { discard in
-      if discard {
+    confirmBeforeDiscarding { proceed in
+      if proceed {
         apply()
       } else {
         self.showSelection()
       }
+    }
+  }
+
+  // One question at a time. The answer meets the pane as it is when it comes: with no unaccepted
+  // edit left, Cancel has nothing to keep, so the change goes ahead.
+  private func confirmBeforeDiscarding(_ proceed: @escaping @MainActor (Bool) -> Void) {
+    confirming = true
+    confirmDiscard(window) { discard in
+      self.confirming = false
+      proceed(discard || !self.hasUnacceptedChanges)
     }
   }
 
@@ -493,15 +532,17 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     return (scroll, text)
   }
 
+  // Return answers Cancel, never the destructive Discard. NSAlert gives a button titled Cancel
+  // the Escape key, so Return is set on it here; a button holds one key equivalent.
   private static func askToDiscard(_ window: NSWindow, _ decide: @escaping @MainActor (Bool) -> Void) {
     let alert = NSAlert()
     alert.messageText = "Discard the changes you have not accepted?"
     alert.informativeText = "The source pane has edits that were not accepted."
-    alert.addButton(withTitle: "Discard")
-    alert.addButton(withTitle: "Cancel")
+    alert.addButton(withTitle: "Cancel").keyEquivalent = "\r"
+    alert.addButton(withTitle: "Discard").hasDestructiveAction = true
     alert.beginSheetModal(for: window) { response in
       MainActor.assumeIsolated {
-        decide(response == .alertFirstButtonReturn)
+        decide(response == .alertSecondButtonReturn)
       }
     }
   }
