@@ -711,3 +711,51 @@ TEST(AcceptAbi, ShapeChangeRefusesClassWithSubclasses) {
   EXPECT_NE(b5ClassDefinition("B5Sub").find("instanceVariableNames: 'c'"), std::string::npos);
   ao_runtime_shutdown();
 }
+
+// B5 review M1 / SPEC §3.9: 形を変える subclass:… の送信が失敗したら（superclass のクラス側で
+// 上書きしたメソッドが super を送って名前を新しいクラスに付け替えたあと、nil を答える、または
+// 中断する）、AO_ERR_COMPILE で、名前は旧クラスに戻る。旧クラスのメソッドとソースもそのまま。
+TEST(AcceptAbi, ShapeChangePutsNameBackWhenSubclassSendFails) {
+  const char* header =
+      "subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+      "category: k\n"
+      "  super subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+      "category: k.\n";
+  const char* endings[] = {"  ^nil\n", "  ^self error: 'after'\n"};
+  for (const char* ending : endings) {
+    SCOPED_TRACE(ending);
+    ASSERT_EQ(AO_OK, ao_runtime_boot());
+    AoSpan err{};
+    char out[64];
+    auto printIt = [&](const char* src) {
+      return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+    };
+    ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "B5FailSup", "", "B5-Test").c_str(), &err))
+        << err.message;
+    ASSERT_EQ(AO_OK,
+              ao_accept_class(b5Definition("B5FailSup", "B5FailChild", "a", "B5-Test").c_str(), &err))
+        << err.message;
+    const char* getA = "a\n  ^a\n";
+    ASSERT_EQ(AO_OK, ao_accept_method("B5FailChild", 0, getA, &err)) << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method("B5FailChild", 0, "a: v\n  a := v\n", &err)) << err.message;
+    ASSERT_EQ(AO_OK, printIt("oldChild := B5FailChild. (B5FailChild new a: 5) a")) << err.message;
+    EXPECT_STREQ("5", out);
+    const std::string override = std::string(header) + ending;
+    ASSERT_EQ(AO_OK, ao_accept_method("B5FailSup", 1, override.c_str(), &err)) << err.message;
+
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE,
+              ao_accept_class(b5Definition("B5FailSup", "B5FailChild", "a b", "B5-Test").c_str(), &e));
+    EXPECT_STRNE("", e.message);
+    ASSERT_EQ(AO_OK, printIt("oldChild == B5FailChild")) << err.message;
+    EXPECT_STREQ("true", out);
+    ASSERT_EQ(AO_OK, printIt("(B5FailChild new a: 6) a")) << err.message;
+    EXPECT_STREQ("6", out);
+    char source[256];
+    ASSERT_EQ(AO_OK, ao_browser_source("B5FailChild", 0, "a", source, 256));
+    EXPECT_STREQ(getA, source);
+    EXPECT_NE(b5ClassDefinition("B5FailChild").find("instanceVariableNames: 'a'\n"),
+              std::string::npos);
+    ao_runtime_shutdown();
+  }
+}

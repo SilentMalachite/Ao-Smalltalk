@@ -415,8 +415,8 @@ bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction&
 // SPEC §3.9: a new shape. Every check runs before anything changes: the class has no subclass,
 // each method on either side has its source in the source table, and each source compiles for
 // the new shape. Then applyClassDef makes the new class and binds the name to it, the methods go
-// in, and their sources move over. When an install fails (old at its max), the name goes back to
-// the old class, whose methods were never touched.
+// in, and their sources move over. When the subclass: send or an install fails (old at its max),
+// the name goes back to the old class, whose methods were never touched.
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
@@ -488,6 +488,11 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
   }
 
   if (!applyClassDef(ctx, action, errors)) {
+    // SPEC §3.9: the send may have bound the name to a new class before it failed (a superclass's
+    // class-side override that sends super, then answers no class or aborts). The name goes back.
+    if (ctx.wk.named(action.className) != old.slot) {
+      rebindClassName(ctx, action.className, old.slot);
+    }
     return false;
   }
   Root fresh(ctx.roots, ctx.wk.named(action.className));
