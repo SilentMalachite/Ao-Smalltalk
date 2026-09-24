@@ -730,11 +730,10 @@ TEST(AcceptAbi, ShapeChangePutsNameBackWhenSubclassSendFails) {
     auto printIt = [&](const char* src) {
       return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
     };
-    ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "B5FailSup", "", "B5-Test").c_str(), &err))
-        << err.message;
-    ASSERT_EQ(AO_OK,
-              ao_accept_class(b5Definition("B5FailSup", "B5FailChild", "a", "B5-Test").c_str(), &err))
-        << err.message;
+    const std::string sup = b5Definition("Object", "B5FailSup", "", "B5-Test");
+    ASSERT_EQ(AO_OK, ao_accept_class(sup.c_str(), &err)) << err.message;
+    const std::string child = b5Definition("B5FailSup", "B5FailChild", "a", "B5-Test");
+    ASSERT_EQ(AO_OK, ao_accept_class(child.c_str(), &err)) << err.message;
     const char* getA = "a\n  ^a\n";
     ASSERT_EQ(AO_OK, ao_accept_method("B5FailChild", 0, getA, &err)) << err.message;
     ASSERT_EQ(AO_OK, ao_accept_method("B5FailChild", 0, "a: v\n  a := v\n", &err)) << err.message;
@@ -744,8 +743,8 @@ TEST(AcceptAbi, ShapeChangePutsNameBackWhenSubclassSendFails) {
     ASSERT_EQ(AO_OK, ao_accept_method("B5FailSup", 1, override.c_str(), &err)) << err.message;
 
     AoSpan e{};
-    EXPECT_EQ(AO_ERR_COMPILE,
-              ao_accept_class(b5Definition("B5FailSup", "B5FailChild", "a b", "B5-Test").c_str(), &e));
+    const std::string reshaped = b5Definition("B5FailSup", "B5FailChild", "a b", "B5-Test");
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(reshaped.c_str(), &e));
     EXPECT_STRNE("", e.message);
     ASSERT_EQ(AO_OK, printIt("oldChild == B5FailChild")) << err.message;
     EXPECT_STREQ("true", out);
@@ -758,4 +757,134 @@ TEST(AcceptAbi, ShapeChangePutsNameBackWhenSubclassSendFails) {
               std::string::npos);
     ao_runtime_shutdown();
   }
+}
+
+// B5 review M2 / SPEC §3.9: 形が変わるとき、インスタンス側のメソッドが、旧クラスにあって新しい形に
+// 無いインスタンス変数（継承したものを含む）を名前で読めば、何も変えずに AO_ERR_COMPILE。新しい形では
+// その読みが大域変数の読み出しになるからである。ブロックの中、入れ子のブロックの中、インライン化した
+// ブロックの中の読みも数える。名前は旧クラスを指したままで、メソッドも旧クラスのまま動く。
+TEST(AcceptAbi, ShapeChangeRefusesMethodReadingRemovedInstanceVariable) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const std::string& src) {
+    return ao_eval(src.c_str(), static_cast<int>(src.size()), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  for (const std::string& sup : {b5Definition("Object", "B5RdOldSup", "y", "B5-Test"),
+                                 b5Definition("Object", "B5RdNewSup", "", "B5-Test")}) {
+    ASSERT_EQ(AO_OK, ao_accept_class(sup.c_str(), &err)) << err.message;
+  }
+
+  struct Case {
+    const char* name;
+    const char* oldSuper;
+    const char* oldVars;
+    const char* newSuper;
+    const char* newVars;
+    const char* selector;
+    const char* source;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"B5RdPlain", "Object", "x y", "Object", "x", "y", "y\n  ^y\n",
+       "shape change refused: B5RdPlain>>y refers to removed instance variable y"},
+      {"B5RdBlock", "Object", "x y", "Object", "x", "yIsNil",
+       "yIsNil\n  ^[:k | y isNil] value: 1\n",
+       "shape change refused: B5RdBlock>>yIsNil refers to removed instance variable y"},
+      {"B5RdNested", "Object", "x y", "Object", "x", "nested", "nested\n  ^[[y]] value value\n",
+       "shape change refused: B5RdNested>>nested refers to removed instance variable y"},
+      {"B5RdInline", "Object", "x y", "Object", "x", "inl",
+       "inl\n  ^x isNil ifTrue: [y] ifFalse: [x]\n",
+       "shape change refused: B5RdInline>>inl refers to removed instance variable y"},
+      {"B5RdRename", "Object", "x y", "Object", "x z", "y", "y\n  ^y\n",
+       "shape change refused: B5RdRename>>y refers to removed instance variable y"},
+      {"B5RdInherit", "B5RdOldSup", "x", "B5RdNewSup", "x", "y", "y\n  ^y\n",
+       "shape change refused: B5RdInherit>>y refers to removed instance variable y"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    const std::string before = b5Definition(c.oldSuper, c.name, c.oldVars, "B5-Test");
+    ASSERT_EQ(AO_OK, ao_accept_class(before.c_str(), &err)) << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method(c.name, 0, c.source, &err)) << err.message;
+    ASSERT_EQ(AO_OK, printIt(std::string("oldRd := ") + c.name)) << err.message;
+
+    AoSpan e{};
+    const std::string after = b5Definition(c.newSuper, c.name, c.newVars, "B5-Test");
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(after.c_str(), &e));
+    EXPECT_STREQ(c.expected, e.message);
+    ASSERT_EQ(AO_OK, printIt(std::string("oldRd == ") + c.name)) << err.message;
+    EXPECT_STREQ("true", out);
+    ASSERT_EQ(AO_OK, printIt(std::string(c.name) + " superclass == " + c.oldSuper)) << err.message;
+    EXPECT_STREQ("true", out);
+    const std::string vars = std::string("instanceVariableNames: '") + c.oldVars + "'\n";
+    EXPECT_NE(b5ClassDefinition(c.name).find(vars), std::string::npos);
+    char source[256];
+    ASSERT_EQ(AO_OK, ao_browser_source(c.name, 0, c.selector, source, 256));
+    EXPECT_STREQ(c.source, source);
+  }
+  ASSERT_EQ(AO_OK, printIt("B5RdPlain new y")) << err.message;
+  EXPECT_STREQ("nil", out);
+  ASSERT_EQ(AO_OK, printIt("B5RdBlock new yIsNil")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("B5RdInherit new y")) << err.message;
+  EXPECT_STREQ("nil", out);
+  ao_runtime_shutdown();
+}
+
+// B5 review M2 / SPEC §3.9: 送信（self y）、シンボル（#y）、同じ名前の引数と temp、消えない変数
+// （新しい superclass から継承するものを含む）は、消えるインスタンス変数の読みに数えない。
+TEST(AcceptAbi, ShapeChangeKeepsMethodsThatDoNotReadRemovedVariables) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  for (const std::string& def : {b5Definition("Object", "B5KpSup", "y", "B5-Test"),
+                                 b5Definition("Object", "B5KpOther", "y", "B5-Test"),
+                                 b5Definition("Object", "B5Keep", "x y", "B5-Test")}) {
+    ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+  }
+  const char* sources[] = {
+      "x\n  ^x\n",
+      "x: v\n  x := v\n",
+      "y\n  ^x\n",
+      "sendsY\n  ^self y\n",
+      "sym\n  ^#y == #y\n",
+      "shadow\n  | y | y := 3. ^y\n",
+      "arg: y\n  ^y\n",
+      "blockArg\n  ^[:y | y] value: 4\n",
+      "blockTemp\n  ^[| y | y := 5. y] value\n",
+  };
+  for (const char* s : sources) {
+    ASSERT_EQ(AO_OK, ao_accept_method("B5Keep", 0, s, &err)) << err.message;
+  }
+  const std::string kept = b5Definition("Object", "B5Keep", "x", "B5-Test");
+  ASSERT_EQ(AO_OK, ao_accept_class(kept.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("((B5Keep new x: 2; yourself) sendsY)")) << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, printIt("B5Keep new sym")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("B5Keep new shadow")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, printIt("B5Keep new arg: 7")) << err.message;
+  EXPECT_STREQ("7", out);
+  ASSERT_EQ(AO_OK, printIt("B5Keep new blockArg")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, printIt("B5Keep new blockTemp")) << err.message;
+  EXPECT_STREQ("5", out);
+
+  // superclass を変えても、新しい superclass が同じ名前の変数を持てば消えない。
+  const std::string moved = b5Definition("B5KpSup", "B5KpMoved", "x", "B5-Test");
+  ASSERT_EQ(AO_OK, ao_accept_class(moved.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5KpMoved", 0, "y\n  ^y\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5KpMoved", 0, "y: v\n  y := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("B5KpOther", "B5KpMoved", "x", "B5-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("B5KpMoved superclass == B5KpOther")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("(B5KpMoved new y: 9) y")) << err.message;
+  EXPECT_STREQ("9", out);
+  ao_runtime_shutdown();
 }

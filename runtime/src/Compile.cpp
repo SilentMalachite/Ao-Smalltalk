@@ -4,6 +4,7 @@
 #include "ao/CompiledMethod.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/Bytecode.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
@@ -394,6 +395,33 @@ std::string carriedMethodName(const std::string& className, const CarriedMethod&
   return key;
 }
 
+// SPEC §3.9: the first of `removed` that image, or a block inside it, reads by name, or "". A name
+// that is no local and no instance variable compiles to PushGlobal of its Symbol; the compiler
+// has no other global access outside the workspace (an assignment does not compile).
+std::string readRemovedName(const compiler::MethodImage& image,
+                            const std::vector<std::string>& removed) {
+  for (std::size_t pc = 0; pc < image.bytes.size();) {
+    const auto op = static_cast<compiler::Op>(image.bytes[pc]);
+    if (op == compiler::Op::PushGlobal && pc + 1 < image.bytes.size()) {
+      const std::uint8_t li = image.bytes[pc + 1];
+      if (li < image.literals.size() &&
+          std::find(removed.begin(), removed.end(), image.literals[li].text) != removed.end()) {
+        return image.literals[li].text;
+      }
+    }
+    pc += 1 + compiler::operandBytes(op);
+  }
+  for (const compiler::Literal& lit : image.literals) {
+    if (lit.kind == compiler::LitKind::Method && lit.method) {
+      std::string found = readRemovedName(*lit.method, removed);
+      if (!found.empty()) {
+        return found;
+      }
+    }
+  }
+  return {};
+}
+
 // SPEC §3.9: the same shape keeps the class object, its method dictionaries, its metaclass and
 // its instances. Only the category changes: the runtime keeps no classVariableNames yet.
 bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction& action,
@@ -413,10 +441,11 @@ bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction&
 }
 
 // SPEC §3.9: a new shape. Every check runs before anything changes: the class has no subclass,
-// each method on either side has its source in the source table, and each source compiles for
-// the new shape. Then applyClassDef makes the new class and binds the name to it, the methods go
-// in, and their sources move over. When the subclass: send or an install fails (old at its max),
-// the name goes back to the old class, whose methods were never touched.
+// each method on either side has its source in the source table, each source compiles for the
+// new shape, and no instance-side method reads an instance variable the new shape drops. Then
+// applyClassDef makes the new class and binds the name to it, the methods go in, and their
+// sources move over. When the subclass: send or an install fails (old at its max), the name goes
+// back to the old class, whose methods were never touched.
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
@@ -485,6 +514,28 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
       return false;
     }
     m.image = std::move(cr.image);
+  }
+  // A variable the old class has (inherited ones too) and the new shape lacks compiles to a global
+  // read in the new shape. An instance-side method that reads one would change meaning silently.
+  std::vector<std::string> removed;
+  {
+    compiler::CompileEnv oldEnv;
+    fillInstVars(ctx, old.slot, oldEnv);
+    const std::vector<std::string>& kept = instanceEnv.instVarNames;
+    for (std::string& name : oldEnv.instVarNames) {
+      if (std::find(kept.begin(), kept.end(), name) == kept.end()) {
+        removed.push_back(std::move(name));
+      }
+    }
+  }
+  for (const CarriedMethod& m : carried) {
+    const std::string var = (m.meta || removed.empty()) ? std::string{}
+                                                        : readRemovedName(m.image, removed);
+    if (!var.empty()) {
+      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
+                                         " refers to removed instance variable " + var});
+      return false;
+    }
   }
 
   if (!applyClassDef(ctx, action, errors)) {
