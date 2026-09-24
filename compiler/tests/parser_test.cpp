@@ -254,9 +254,10 @@ std::string repeated(const std::string& s, int n) {
 
 }  // namespace
 
-// SPEC §3.8: parentheses, blocks and literal arrays nest at most 256 levels; an assignment's value
-// and the receiver side of a message chain count one level deeper each. Past that is the compile
-// error "nesting too deep" at the construct that goes past the limit.
+// SPEC §3.8: parentheses, blocks and literal arrays nest at most 256 levels, and apart from that
+// the expression tree is at most 1024 levels deep, where an assignment's value and the receiver
+// side of a message chain count one level deeper each too. Past either is the compile error
+// "nesting too deep" at the construct that goes past the limit.
 TEST(Parser, NestingDepthIsLimited) {
   const std::string head = "foo\n  | a |\n  ^";  // 15 characters
   struct Case {
@@ -266,23 +267,44 @@ TEST(Parser, NestingDepthIsLimited) {
     std::uint32_t start;
     std::uint32_t end;
   };
+  // Chains inside parentheses inside chains: 200 parentheses (below 256) with 4 or 5 unary
+  // messages after each. Level j is j * 5 - 1 or j * 6 - 1 deep, so with 5 the parenthesis of
+  // level 171, the 30th from the left, goes past 1024.
+  const auto chained = [](int links) {
+    return repeated("(", 200) + "1" + repeated(repeated(" yourself", links) + ")", 200);
+  };
+  // 128 times a block and a parenthesis (256 levels of each limit) on the costliest path, then
+  // assignments: 768 of them make the tree 1024 deep.
+  const std::string open = repeated("[:x | ^x a; k: 1 + (", 128);
+  const std::string close = repeated(") foo]", 128);
+  const auto mixed = [&](int assignments) {
+    return open + repeated("a := ", assignments) + "1" + close;
+  };
+  const auto at = [&](std::size_t offset) { return static_cast<std::uint32_t>(15 + offset); };
   const std::vector<Case> cases{
       {"parentheses", repeated("(", 256) + "1" + repeated(")", 256),
-       repeated("(", 10000) + "1" + repeated(")", 10000), 15 + 256, 15 + 257},
+       repeated("(", 10000) + "1" + repeated(")", 10000), at(256), at(257)},
       {"blocks", repeated("[", 256) + "1" + repeated("]", 256),
-       repeated("[", 257) + "1" + repeated("]", 257), 15 + 256, 15 + 257},
+       repeated("[", 257) + "1" + repeated("]", 257), at(256), at(257)},
       {"literal arrays", "#" + repeated("(", 256) + "1" + repeated(")", 256),
-       "#" + repeated("(", 10000) + "1" + repeated(")", 10000), 15 + 257, 15 + 258},
-      {"unary chain", "1" + repeated(" yourself", 257), "1" + repeated(" yourself", 100000),
-       15 + 2 + 9 * 257, 15 + 2 + 9 * 257 + 8},
-      {"binary chain", "0" + repeated(" + 1", 257), "0" + repeated(" + 1", 100000),
-       15 + 2 + 4 * 257, 15 + 3 + 4 * 257},
-      {"assignment chain", repeated("a := ", 256) + "1", repeated("a := ", 100000) + "1",
-       15 + 5 * 256, 15 + 5 * 256 + 1},
-      {"chain on a deep argument", "1 + " + repeated("(", 200) + "1" + repeated(")", 200) +
-                                       repeated(" + 1", 56),
-       "1 + " + repeated("(", 200) + "1" + repeated(")", 200) + repeated(" + 1", 57),
-       15 + 4 + 401 + 1 + 4 * 56, 15 + 4 + 401 + 2 + 4 * 56},
+       "#" + repeated("(", 10000) + "1" + repeated(")", 10000), at(257), at(258)},
+      {"unary chain", "1" + repeated(" yourself", 1025), "1" + repeated(" yourself", 1026),
+       at(9 * 1026 - 7), at(9 * 1026 + 1)},
+      {"long unary chain", "1" + repeated(" yourself", 1000), "1" + repeated(" yourself", 100000),
+       at(9 * 1026 - 7), at(9 * 1026 + 1)},
+      {"binary chain", "0" + repeated(" + 1", 1025), "0" + repeated(" + 1", 1026),
+       at(4 * 1026 - 2), at(4 * 1026 - 1)},
+      {"long binary chain", "0" + repeated(" , 1", 1000), "0" + repeated(" + 1", 100000),
+       at(4 * 1026 - 2), at(4 * 1026 - 1)},
+      {"assignment chain", repeated("a := ", 1024) + "1", repeated("a := ", 1025) + "1",
+       at(5 * 1024), at(5 * 1024 + 1)},
+      {"long assignment chain", repeated("a := ", 300) + "1", repeated("a := ", 100000) + "1",
+       at(5 * 1024), at(5 * 1024 + 1)},
+      {"chains in parentheses in chains", chained(4), chained(5), at(29), at(30)},
+      {"blocks, parentheses and assignments", mixed(768), mixed(769),
+       at(open.size() + 5 * 768), at(open.size() + 5 * 768 + 1)},
+      {"blocks, parentheses and many assignments", mixed(768), mixed(100000),
+       at(open.size() + 5 * 768), at(open.size() + 5 * 768 + 1)},
   };
   for (const Case& c : cases) {
     auto ok = parseMethod(head + c.ok);

@@ -42,9 +42,13 @@ class Parser {
   Token prev_;
   bool hadError_ = false;
   CompileError error_;
-  // SPEC §3.8: the deepest nesting allowed, and the parentheses, blocks, literal arrays and
-  // assignments open around the current token (the levels the parser itself recurses on).
+  // SPEC §3.8: parentheses, blocks and literal arrays nest at most kMaxNesting levels, and the
+  // expression tree (those, assignment values and message chain receivers) is at most kMaxDepth
+  // levels deep. nesting_ and depth_ count the levels open around the current token, the ones
+  // the parser itself recurses on.
   static constexpr std::uint32_t kMaxNesting = 256;
+  static constexpr std::uint32_t kMaxDepth = 1024;
+  std::uint32_t nesting_ = 0;
   std::uint32_t depth_ = 0;
 
   void advance() {
@@ -97,23 +101,28 @@ class Parser {
     error_.message = message;
   }
 
-  // Opens a level that the parser recurses into, at the token `at`; past the limit it is the
-  // error there instead. The caller leaves it once the level is parsed.
-  bool enter(SourceSpan at) {
-    if (depth_ >= kMaxNesting) {
+  // Opens a level that the parser recurses into, at the token `at`: a parenthesis, block or
+  // literal array (`syntactic`) or an assignment. Past a limit it is the error there instead.
+  // The caller leaves it once the level is parsed.
+  bool enter(SourceSpan at, bool syntactic) {
+    if ((syntactic && nesting_ >= kMaxNesting) || depth_ >= kMaxDepth) {
       failAt(at, "nesting too deep");
       return false;
     }
+    nesting_ += syntactic ? 1u : 0u;
     ++depth_;
     return true;
   }
 
-  void leave() { --depth_; }
+  void leave(bool syntactic) {
+    nesting_ -= syntactic ? 1u : 0u;
+    --depth_;
+  }
 
-  // n holds `levels` nesting levels; past the limit it is the error at `at`. A message chain is
-  // read in a loop, so this check, not enter, bounds how deep its receiver side goes.
+  // n's tree is `levels` deep; past kMaxDepth it is the error at `at`. A message chain is read in
+  // a loop, so this check, not enter, bounds how deep its receiver side goes.
   void nest(Ast& n, std::uint32_t levels, SourceSpan at) {
-    if (levels > kMaxNesting) {
+    if (levels > kMaxDepth) {
       failAt(at, "nesting too deep");
     }
     n.nesting = static_cast<std::uint16_t>(levels);
@@ -325,12 +334,12 @@ class Parser {
       Token id = cur_;
       advance();
       if (check(Tok::Assign)) {
-        if (!enter(id.span)) {
+        if (!enter(id.span, false)) {
           return {};
         }
         advance();
         Ast rhs = parseExpression();
-        leave();
+        leave(false);
         Ast as = make(Ast::Kind::Assign, join(id.span, rhs.span));
         as.name = std::move(id.text);
         nest(as, rhs.nesting + 1u, id.span);
@@ -558,11 +567,11 @@ class Parser {
       fail("expected '|'");
       return blk;
     }
-    if (!enter(start)) {
+    if (!enter(start, true)) {
       return blk;
     }
     Ast body = parseStatementsAsSequence();
-    leave();
+    leave(true);
     if (!check(Tok::RBracket)) {
       fail("expected ']'");
       return blk;
@@ -577,7 +586,7 @@ class Parser {
   Ast finishLiteralArray(SourceSpan start, Tok closer, bool bytes) {
     Ast arr = make(Ast::Kind::Literal, start);
     arr.name = bytes ? "#[" : "#(";
-    if (!enter(start)) {
+    if (!enter(start, true)) {
       return arr;
     }
     while (!hadError_ && !check(Tok::Eof) && !check(closer)) {
@@ -587,7 +596,7 @@ class Parser {
         arr.kids.push_back(parseArrayElement());
       }
     }
-    leave();
+    leave(true);
     if (!check(closer)) {
       fail(bytes ? "expected ']'" : "expected ')'");
       return arr;
@@ -710,12 +719,12 @@ class Parser {
     }
     if (check(Tok::LParen)) {
       SourceSpan start = cur_.span;
-      if (!enter(start)) {
+      if (!enter(start, true)) {
         return {};
       }
       advance();
       Ast inner = parseExpression();
-      leave();
+      leave(true);
       if (!check(Tok::RParen)) {
         fail("expected ')'");
         return inner;

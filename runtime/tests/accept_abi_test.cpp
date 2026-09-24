@@ -2557,16 +2557,32 @@ TEST(AcceptAbi, CascadePartsAreMessageChains) {
 
 // B7 (docs/claude-review/05 Medium) / SPEC §3.8: 10 000 nested parentheses crashed ao_eval with
 // SIGSEGV (the parser and the code generator recurse per level), and so did a chain of 100 000
-// messages or assignments. 256 levels still evaluate; past them is the compile error
-// "nesting too deep" at the construct that goes past the limit.
+// messages or assignments. Parentheses, blocks and literal arrays nest 256 levels, and the whole
+// tree, message chains and assignments included, is 1024 levels deep; chains of 300 and 1000
+// links evaluate as before B7. Past either limit is the compile error "nesting too deep" at the
+// construct that goes past it.
 TEST(AcceptAbi, NestingTooDeepIsACompileError) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan defErr{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Chain\n"
+                                   "  instanceVariableNames: 'n'\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &defErr))
+      << defErr.message;
+  acceptMethods("B7Chain", 0, {"start\n  n := 0\n", ", x\n  n := n + x\n", "count\n  ^n\n"});
   const auto repeated = [](const std::string& s, int n) {
     std::string out;
     for (int i = 0; i < n; ++i) {
       out += s;
     }
     return out;
+  };
+  // 128 times a block and a parenthesis on the costliest path, then assignments.
+  const std::string open = repeated("[:x | ^x a; k: 1 + (", 128);
+  const auto mixed = [&](int assignments) {
+    return "| a | " + open + repeated("a := ", assignments) + "7" + repeated(") foo]", 128);
   };
   struct Deep {
     std::string source;
@@ -2576,9 +2592,16 @@ TEST(AcceptAbi, NestingTooDeepIsACompileError) {
       {repeated("(", 256) + "7" + repeated(")", 256), "7"},
       {repeated("[", 256) + "7" + repeated("] value", 256), "7"},
       {"#" + repeated("(", 256) + "7" + repeated(")", 256) + " size", "1"},
-      {"7" + repeated(" yourself", 257), "7"},
-      {"0" + repeated(" + 1", 257), "257"},
-      {"| a | " + repeated("a := ", 256) + "7", "7"},
+      {"7" + repeated(" yourself", 300), "7"},
+      {"7" + repeated(" yourself", 1000), "7"},
+      {"7" + repeated(" yourself", 1025), "7"},
+      {"0" + repeated(" + 1", 300), "300"},
+      {"0" + repeated(" + 1", 1000), "1000"},
+      {"0" + repeated(" + 1", 1025), "1025"},
+      {"(B7Chain new start" + repeated(" , 1", 300) + ") count", "300"},
+      {"(B7Chain new start" + repeated(" , 1", 1000) + ") count", "1000"},
+      {"| a | " + repeated("a := ", 1024) + "7", "7"},
+      {mixed(768) + " == nil", "false"},
   };
   for (const Deep& d : evaluated) {
     char out[128];
@@ -2597,9 +2620,19 @@ TEST(AcceptAbi, NestingTooDeepIsACompileError) {
       {repeated("(", 10000) + "7" + repeated(")", 10000), 256, 257},
       {repeated("[", 10000) + "7" + repeated("]", 10000), 256, 257},
       {"#" + repeated("(", 10000) + "7" + repeated(")", 10000), 257, 258},
-      {"7" + repeated(" yourself", 100000), 2 + 9 * 257, 2 + 9 * 257 + 8},
-      {"0" + repeated(" + 1", 100000), 2 + 4 * 257, 3 + 4 * 257},
-      {"| a | " + repeated("a := ", 100000) + "7", 6 + 5 * 256, 7 + 5 * 256},
+      {"7" + repeated(" yourself", 1026), 9 * 1026 - 7, 9 * 1026 + 1},
+      {"7" + repeated(" yourself", 100000), 9 * 1026 - 7, 9 * 1026 + 1},
+      {"0" + repeated(" + 1", 1026), 4 * 1026 - 2, 4 * 1026 - 1},
+      {"0" + repeated(" + 1", 100000), 4 * 1026 - 2, 4 * 1026 - 1},
+      {"B7Chain new start" + repeated(" , 1", 1100), 4 * 1024 + 14, 4 * 1024 + 15},
+      {"| a | " + repeated("a := ", 1025) + "7", 6 + 5 * 1024, 7 + 5 * 1024},
+      {"| a | " + repeated("a := ", 100000) + "7", 6 + 5 * 1024, 7 + 5 * 1024},
+      // Chains inside parentheses inside chains: the parenthesis of level 171 of 200 goes past.
+      {repeated("(", 200) + "7" + repeated(repeated(" yourself", 5) + ")", 200), 29, 30},
+      {mixed(769), static_cast<unsigned>(6 + open.size() + 5 * 768),
+       static_cast<unsigned>(7 + open.size() + 5 * 768)},
+      {mixed(100000), static_cast<unsigned>(6 + open.size() + 5 * 768),
+       static_cast<unsigned>(7 + open.size() + 5 * 768)},
   };
   for (const TooDeep& d : refused) {
     char out[128];

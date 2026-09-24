@@ -656,3 +656,28 @@ TEST(Codegen, CascadePartsAreMessageChains) {
       "  ReturnTop\n",
       disassemble(s.image));
 }
+
+// SPEC §3.8: the deepest tree the parser allows compiles: 128 blocks and 128 parentheses on the
+// costliest path (the 256-level limit), then assignments up to the 1024-level tree limit, and a
+// 1025-message chain. The analysis and the code generator recurse over it within the stack.
+TEST(Codegen, DeepestAllowedTreeCompiles) {
+  std::string src = "foo\n  | a |\n  ^";
+  for (int i = 0; i < 128; ++i) {
+    src += "[:x | ^x a; k: 1 + (";
+  }
+  for (int i = 0; i < 768; ++i) {
+    src += "a := ";
+  }
+  src += "1";
+  for (int i = 0; i < 128; ++i) {
+    src += ") foo]";
+  }
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  std::string chain = "foo\n  ^0";
+  for (int i = 0; i < 1025; ++i) {
+    chain += " + 1";
+  }
+  auto c = compileMethod(chain);
+  ASSERT_TRUE(c.ok) << c.error.message;
+}
