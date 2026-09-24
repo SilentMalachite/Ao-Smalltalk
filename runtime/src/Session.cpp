@@ -1,6 +1,7 @@
 #include "Session.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/ClassPool.hpp"
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
@@ -330,6 +331,22 @@ std::string instVarList(Heap& heap, Oop cls) {
   return out;
 }
 
+// SPEC §3.10: the class's own class variables (its classPool's names, not the superclasses'), in
+// order, one blank apart.
+std::string classVarList(Heap& heap, Oop cls) {
+  if (!pointerSlots(heap, cls, kClassSlotClassPool + 1)) {
+    return {};
+  }
+  std::string out;
+  for (const std::string& name : ClassPool::names(heap, heap.slotAt(cls, kClassSlotClassPool))) {
+    if (!out.empty()) {
+      out.push_back(' ');
+    }
+    out += name;
+  }
+  return out;
+}
+
 std::vector<ClassRow> classRows(Session& s) {
   struct Baton {
     Session* session;
@@ -505,7 +522,9 @@ std::string definitionOf(Session& s, const ClassRow& row) {
   text += row.name;
   text += "\n  instanceVariableNames: '";
   text += instVarList(s.heap, row.cls);
-  text += "'\n  classVariableNames: ''\n  poolDictionaries: ''\n  category: '";
+  text += "'\n  classVariableNames: '";
+  text += classVarList(s.heap, row.cls);
+  text += "'\n  poolDictionaries: ''\n  category: '";
   text += definitionCategory(s.heap, row.cls);
   text += "'";
   return text;

@@ -339,6 +339,17 @@ std::vector<std::string> definedInstVarNames(std::string_view spec) {
   return names;
 }
 
+// SPEC §3.6: the class variable names a definition gives, split the same way, each name once.
+std::vector<std::string> definedClassVarNames(std::string_view spec) {
+  std::vector<std::string> names;
+  for (std::string& name : definedInstVarNames(spec)) {
+    if (std::find(names.begin(), names.end(), name) == names.end()) {
+      names.push_back(std::move(name));
+    }
+  }
+  return names;
+}
+
 // The names in cls's own instVarNames slot, in order. cls is class-shaped.
 std::vector<std::string> ownInstVarNames(CallContext& ctx, Oop cls) {
   std::vector<std::string> names;
@@ -440,14 +451,138 @@ std::string readRemovedName(const compiler::MethodImage& image,
   return {};
 }
 
+// Whether method, a CompiledMethod, or a block inside it holds one of bindings as a literal (a
+// class variable it reads or writes). Does not collect.
+bool holdsBinding(CallContext& ctx, Oop method, const std::vector<Oop>& bindings,
+                  std::size_t* which, int depth = 0) {
+  if (depth > 64 || !method.isHeap() || ctx.heap.klass(method) != ctx.wk.compiledMethodClass ||
+      ctx.heap.size(method) <= kCmSlotLiterals) {
+    return false;
+  }
+  const Oop lits = ctx.heap.slotAt(method, kCmSlotLiterals);
+  if (!lits.isHeap() || (ctx.heap.flags(lits) & kFlagBytes) != 0) {
+    return false;
+  }
+  const std::uint32_t n = ctx.heap.size(lits);
+  for (std::uint32_t i = 0; i < n; ++i) {
+    const Oop lit = ctx.heap.slotAt(lits, i);
+    const auto found = std::find(bindings.begin(), bindings.end(), lit);
+    if (found != bindings.end()) {
+      *which = static_cast<std::size_t>(found - bindings.begin());
+      return true;
+    }
+    if (holdsBinding(ctx, lit, bindings, which, depth + 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// SPEC §3.9: the first method of cls or of a class below it, on either side, that holds the binding
+// of one of `dropped` (names in cls's classPool): "<Class>>><selector>" (" class" on the class side)
+// and the name, or "" when no method holds one. Does not collect.
+std::pair<std::string, std::string> methodHoldingDropped(CallContext& ctx, Oop cls,
+                                                         const std::vector<std::string>& dropped) {
+  std::vector<Oop> bindings;
+  std::vector<std::string> names;
+  const Oop pool = ctx.heap.slotAt(cls, kClassSlotClassPool);
+  for (const std::string& name : dropped) {
+    const Oop binding = ClassPool::bindingAt(ctx.heap, pool, name);
+    if (binding.isHeap()) {
+      bindings.push_back(binding);
+      names.push_back(name);
+    }
+  }
+  if (bindings.empty()) {
+    return {};
+  }
+  // cls first, then the named classes below it.
+  struct Probe {
+    const Heap& heap;
+    Oop cls;
+    std::vector<Oop> classes;
+  } probe{ctx.heap, cls, {cls}};
+  ctx.wk.eachClass(
+      [](void* baton, Oop each) {
+        auto* p = static_cast<Probe*>(baton);
+        if (chainIncludes(p->heap, each, p->cls) &&
+            std::find(p->classes.begin(), p->classes.end(), each) == p->classes.end()) {
+          p->classes.push_back(each);
+        }
+      },
+      &probe);
+  for (const Oop c : probe.classes) {
+    for (const bool meta : {false, true}) {
+      const Oop side = meta ? ctx.heap.klass(c) : c;
+      const Oop dict = isClassShaped(ctx.heap, side) ? ctx.heap.slotAt(side, kClassSlotMethodDict)
+                                                     : Oop::nil();
+      if (!dict.isHeap() || (ctx.heap.flags(dict) & kFlagBytes) != 0 ||
+          ctx.heap.size(dict) <= kDictSlotArray) {
+        continue;
+      }
+      const Oop inner = ctx.heap.slotAt(dict, kDictSlotArray);
+      if (!inner.isHeap() || (ctx.heap.flags(inner) & kFlagBytes) != 0) {
+        continue;
+      }
+      const std::uint32_t n = ctx.heap.size(inner);
+      for (std::uint32_t i = 0; i + 1 < n; i += 2) {
+        const Oop key = ctx.heap.slotAt(inner, i);
+        std::size_t which = 0;
+        if (key.isHeap() && holdsBinding(ctx, ctx.heap.slotAt(inner, i + 1), bindings, &which)) {
+          std::string where = ownClassName(ctx, c);
+          if (meta) {
+            where += " class";
+          }
+          where += ">>";
+          where += Str::toUtf8(ctx.heap, key);
+          return {where, names[which]};
+        }
+      }
+    }
+  }
+  return {};
+}
+
 // SPEC §3.9: the same shape keeps the class object, its method dictionaries, its metaclass and
-// its instances. Only the category changes: the runtime keeps no classVariableNames yet.
+// its instances. The category changes, and the classPool takes the definition's class variables:
+// a kept name keeps its binding and value, a new name gets a binding with nil, and a dropped name
+// is refused while a method of the class or of a class below it holds its binding.
 bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction& action,
                        std::vector<FileInError>& errors) {
+  const std::vector<std::string> classVars = definedClassVarNames(action.classVars);
+  const std::vector<std::string> current =
+      ClassPool::names(ctx.heap, ctx.heap.slotAt(cls.slot, kClassSlotClassPool));
+  // SPEC §3.9: a dropped name whose binding a method holds would leave that method reading and
+  // writing a variable the classPool no longer has. Checked before anything changes.
+  std::vector<std::string> dropped;
+  for (const std::string& name : current) {
+    if (std::find(classVars.begin(), classVars.end(), name) == classVars.end()) {
+      dropped.push_back(name);
+    }
+  }
+  if (!dropped.empty()) {
+    const auto [method, var] = methodHoldingDropped(ctx, cls.slot, dropped);
+    if (!method.empty()) {
+      addError(errors, {action.span, "class variable change refused: " + method +
+                                         " refers to removed class variable " + var});
+      return false;
+    }
+  }
   Root cat(ctx.roots, boxUtf8(ctx, action.category));
   if (!cat.slot.isHeap()) {
     addError(errors, {action.span, "class definition allocation failed: " + action.className});
     return false;
+  }
+  // A kept name keeps its binding (adopt does not collect); a new one gets a fresh binding.
+  Root pool(ctx.roots, Oop::nil());
+  const bool poolChanges = classVars != current;
+  if (poolChanges) {
+    pool.slot = ClassPool::make(ctx, classVars);
+    if (!pool.slot.isHeap()) {
+      addError(errors, {action.span, "class definition allocation failed: " + action.className});
+      return false;
+    }
+    ClassPool::adopt(ctx.heap, pool.slot, ctx.heap.slotAt(cls.slot, kClassSlotClassPool));
   }
   // subclass: puts the category on the class and on its metaclass.
   ctx.heap.slotAtPut(cls.slot, kClassSlotCategory, cat.slot);
@@ -455,12 +590,16 @@ bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction&
   if (isClassShaped(ctx.heap, meta)) {
     ctx.heap.slotAtPut(meta, kClassSlotCategory, cat.slot);
   }
+  if (poolChanges) {
+    ctx.heap.slotAtPut(cls.slot, kClassSlotClassPool, pool.slot);
+  }
   return true;
 }
 
 // SPEC §3.9: compiles each carried method in the given shape (instance side, class side) and
-// refuses one that does not compile, or an instance-side one that reads a variable the old class
-// has (inherited ones too) and the shape lacks. It allocates nothing.
+// refuses one that does not compile, an instance-side one that reads a variable the old class has
+// (inherited ones too) and the shape lacks, or one on either side that reads a class variable the
+// old class sees and the shape does not. It allocates nothing.
 bool compileCarried(CallContext& ctx, const Root& old, const compiler::CompileEnv& instanceEnv,
                     const compiler::CompileEnv& classEnv, std::vector<CarriedMethod>& carried,
                     const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
@@ -496,16 +635,34 @@ bool compileCarried(CallContext& ctx, const Root& old, const compiler::CompileEn
       return false;
     }
   }
+  // So does a class variable the old class sees and the new definition does not, on either side.
+  std::vector<std::string> removedClassVars;
+  for (std::string& name : ClassPool::visibleNames(ctx.heap, ctx.wk, old.slot)) {
+    const std::vector<std::string>& kept = instanceEnv.classVarNames;
+    if (std::find(kept.begin(), kept.end(), name) == kept.end()) {
+      removedClassVars.push_back(std::move(name));
+    }
+  }
+  for (const CarriedMethod& m : carried) {
+    const std::string var =
+        removedClassVars.empty() ? std::string{} : readRemovedName(m.image, removedClassVars);
+    if (!var.empty()) {
+      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
+                                         " refers to removed class variable " + var});
+      return false;
+    }
+  }
   return true;
 }
 
 // SPEC §3.9: a new shape. Every check runs before anything changes: the class has no subclass,
 // each method on either side has its source in the source table, each source compiles for the
-// new shape, and no instance-side method reads an instance variable the new shape drops. Then
-// applyClassDef makes the new class and binds the name to it, the methods go in (compiled again
-// when the class the send answered has another layout), and their sources move over. When the
-// subclass: send, that compile or an install fails (old at its max), the name goes back to the
-// old class, whose methods were never touched.
+// new shape, no instance-side method reads an instance variable the new shape drops, and no method
+// reads a class variable it drops. Then applyClassDef makes the new class and binds the name to
+// it, the new classPool takes the old bindings of the names it keeps, the methods go in (compiled
+// again when the class the send answered has another layout or other class variables), and their
+// sources move over. When the subclass: send, that compile or an install fails (old at its max),
+// the name goes back to the old class, whose methods were never touched.
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
@@ -556,7 +713,8 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
   found.clear();
 
   // The new class's variables are its superclass chain's and then its own; its metaclass adds
-  // none to the superclass's metaclass chain (see subclass:).
+  // none to the superclass's metaclass chain (see subclass:). Both sides see the class variables
+  // the definition declares and then its superclasses' (SPEC §3.6).
   compiler::CompileEnv instanceEnv;
   compiler::CompileEnv classEnv;
   {
@@ -565,6 +723,14 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     instanceEnv.instVarNames.insert(instanceEnv.instVarNames.end(), instVars.begin(),
                                     instVars.end());
     fillInstVars(ctx, ctx.heap.klass(super), classEnv);
+    instanceEnv.classVarNames = definedClassVarNames(action.classVars);
+    for (std::string& name : ClassPool::visibleNames(ctx.heap, ctx.wk, super)) {
+      std::vector<std::string>& seen = instanceEnv.classVarNames;
+      if (std::find(seen.begin(), seen.end(), name) == seen.end()) {
+        seen.push_back(std::move(name));
+      }
+    }
+    classEnv.classVarNames = instanceEnv.classVarNames;
   }
   if (!compileCarried(ctx, old, instanceEnv, classEnv, carried, action, errors)) {
     return false;
@@ -584,15 +750,24 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     addError(errors, {action.span, "subclass failed: " + action.className});
     return false;
   }
-  // SPEC §3.9: the methods move in the shape the send answered, which a superclass's class-side
-  // override can make differ from the definition's. The send may have collected; read the roots.
+  // SPEC §3.9: a name the old classPool binds keeps its binding in the new class, so its value and
+  // the old class's methods stay shared, and the moved methods box that binding. The send may have
+  // collected; read the roots. adopt does not collect.
+  ClassPool::adopt(ctx.heap, ctx.heap.slotAt(fresh.slot, kClassSlotClassPool),
+                   ctx.heap.slotAt(old.slot, kClassSlotClassPool));
+  // SPEC §3.9: the methods move in the shape and with the class variables the send answered,
+  // which a superclass's class-side override can make differ from the definition's.
   {
     compiler::CompileEnv freshInstanceEnv;
     compiler::CompileEnv freshClassEnv;
     fillInstVars(ctx, fresh.slot, freshInstanceEnv);
+    fillClassVars(ctx, fresh.slot, freshInstanceEnv);
     fillInstVars(ctx, ctx.heap.klass(fresh.slot), freshClassEnv);
+    fillClassVars(ctx, ctx.heap.klass(fresh.slot), freshClassEnv);
     if ((freshInstanceEnv.instVarNames != instanceEnv.instVarNames ||
-         freshClassEnv.instVarNames != classEnv.instVarNames) &&
+         freshClassEnv.instVarNames != classEnv.instVarNames ||
+         freshInstanceEnv.classVarNames != instanceEnv.classVarNames ||
+         freshClassEnv.classVarNames != classEnv.classVarNames) &&
         !compileCarried(ctx, old, freshInstanceEnv, freshClassEnv, carried, action, errors)) {
       rebindClassName(ctx, action.className, old.slot);
       return false;

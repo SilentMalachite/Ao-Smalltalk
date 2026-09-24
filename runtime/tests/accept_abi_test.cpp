@@ -1580,6 +1580,200 @@ TEST(AcceptAbi, ClassVariablesResolveBetweenLocalsAndGlobals) {
   ao_runtime_shutdown();
 }
 
+// B4 / SPEC §3.9: 形が同じ再 Accept でクラス変数を足しても、クラスは同じで、残る名前の束縛と値は
+// そのまま。既存メソッドは同じ値を読む。定義テキストは自分のクラス変数を並べ、それを Accept し直しても
+// 値は変わらない。
+TEST(AcceptAbi, ReacceptSameShapeKeepsClassVariableBindings) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvRe", "a", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvRe", 0, {"count\n  ^Count\n", "count: v\n  Count := v\n"});
+  acceptMethods("B4CvRe", 1, {"classCount\n  ^Count\n"});
+  expectPrints({{"oldRe := B4CvRe. oldBinding := B4CvRe classPool at: #Count. B4CvRe new count: 7; "
+                 "count",
+                 "7"}});
+
+  ASSERT_EQ(AO_OK, ao_accept_class(
+                       b4Definition("Object", "B4CvRe", "a", " Count  Total ", "B4-New").c_str(), &err))
+      << err.message;
+  EXPECT_EQ("B4-New", b5Category("B4CvRe"));
+  acceptMethods("B4CvRe", 0, {"total\n  ^Total\n", "total: v\n  Total := v\n"});
+  expectPrints({
+      {"oldRe == B4CvRe", "true"},
+      {"B4CvRe new count", "7"},
+      {"B4CvRe classCount", "7"},
+      {"(B4CvRe classPool at: #Count) == oldBinding", "true"},
+      {"B4CvRe new total", "nil"},
+      {"B4CvRe new total: 3; total", "3"},
+      {"B4CvRe new count: 8. B4CvRe classCount", "8"},
+      {"B4CvRe classPool size", "2"},
+  });
+  const std::string shown = b5ClassDefinition("B4CvRe");
+  EXPECT_NE(shown.find("classVariableNames: 'Count Total'"), std::string::npos) << shown;
+  ASSERT_EQ(AO_OK, ao_accept_class(shown.c_str(), &err)) << err.message;
+  expectPrints({
+      {"oldRe == B4CvRe", "true"},
+      {"B4CvRe new count", "8"},
+      {"B4CvRe new total", "3"},
+      {"(B4CvRe classPool at: #Count) == oldBinding", "true"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.9: 形が同じ再 Accept で、消えるクラス変数の束縛をメソッドが持っていれば（読みも代入も、
+// ブロックの中も、クラス側も、ソースの無いメソッドも、サブクラスのメソッドも）、何も変えずに
+// AO_ERR_COMPILE。どのメソッドも使っていなければ、その名前を classPool から除く。
+TEST(AcceptAbi, ReacceptRefusesDroppingClassVariableAMethodHolds) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  struct Case {
+    const char* name;
+    const char* superName;
+    const char* methodClass;
+    int meta;
+    const char* source;
+    const char* expected;
+  };
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("Object", "B4CvRmSup", "", "Keep Gone").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4CvRmSup", "B4CvRmSub", "", "").c_str(), &err))
+      << err.message;
+  const Case cases[] = {
+      {"B4CvRmRead", "Object", "B4CvRmRead", 0, "gone\n  ^Gone\n",
+       "class variable change refused: B4CvRmRead>>gone refers to removed class variable Gone"},
+      {"B4CvRmBlock", "Object", "B4CvRmBlock", 0, "gone: v\n  [Gone := v] value\n",
+       "class variable change refused: B4CvRmBlock>>gone: refers to removed class variable Gone"},
+      {"B4CvRmSide", "Object", "B4CvRmSide", 1, "gone\n  ^Gone\n",
+       "class variable change refused: B4CvRmSide class>>gone refers to removed class variable "
+       "Gone"},
+      {"B4CvRmSup", "Object", "B4CvRmSub", 0, "gone\n  ^Gone\n",
+       "class variable change refused: B4CvRmSub>>gone refers to removed class variable Gone"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    if (std::string(c.name) != "B4CvRmSup") {
+      ASSERT_EQ(AO_OK,
+                ao_accept_class(b4Definition(c.superName, c.name, "", "Keep Gone").c_str(), &err))
+          << err.message;
+    }
+    ASSERT_EQ(AO_OK, ao_accept_method(c.methodClass, c.meta, c.source, &err)) << err.message;
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE,
+              ao_accept_class(b4Definition(c.superName, c.name, "", "Keep", "B4-Other").c_str(), &e));
+    EXPECT_STREQ(c.expected, e.message);
+    EXPECT_EQ("B4-Test", b5Category(c.name));
+    const std::string probe = std::string(c.name) + " classPool includesKey: #Gone";
+    expectPrints({{probe.c_str(), "true"}});
+  }
+  expectPrints({{"B4CvRmRead new gone", "nil"}, {"B4CvRmSide gone", "nil"}});
+
+  // A method file-in put in has no source; it holds the binding all the same.
+  const std::string chunks = b4Definition("Object", "B4CvRmChunk", "", "Keep Gone") +
+                             "!\n!B4CvRmChunk methodsFor: 'b4'!\ngone\n  ^Gone! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(chunks.c_str(), &err)) << err.message;
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4CvRmChunk", "", "Keep").c_str(), &e));
+  EXPECT_STREQ("class variable change refused: B4CvRmChunk>>gone refers to removed class variable Gone",
+               e.message);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvDrop", "", "A B").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvDrop", 0, {"a\n  ^A\n", "a: v\n  A := v\n", "sendsB\n  ^self b\n"});
+  expectPrints({{"B4CvDrop new a: 2; a", "2"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvDrop", "", "A", "B4-New").c_str(),
+                                   &err))
+      << err.message;
+  EXPECT_EQ("B4-New", b5Category("B4CvDrop"));
+  expectPrints({
+      {"B4CvDrop classPool includesKey: #B", "false"},
+      {"B4CvDrop classPool size", "1"},
+      {"B4CvDrop new a", "2"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.9: 形が変わる再 Accept（インスタンス変数を足す）のあとも、クラス変数の値は残る。
+// 新しいクラスは旧クラスの束縛をそのまま使うので、旧クラスのインスタンスとも値を共有する。
+TEST(AcceptAbi, ShapeChangeKeepsClassVariableBindings) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("Object", "B4CvShape", "x", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvShape", 0,
+                {"count\n  ^Count\n", "count: v\n  Count := v\n", "x\n  ^x\n", "x: v\n  x := v\n"});
+  acceptMethods("B4CvShape", 1, {"classCount\n  ^Count\n"});
+  expectPrints({{"oldShape := B4CvShape. oldInst := B4CvShape new. oldBinding := B4CvShape "
+                 "classPool at: #Count. oldInst count: 5; count",
+                 "5"}});
+
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("Object", "B4CvShape", "w x", "Count Extra").c_str(), &err))
+      << err.message;
+  expectPrints({
+      {"oldShape == B4CvShape", "false"},
+      {"B4CvShape new count", "5"},
+      {"B4CvShape classCount", "5"},
+      {"(B4CvShape classPool at: #Count) == oldBinding", "true"},
+      {"(B4CvShape classPool at: #Extra) value", "nil"},
+      {"B4CvShape new count: 6. oldInst count", "6"},
+      {"oldInst count: 7. B4CvShape classCount", "7"},
+      {"(B4CvShape new x: 3; yourself) x", "3"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.9: 形が変わる再 Accept で、旧クラスから見えて新しい定義から見えないクラス変数を
+// メソッドが読めば拒む。代入はコンパイルし直しの失敗。クラス側、ブロックの中、スーパークラスの
+// クラス変数も数える。名前は旧クラスを指したまま。
+TEST(AcceptAbi, ShapeChangeRefusesMethodReadingRemovedClassVariable) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  for (const std::string& sup : {b4Definition("Object", "B4CvShOldSup", "", "Inh"),
+                                 b4Definition("Object", "B4CvShNewSup", "", "")}) {
+    ASSERT_EQ(AO_OK, ao_accept_class(sup.c_str(), &err)) << err.message;
+  }
+  struct Case {
+    const char* name;
+    const char* oldSuper;
+    const char* newSuper;
+    int meta;
+    const char* source;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"B4CvShRead", "Object", "Object", 0, "count\n  ^Count\n",
+       "shape change refused: B4CvShRead>>count refers to removed class variable Count"},
+      {"B4CvShWrite", "Object", "Object", 0, "count: v\n  Count := v\n",
+       "shape change refused: B4CvShWrite>>count: does not compile: cannot assign"},
+      {"B4CvShSide", "Object", "Object", 1, "count\n  ^Count\n",
+       "shape change refused: B4CvShSide class>>count refers to removed class variable Count"},
+      {"B4CvShBlock", "Object", "Object", 0, "count\n  ^[[Count]] value value\n",
+       "shape change refused: B4CvShBlock>>count refers to removed class variable Count"},
+      {"B4CvShInh", "B4CvShOldSup", "B4CvShNewSup", 0, "inh\n  ^Inh\n",
+       "shape change refused: B4CvShInh>>inh refers to removed class variable Inh"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    ASSERT_EQ(AO_OK, ao_accept_class(b4Definition(c.oldSuper, c.name, "x", "Count").c_str(), &err))
+        << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method(c.name, c.meta, c.source, &err)) << err.message;
+    const std::string keep = std::string("oldSh := ") + c.name + ". oldSh == " + c.name;
+    expectPrints({{keep.c_str(), "true"}});
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE,
+              ao_accept_class(b4Definition(c.newSuper, c.name, "x y", "").c_str(), &e));
+    EXPECT_STREQ(c.expected, e.message);
+    const std::string same = std::string("oldSh == ") + c.name;
+    expectPrints({{same.c_str(), "true"}});
+  }
+  expectPrints({{"B4CvShRead new count", "nil"}, {"B4CvShSide count", "nil"}});
+  ao_runtime_shutdown();
+}
+
 // B4 / SPEC §3.11: 保存して読み直したイメージでも、クラス変数の値と、メソッドと classPool の共有は
 // 保たれる。読み直したあとに Accept したメソッドも同じ束縛を使う。
 TEST(AcceptAbi, ClassVariablesSurviveImageSaveAndLoad) {
