@@ -16,12 +16,12 @@ LOAD_ORDER による file-in で意図して載せないメソッドを、1 行�
 いまの 8 件は、どれもコンパイルエラーである。括弧内は実際のエラーメッセージ。
 
 ```text
-Notification class>>signalToUpdateDebuggerOn:dueTo:: 波括弧の配列 {...} は Blue Book の構文でない（expected expression）。B7 で image/patches/ に書き換えるか、ここに残す
-Date>>printOn:format:: 波括弧の配列 {d. m. y} は Blue Book の構文でない（expected expression）。B7 で image/patches/ に書き換えるか、ここに残す
-Time class>>dateAndTimeFromSeconds:: 波括弧の配列 {...} は Blue Book の構文でない（expected expression）。B7 で image/patches/ に書き換えるか、ここに残す
-Time class>>dateAndTimeNow: 波括弧の配列 {...} は Blue Book の構文でない（expected expression）。B7 で image/patches/ に書き換えるか、ここに残す
-Timespan class>>includingDateAndTime:: コンパイル時リテラル `Duration zero`（バッククォート）は Blue Book の構文でない（invalid token）。B7 で image/patches/ に書き換えるか、ここに残す
-Time class>>primHighResClock: 名前付きプリミティブ <primitive: 'primitiveHighResClock'> は Blue Book の構文でない（expected primitive number）。B7 で image/patches/ に書き換えるか、ここに残す
-Time class>>primUtcWithOffset: 名前付きプリミティブ <primitive: 'primitiveUtcWithOffset'> は Blue Book の構文でない（expected primitive number）。B7 で image/patches/ に書き換えるか、ここに残す
-Time class>>primUtcWithOffset:: 名前付きプリミティブ <primitive: 'primitiveUtcWithOffset'> は Blue Book の構文でない（expected primitive number）。B7 で image/patches/ に書き換えるか、ここに残す
+Notification class>>signalToUpdateDebuggerOn:dueTo:: 波括弧の配列 {...} は Blue Book の構文でなく、v1 のコンパイラは受け付けない（expected expression）
+Date>>printOn:format:: 波括弧の配列 {d. m. y} は Blue Book の構文でなく、v1 のコンパイラは受け付けない（expected expression）
+Time class>>dateAndTimeFromSeconds:: 波括弧の配列 {...} は Blue Book の構文でなく、v1 のコンパイラは受け付けない（expected expression）
+Time class>>dateAndTimeNow: 波括弧の配列 {...} は Blue Book の構文でなく、v1 のコンパイラは受け付けない（expected expression）
+Timespan class>>includingDateAndTime:: コンパイル時リテラル `Duration zero`（バッククォート）は Blue Book の構文でなく、v1 のコンパイラは受け付けない（invalid token）
+Time class>>primHighResClock: 名前付きプリミティブ <primitive: 'primitiveHighResClock'> は Blue Book の構文でなく、v1 のコンパイラは受け付けない（expected primitive number）
+Time class>>primUtcWithOffset: 名前付きプリミティブ <primitive: 'primitiveUtcWithOffset'> は Blue Book の構文でなく、v1 のコンパイラは受け付けない（expected primitive number）
+Time class>>primUtcWithOffset:: 名前付きプリミティブ <primitive: 'primitiveUtcWithOffset'> は Blue Book の構文でなく、v1 のコンパイラは受け付けない（expected primitive number）
 ```
