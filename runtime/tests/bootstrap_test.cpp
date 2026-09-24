@@ -235,9 +235,19 @@ TEST(Bootstrap, SmalltalkMapsObjectNameToClass) {
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
   ASSERT_TRUE(wk.smalltalk.isHeap());
-  EXPECT_EQ(ao::Globals::kSmalltalkCount, heap.size(wk.smalltalk));
+  // SPEC §3.6: a SmalltalkImage whose tally counts the 57 names and Smalltalk itself.
+  EXPECT_EQ(wk.smalltalkImageClass, heap.klass(wk.smalltalk));
+  EXPECT_EQ(ao::Globals::kSmalltalkSlotCount, heap.size(wk.smalltalk));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(ao::Globals::kSmalltalkCount + 1),
+            heap.slotAt(wk.smalltalk, ao::Globals::kSmalltalkSlotTally));
+  const ao::Oop pairs = heap.slotAt(wk.smalltalk, ao::Globals::kSmalltalkSlotArray);
+  ASSERT_TRUE(pairs.isHeap());
+  EXPECT_EQ(wk.arrayClass, heap.klass(pairs));
+  EXPECT_EQ(wk.intern("Object"), heap.slotAt(pairs, 0));
+  EXPECT_EQ(wk.objectClass, heap.slotAt(pairs, 1));
   EXPECT_EQ(wk.objectClass, ao::Globals::at(wk, "Object"));
-  EXPECT_EQ(wk.objectClass, heap.slotAt(wk.smalltalk, 0));
+  EXPECT_EQ(wk.smalltalk, ao::Globals::at(wk, "Smalltalk"));
+  EXPECT_EQ(wk.processor, ao::Globals::at(wk, "Processor"));
   EXPECT_EQ(wk.metaclassClass, ao::Globals::at(wk, "Metaclass"));
   EXPECT_EQ(wk.undefinedObjectClass, ao::Globals::at(wk, "UndefinedObject"));
   EXPECT_EQ(wk.smallIntegerClass, ao::Globals::at(wk, "SmallInteger"));
@@ -269,20 +279,6 @@ TEST(Bootstrap, SmalltalkContainsAllNamedClasses) {
     EXPECT_EQ(wk.named(n), ao::Globals::at(wk, n)) << n;
     EXPECT_TRUE(ao::Globals::at(wk, n).isHeap()) << n;
   }
-}
-
-// レビュー指摘: クラスを nil のまま保存した古いイメージでも、ロード後に Smalltalk は
-// SmalltalkImage になる（SPEC §3.10）。
-TEST(Bootstrap, OldGlobalTableAdoptsImageClass) {
-  ao::Heap heap;
-  ao::Roots roots;
-  ao::WellKnown wk(heap, roots);
-  ao::Bootstrap::run(heap, roots, wk);
-  ASSERT_TRUE(wk.smalltalk.isHeap());
-  EXPECT_EQ(wk.smalltalkImageClass, heap.klass(wk.smalltalk));
-  heap.header(wk.smalltalk)->klass = ao::Oop::nil();
-  ao::Globals::adoptImageClass(heap, wk);
-  EXPECT_EQ(wk.smalltalkImageClass, heap.klass(wk.smalltalk));
 }
 
 namespace {

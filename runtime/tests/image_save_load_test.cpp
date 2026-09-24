@@ -9,6 +9,7 @@
 #include "ao/CompiledMethod.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
+#include "ao/Globals.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Image.hpp"
 #include "ao/ImageFormat.hpp"
@@ -204,6 +205,42 @@ ao::Oop findBytesOfSize(ao::Heap& heap, std::uint32_t size) {
     p += n;
   }
   return ao::Oop{};
+}
+
+std::vector<char> readAll(const std::filesystem::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  return std::vector<char>((std::istreambuf_iterator<char>(in)), {});
+}
+
+bool writeAll(const std::filesystem::path& path, const std::vector<char>& bytes) {
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  return static_cast<bool>(out);
+}
+
+// The records follow the heap: the well-known ones, the extra ones, the global ones. Each is a u32
+// name length, the name padded to 4 bytes and the u64 bits. *end is where the well-known records
+// end; the answer is where the bits of the one called name are, or 0.
+std::size_t wellKnownBitsAt(const std::vector<char>& bytes, std::string_view name,
+                            std::size_t* end) {
+  const auto* p = reinterpret_cast<const std::byte*>(bytes.data());
+  ao::ImageFormat::ImageHeader header;
+  if (!ao::ImageFormat::readHeader(p, bytes.size(), &header)) return 0;
+  std::size_t cursor = ao::ImageFormat::kImageHeaderBytes + header.heapBytes;
+  std::size_t found = 0;
+  for (std::uint32_t r = 0; r < header.wellKnownCount; ++r) {
+    std::uint32_t n = 0;
+    if (cursor + sizeof n > bytes.size()) return 0;
+    std::memcpy(&n, p + cursor, sizeof n);
+    if (cursor + sizeof n + n > bytes.size()) return 0;
+    const std::string_view recName(bytes.data() + cursor + sizeof n, n);
+    cursor += sizeof n + n + (4u - (n % 4u)) % 4u;
+    if (cursor + 8 > bytes.size()) return 0;
+    if (recName == name) found = cursor;
+    cursor += 8;
+  }
+  *end = cursor;
+  return found;
 }
 
 void expectOnePlusTwo(Loaded& image) {
@@ -659,5 +696,73 @@ TEST(ImageSaveLoad, FailedProbeKeepsCurrentSession) {
   ASSERT_EQ(AO_OK, ao_eval("nil isNil", 9, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
   EXPECT_STREQ("true", out);
   ao_runtime_shutdown();
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.11: グローバル辞書より前のイメージ（Smalltalk が 57 要素の表）は、修復せずに拒否する。
+// 保存したイメージの well-known 表の Smalltalk を、同じ 57 の値を並べた表に向け直して、それを作る。
+TEST(ImageSaveLoad, RefusesSmalltalkWithoutGlobalDictionary) {
+  Boot b;
+  {
+    ao::Root old(b.roots,
+                 b.heap.allocate(b.wk.smalltalkImageClass, ao::Globals::kSmalltalkCount, 0));
+    ASSERT_TRUE(old.slot.isHeap());
+    for (std::uint32_t i = 0; i < ao::Globals::kSmalltalkCount; ++i) {
+      b.heap.slotAtPut(old.slot, i, b.wk.named(ao::Globals::nameAt(i)));
+    }
+    ASSERT_TRUE(b.wk.define("B4OldTable", old.slot));
+  }
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-old-smalltalk.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  std::uint64_t oldOffset = 0;
+  {
+    // ロードした old はファイルのヒープ節と同じ並びなので、oldBase からの距離がファイル内の位置。
+    Loaded probe;
+    ASSERT_TRUE(ao::Image::load(probe.heap, probe.roots, probe.wk, path.string()));
+    const ao::Oop table = probe.wk.named("B4OldTable");
+    ASSERT_TRUE(table.isHeap());
+    oldOffset = static_cast<std::uint64_t>(static_cast<const std::byte*>(table.heapPointer()) -
+                                           probe.heap.oldBase());
+  }
+  std::vector<char> bytes = readAll(path);
+  std::size_t end = 0;
+  const std::size_t at = wellKnownBitsAt(bytes, "Smalltalk", &end);
+  ASSERT_NE(0u, at);
+  std::memcpy(bytes.data() + at, &oldOffset, sizeof oldOffset);
+  ASSERT_TRUE(writeAll(path, bytes));
+  Loaded image;
+  EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string()));
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.11: 足したグローバルは辞書にだけある。extra のレコードを持つイメージは旧形式として拒否する。
+TEST(ImageSaveLoad, RefusesExtraRecords) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-extra-record.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  {
+    Loaded plain;
+    ASSERT_TRUE(ao::Image::load(plain.heap, plain.roots, plain.wk, path.string()));
+  }
+  std::vector<char> bytes = readAll(path);
+  std::size_t end = 0;
+  ASSERT_NE(0u, wellKnownBitsAt(bytes, "Smalltalk", &end));
+  ao::ImageFormat::ImageHeader header;
+  ASSERT_TRUE(ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                          bytes.size(), &header));
+  ASSERT_EQ(0u, header.extraCount);
+  header.extraCount = 1;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(bytes.data()), header);
+  // "Zap" -> 3: 名前 3 バイトと詰め物 1 バイト、値の 8 バイト。
+  std::vector<char> record(4 + 4 + 8, 0);
+  const std::uint32_t n = 3;
+  std::memcpy(record.data(), &n, sizeof n);
+  std::memcpy(record.data() + 4, "Zap", 3);
+  const std::uint64_t bits = ao::Oop::fromSmallInteger(3).bits();
+  std::memcpy(record.data() + 8, &bits, sizeof bits);
+  bytes.insert(bytes.begin() + static_cast<std::ptrdiff_t>(end), record.begin(), record.end());
+  ASSERT_TRUE(writeAll(path, bytes));
+  Loaded image;
+  EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string()));
   std::filesystem::remove(path);
 }

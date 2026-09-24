@@ -132,15 +132,6 @@ bool wellKnownNamesOk(const std::vector<ImageRecord>& recs) {
   return true;
 }
 
-bool extraNamesOk(const WellKnown& wk, const std::vector<ImageRecord>& extra) {
-  for (const ImageRecord& rec : extra) {
-    if (wk.isCatalogName(rec.name)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 bool globalNamesOk(const std::vector<ImageRecord>& globals) {
   if (globals.size() != Globals::kSmalltalkCount) {
     return false;
@@ -212,9 +203,8 @@ bool payloadFits(std::size_t heapBytes, std::uint64_t off, std::uint32_t size) {
 
 bool precheck(const std::byte* section, std::size_t heapBytes,
               const std::unordered_set<std::uint64_t>& starts, const std::vector<std::uint64_t>& offsets,
-              const std::vector<ImageRecord>& wellKnown, const std::vector<ImageRecord>& extra,
-              const std::vector<ImageRecord>& globals) {
-  if (!recordsOk(wellKnown, starts) || !recordsOk(extra, starts) || !recordsOk(globals, starts)) {
+              const std::vector<ImageRecord>& wellKnown, const std::vector<ImageRecord>& globals) {
+  if (!recordsOk(wellKnown, starts) || !recordsOk(globals, starts)) {
     return false;
   }
   const ImageRecord* symbolRec = findRecord(wellKnown, "Symbol");
@@ -322,15 +312,12 @@ Oop fileOop(std::byte* base, std::uint64_t bits) {
 }
 
 bool bindAll(Heap& heap, WellKnown& wk, const std::vector<ImageRecord>& wellKnown,
-             const std::vector<ImageRecord>& extra, const std::vector<std::uint64_t>& offsets) {
+             const std::vector<std::uint64_t>& offsets) {
   auto* base = const_cast<std::byte*>(heap.oldBase());
   for (const ImageRecord& rec : wellKnown) {
     if (!wk.bindImageSlot(rec.name, fileOop(base, rec.bits))) {
       return false;
     }
-  }
-  for (const ImageRecord& rec : extra) {
-    wk.define(rec.name, fileOop(base, rec.bits));
   }
   for (std::uint64_t off : offsets) {
     const Oop obj = Oop::fromHeap(base + static_cast<std::size_t>(off));
@@ -367,10 +354,12 @@ bool bindAll(Heap& heap, WellKnown& wk, const std::vector<ImageRecord>& wellKnow
   return true;
 }
 
+// SPEC §3.11: Smalltalk is the global dictionary (an image from before it is refused, not
+// repaired), binds each of the 57 names to the value its record holds and binds itself. Runs
+// after bindAll, so the names find the image's Symbols.
 bool checkGlobals(Heap& heap, const WellKnown& wk, const std::vector<ImageRecord>& globals) {
-  if (!wk.smalltalk.isHeap() || (heap.flags(wk.smalltalk) & kFlagBytes) != 0 ||
-      heap.size(wk.smalltalk) != Globals::kSmalltalkCount ||
-      globals.size() != Globals::kSmalltalkCount) {
+  if (!Globals::isDictionary(wk, wk.smalltalk) || globals.size() != Globals::kSmalltalkCount ||
+      Globals::lookup(wk, wk.findSymbol("Smalltalk")) != wk.smalltalk) {
     return false;
   }
   auto* base = const_cast<std::byte*>(heap.oldBase());
@@ -380,7 +369,8 @@ bool checkGlobals(Heap& heap, const WellKnown& wk, const std::vector<ImageRecord
       return false;
     }
     const Oop got = fileOop(base, globals[i].bits);
-    if (got != heap.slotAt(wk.smalltalk, i)) {
+    const Oop bound = Globals::lookup(wk, wk.findSymbol(name));
+    if (bound.isEmpty() || got != bound) {
       return false;
     }
     if (globals[i].name == "Processor" && got != wk.processor) {
@@ -409,7 +399,10 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   if (!ImageFormat::readHeader(file.data(), file.size(), &header)) {
     return false;
   }
-  if (header.globalCount != Globals::kSmalltalkCount || header.wellKnownCount != kImageWellKnownCount) {
+  // SPEC §3.11: a global lives in the dictionary in the heap. Extra records mean an image from
+  // before the dictionary, which is refused.
+  if (header.globalCount != Globals::kSmalltalkCount || header.wellKnownCount != kImageWellKnownCount ||
+      header.extraCount != 0) {
     return false;
   }
   if (header.heapBytes > file.size() - ImageFormat::kImageHeaderBytes) {
@@ -420,14 +413,12 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
 
   std::size_t cursor = ImageFormat::kImageHeaderBytes + heapBytes;
   std::vector<ImageRecord> wellKnown;
-  std::vector<ImageRecord> extra;
   std::vector<ImageRecord> globals;
   if (!parseRecords(file, &cursor, header.wellKnownCount, &wellKnown) ||
-      !parseRecords(file, &cursor, header.extraCount, &extra) ||
       !parseRecords(file, &cursor, header.globalCount, &globals) || cursor != file.size()) {
     return false;
   }
-  if (!wellKnownNamesOk(wellKnown) || !extraNamesOk(wk, extra) || !globalNamesOk(globals)) {
+  if (!wellKnownNamesOk(wellKnown) || !globalNamesOk(globals)) {
     return false;
   }
 
@@ -436,7 +427,7 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   std::vector<std::uint64_t> offsets;
   std::unordered_set<std::uint64_t> starts;
   if (!walkObjects(heap, section, heapBytes, &offsets, &starts) ||
-      !precheck(section, heapBytes, starts, offsets, wellKnown, extra, globals)) {
+      !precheck(section, heapBytes, starts, offsets, wellKnown, globals)) {
     return false;
   }
   if (heapBytes > heap.oldMaxBytes() || heap.oldUsed() != 0) {
@@ -446,7 +437,7 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
     return false;
   }
   relocate(heap, offsets);
-  if (!bindAll(heap, wk, wellKnown, extra, offsets)) {
+  if (!bindAll(heap, wk, wellKnown, offsets)) {
     return false;
   }
   if (!checkGlobals(heap, wk, globals)) {

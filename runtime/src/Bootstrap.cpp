@@ -138,8 +138,8 @@ constexpr ClassDef kDefs[] = {
      &WellKnown::writeStreamClass, 4, false, false, "ReadWriteStream"},
     {&WellKnown::transcriptClass, &WellKnown::transcriptMetaclass, &WellKnown::streamClass, 0, false,
      false, "Transcript"},
-    {&WellKnown::smalltalkImageClass, &WellKnown::smalltalkImageMetaclass, &WellKnown::objectClass, 0,
-     false, false, "SmalltalkImage"},
+    {&WellKnown::smalltalkImageClass, &WellKnown::smalltalkImageMetaclass, &WellKnown::objectClass,
+     static_cast<std::int64_t>(Globals::kSmalltalkSlotCount), false, false, "SmalltalkImage"},
     {&WellKnown::dateClass, &WellKnown::dateMetaclass, &WellKnown::magnitudeClass, 0, false, false,
      "Date"},
     {&WellKnown::timeClass, &WellKnown::timeMetaclass, &WellKnown::magnitudeClass, 0, false, false,
@@ -177,6 +177,7 @@ constexpr SlotNames kSlotNames[] = {
     {&WellKnown::rectangleClass, "origin corner"},
     {&WellKnown::positionableStreamClass, "collection position readLimit"},
     {&WellKnown::writeStreamClass, "writeLimit"},
+    {&WellKnown::smalltalkImageClass, "tally array"},
 };
 
 static Oop allocClass(Heap& heap) { return heap.allocate(Oop::nil(), kClassSlotCount, 0); }

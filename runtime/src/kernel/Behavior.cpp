@@ -269,7 +269,11 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   ctx.heap.slotAtPut(meta.slot, kClassSlotClassPool, Oop::nil());
   ctx.heap.slotAtPut(meta.slot, kClassSlotInstVarNames, Oop::nil());
 
-  ctx.wk.define(nameBytes, cls.slot);
+  // SPEC §3.6: Smalltalk binds the class to its name, unless the name is a fixed global. define
+  // does not collect; it fails at old's max, with out of memory flagged.
+  if (!ctx.wk.isFixedGlobal(nameBytes) && !ctx.wk.define(nameBytes, cls.slot)) {
+    return Oop{};
+  }
   // SPEC §3.3: the name may have meant another class, which the cache then still holds. Every
   // class definition drops the whole cache; a new name only costs the re-lookups.
   invalidateMethodCache(ctx.cache, Oop{});

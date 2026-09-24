@@ -2,6 +2,7 @@
 
 #include "ao/Chunk.hpp"
 #include "ao/Compile.hpp"
+#include "ao/Globals.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/kernel/Install.hpp"
 
@@ -127,7 +128,8 @@ TEST(ImageRegistry, AdoptOldBytesOnce) {
   EXPECT_EQ(1, empty.hashCursor());
 }
 
-TEST(ImageRegistry, ExtraListsCmUser) {
+// SPEC §3.6: subclass: binds the class in Smalltalk, which the image carries in its heap.
+TEST(ImageRegistry, SmalltalkBindsCmUser) {
   Boot b;
   const char* def =
       "!Object subclass: #CmUser\n"
@@ -143,15 +145,10 @@ TEST(ImageRegistry, ExtraListsCmUser) {
   ASSERT_TRUE(ao::applyChunks(b.ctx, acts, errs)) << (errs.empty() ? "" : errs[0].message);
   EXPECT_FALSE(b.wk.isCatalogName("CmUser"));
 
-  bool found = false;
-  b.wk.eachExtra(
-      [](void* baton, std::string_view name, ao::Oop) {
-        if (name == "CmUser") {
-          *static_cast<bool*>(baton) = true;
-        }
-      },
-      &found);
-  EXPECT_TRUE(found);
+  const ao::Oop cls = b.wk.named("CmUser");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_EQ(cls, ao::Globals::at(b.wk, "CmUser"));
+  EXPECT_EQ(cls, b.wk.global(b.wk.intern("CmUser")));
 }
 
 TEST(ImageRegistry, BindImageSlotWritesFieldsInOrder) {

@@ -231,7 +231,6 @@ void ensureKernelNatives(Session& s) {
   // SPEC §3.10: add the Kernel natives the image lacks (those added after it was saved) and keep
   // every method it has.
   kernel::installMissing(s.heap, s.roots, s.wk, s.cache.get());
-  Globals::adoptImageClass(s.heap, s.wk);
   // SPEC §3.5: installMissing may have added one of the eight; a kept user method may hide one.
   s.wk.checkSmallIntegerFastPath();
 }
@@ -540,38 +539,17 @@ struct NameBag {
   std::vector<std::string>* names = nullptr;
 };
 
-void collectClassGlobal(void* baton, Oop cls) {
-  auto* bag = static_cast<NameBag*>(baton);
-  if (bag->heap == nullptr || bag->names == nullptr ||
-      !pointerSlots(*bag->heap, cls, kClassSlotName + 1)) {
-    return;
-  }
-  const Oop name = bag->heap->slotAt(cls, kClassSlotName);
-  if (!name.isHeap() || (bag->heap->flags(name) & kFlagBytes) == 0) {
-    return;
-  }
-  bag->names->push_back(byteText(*bag->heap, name));
-}
-
-void collectExtraGlobal(void* baton, std::string_view name, Oop) {
-  auto* bag = static_cast<NameBag*>(baton);
-  if (bag->names != nullptr) {
-    bag->names->emplace_back(name);
-  }
-}
-
+// SPEC §3.10: the keys of Smalltalk, the fixed globals and those subclass: and at:put: added.
 void collectKnownGlobals(Session& session, std::vector<std::string>* names) {
   names->clear();
-  for (std::uint32_t i = 0; i < Globals::kSmalltalkCount; ++i) {
-    const char* name = Globals::nameAt(i);
-    if (name != nullptr) {
-      names->emplace_back(name);
-    }
-  }
-  names->emplace_back("Smalltalk");
   NameBag bag{&session.heap, names};
-  session.wk.eachExtra(collectExtraGlobal, &bag);
-  session.wk.eachClass(collectClassGlobal, &bag);
+  Globals::each(
+      session.wk,
+      [](void* baton, Oop key, Oop) {
+        auto* b = static_cast<NameBag*>(baton);
+        b->names->push_back(byteText(*b->heap, key));
+      },
+      &bag);
 }
 
 // SPEC §3.10: cached, and rebuilt only after a class definition or Smalltalk at:put:.
