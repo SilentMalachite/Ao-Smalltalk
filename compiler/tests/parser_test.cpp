@@ -294,3 +294,43 @@ TEST(Parser, NestingDepthIsLimited) {
     EXPECT_EQ(c.end, deep.error.span.end) << c.what;
   }
 }
+
+// SPEC §3.8: a name is declared once per scope (the method's arguments and temps, or one block's
+// arguments and temps), and a pseudo-variable is never declared. The error is at the offending
+// declaration. A block may still declare a name of an enclosing scope.
+TEST(Parser, DeclarationsAreCheckedPerScope) {
+  struct Refused {
+    const char* source;
+    const char* message;
+    std::uint32_t start;
+    std::uint32_t end;
+  };
+  const std::vector<Refused> refused{
+      {"dup: x dup: x\n  ^x", "duplicate name: x", 12, 13},
+      {"foo: x\n  | x |\n  ^x", "duplicate name: x", 11, 12},
+      {"foo\n  | t t |\n  ^t", "duplicate name: t", 10, 11},
+      {"foo\n  | self |\n  self := 3.\n  ^self", "cannot declare pseudo-variable: self", 8, 12},
+      {"nilArg: nil\n  ^nil", "cannot declare pseudo-variable: nil", 8, 11},
+      {"+ true\n  ^1", "cannot declare pseudo-variable: true", 2, 6},
+      {"foo\n  ^[:a :a | a]", "duplicate name: a", 12, 13},
+      {"foo\n  ^[:a | | a | a]", "duplicate name: a", 15, 16},
+      {"foo\n  ^[:a || a | a]", "duplicate name: a", 14, 15},
+      {"foo\n  ^[ | u u | u]", "duplicate name: u", 13, 14},
+      {"foo\n  ^[:thisContext | 1]", "cannot declare pseudo-variable: thisContext", 9, 20},
+      {"foo\n  ^[ | super | 1]", "cannot declare pseudo-variable: super", 11, 16},
+      {"foo\n  ^[:false | 1]", "cannot declare pseudo-variable: false", 9, 14},
+  };
+  for (const Refused& r : refused) {
+    auto p = parseMethod(r.source);
+    EXPECT_FALSE(p.ok) << r.source;
+    EXPECT_EQ(r.message, p.error.message) << r.source;
+    EXPECT_EQ(r.start, p.error.span.start) << r.source;
+    EXPECT_EQ(r.end, p.error.span.end) << r.source;
+  }
+  for (const char* src : {"foo: x\n  ^[:x | x]", "foo\n  | t |\n  ^[ | t | t]",
+                          "foo\n  ^([:a | a] value: 1) + ([:a | | b | a] value: 2)",
+                          "foo: a bar: b\n  | c d |\n  ^[:e | | f | a + b + c + d + e + f]"}) {
+    auto p = parseMethod(src);
+    EXPECT_TRUE(p.ok) << src << ": " << p.error.message;
+  }
+}

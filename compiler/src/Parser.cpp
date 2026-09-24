@@ -134,6 +134,26 @@ class Parser {
     return n;
   }
 
+  // SPEC §3.8: declares the current identifier into `names`, the arguments or the temps of
+  // `scope` (a method or a block). A pseudo-variable, or a name the scope already declares, is
+  // the error at the declaration.
+  void declare(Ast& scope, std::vector<std::string>& names) {
+    const std::string& name = cur_.text;
+    if (name == "self" || name == "super" || name == "thisContext" || name == "nil" ||
+        name == "true" || name == "false") {
+      fail(("cannot declare pseudo-variable: " + name).c_str());
+      return;
+    }
+    const auto in = [&](const std::vector<std::string>& declared) {
+      return std::find(declared.begin(), declared.end(), name) != declared.end();
+    };
+    if (in(scope.params) || in(scope.temps)) {
+      fail(("duplicate name: " + name).c_str());
+      return;
+    }
+    names.push_back(name);
+  }
+
   Ast parseMethodAst() {
     Ast method = make(Ast::Kind::Method, SourceSpan{0, static_cast<std::uint32_t>(src_.size())});
     parseMessagePattern(method);
@@ -164,7 +184,7 @@ class Parser {
         fail("expected parameter name");
         return;
       }
-      method.params.push_back(cur_.text);
+      declare(method, method.params);
       method.span = join(method.span, cur_.span);
       advance();
       return;
@@ -178,7 +198,7 @@ class Parser {
           fail("expected parameter name");
           return;
         }
-        method.params.push_back(cur_.text);
+        declare(method, method.params);
         method.span = join(start, cur_.span);
         advance();
       }
@@ -206,7 +226,7 @@ class Parser {
   // The names of a temp declaration after its opening `|`, and the closing `|`.
   void parseTempNames(Ast& node) {
     while (check(Tok::Ident)) {
-      node.temps.push_back(cur_.text);
+      declare(node, node.temps);
       advance();
     }
     if (!isPipe()) {
@@ -512,7 +532,7 @@ class Parser {
         fail("expected block parameter");
         return blk;
       }
-      blk.params.push_back(cur_.text);
+      declare(blk, blk.params);
       advance();
     }
     // SPEC §3.8: after the arguments the `|` is required; `||` is that `|` and the opening of the

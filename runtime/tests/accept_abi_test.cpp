@@ -2518,3 +2518,57 @@ TEST(AcceptAbi, NestingTooDeepIsACompileError) {
   }
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/05 Low) / SPEC §3.8: `dup: x dup: x`, `| t t |`, `nilArg: nil` and
+// `[:a :a | a]` were accepted, and `| self | self := 3. ^self` answered the receiver instead of 3.
+// A name declared twice in one scope and a declared pseudo-variable are compile errors now.
+TEST(AcceptAbi, DeclarationsAreCheckedPerScope) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Decl\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  struct Refused {
+    const char* source;
+    const char* message;
+    unsigned start;
+    unsigned end;
+  };
+  const std::vector<Refused> methods{
+      {"dup: x dup: x\n  ^x\n", "duplicate name: x", 12, 13},
+      {"foo\n  | t t |\n  ^t\n", "duplicate name: t", 10, 11},
+      {"nilArg: nil\n  ^nil\n", "cannot declare pseudo-variable: nil", 8, 11},
+      {"foo\n  ^[:a :a | a]\n", "duplicate name: a", 12, 13},
+      {"foo\n  ^[:a | | a | a]\n", "duplicate name: a", 15, 16},
+  };
+  for (const Refused& r : methods) {
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B7Decl", 0, r.source, &err)) << r.source;
+    EXPECT_STREQ(r.message, err.message) << r.source;
+    EXPECT_EQ(r.start, err.start) << r.source;
+    EXPECT_EQ(r.end, err.end) << r.source;
+  }
+  const std::vector<Refused> doIts{
+      {"| self | self := 3. ^self", "cannot declare pseudo-variable: self", 2, 6},
+      {"| a a | a := 1", "duplicate name: a", 4, 5},
+      {"[:x :x | x] value: 1 value: 2", "duplicate name: x", 5, 6},
+  };
+  for (const Refused& r : doIts) {
+    char out[128];
+    EXPECT_EQ(AO_ERR_COMPILE, ao_eval(r.source, static_cast<int>(std::strlen(r.source)),
+                                      AO_EVAL_PRINTIT, out, 128, &err))
+        << r.source;
+    EXPECT_STREQ(r.message, err.message) << r.source;
+    EXPECT_EQ(r.start, err.start) << r.source;
+    EXPECT_EQ(r.end, err.end) << r.source;
+  }
+  acceptMethods("B7Decl", 0, {"shadow: x\n  ^[:x | x + 1] value: x\n"});
+  expectPrints({
+      {"B7Decl new shadow: 4", "5"},
+      {"| t | t := 3. [ | t | t := 4. t] value + t", "7"},
+  });
+  ao_runtime_shutdown();
+}
