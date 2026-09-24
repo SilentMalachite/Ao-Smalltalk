@@ -524,3 +524,34 @@ TEST_F(KernelNumeric, AsCharacterAcceptsOnlyUnicodeScalarValues) {
   EXPECT_EQ("<eval error: failed: #asCharacter>", printIt("1114112 asCharacter"));
   EXPECT_EQ("<eval error: failed: #asCharacter>", printIt("(1 bitShift: 70) asCharacter"));
 }
+
+// 03 Low: to:do: の終端が SmallInteger でなければ、ループ変数に <= を送って終わりを決める。
+// インライン展開したループ（SPEC §3.5）とネイティブの to:do:（ブロックが変数）は同じ意味。
+TEST_F(KernelNumeric, ToDoWithNonSmallIntegerLimitSendsLessOrEqual) {
+  for (const std::string blk : {"[:i | s := s + i]", "b"}) {
+    const std::string pre = "| s b | s := 0. b := [:i | s := s + i]. ";
+    EXPECT_EQ("3", printIt(pre + "1 to: 2.5 do: " + blk + ". s")) << blk;
+    EXPECT_EQ("3", printIt(pre + "1 to: 5/2 do: " + blk + ". s")) << blk;
+    EXPECT_EQ("1", printIt(pre + "1 to: 1.0 do: " + blk + ". s")) << blk;
+    EXPECT_EQ("0", printIt(pre + "1 to: (0.0 / 0.0) do: " + blk + ". s")) << blk;
+    EXPECT_EQ("0", printIt(pre + "(1 bitShift: 70) to: 5 do: " + blk + ". s")) << blk;
+    EXPECT_EQ("true", printIt(pre + "(1 bitShift: 70) to: (1 bitShift: 70) + 2 do: " + blk +
+                              ". s = (((1 bitShift: 70) * 3) + 3)"))
+        << blk;
+    EXPECT_EQ("1", printIt(pre + "1 to: 2.5 do: " + blk)) << blk;
+    EXPECT_EQ("<eval error: failed: #<=>", printIt(pre + "1 to: nil do: " + blk)) << blk;
+  }
+  // 巨大な終端でも、途中の ^ で抜けられる。
+  EXPECT_EQ("6", printIt("| s | s := 0. 1 to: (1 bitShift: 70) do: [:i | i > 3 ifTrue: [^s]. "
+                         "s := s + i]. s"));
+  EXPECT_EQ("4", printIt("| b | b := [:i | i > 3 ifTrue: [^i]]. 1 to: (1 bitShift: 70) do: b. nil"));
+  // ループ変数は Integer のまま。
+  EXPECT_EQ("true", printIt("| c b | b := [:i | c := i class]. 1 to: 1.5 do: b. c == SmallInteger"));
+}
+
+// SPEC §3.5: 刻みが Float の to:by:do:（インライン展開）も、Integer と Float の比較と算術で回る。
+TEST_F(KernelNumeric, ToByDoWithFloatStepCountsInFloats) {
+  EXPECT_EQ("4.5", printIt("| s | s := 0. 1 to: 2 by: 0.5 do: [:i | s := s + i]. s"));
+  EXPECT_EQ("4.5", printIt("| s | s := 0. 2 to: 1 by: -0.5 do: [:i | s := s + i]. s"));
+  EXPECT_EQ("3", printIt("| s | s := 0. 1 to: 2.5 by: 1 do: [:i | s := s + i]. s"));
+}

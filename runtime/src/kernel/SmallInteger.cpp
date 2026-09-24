@@ -24,6 +24,47 @@ bool bothInts(const WellKnown& wk, Oop a, Oop b) {
   return LargeInteger::isInteger(wk, a) && LargeInteger::isInteger(wk, b);
 }
 
+// SPEC §3.6: to:do: whose receiver or limit is not a SmallInteger (a Float, Fraction or
+// LargeInteger limit, a LargeInteger receiver). As the inlined loop does (SPEC §3.5), it sends
+// `i <= limit` before each pass, treats a non-Boolean answer as a branch does (mustBeBoolean),
+// and steps the Integer i by 1. receiver and args are rooted slots; i lives in a Root.
+Oop toDoSendingLessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args) {
+  if (!LargeInteger::isInteger(ctx.wk, receiver)) {
+    return Oop{};
+  }
+  Root i(ctx.roots, receiver);
+  Root lessOrEqual(ctx.roots, ctx.wk.intern("<="));
+  Gc gc(ctx.heap, ctx.roots);
+  for (std::uint64_t pass = 1;; ++pass) {
+    const Oop more = send(ctx, i.slot, lessOrEqual.slot, &args[0], 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
+    if (more.isEmpty()) {
+      // SPEC §3.3: the failing send is <=, as in the inlined loop.
+      return abortFailedSend(ctx, lessOrEqual.slot);
+    }
+    bool truth = false;
+    if (!truthOf(ctx, more, &truth)) {
+      return Oop{};
+    }
+    if (!truth) {
+      return receiver;
+    }
+    Oop ignored;
+    if (!callBlock(ctx, args[1], &i.slot, 1, &ignored)) {
+      return Oop{};
+    }
+    i.slot = LargeInteger::add(ctx, i.slot, Oop::fromSmallInteger(1));
+    if (i.slot.isEmpty()) {
+      return Oop{};
+    }
+    if ((pass & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
+  }
+}
+
 }  // namespace
 
 Oop ao_SmallInteger_add(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -209,8 +250,11 @@ Oop ao_Integer_to_(CallContext& ctx, const Oop& receiver, const Oop* args, std::
 }
 
 Oop ao_Integer_to_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (argc != 2 || !receiver.isSmallInteger() || !args[0].isSmallInteger()) {
+  if (argc != 2) {
     return Oop{};
+  }
+  if (!receiver.isSmallInteger() || !args[0].isSmallInteger()) {
+    return toDoSendingLessOrEqual(ctx, receiver, args);
   }
   const auto start = receiver.smallIntegerValue();
   const auto stop = args[0].smallIntegerValue();

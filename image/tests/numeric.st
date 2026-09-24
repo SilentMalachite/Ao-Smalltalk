@@ -1,4 +1,5 @@
 "SPEC §3.6 数の演算（B8）: Integer、Fraction、Float の混合。答えは一般性の高いほうの型"
+| s b |
 self assert: 1 + 1.5 equals: 2.5.
 self assert: 1 - 1.5 equals: -0.5.
 self assert: 2 * 1.5 equals: 3.0.
@@ -47,3 +48,10 @@ self assert: (true xor: false) equals: true.
 self assert: (false eqv: false) equals: true.
 "SPEC §3.6 Graphics-min: Point の算術は成分ごと"
 self assert: (Point x: 1 y: 2) + 0.5 equals: (Point x: 1.5 y: 2.5).
+"SPEC §3.6 to:do: の終端が SmallInteger でなければ <= を送る（インライン展開もネイティブも）"
+s := 0. 1 to: 2.5 do: [:i | s := s + i].
+self assert: s equals: 3.
+s := 0. b := [:i | s := s + i]. 1 to: 2.5 do: b.
+self assert: s equals: 3.
+s := 0. 1 to: 2 by: 0.5 do: [:i | s := s + i].
+self assert: s equals: 4.5.
