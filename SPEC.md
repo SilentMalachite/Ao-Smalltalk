@@ -804,7 +804,7 @@ LargeInteger とそれ以外はクラス名のまま。
 
 #### 保存
 
-保存（`Image::save`、`ao_image_save`、`ao image save`）が成功したイメージは、同じ版のランタイムの `Image::load` で必ず読める。保存は、書く前に、書こうとするファイルのバイト列に下の「ロードの検査」をそのまま当てる（ロードと同じ関数を使う）。どれかに反すれば、何も書かずに失敗する。失敗の理由（`Image::save` の reason、`ao image save` の標準エラー）は、どのオブジェクト（クラスならその名前、インスタンスならそのクラスの名前）がどの規則に反したかを言う。`ao_image_save` は理由を返さず `AO_ERR` である。この約束は `Image::load` までで、`ao_image_load` の探針（§3.10。`1 + 2` と `nil isNil`）は含まない。例えば `SmallInteger>>+` を壊したイメージは保存できるが、`ao_image_load` は探針で拒む。
+保存（`Image::save`、`ao_image_save`、`ao image save`）が成功したイメージは、同じ版のランタイムの `Image::load` で必ず読める。保存は、書く前に、書こうとするファイルのバイト列に下の「ロードの検査」をそのまま当てる（ロードと同じ関数を使う）。どれかに反すれば、何も書かずに失敗する。失敗の理由（`Image::save` の reason。`ao image save` は標準エラーに `ao: image save failed: <理由>` を 1 行出す）は、どのオブジェクト（クラスならその名前、インスタンスならそのクラスの名前）がどの規則に反したかを言う。`ao_image_save` は理由を返さず `AO_ERR` である。この約束は `Image::load` までで、`ao_image_load` の探針（§3.10。`1 + 2` と `nil isNil`）は含まない。例えば `SmallInteger>>+` を壊したイメージは保存できるが、`ao_image_load` は探針で拒む。
 
 - ロードの検査の old の上限には、保存するヒープの old の上限を使う（セッションでは 4 GiB − 1 MiB。§3.2）。生存データは nursery と old の両方にあり、ロードはそれを 1 つの old に並べるので、old の上限より小さい old に収まっていたセッションでも超えることがある。
 - 名前の無い thunk（上）がヒープに逃げていれば、NativeMethod の名前の規則に反する。
