@@ -50,6 +50,9 @@ bool compareRatioWithDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double 
 // The exact order of n1 / d1 and n2 / d2, -1, 0 or 1 in *out. False when one of them is not an
 // Integer or a denominator is 0. Does not allocate on the heap.
 bool compareRatios(Heap& heap, WellKnown& wk, Oop n1, Oop d1, Oop n2, Oop d2, int* out);
+// SPEC §3.6 hash of an Integer: its value when it fits a SmallInteger, otherwise a value hash of
+// its sign and magnitude. False when o is not an Integer.
+bool valueHash(Heap& heap, WellKnown& wk, Oop o, std::int64_t* out);
 
 }  // namespace LargeInteger
 }  // namespace ao

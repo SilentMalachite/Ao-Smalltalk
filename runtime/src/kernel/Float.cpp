@@ -365,6 +365,24 @@ Oop ao_Float_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* ar
                        ao_Magnitude_greaterOrEqual);
 }
 
+
+// SPEC §3.6: a value hash of the bits, -0.0 as 0.0 (they are =). A NaN equals nothing.
+Oop ao_Float_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!isFloat(ctx.wk, receiver) || ctx.heap.size(receiver) < sizeof(double)) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  double v = asDouble(ctx.heap, receiver);
+  if (v == 0.0) {
+    v = 0.0;
+  }
+  std::uint64_t bits = 0;
+  std::memcpy(&bits, &v, sizeof(bits));
+  return Oop::fromSmallInteger(valueHashFold(valueHashWord(kValueHashSeed, bits)));
+}
+
 Oop ao_Fraction_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -445,6 +463,27 @@ Oop ao_Fraction_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop*
                        ao_Magnitude_greaterOrEqual);
 }
 
+
+// SPEC §3.6: from the hashes of the numerator and the denominator, as Fraction>>= compares them.
+Oop ao_Fraction_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  Oop num;
+  Oop den;
+  std::int64_t hn = 0;
+  std::int64_t hd = 0;
+  if (!isFrac(ctx.wk, receiver) || !asNumDen(ctx, receiver, &num, &den) ||
+      !LargeInteger::valueHash(ctx.heap, ctx.wk, num, &hn) ||
+      !LargeInteger::valueHash(ctx.heap, ctx.wk, den, &hd)) {
+    // Fraction>>= answers true only for itself then.
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  const std::uint64_t h = valueHashWord(valueHashWord(kValueHashSeed, static_cast<std::uint64_t>(hn)),
+                                        static_cast<std::uint64_t>(hd));
+  return Oop::fromSmallInteger(valueHashFold(h));
+}
+
 Oop ao_Float_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
@@ -476,6 +515,7 @@ void installFloat(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.floatClass, ">", 1, "ao_Float_greaterThan", ao_Float_greaterThan);
   putNative(heap, wk, wk.floatClass, "<=", 1, "ao_Float_lessOrEqual", ao_Float_lessOrEqual);
   putNative(heap, wk, wk.floatClass, ">=", 1, "ao_Float_greaterOrEqual", ao_Float_greaterOrEqual);
+  putNative(heap, wk, wk.floatClass, "hash", 0, "ao_Float_hash", ao_Float_hash);
   putNative(heap, wk, wk.floatClass, "printString", 0, "ao_Float_printString",
             ao_Float_printString);
 
@@ -491,6 +531,7 @@ void installFloat(Heap& heap, WellKnown& wk) {
             ao_Fraction_lessOrEqual);
   putNative(heap, wk, wk.fractionClass, ">=", 1, "ao_Fraction_greaterOrEqual",
             ao_Fraction_greaterOrEqual);
+  putNative(heap, wk, wk.fractionClass, "hash", 0, "ao_Fraction_hash", ao_Fraction_hash);
 }
 
 }  // namespace kernel

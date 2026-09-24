@@ -2,6 +2,7 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -976,6 +977,31 @@ bool compareRatios(Heap& heap, WellKnown& wk, Oop n1, Oop d1, Oop n2, Oop d2, in
     return false;
   }
   *out = cmpBig(mulBig(a, d), mulBig(c, b));
+  return true;
+}
+
+
+bool valueHash(Heap& heap, WellKnown& wk, Oop o, std::int64_t* out) {
+  if (o.isSmallInteger()) {
+    *out = o.smallIntegerValue();
+    return true;
+  }
+  Big b;
+  if (!parse(heap, wk, o, b)) {
+    return false;
+  }
+  // A LargeInteger is normalized, but one made by hand may hold a SmallInteger's value: it is
+  // = to that SmallInteger, so it hashes as it does.
+  std::int64_t v = 0;
+  if (toInt64(b, &v) && v >= kSmiMin && v <= kSmiMax) {
+    *out = v;
+    return true;
+  }
+  std::uint64_t h = valueHashWord(kValueHashSeed, b.neg ? 1u : 0u);
+  for (const std::uint32_t digit : b.d) {
+    h = valueHashWord(h, digit);
+  }
+  *out = valueHashFold(h);
   return true;
 }
 

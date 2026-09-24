@@ -179,6 +179,19 @@ Oop ao_Integer_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* 
                        ao_Magnitude_greaterOrEqual);
 }
 
+
+// SPEC §3.6: equal Integers hash equally. A SmallInteger is its own hash.
+Oop ao_Integer_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  std::int64_t h = 0;
+  if (!LargeInteger::valueHash(ctx.heap, ctx.wk, receiver, &h)) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  return Oop::fromSmallInteger(h);
+}
+
 Oop ao_Integer_to_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -280,6 +293,7 @@ void installInteger(Heap& heap, WellKnown& wk) {
       {"bitXor:", 1, "ao_Integer_bitXor_", ao_Integer_bitXor_},
       {"bitShift:", 1, "ao_Integer_bitShift_", ao_Integer_bitShift_},
       {"=", 1, "ao_Integer_equals", ao_Integer_equals},
+      {"hash", 0, "ao_Integer_hash", ao_Integer_hash},
       {"<", 1, "ao_Integer_lessThan", ao_Integer_lessThan},
       {">", 1, "ao_Integer_greaterThan", ao_Integer_greaterThan},
       {"<=", 1, "ao_Integer_lessOrEqual", ao_Integer_lessOrEqual},

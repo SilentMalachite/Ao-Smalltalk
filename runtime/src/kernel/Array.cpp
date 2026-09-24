@@ -2,6 +2,7 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
@@ -121,6 +122,44 @@ Oop ao_Array_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   return Oop::true_();
 }
 
+
+bool mixElementHash(CallContext& ctx, Oop element, std::uint64_t* h) {
+  Root e(ctx.roots, element);
+  const Oop answer = send(ctx, e.slot, ctx.wk.intern("hash"), nullptr, 0, nullptr);
+  if (unwinding(ctx)) {
+    return false;
+  }
+  std::int64_t v = 0;
+  if (!LargeInteger::valueHash(ctx.heap, ctx.wk, answer, &v)) {
+    return false;
+  }
+  *h = valueHashWord(*h, static_cast<std::uint64_t>(v));
+  return true;
+}
+
+// SPEC §3.6: from the size and the hashes of the first kMaxHashElements elements, as Array>>=
+// compares them. Past kMaxHashNesting nested element hashes, from the size alone.
+Oop ao_Array_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!receiver.isHeap() || (ctx.heap.flags(receiver) & kFlagBytes) != 0) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  const std::uint32_t n = ctx.heap.size(receiver);
+  std::uint64_t h = valueHashWord(kValueHashSeed, n);
+  if (ctx.hashNesting < kMaxHashNesting) {
+    HashNesting nesting(ctx);
+    for (std::uint32_t i = 0; i < n && i < kMaxHashElements; ++i) {
+      // receiver is a rooted slot: after each send it is where the GC moved it.
+      if (!mixElementHash(ctx, ctx.heap.slotAt(receiver, i), &h)) {
+        return Oop{};
+      }
+    }
+  }
+  return Oop::fromSmallInteger(valueHashFold(h));
+}
+
 Oop ao_ArrayedCollection_size(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
   return ao_Object_basicSize(ctx, receiver, args, argc);
@@ -171,6 +210,7 @@ void installArray(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.arrayClass, "printString", 0, "ao_Array_printString",
             ao_Array_printString);
   putNative(heap, wk, wk.arrayClass, "=", 1, "ao_Array_equals", ao_Array_equals);
+  putNative(heap, wk, wk.arrayClass, "hash", 0, "ao_Array_hash", ao_Array_hash);
 }
 
 }  // namespace kernel

@@ -2,6 +2,7 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 
@@ -184,6 +185,28 @@ Oop ao_Point_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   return eq.isTrue() ? Oop::true_() : Oop::false_();
 }
 
+
+// SPEC §3.6: from the hashes of x and y, as Point>>= compares them. Past kMaxHashNesting nested
+// element hashes, a constant.
+Oop ao_Point_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!isPoint(ctx, receiver)) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  std::uint64_t h = valueHashWord(kValueHashSeed, 2);
+  if (ctx.hashNesting < kMaxHashNesting) {
+    HashNesting nesting(ctx);
+    // receiver is a rooted slot: y is read after the send for x, where the GC moved it.
+    if (!mixElementHash(ctx, ctx.heap.slotAt(receiver, kPointX), &h) ||
+        !mixElementHash(ctx, ctx.heap.slotAt(receiver, kPointY), &h)) {
+      return Oop{};
+    }
+  }
+  return Oop::fromSmallInteger(valueHashFold(h));
+}
+
 Oop ao_Rectangle_origin_corner_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                 std::uint32_t argc) {
   if (argc != 2) {
@@ -341,6 +364,7 @@ void installGeometry(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.pointClass, "*", 1, "ao_Point_multiply", ao_Point_multiply);
   putNative(heap, wk, wk.pointClass, "//", 1, "ao_Point_intDivide", ao_Point_intDivide);
   putNative(heap, wk, wk.pointClass, "=", 1, "ao_Point_equals", ao_Point_equals);
+  putNative(heap, wk, wk.pointClass, "hash", 0, "ao_Point_hash", ao_Point_hash);
 
   putNative(heap, wk, wk.rectangleMetaclass, "origin:corner:", 2, "ao_Rectangle_origin_corner_",
             ao_Rectangle_origin_corner_);

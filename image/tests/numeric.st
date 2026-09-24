@@ -31,3 +31,12 @@ self assert: ((Rectangle origin: (Point x: 0 y: 0) corner: (Point x: 10 y: 10)) 
 "SPEC §3.6 bitShift: のシフト量が -2^24 より小さければ 0 か -1"
 self assert: (5 bitShift: (-1 bitShift: 63)) equals: 0.
 self assert: (-5 bitShift: (-1 bitShift: 63)) equals: -1.
+"SPEC §3.6 = と hash: a = b なら a hash = b hash"
+self assert: (1 bitShift: 70) hash equals: (1 bitShift: 70) hash.
+self assert: 1.5 hash equals: (1.0 + 0.5) hash.
+self assert: 0.0 hash equals: (0.0 * -1) hash.
+self assert: (1/2) hash equals: (2/4) hash.
+self assert: 'abc' hash equals: 'abc' copy hash.
+self assert: #abc hash equals: 'abc' hash.
+self assert: #(1 'x' #(2.5 $c)) hash equals: #(1 'x' #(2.5 $c)) hash.
+self assert: (Point x: 1 y: 'p') hash equals: (Point x: 1 y: 'p' copy) hash.

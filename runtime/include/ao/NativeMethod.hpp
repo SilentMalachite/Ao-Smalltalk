@@ -84,6 +84,9 @@ struct CallContext {
   std::uint32_t cleanupDepth = 0;
   // Boxes LitKind::Binding literals (SPEC §3.10). Null outside a session: such literals fail.
   BindingHook bindingHook = nullptr;
+  // SPEC §3.6 = と hash: how many Array and Point hash natives are sending hash to their elements
+  // right now (HashNesting). At the limit they stop sending, so a self-holding Array ends.
+  std::uint32_t hashNesting = 0;
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, const Oop& receiver, const Oop* args,

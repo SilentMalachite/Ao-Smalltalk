@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <string>
 
@@ -317,4 +318,116 @@ TEST_F(KernelNumeric, BitShiftBeyondMinusTwoToThe24AnswersZeroOrMinusOne) {
   // 2^24 を超える左シフトは失敗する。
   EXPECT_EQ("<eval error: failed: #bitShift:>", printIt("5 bitShift: 16777217"));
   EXPECT_EQ("<eval error: failed: #bitShift:>", printIt("5 bitShift: (1 bitShift: 63)"));
+}
+
+// 03 Low: = が値で比べる数は、hash も値から計算する（SmallInteger を答える）。
+TEST_F(KernelNumeric, EqualNumbersHashEqually) {
+  EXPECT_EQ("3", printIt("3 hash"));
+  EXPECT_EQ("true", printIt("(1 bitShift: 70) hash = (1 bitShift: 70) hash"));
+  EXPECT_EQ("true", printIt("(1 bitShift: 70) hash class == SmallInteger"));
+  EXPECT_EQ("true", printIt("(0 - (1 bitShift: 70)) hash = (0 - (1 bitShift: 70)) hash"));
+  EXPECT_EQ("false", printIt("(1 bitShift: 70) hash = (0 - (1 bitShift: 70)) hash"));
+  EXPECT_EQ("true", printIt("1.5 hash = (1.0 + 0.5) hash"));
+  EXPECT_EQ("true", printIt("1.5 hash class == SmallInteger"));
+  EXPECT_EQ("true", printIt("0.0 = (0.0 * -1)"));
+  EXPECT_EQ("true", printIt("0.0 hash = (0.0 * -1) hash"));
+  EXPECT_EQ("true", printIt("(1/2) hash = (2/4) hash"));
+  EXPECT_EQ("true", printIt("(1/2) hash class == SmallInteger"));
+  EXPECT_EQ("true", printIt("((1 bitShift: 70) / 3) hash = ((1 bitShift: 70) / 3) hash"));
+}
+
+// 04 Medium: String と Symbol は同じバイト列なら = が true なので、hash も同じ関数で揃える。
+TEST_F(KernelNumeric, EqualStringsAndSymbolsHashEqually) {
+  EXPECT_EQ("true", printIt("'abc' hash = 'abc' copy hash"));
+  EXPECT_EQ("true", printIt("#abc = 'abc'"));
+  EXPECT_EQ("true", printIt("#abc hash = 'abc' hash"));
+  EXPECT_EQ("true", printIt("'abc' hash = #abc hash"));
+  EXPECT_EQ("true", printIt("'' hash = '' copy hash"));
+  EXPECT_EQ("true", printIt("'日本語' hash = '日本語' copy hash"));
+  EXPECT_EQ("true", printIt("'abc' hash class == SmallInteger"));
+  EXPECT_EQ("false", printIt("'abc' hash = 'abd' hash"));
+}
+
+// 04 Medium / 03 Low: Array と Point は要素に hash を送って合成する。
+TEST_F(KernelNumeric, EqualArraysAndPointsHashEqually) {
+  const std::string lit = "#(1 'x' #y 2.5 #(4 'z'))";
+  EXPECT_EQ("true", printIt(lit + " = " + lit));
+  EXPECT_EQ("true", printIt(lit + " hash = " + lit + " hash"));
+  EXPECT_EQ("true", printIt("#() hash = (Array new: 0) hash"));
+  EXPECT_EQ("true", printIt("(Array new: 20) hash class == SmallInteger"));
+  // 17 番目より後の要素は hash に入らないが、= なら hash も等しいことは変わらない。
+  EXPECT_EQ("true", printIt("| a b | a := Array new: 40. b := Array new: 40. "
+                            "1 to: 40 do: [:i | a at: i put: i printString. "
+                            "b at: i put: i printString]. (a = b) & (a hash = b hash)"));
+  EXPECT_EQ("true", printIt("(Point x: 1 y: 2) hash = (Point x: 1 y: 2) hash"));
+  EXPECT_EQ("true", printIt("(Point x: 'a' y: (1/2)) = (Point x: 'a' copy y: (2/4))"));
+  EXPECT_EQ("true", printIt("(Point x: 'a' y: (1/2)) hash = (Point x: 'a' copy y: (2/4)) hash"));
+  EXPECT_EQ("true", printIt("(Point x: 1 y: 2) hash class == SmallInteger"));
+}
+
+// SPEC §3.6: 入れ子の上限があるので、自分を要素に持つ Array や Point の hash も止まる。
+TEST_F(KernelNumeric, SelfHoldingArrayAndPointHashStop) {
+  EXPECT_EQ("true", printIt("| a | a := Array new: 2. a at: 1 put: a; at: 2 put: a. "
+                            "a hash class == SmallInteger"));
+  EXPECT_EQ("true", printIt("| p | p := Point x: 1 y: 2. p x: p. p hash class == SmallInteger"));
+  EXPECT_EQ("true", printIt("| a b | a := Array new: 1. b := Array new: 1. a at: 1 put: b. "
+                            "b at: 1 put: a. a hash = a hash"));
+  EXPECT_EQ("true", printIt("| a | a := Array new: 16. 1 to: 16 do: [:i | a at: i put: a]. "
+                            "a hash class == SmallInteger"));
+}
+
+// 04 Medium: 要素の hash は Smalltalk のメソッドでもよい。答えが Integer でなければ失敗し、
+// 巻き戻しが始まれば残りの要素には送らない（SPEC §3.4）。
+TEST_F(KernelNumeric, ElementHashMayBeASmalltalkMethod) {
+  acceptClass("Object", "B8Key", "k");
+  acceptMethod("B8Key", "k: v\n  k := v\n");
+  acceptMethod("B8Key", "k\n  ^k\n");
+  acceptMethod("B8Key", "= other\n  ^(other isKindOf: B8Key) and: [k = other k]\n");
+  acceptMethod("B8Key", "hash\n  ^k hash\n");
+  EXPECT_EQ("true", printIt("| a b | a := Array new: 2. a at: 1 put: (B8Key new k: 'abc'); "
+                            "at: 2 put: 7. b := Array new: 2. "
+                            "b at: 1 put: (B8Key new k: 'abc' copy); at: 2 put: 7. "
+                            "(a = b) & (a hash = b hash)"));
+  EXPECT_EQ("true", printIt("| p q | p := Point x: (B8Key new k: #(1 2)) y: 1. "
+                            "q := Point x: (B8Key new k: #(1 2)) y: 1. (p = q) & (p hash = q hash)"));
+
+  acceptClass("Object", "B8BadKey", "");
+  acceptMethod("B8BadKey", "hash\n  ^'not an Integer'\n");
+  EXPECT_EQ("<eval error: failed: #hash>",
+            printIt("| a | a := Array new: 1. a at: 1 put: B8BadKey new. a hash"));
+  EXPECT_EQ("<eval error: failed: #hash>", printIt("(Point x: B8BadKey new y: 1) hash"));
+
+  acceptClass("Object", "B8CountKey", "");
+  acceptMethod("B8CountKey",
+               "hash\n  Smalltalk at: #B8Count put: (Smalltalk at: #B8Count) + 1.\n  ^1\n");
+  acceptClass("Object", "B8AbortKey", "");
+  acceptMethod("B8AbortKey", "hash\n  ^nil foo\n");
+  ASSERT_EQ("0", printIt("Smalltalk at: #B8Count put: 0"));
+  EXPECT_EQ("<eval error: doesNotUnderstand: #foo>",
+            printIt("| a | a := Array new: 3. a at: 1 put: B8CountKey new; "
+                    "at: 2 put: B8AbortKey new; at: 3 put: B8CountKey new. a hash"));
+  EXPECT_EQ("1", printIt("Smalltalk at: #B8Count"));
+}
+
+// SPEC §3.6: 値から計算する hash はアドレスによらず、イメージを保存して読み直しても同じ。
+TEST_F(KernelNumeric, ValueHashesSurviveImageSaveAndLoad) {
+  ASSERT_EQ("true", printIt("| a | a := Array new: 6. a at: 1 put: 'abc'; "
+                            "at: 2 put: (1 bitShift: 70); at: 3 put: 1.5; at: 4 put: (1/3); "
+                            "at: 5 put: (Point x: 1 y: 'p'); at: 6 put: #(1 #(2)). "
+                            "Smalltalk at: #B8Saved put: a. true"));
+  const std::string before = printIt("(B8Saved collect: [:e | e hash]) printString");
+  const std::string whole = printIt("B8Saved hash");
+  ASSERT_EQ(std::string::npos, before.find("error")) << before;
+  const auto path = std::filesystem::path(testing::TempDir()) / "b8-hashes.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  EXPECT_EQ(before, printIt("(B8Saved collect: [:e | e hash]) printString"));
+  EXPECT_EQ(whole, printIt("B8Saved hash"));
+  // 読み直したものと、新しく作った等しい値も同じ hash になる。
+  EXPECT_EQ(before, printIt("| a | a := Array new: 6. a at: 1 put: 'abc'; "
+                            "at: 2 put: (1 bitShift: 70); at: 3 put: 1.5; at: 4 put: (1/3); "
+                            "at: 5 put: (Point x: 1 y: 'p'); at: 6 put: #(1 #(2)). "
+                            "(a collect: [:e | e hash]) printString"));
+  std::filesystem::remove(path);
 }
