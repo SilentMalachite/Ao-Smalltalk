@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1790246301.9211874,
-    "seen": 1790246695.544627,
-    "ast_hash": "1f2749e34dd2700779993c83e455757d",
+    "mtime": 1790249096.7100894,
+    "seen": 1790250140.220236,
+    "ast_hash": "3052d0b3cce7e3c71cee22a593933a9f",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -1032,9 +1032,9 @@
     "semantic_hash": ""
   },
   "compiler/src/Scanner.cpp": {
-    "mtime": 1790238815.9522657,
-    "seen": 1790246695.544524,
-    "ast_hash": "3af3d72a2083283b95d8d68e956838a7",
+    "mtime": 1790249493.3193407,
+    "seen": 1790250140.220132,
+    "ast_hash": "f2c542067ca0cc0d68950cd86a02e8ab",
     "semantic_hash": ""
   },
   "compiler/tests/bytecode_isa_test.cpp": {
@@ -1062,9 +1062,9 @@
     "semantic_hash": ""
   },
   "compiler/tests/scanner_test.cpp": {
-    "mtime": 1790238797.1282394,
-    "seen": 1790246695.544527,
-    "ast_hash": "d712a376381c695834f5c6ed8f4f59d1",
+    "mtime": 1790249136.772773,
+    "seen": 1790250140.220136,
+    "ast_hash": "3a2b436b9978532f8e39ceb9af6ec7ee",
     "semantic_hash": ""
   },
   "runtime/include/ao/CompiledMethod.hpp": {
@@ -1338,9 +1338,9 @@
     "semantic_hash": ""
   },
   "runtime/src/Session.cpp": {
-    "mtime": 1790234896.1214998,
-    "seen": 1790246695.544564,
-    "ast_hash": "34fd875e2decbd90dfff88ab7b2a4e85",
+    "mtime": 1790249484.967043,
+    "seen": 1790250140.220175,
+    "ast_hash": "1157749fa29ffdb3c0bf763103bace89",
     "semantic_hash": ""
   },
   "runtime/src/Session.hpp": {
@@ -1398,9 +1398,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/accept_abi_test.cpp": {
-    "mtime": 1790246386.5359273,
-    "seen": 1790246695.544584,
-    "ast_hash": "9d14136a3d5affd68c16bc579c0484b1",
+    "mtime": 1790249126.3380928,
+    "seen": 1790250140.220196,
+    "ast_hash": "11893a2d776f2b349727b1d0e66494b7",
     "semantic_hash": ""
   },
   "runtime/tests/print_string_test.cpp": {
