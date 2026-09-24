@@ -206,11 +206,13 @@ Oop ao_Class_category(CallContext& ctx, const Oop& receiver, const Oop*, std::ui
   return ctx.heap.slotAt(receiver, kClassSlotCategory);
 }
 
-// SPEC §3.6: the Dictionary from each class variable's name to its binding (ClassPool). nil for a
-// Kernel class and for a metaclass.
+// SPEC §3.6: a copy of the Dictionary from each class variable's name to its binding (ClassPool).
+// nil for a Kernel class and for a metaclass.
 Oop ao_Class_classPool(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
-  return ctx.heap.slotAt(receiver, kClassSlotClassPool);
+  // SPEC §3.6: a copy that shares the bindings. Methods hold the bindings themselves and the
+  // re-accept checks count on that, so at:put: on the answer must not reach the class's pool.
+  return ClassPool::copy(ctx, ctx.heap.slotAt(receiver, kClassSlotClassPool));
 }
 
 Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_category_(

@@ -1795,7 +1795,7 @@ TEST(AcceptAbi, RefusedShapeChangeLeavesTheAnsweredClassUntouched) {
                 {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
                  "category: k\n  Smalltalk at: n put: B4AtTarget.\n  ^B4AtTarget\n"});
   expectPrints({{"B4AtTarget count: 99. B4AtVictim count: 7. oldVictim := B4AtVictim. "
-                 "oldTargetPool := B4AtTarget classPool. oldTargetBinding := oldTargetPool at: "
+                 "oldTargetPool := B4AtTarget instVarNamed: #classPool. oldTargetBinding := oldTargetPool at: "
                  "#Count. oldVictimBinding := B4AtVictim classPool at: #Count. B4AtTarget count",
                  "99"}});
 
@@ -1807,7 +1807,7 @@ TEST(AcceptAbi, RefusedShapeChangeLeavesTheAnsweredClassUntouched) {
   expectPrints({
       {"oldVictim == B4AtVictim", "true"},
       {"B4AtTarget count", "99"},
-      {"B4AtTarget classPool == oldTargetPool", "true"},
+      {"(B4AtTarget instVarNamed: #classPool) == oldTargetPool", "true"},
       {"(B4AtTarget classPool at: #Count) == oldTargetBinding", "true"},
       {"(B4AtTarget classPool at: #Count) value", "99"},
       {"oldTargetBinding value", "99"},
@@ -2112,6 +2112,57 @@ TEST(AcceptAbi, KernelInstanceVariablesAreReadOnlyInSource) {
       {"c peekFirst", "1"},
       {"B4RoOC peekCategory", "'B4-Test'"},
       {"(Association key: 3 value: 4) b4probeKey", "3"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 review (Claude M3) / SPEC §3.6: 失敗シナリオ。CV classPool at: #Count put: 5 が classPool の
+// 束縛を素の 5 に差し替え、既存のメソッドは古い束縛を使い続け、新しい reread ^Count は install failed
+// で拒まれた。classPool は写し（束縛は共有）を答えるので、at:put: は本体に届かず、value: は届く。
+// classPool そのものの値が束縛でなくなったら（クラス側の classPool を直接書き換えた）、その名前を
+// 使うメソッドは名前入りの理由で拒む。
+TEST(AcceptAbi, ClassPoolAtPutLeavesTheBindingsAlone) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvPool", "", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvPool", 0, {"count\n  ^Count\n", "bump\n  Count := 2\n"});
+  expectPrints({
+      {"B4CvPool new bump; count", "2"},
+      {"B4CvPool classPool at: #Count put: 5. B4CvPool new count", "2"},
+      {"(B4CvPool classPool at: #Count) class == Association", "true"},
+      {"(B4CvPool classPool at: #Count) value", "2"},
+      {"B4CvPool classPool at: #Other put: 1. B4CvPool classPool size", "1"},
+      {"(B4CvPool classPool at: #Count) value: 5. B4CvPool new count", "5"},
+      {"(B4CvPool classPool at: #Count) == (B4CvPool classPool at: #Count)", "true"},
+      {"B4CvPool classPool class == Dictionary", "true"},
+      {"Object classPool isNil", "true"},
+  });
+  acceptMethods("B4CvPool", 0, {"reread\n  ^Count\n"});
+  expectPrints({{"B4CvPool new reread", "5"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4CvPool", "B4CvPoolSub", "", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvPoolSub", 0, {"peekCount\n  ^Count\n"});
+
+  // クラス側のメソッドは classPool（Behavior の枠）を読める。そこから本体の束縛を差し替えると、
+  // その名前を使うメソッドは、Accept でも file-in でも形の変更でも入らない。
+  acceptMethods("B4CvPool", 1, {"smash\n  classPool at: #Count put: 7\n"});
+  expectPrints({{"B4CvPool smash. B4CvPool new count", "5"}});
+  const std::string why = "class variable Count is not bound to an Association";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B4CvPool", 0, "again\n  ^Count\n", &err));
+  EXPECT_EQ(why, err.message);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B4CvPool", 1, "again\n  ^[Count := 1] value\n", &err));
+  EXPECT_EQ(why, err.message);
+  const std::string chunks = "!B4CvPool methodsFor: 'b4'!\nagain\n  ^Count! !\n";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(chunks.c_str(), &err));
+  EXPECT_EQ(why, err.message);
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("B4CvPool", "B4CvPoolSub", "z", "").c_str(), &err));
+  EXPECT_EQ("shape change refused: B4CvPoolSub>>peekCount: " + why, err.message);
+  expectPrints({
+      {"B4CvPoolSub instSize", "0"},
+      {"B4CvPoolSub new peekCount", "5"},
+      {"(B4CvPool new respondsTo: #again)", "false"},
   });
   ao_runtime_shutdown();
 }

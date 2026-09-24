@@ -133,13 +133,10 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
       return ctx.bindingHook(ctx, lit.text);
     case compiler::LitKind::ClassVariable: {
       // SPEC §3.8: the binding in the classPool of methodClass (thisClass for a metaclass) or of
-      // a superclass. It must be an Association-shaped object, which LitVar reads and writes.
+      // a superclass. It must be an Association, which LitVar reads and writes; the compile paths
+      // refuse a method whose entry is not one first (unboundClassVariable).
       const Oop binding = ClassPool::visibleBinding(ctx.heap, ctx.wk, methodClass, lit.text);
-      if (!binding.isHeap() || (ctx.heap.flags(binding) & kFlagBytes) != 0 ||
-          ctx.heap.size(binding) <= kAssocValue) {
-        return Oop{};
-      }
-      return binding;
+      return ClassPool::isBinding(ctx.heap, ctx.wk, binding) ? binding : Oop{};
     }
   }
   return Oop{};
@@ -185,6 +182,31 @@ void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
 // metaclass) and of its superclasses, nearest first. Does not collect.
 void fillClassVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
   env.classVarNames = ClassPool::visibleNames(ctx.heap, ctx.wk, cls);
+}
+
+// SPEC §3.6: the first class variable image, or a block in it at any depth, names whose entry a
+// method of cls finds is not a binding (its classPool was changed in place), or "". Boxing that
+// literal would fail, so the compile paths refuse the method with this name first. Does not
+// collect.
+std::string unboundClassVariable(CallContext& ctx, const compiler::MethodImage& image, Oop cls) {
+  for (const compiler::Literal& lit : image.literals) {
+    if (lit.kind == compiler::LitKind::ClassVariable &&
+        !ClassPool::isBinding(ctx.heap, ctx.wk,
+                              ClassPool::visibleBinding(ctx.heap, ctx.wk, cls, lit.text))) {
+      return lit.text;
+    }
+    if (lit.kind == compiler::LitKind::Method && lit.method != nullptr) {
+      std::string inner = unboundClassVariable(ctx, *lit.method, cls);
+      if (!inner.empty()) {
+        return inner;
+      }
+    }
+  }
+  return {};
+}
+
+std::string unboundClassVariableMessage(const std::string& var) {
+  return "class variable " + var + " is not bound to an Association";
 }
 
 // A Kernel class (SPEC §3.6): file-in does not redefine it (SPEC §3.12), and accept does not
@@ -331,6 +353,11 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                  methodKey(action, cr.image.selector));
         continue;
       }
+    }
+    if (const std::string var = unboundClassVariable(ctx, cr.image, tgt.slot); !var.empty()) {
+      addError(errors, {m.span, unboundClassVariableMessage(var)},
+               methodKey(action, cr.image.selector));
+      continue;
     }
     const Oop installed = installMethod(ctx, tgt.slot, cr.image);
     if (!installed.isHeap()) {
@@ -943,41 +970,53 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     }
   }
 
-  // Nothing is refused from here on; only an allocation can fail (old at its max). The class the
-  // send answered takes a new classPool and new method dictionaries, copies of its own that the
-  // moves go into, and gets its own objects back when a move fails.
+  // From here on, only an allocation (old at its max) or a classPool entry that is not a binding
+  // (SPEC §3.6) stops the move. The class the send answered takes a new classPool and new method
+  // dictionaries, copies of its own that the moves go into, and gets its own objects back when the
+  // move stops.
   Root pool(ctx.roots, ctx.heap.slotAt(fresh.slot, kClassSlotClassPool));
   Root dict(ctx.roots, ctx.heap.slotAt(fresh.slot, kClassSlotMethodDict));
   Root metaDict(ctx.roots, ctx.heap.slotAt(ctx.heap.klass(fresh.slot), kClassSlotMethodDict));
-  auto putBack = [&](const std::string& why) {
+  auto putBack = [&](const std::string& message) {
     ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, pool.slot);
     ctx.heap.slotAtPut(fresh.slot, kClassSlotMethodDict, dict.slot);
     ctx.heap.slotAtPut(ctx.heap.klass(fresh.slot), kClassSlotMethodDict, metaDict.slot);
     rebindClassName(ctx, action.className, old.slot);
-    addError(errors, {action.span, "shape change failed: " + why});
+    addError(errors, {action.span, message});
     return false;
   };
-  // SPEC §3.9: a name the old classPool binds keeps its binding in the new class, so its value and
-  // the old class's methods stay shared, and the moved methods box that binding. adopt does not
+  const std::string failed = "shape change failed: ";
+  // SPEC §3.9: a name the old classPool has keeps its entry in the new class, so its value and the
+  // old class's methods stay shared, and the moved methods box that binding. adopt does not
   // collect.
   const std::vector<std::string> poolNames = ClassPool::names(ctx.heap, pool.slot);
   if (std::any_of(poolNames.begin(), poolNames.end(), [&](const std::string& name) {
-        return ClassPool::bindingAt(ctx.heap, ctx.heap.slotAt(old.slot, kClassSlotClassPool), name)
-            .isHeap();
+        return !ClassPool::bindingAt(ctx.heap, ctx.heap.slotAt(old.slot, kClassSlotClassPool), name)
+                    .isEmpty();
       })) {
     const Oop copy = ClassPool::make(ctx, poolNames);
     if (!copy.isHeap()) {
-      return putBack(action.className + " classPool allocation failed");
+      return putBack(failed + action.className + " classPool allocation failed");
     }
     ClassPool::adopt(ctx.heap, copy, pool.slot);
     ClassPool::adopt(ctx.heap, copy, ctx.heap.slotAt(old.slot, kClassSlotClassPool));
     ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, copy);
   }
+  // SPEC §3.6: a moved method must find a binding for each class variable it names, in the pool
+  // the new class now has and in its superclasses'.
+  for (const CarriedMethod& m : carried) {
+    const Oop side = m.meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
+    if (const std::string var = unboundClassVariable(ctx, m.image, side); !var.empty()) {
+      return putBack("shape change refused: " + carriedMethodName(action.className, m) + ": " +
+                     unboundClassVariableMessage(var));
+    }
+  }
   for (const bool meta : {false, true}) {
     const Oop side = meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
     const Oop copy = copyMethodDictionary(ctx, ctx.heap.slotAt(side, kClassSlotMethodDict));
     if (!copy.isHeap()) {
-      return putBack(action.className + (meta ? " class" : "") + " methodDict allocation failed");
+      return putBack(failed + action.className + (meta ? " class" : "") +
+                     " methodDict allocation failed");
     }
     ctx.heap.slotAtPut(side, kClassSlotMethodDict, copy);
   }
@@ -986,7 +1025,7 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     const Oop side = carried[i].meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
     const Oop method = installMethod(ctx, side, carried[i].image);
     if (!method.isHeap()) {
-      return putBack(carriedMethodName(action.className, carried[i]) + " install failed");
+      return putBack(failed + carriedMethodName(action.className, carried[i]) + " install failed");
     }
     installed[i] = method;
   }
@@ -1335,6 +1374,10 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
   }
   if (findsNative) {
     assignError(error, "native selector overwrite refused: " + cr.image.selector);
+    return false;
+  }
+  if (const std::string var = unboundClassVariable(ctx, cr.image, tgt.slot); !var.empty()) {
+    assignError(error, unboundClassVariableMessage(var));
     return false;
   }
 

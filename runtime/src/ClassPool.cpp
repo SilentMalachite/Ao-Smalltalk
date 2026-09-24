@@ -143,8 +143,10 @@ void adopt(Heap& heap, Oop pool, Oop from) {
     if (!isBytes(heap, key)) {
       continue;
     }
+    // Whatever from holds for the name, a binding or an entry that is no longer one, so a name
+    // whose entry was replaced in place stays that way instead of starting over at nil.
     const Oop kept = bindingAt(heap, from, keyText(heap, key));
-    if (kept.isHeap()) {
+    if (!kept.isEmpty()) {
       heap.slotAtPut(pairs, i + 1, kept);
     }
   }
@@ -177,11 +179,43 @@ Oop visibleBinding(Heap& heap, const WellKnown& wk, Oop cls, std::string_view na
   SuperclassWalk walk(heap, owner(heap, wk, cls));
   for (Oop c; walk.next(c);) {
     const Oop binding = bindingAt(heap, heap.slotAt(c, kClassSlotClassPool), name);
-    if (binding.isHeap()) {
+    if (!binding.isEmpty()) {
       return binding;
     }
   }
   return Oop{};
+}
+
+bool isBinding(const Heap& heap, const WellKnown& wk, Oop obj) {
+  return isPointers(heap, obj, kAssocValue + 1) && heap.klass(obj) == wk.associationClass;
+}
+
+Oop copy(CallContext& ctx, Oop pool) {
+  if (!pairsOf(ctx.heap, pool).isHeap()) {
+    return pool;
+  }
+  Root from(ctx.roots, pool);
+  const std::uint32_t dictSize = instSizeOf(ctx.heap, ctx.wk.dictionaryClass);
+  if (dictSize <= kPoolSlotArray) {
+    return Oop{};
+  }
+  Root to(ctx.roots, allocateRetry(ctx, ctx.wk.dictionaryClass, dictSize, 0));
+  if (!to.slot.isHeap()) {
+    return Oop{};
+  }
+  const std::uint32_t n = ctx.heap.size(pairsOf(ctx.heap, from.slot));
+  const Oop pairs = allocateRetry(ctx, ctx.wk.arrayClass, n, 0);
+  if (!pairs.isHeap()) {
+    return Oop{};
+  }
+  // Nothing from here on collects, so the raw pair arrays stay where they are.
+  const Oop fromPairs = pairsOf(ctx.heap, from.slot);
+  for (std::uint32_t i = 0; i < n; ++i) {
+    ctx.heap.slotAtPut(pairs, i, ctx.heap.slotAt(fromPairs, i));
+  }
+  ctx.heap.slotAtPut(to.slot, kPoolSlotTally, ctx.heap.slotAt(from.slot, kPoolSlotTally));
+  ctx.heap.slotAtPut(to.slot, kPoolSlotArray, pairs);
+  return to.slot;
 }
 
 }  // namespace ClassPool
