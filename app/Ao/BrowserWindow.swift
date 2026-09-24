@@ -394,6 +394,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     text.isEditable = true
     text.isSelectable = true
     text.isRichText = false
+    configureSourceEditing(text)
     if let container = text.textContainer {
       container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
       container.widthTracksTextView = true

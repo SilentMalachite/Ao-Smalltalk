@@ -31,6 +31,17 @@ private func aoTranscriptHook(
   }
 }
 
+// Smalltalk source is typed as is: no smart quotes, dashes, text replacement, spelling
+// correction or smart insert/delete.
+@MainActor
+func configureSourceEditing(_ textView: NSTextView) {
+  textView.isAutomaticQuoteSubstitutionEnabled = false
+  textView.isAutomaticDashSubstitutionEnabled = false
+  textView.isAutomaticTextReplacementEnabled = false
+  textView.isAutomaticSpellingCorrectionEnabled = false
+  textView.smartInsertDeleteEnabled = false
+}
+
 @MainActor
 func makeToolTextWindow(title: String, frame: NSRect, editable: Bool) -> (window: NSWindow, textView: NSTextView) {
   _ = NSApplication.shared
@@ -60,6 +71,7 @@ func makeToolTextWindow(title: String, frame: NSRect, editable: Bool) -> (window
   textView.isEditable = editable
   textView.isSelectable = true
   textView.isRichText = false
+  configureSourceEditing(textView)
   if let container = textView.textContainer {
     container.containerSize = NSSize(width: contentSize.width, height: CGFloat.greatestFiniteMagnitude)
     container.widthTracksTextView = true
