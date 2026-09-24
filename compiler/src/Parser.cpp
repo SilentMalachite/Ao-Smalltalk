@@ -304,7 +304,10 @@ class Parser {
     return s;
   }
 
-  Ast parseKeyword(Ast recv) {
+  Ast parseKeyword(Ast recv) { return parseCascade(parseKeywordMessage(std::move(recv))); }
+
+  // The unary → binary → keyword chain on recv.
+  Ast parseKeywordMessage(Ast recv) {
     recv = parseBinary(std::move(recv));
     if (check(Tok::Keyword)) {
       std::string selector;
@@ -319,7 +322,7 @@ class Parser {
       }
       recv = makeSend(std::move(recv), std::move(selector), std::move(args), end);
     }
-    return parseCascade(std::move(recv));
+    return recv;
   }
 
   Ast parseCascade(Ast recv) {
@@ -330,10 +333,15 @@ class Parser {
       fail("cascade requires a message");
       return recv;
     }
+    // SPEC §3.8: each part is a unary → binary → keyword chain. Its first message goes to the
+    // cascade receiver (a super send when that is super), the next ones to the previous result.
+    const bool toSuper = recv.isSuper;
     Ast casc = make(Ast::Kind::Cascade, recv.span);
     casc.kids.push_back(std::move(recv));
     while (match(Tok::Semicolon)) {
-      Ast extra = parseCascadeMessage();
+      Ast first = parseCascadeMessage();
+      first.isSuper = toSuper;
+      Ast extra = parseKeywordMessage(std::move(first));
       casc.span = join(casc.span, extra.span);
       casc.kids.push_back(std::move(extra));
     }

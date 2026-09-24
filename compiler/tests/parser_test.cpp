@@ -206,3 +206,38 @@ TEST(Parser, BlockArgumentsThenTemps) {
   EXPECT_EQ(10u, missing.error.span.start);
   EXPECT_EQ(11u, missing.error.span.end);
 }
+
+// SPEC §3.8: a cascade part is a unary → binary → keyword chain. Its first message has no
+// receiver child (it goes to the cascade receiver); the next ones take the previous message as
+// their receiver. With the receiver super, the first message of every part is a super send.
+TEST(Parser, CascadePartsAreMessageChains) {
+  auto r = parseMethod("foo: x\n  ^x add: 3; yourself size; + 1 * 2; at: 1 put: 2 + 3");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  auto& casc = r.method.kids.at(0).kids.at(0);
+  ASSERT_EQ(Ast::Kind::Cascade, casc.kind);
+  ASSERT_EQ(4u, casc.kids.size());
+  EXPECT_EQ("add:", casc.kids[0].name);
+  auto& unary = casc.kids[1];
+  EXPECT_EQ("size", unary.name);
+  ASSERT_EQ(1u, unary.kids.size());
+  EXPECT_EQ("yourself", unary.kids[0].name);
+  EXPECT_TRUE(unary.kids[0].kids.empty());
+  auto& binary = casc.kids[2];
+  EXPECT_EQ("*", binary.name);
+  ASSERT_EQ(2u, binary.kids.size());
+  EXPECT_EQ("+", binary.kids[0].name);
+  EXPECT_EQ(1u, binary.kids[0].kids.size());
+  auto& keyword = casc.kids[3];
+  EXPECT_EQ("at:put:", keyword.name);
+  ASSERT_EQ(2u, keyword.kids.size());
+  EXPECT_EQ("+", keyword.kids[1].name);
+
+  auto s = parseMethod("who\n  ^super who; who; yourself who");
+  ASSERT_TRUE(s.ok) << s.error.message;
+  auto& sc = s.method.kids.at(0).kids.at(0);
+  ASSERT_EQ(3u, sc.kids.size());
+  EXPECT_TRUE(sc.kids[0].isSuper);
+  EXPECT_TRUE(sc.kids[1].isSuper);
+  EXPECT_FALSE(sc.kids[2].isSuper);
+  EXPECT_TRUE(sc.kids[2].kids.at(0).isSuper);
+}

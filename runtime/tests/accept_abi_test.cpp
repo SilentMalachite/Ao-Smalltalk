@@ -2431,3 +2431,31 @@ TEST(AcceptAbi, BlockArgumentsThenTemps) {
   EXPECT_EQ(4u, err.end);
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/05 Low) / SPEC §3.8: a cascade part took one message only (`x add: 3;
+// yourself size` was "unexpected token"), and `^super who; who` sent the second who to self.
+TEST(AcceptAbi, CascadePartsAreMessageChains) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  for (const char* def : {"Object subclass: #B7CascA\n  instanceVariableNames: ''\n"
+                          "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                          "  category: 'B7-Test'\n",
+                          "B7CascA subclass: #B7CascB\n  instanceVariableNames: ''\n"
+                          "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                          "  category: 'B7-Test'\n"}) {
+    ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  }
+  acceptMethods("B7CascA", 0, {"who\n  ^1\n"});
+  acceptMethods("B7CascB", 0,
+                {"who\n  ^2\n", "superWho\n  ^super who; who\n",
+                 "superChain\n  ^super who; yourself; who + 10\n"});
+  expectPrints({
+      {"OrderedCollection new add: 3; add: 4; yourself size", "2"},
+      {"3 + 4; * 10 + 1", "31"},
+      {"12 + 4; printString size * 2", "4"},
+      {"B7CascB new superWho", "1"},
+      {"B7CascB new superChain", "11"},
+      {"B7CascB new who", "2"},
+  });
+  ao_runtime_shutdown();
+}

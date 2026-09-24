@@ -621,3 +621,38 @@ TEST(Codegen, IntegerBeyondInt64KeepsItsDigits) {
   EXPECT_TRUE(small.image.literals[0].text.empty());
   EXPECT_EQ(1000, small.image.literals[0].intValue);
 }
+
+// SPEC §3.8: the first message of a cascade part goes to the cascade receiver and the next ones
+// to its result; with the receiver super, the first message of every part is a super send.
+TEST(Codegen, CascadePartsAreMessageChains) {
+  auto r = compileMethod("foo: x\n  ^x add: 3; yourself negated");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  EXPECT_EQ(
+      "method foo: args=1 temps=1 prim=0\n"
+      "literals: 3 add: yourself negated\n"
+      "  PushTemp 0\n"
+      "  Dup\n"
+      "  PushLiteral 0\n"
+      "  Send 1 1\n"
+      "  Pop\n"
+      "  Send 2 0\n"
+      "  Send 3 0\n"
+      "  ReturnTop\n",
+      disassemble(r.image));
+  auto s = compileMethod("who\n  ^super who; who; yourself who");
+  ASSERT_TRUE(s.ok) << s.error.message;
+  EXPECT_EQ(
+      "method who args=0 temps=0 prim=0\n"
+      "literals: who yourself\n"
+      "  PushReceiver\n"
+      "  Dup\n"
+      "  SendSuper 0 0\n"
+      "  Pop\n"
+      "  Dup\n"
+      "  SendSuper 0 0\n"
+      "  Pop\n"
+      "  SendSuper 1 0\n"
+      "  Send 0 0\n"
+      "  ReturnTop\n",
+      disassemble(s.image));
+}

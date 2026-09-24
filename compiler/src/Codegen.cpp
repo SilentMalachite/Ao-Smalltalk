@@ -332,7 +332,9 @@ class Analyzer {
         reference(n, lex, true);
         return;
       case Ast::Kind::Cascade:
-        // Cascade parts are always real sends; only their receiver and arguments are walked.
+        // Cascade parts are always real sends; only their receiver and arguments are walked. Below
+        // a part's last message, its chain holds unary and binary sends to a send, which
+        // inlinePlan never inlines, so walking them as sends agrees with compileCascadePart.
         for (const Ast& part : n.kids) {
           for (const Ast& k : part.kids) {
             walk(k, lex);
@@ -1180,11 +1182,24 @@ class Emitter {
       if (!last) {
         emit(Op::Dup);
       }
-      compileSend(casc.kids[i], true);
+      if (i == 0) {
+        compileSend(casc.kids[0], true);
+      } else {
+        compileCascadePart(casc.kids[i]);
+      }
       if (!last) {
         emit(Op::Pop);
       }
     }
+  }
+
+  // A cascade part after the first (SPEC §3.8): its first message has no receiver child and goes
+  // to the cascade receiver on the stack; each next message goes to the previous one's result.
+  void compileCascadePart(const Ast& msg) {
+    if (hasReceiverChild(msg)) {
+      compileCascadePart(msg.kids[0]);
+    }
+    compileSend(msg, true);
   }
 
   void compileVariable(const Ast& n) {
