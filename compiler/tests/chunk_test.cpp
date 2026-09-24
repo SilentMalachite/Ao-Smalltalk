@@ -380,6 +380,32 @@ TEST(Chunk, CommentProseUndoublesBangs) {
   EXPECT_EQ("Foo", acts[2].className);
 }
 
+// SPEC §3.12: a span in a method's source maps back into the file, also after the `!!` that the
+// chunk reader read as `!` in a comment or a string.
+TEST(Chunk, FileSpanCountsUndoubledBangs) {
+  const std::string src =
+      "!Foo methodsFor: 'a'!\n"
+      "foo\n"
+      "  \"Don't!!\"\n"
+      "  ^'Hi!!!!!!' zork: ]! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  const ao::compiler::ChunkMethod& m = acts[0].methods[0];
+  ASSERT_EQ("foo\n  \"Don't!\"\n  ^'Hi!!!' zork: ]", m.source);
+  auto inFile = [&](std::string_view part) {
+    const auto k = static_cast<std::uint32_t>(m.source.find(part));
+    const ao::compiler::SourceSpan s =
+        ao::compiler::fileSpan(m, {k, k + static_cast<std::uint32_t>(part.size())});
+    return src.substr(s.start, s.end - s.start);
+  };
+  EXPECT_EQ("foo", inFile("foo"));
+  EXPECT_EQ("Don't!!", inFile("Don't!"));
+  EXPECT_EQ("'Hi!!!!!!'", inFile("'Hi!!!'"));
+  EXPECT_EQ("zork: ]", inFile("zork: ]"));
+}
+
 // SPEC §3.10: a class definition chunk is the definition message alone.
 TEST(Chunk, SoleDefinitionIsTheMessageAlone) {
   struct Case {

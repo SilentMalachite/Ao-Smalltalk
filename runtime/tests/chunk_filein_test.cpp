@@ -364,3 +364,24 @@ TEST(ChunkFileIn, MidLineBangEndsChunk) {
   EXPECT_TRUE(ao::lookup(b.heap, bb, b.wk.intern("baz")).isHeap());
   EXPECT_TRUE(ao::lookup(b.heap, bb, b.wk.intern("B7MidB")).isNil());
 }
+
+// B7 review / SPEC §3.12: コンパイルエラーの位置はファイル本文での箇所である。コメントや文字列の
+// `!!` を `!` に戻しても、位置はずれない。
+TEST(ChunkFileIn, ErrorSpanCountsUndoubledBangs) {
+  Boot b;
+  const std::string src =
+      "!Object subclass: #B7Drift\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Drift methodsFor: 'a'!\n"
+      "foo\n"
+      "  \"Don't!!\"\n"
+      "  ^'Hi!!!!!!' zork: ]! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  EXPECT_FALSE(ao::fileInString(b.ctx, src, errs));
+  ASSERT_EQ(1u, errs.size());
+  EXPECT_EQ(src.find(']'), errs[0].span.start) << errs[0].message;
+  EXPECT_EQ(src.find(']') + 1, errs[0].span.end) << errs[0].message;
+}

@@ -431,6 +431,26 @@ TEST(AcceptAbi, AcceptClassSplitsChunksAtMidLineBang) {
   ao_runtime_shutdown();
 }
 
+// B7 review / SPEC §3.12: accept のコンパイルエラーの位置も、渡したソースでの箇所である。文字列の
+// `!!` を `!` に戻しても、位置はずれない。
+TEST(AcceptAbi, AcceptClassErrorSpanCountsUndoubledBangs) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Span\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  const char* src = "!B7Span methodsFor: 'a'!\nfoo\n  ^'Hi!!!!!!' zork: ]! !\n";
+  const int bracket = static_cast<int>(std::strchr(src, ']') - src);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(src, &err));
+  EXPECT_EQ(bracket, err.start) << err.message;
+  EXPECT_EQ(bracket + 1, err.end) << err.message;
+  ao_runtime_shutdown();
+}
+
 // 指摘 8 / SPEC §3.10: クラス定義メッセージのあとに文が続けば、何も適用せずに拒む。
 TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());

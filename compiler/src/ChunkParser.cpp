@@ -2,6 +2,7 @@
 
 #include "ao/Scanner.hpp"
 
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,6 +28,8 @@ struct RawChunk {
   SourceSpan span;
   // Followed by an empty chunk, which closes a methodsFor: section.
   bool endsSection = false;
+  // See ChunkMethod::undoubled.
+  std::vector<std::uint32_t> undoubled;
 };
 
 // The character at i is the value of a `$x` literal: an odd run of `$` comes right before it.
@@ -80,6 +83,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     const bool prose = proseNext;
     const std::uint32_t start = i;
     std::string text;
+    std::vector<std::uint32_t> undoubled;
     bool inStr = false;
     bool inCmt = false;
     while (i < n) {
@@ -88,6 +92,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         // `$!` is written `$!!` like any other bang: no exemption for characters here.
         if (i + 1 < n && src[i + 1] == '!') {
           text.push_back('!');
+          undoubled.push_back(static_cast<std::uint32_t>(text.size()));
           i += 2;
           continue;
         }
@@ -148,6 +153,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     raw.text = std::move(text);
     raw.span.start = start;
     raw.span.end = end;
+    raw.undoubled = std::move(undoubled);
     out.push_back(std::move(raw));
   }
   return out;
@@ -286,6 +292,17 @@ ChunkAction parseClassDef(std::string_view text) {
 
 }  // namespace
 
+SourceSpan fileSpan(const ChunkMethod& method, SourceSpan inSource) {
+  // Each undoubled `!` at or before an offset moves it one byte further into the file.
+  const auto at = [&](std::uint32_t offset) {
+    const auto dropped =
+        std::upper_bound(method.undoubled.begin(), method.undoubled.end(), offset) -
+        method.undoubled.begin();
+    return method.span.start + offset + static_cast<std::uint32_t>(dropped);
+  };
+  return {at(inSource.start), at(inSource.end)};
+}
+
 std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileError>&) {
   std::vector<ChunkAction> acts;
   ChunkAction pending;
@@ -305,6 +322,7 @@ std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileEr
       ChunkMethod m;
       m.source = std::string(raw.text);
       m.span = raw.span;
+      m.undoubled = raw.undoubled;
       pending.methods.push_back(std::move(m));
     } else {
       const HeadKind hk = classify(raw.text);

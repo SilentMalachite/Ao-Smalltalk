@@ -341,8 +341,7 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
     compiler::CompileResult cr = compiler::compileMethod(m.source, env);
     if (!cr.ok) {
       compiler::CompileError e = std::move(cr.error);
-      e.span.start += m.span.start;
-      e.span.end += m.span.start;
+      e.span = compiler::fileSpan(m, e.span);
       // The pattern parses even when the body does not, so the partial method has its selector.
       addError(errors, std::move(e),
                methodKey(action, compiler::parseMethod(m.source).method.name));
