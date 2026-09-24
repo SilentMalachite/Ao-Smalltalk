@@ -684,3 +684,36 @@ TEST_F(KernelNumeric, HashCycleThroughAUserObjectAbortsWithStackOverflow) {
   EXPECT_EQ("7", printIt("3 + 4"));
   EXPECT_EQ("true", printIt("(#(#(#(#(1)))) hash = #(#(#(#(2)))) hash) not"));
 }
+
+// B8 レビュー（Claude A Low）: Rectangle の containsPoint: と intersect: は、成分を比べた答えが
+// Boolean でなければ（失敗の空 OOP を含む）失敗する。巻き戻しはそのまま最外まで届く。
+TEST_F(KernelNumeric, RectangleComparisonsFailOnANonBooleanAnswer) {
+  const std::string r = "(Rectangle origin: (Point x: 0 y: 0) corner: (Point x: 10 y: 10))";
+  EXPECT_EQ("<eval error: failed: #containsPoint:>",
+            printIt(r + " containsPoint: (Point x: nil y: 0)"));
+  EXPECT_EQ("<eval error: failed: #containsPoint:>",
+            printIt(r + " containsPoint: (Point x: 5 y: 'a')"));
+  // 先に false になった比較で答えが決まれば、残りの成分は比べない。
+  EXPECT_EQ("false", printIt(r + " containsPoint: (Point x: -1 y: 'a')"));
+  EXPECT_EQ("<eval error: failed: #intersect:>",
+            printIt("(" + r + " intersect: (Rectangle origin: (Point x: 'a' y: 0) "
+                    "corner: (Point x: 5 y: 5))) origin x"));
+  EXPECT_EQ("<eval error: failed: #intersect:>",
+            printIt("(" + r + " intersect: (Rectangle origin: (Point x: 0 y: 0) "
+                    "corner: (Point x: 5 y: nil))) corner y"));
+  EXPECT_EQ("true", printIt("(" + r + " intersect: (Rectangle origin: (Point x: 5 y: 5) "
+                            "corner: (Point x: 20 y: 20))) corner = (Point x: 10 y: 10)"));
+  acceptClass("Object", "RB", "answer");
+  acceptMethod("RB", "answer: x\n  answer := x\n");
+  acceptMethod("RB", "<= o\n  ^answer value\n");
+  acceptMethod("RB", "< o\n  ^answer value\n");
+  const std::string odd = "(Rectangle origin: (Point x: (RB new answer: [3]) y: 0) "
+                          "corner: (Point x: 10 y: 10))";
+  EXPECT_EQ("<eval error: failed: #containsPoint:>",
+            printIt(odd + " containsPoint: (Point x: 1 y: 1)"));
+  EXPECT_EQ("<eval error: failed: #intersect:>", printIt(odd + " intersect: " + r));
+  const std::string boom = "(Rectangle origin: (Point x: (RB new answer: [nil error: 'cmp']) "
+                           "y: 0) corner: (Point x: 10 y: 10))";
+  EXPECT_EQ("<eval error: cmp>", printIt(boom + " containsPoint: (Point x: 1 y: 1)"));
+  EXPECT_EQ("<eval error: cmp>", printIt(boom + " intersect: " + r));
+}
