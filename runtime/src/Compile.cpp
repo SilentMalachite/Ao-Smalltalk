@@ -440,12 +440,54 @@ bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction&
   return true;
 }
 
+// SPEC §3.9: compiles each carried method in the given shape (instance side, class side) and
+// refuses one that does not compile, or an instance-side one that reads a variable the old class
+// has (inherited ones too) and the shape lacks. It allocates nothing.
+bool compileCarried(CallContext& ctx, const Root& old, const compiler::CompileEnv& instanceEnv,
+                    const compiler::CompileEnv& classEnv, std::vector<CarriedMethod>& carried,
+                    const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
+  const std::string refused = "shape change refused: ";
+  for (CarriedMethod& m : carried) {
+    compiler::CompileResult cr = compiler::compileMethod(m.source, m.meta ? classEnv : instanceEnv);
+    if (!cr.ok) {
+      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
+                                         " does not compile: " + cr.error.message});
+      return false;
+    }
+    m.image = std::move(cr.image);
+  }
+  // A removed variable compiles to a global read in the new shape, so the method would change
+  // meaning silently.
+  std::vector<std::string> removed;
+  {
+    compiler::CompileEnv oldEnv;
+    fillInstVars(ctx, old.slot, oldEnv);
+    const std::vector<std::string>& kept = instanceEnv.instVarNames;
+    for (std::string& name : oldEnv.instVarNames) {
+      if (std::find(kept.begin(), kept.end(), name) == kept.end()) {
+        removed.push_back(std::move(name));
+      }
+    }
+  }
+  for (const CarriedMethod& m : carried) {
+    const std::string var = (m.meta || removed.empty()) ? std::string{}
+                                                        : readRemovedName(m.image, removed);
+    if (!var.empty()) {
+      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
+                                         " refers to removed instance variable " + var});
+      return false;
+    }
+  }
+  return true;
+}
+
 // SPEC §3.9: a new shape. Every check runs before anything changes: the class has no subclass,
 // each method on either side has its source in the source table, each source compiles for the
 // new shape, and no instance-side method reads an instance variable the new shape drops. Then
-// applyClassDef makes the new class and binds the name to it, the methods go in, and their
-// sources move over. When the subclass: send or an install fails (old at its max), the name goes
-// back to the old class, whose methods were never touched.
+// applyClassDef makes the new class and binds the name to it, the methods go in (compiled again
+// when the class the send answered has another layout), and their sources move over. When the
+// subclass: send, that compile or an install fails (old at its max), the name goes back to the
+// old class, whose methods were never touched.
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
@@ -506,36 +548,8 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
                                     instVars.end());
     fillInstVars(ctx, ctx.heap.klass(super), classEnv);
   }
-  for (CarriedMethod& m : carried) {
-    compiler::CompileResult cr = compiler::compileMethod(m.source, m.meta ? classEnv : instanceEnv);
-    if (!cr.ok) {
-      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
-                                         " does not compile: " + cr.error.message});
-      return false;
-    }
-    m.image = std::move(cr.image);
-  }
-  // A variable the old class has (inherited ones too) and the new shape lacks compiles to a global
-  // read in the new shape. An instance-side method that reads one would change meaning silently.
-  std::vector<std::string> removed;
-  {
-    compiler::CompileEnv oldEnv;
-    fillInstVars(ctx, old.slot, oldEnv);
-    const std::vector<std::string>& kept = instanceEnv.instVarNames;
-    for (std::string& name : oldEnv.instVarNames) {
-      if (std::find(kept.begin(), kept.end(), name) == kept.end()) {
-        removed.push_back(std::move(name));
-      }
-    }
-  }
-  for (const CarriedMethod& m : carried) {
-    const std::string var = (m.meta || removed.empty()) ? std::string{}
-                                                        : readRemovedName(m.image, removed);
-    if (!var.empty()) {
-      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
-                                         " refers to removed instance variable " + var});
-      return false;
-    }
+  if (!compileCarried(ctx, old, instanceEnv, classEnv, carried, action, errors)) {
+    return false;
   }
 
   if (!applyClassDef(ctx, action, errors)) {
@@ -551,6 +565,20 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     rebindClassName(ctx, action.className, old.slot);
     addError(errors, {action.span, "subclass failed: " + action.className});
     return false;
+  }
+  // SPEC §3.9: the methods move in the shape the send answered, which a superclass's class-side
+  // override can make differ from the definition's. The send may have collected; read the roots.
+  {
+    compiler::CompileEnv freshInstanceEnv;
+    compiler::CompileEnv freshClassEnv;
+    fillInstVars(ctx, fresh.slot, freshInstanceEnv);
+    fillInstVars(ctx, ctx.heap.klass(fresh.slot), freshClassEnv);
+    if ((freshInstanceEnv.instVarNames != instanceEnv.instVarNames ||
+         freshClassEnv.instVarNames != classEnv.instVarNames) &&
+        !compileCarried(ctx, old, freshInstanceEnv, freshClassEnv, carried, action, errors)) {
+      rebindClassName(ctx, action.className, old.slot);
+      return false;
+    }
   }
   RootedArray installed(ctx.roots, count);
   for (std::uint32_t i = 0; i < count; ++i) {

@@ -429,6 +429,18 @@ std::string b5ClassDefinition(const char* className) {
   return defn;
 }
 
+// The class-side subclass:… override for B5LaySup: it answers a class with the given variables
+// whatever the definition asks for.
+std::string b5LayoutOverride(const char* instVars) {
+  std::string src =
+      "subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+      "category: k\n"
+      "  ^super subclass: n instanceVariableNames: '";
+  src += instVars;
+  src += "' classVariableNames: c poolDictionaries: p category: k\n";
+  return src;
+}
+
 }  // namespace
 
 // 00 Critical / SPEC §3.9「クラス定義の再 Accept」: 失敗シナリオ。Foo2>>m を Accept したあと、同じ
@@ -754,6 +766,107 @@ TEST(AcceptAbi, ShapeChangePutsNameBackWhenSubclassSendFails) {
     ASSERT_EQ(AO_OK, ao_browser_source("B5FailChild", 0, "a", source, 256));
     EXPECT_STREQ(getA, source);
     EXPECT_NE(b5ClassDefinition("B5FailChild").find("instanceVariableNames: 'a'\n"),
+              std::string::npos);
+    ao_runtime_shutdown();
+  }
+}
+
+// Codex review P2 / SPEC §3.9: superclass のクラス側で subclass:… を上書きして、要求 x y z を
+// extra x y z で作らせても、移したメソッドは送信が答えたクラスの並びで動く。x は 2 番目、y は 3 番目の
+// スロットを読み書きし、extra のスロットには触れない。
+TEST(AcceptAbi, ShapeChangeMovesMethodsInLayoutTheSubclassSendAnswers) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "B5LaySup", "", "B5-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("B5LaySup", "B5LayChild", "x y", "B5-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5LayChild", 0, "x\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5LayChild", 0, "x: v\n  x := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5LayChild", 0, "y\n  ^y\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5LayChild", 0, "y: v\n  y := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5LaySup", 1, b5LayoutOverride("extra x y z").c_str(), &err))
+      << err.message;
+
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("B5LaySup", "B5LayChild", "x y z", "B5-Test").c_str(),
+                            &err))
+      << err.message;
+  EXPECT_NE(b5ClassDefinition("B5LayChild").find("instanceVariableNames: 'extra x y z'"),
+            std::string::npos);
+  struct Case {
+    const char* expr;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"(B5LayChild new instVarAt: 2 put: 7; yourself) x", "7"},
+      {"(B5LayChild new instVarAt: 3 put: 8; yourself) y", "8"},
+      {"(B5LayChild new instVarAt: 1 put: 9; yourself) x", "nil"},
+      {"B5LayChild new x: 5; y: 6; instVarAt: 1", "nil"},
+      {"B5LayChild new x: 5; y: 6; instVarAt: 2", "5"},
+      {"B5LayChild new x: 5; y: 6; instVarAt: 3", "6"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.expr);
+    ASSERT_EQ(AO_OK, printIt(c.expr)) << err.message;
+    EXPECT_STREQ(c.expected, out);
+  }
+  ao_runtime_shutdown();
+}
+
+// Codex review P2 / SPEC §3.9: 送信が答えたクラスの並び（上書きが y を落として x だけ）で、
+// コンパイルし直しか消えるインスタンス変数の検査が失敗すれば、定義テキストの並び（x y z）で通っていても
+// AO_ERR_COMPILE で、メッセージは事前の拒否と同じ形。名前は旧クラスに戻り、旧クラスのメソッドとソースも
+// そのまま。
+TEST(AcceptAbi, ShapeChangePutsNameBackWhenMethodsFailInLayoutTheSubclassSendAnswers) {
+  struct Case {
+    const char* method;
+    const char* message;
+  };
+  const Case cases[] = {
+      {"y: v\n  y := v\n", "shape change refused: B5LayDrop>>y: does not compile: "},
+      {"y\n  ^y\n", "shape change refused: B5LayDrop>>y refers to removed instance variable y"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.method);
+    ASSERT_EQ(AO_OK, ao_runtime_boot());
+    AoSpan err{};
+    char out[64];
+    auto printIt = [&](const char* src) {
+      return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+    };
+    ASSERT_EQ(AO_OK,
+              ao_accept_class(b5Definition("Object", "B5LaySup", "", "B5-Test").c_str(), &err))
+        << err.message;
+    ASSERT_EQ(AO_OK,
+              ao_accept_class(b5Definition("B5LaySup", "B5LayDrop", "x y", "B5-Test").c_str(), &err))
+        << err.message;
+    const char* getX = "x\n  ^x\n";
+    ASSERT_EQ(AO_OK, ao_accept_method("B5LayDrop", 0, getX, &err)) << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method("B5LayDrop", 0, "x: v\n  x := v\n", &err)) << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method("B5LayDrop", 0, c.method, &err)) << err.message;
+    ASSERT_EQ(AO_OK, printIt("oldDrop := B5LayDrop. (B5LayDrop new x: 3) x")) << err.message;
+    EXPECT_STREQ("3", out);
+    ASSERT_EQ(AO_OK, ao_accept_method("B5LaySup", 1, b5LayoutOverride("x").c_str(), &err))
+        << err.message;
+
+    AoSpan e{};
+    const std::string reshaped = b5Definition("B5LaySup", "B5LayDrop", "x y z", "B5-Test");
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(reshaped.c_str(), &e));
+    EXPECT_EQ(0u, std::string(e.message).find(c.message)) << e.message;
+    ASSERT_EQ(AO_OK, printIt("oldDrop == B5LayDrop")) << err.message;
+    EXPECT_STREQ("true", out);
+    ASSERT_EQ(AO_OK, printIt("(B5LayDrop new x: 4) x")) << err.message;
+    EXPECT_STREQ("4", out);
+    char source[256];
+    ASSERT_EQ(AO_OK, ao_browser_source("B5LayDrop", 0, "x", source, 256));
+    EXPECT_STREQ(getX, source);
+    EXPECT_NE(b5ClassDefinition("B5LayDrop").find("instanceVariableNames: 'x y'\n"),
               std::string::npos);
     ao_runtime_shutdown();
   }
