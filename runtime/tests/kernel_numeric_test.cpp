@@ -555,3 +555,12 @@ TEST_F(KernelNumeric, ToByDoWithFloatStepCountsInFloats) {
   EXPECT_EQ("4.5", printIt("| s | s := 0. 2 to: 1 by: -0.5 do: [:i | s := s + i]. s"));
   EXPECT_EQ("3", printIt("| s | s := 0. 1 to: 2.5 by: 1 do: [:i | s := s + i]. s"));
 }
+
+// B8 レビュー（Codex Medium）: 8 バイトに満たない Float は = で 0.0 と読むので、hash も同じ値から。
+TEST_F(KernelNumeric, ShortFloatHashesAsItsEqualsReadsIt) {
+  EXPECT_EQ("true", printIt("| a b | a := Float new. b := Float new. a = b"));
+  EXPECT_EQ("true", printIt("| a b | a := Float new. b := Float new. (a = b) & (a hash = b hash)"));
+  EXPECT_EQ("true", printIt("Float new = 0.0"));
+  EXPECT_EQ("true", printIt("Float new hash = 0.0 hash"));
+  EXPECT_EQ("true", printIt("(Float basicNew: 4) hash = (0.0 * -1) hash"));
+}

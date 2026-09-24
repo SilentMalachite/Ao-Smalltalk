@@ -371,9 +371,10 @@ Oop ao_Float_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::u
   if (argc != 0) {
     return Oop{};
   }
-  if (!isFloat(ctx.wk, receiver) || ctx.heap.size(receiver) < sizeof(double)) {
+  if (!isFloat(ctx.wk, receiver)) {
     return ao_Object_identityHash(ctx, receiver, args, argc);
   }
+  // The value = reads (asDouble: a Float shorter than 8 bytes is 0.0), so = and hash agree.
   double v = asDouble(ctx.heap, receiver);
   if (v == 0.0) {
     v = 0.0;
