@@ -1,6 +1,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/ClassPool.hpp"
 #include "ao/Context.hpp"
 #include "ao/Format.hpp"
 #include "ao/HandleScope.hpp"
@@ -8,7 +9,9 @@
 #include "ao/MethodDictionary.hpp"
 #include "ao/Send.hpp"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -54,6 +57,16 @@ Oop makeInstVarNames(CallContext& ctx, std::string_view spec) {
     ctx.heap.slotAtPut(arr.slot, i, sym);
   }
   return arr.slot;
+}
+
+// SPEC §3.6: the classPool for classVariableNames, one binding per name split as instance
+// variable names are. A spec that is no String or Symbol names none.
+Oop makeClassPool(CallContext& ctx, Oop spec) {
+  const std::string text =
+      spec.isHeap() && (ctx.heap.flags(spec) & kFlagBytes) != 0 ? Str::toUtf8(ctx.heap, spec) : "";
+  std::vector<std::string_view> names;
+  splitNames(text, names);
+  return ClassPool::make(ctx, std::vector<std::string>(names.begin(), names.end()));
 }
 
 }  // namespace
@@ -195,9 +208,13 @@ Oop ao_Class_category(CallContext& ctx, const Oop& receiver, const Oop*, std::ui
   return ctx.heap.slotAt(receiver, kClassSlotCategory);
 }
 
+// SPEC §3.6: a copy of the Dictionary from each class variable's name to its binding (ClassPool).
+// nil for a Kernel class and for a metaclass.
 Oop ao_Class_classPool(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
-  return ctx.heap.slotAt(receiver, kClassSlotClassPool);
+  // SPEC §3.6: a copy that shares the bindings. Methods hold the bindings themselves and the
+  // re-accept checks count on that, so at:put: on the answer must not reach the class's pool.
+  return ClassPool::copy(ctx, ctx.heap.slotAt(receiver, kClassSlotClassPool));
 }
 
 Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_category_(
@@ -215,6 +232,30 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   const std::string ivarSpec = Str::toUtf8(ctx.heap, args[1]);
   std::vector<std::string_view> ivars;
   splitNames(ivarSpec, ivars);
+  // SPEC §3.6: a bytes object has no named slots, so a variable on a bytes class could hold nothing.
+  if (Format::isBytes(superFmt) && !ivars.empty()) {
+    return abortEvaluation(ctx, "bytes class cannot have instance variables");
+  }
+  // SPEC §3.6: a name the superclass chain has, or one given twice, would leave the later slot out
+  // of reach, since the compiler resolves a name to the slot nearest the front. A slot without a
+  // name does not count. Nothing here collects.
+  {
+    const std::vector<Oop> inherited = namedSlotNames(ctx.heap, receiver);
+    for (std::size_t i = 0; i < ivars.size(); ++i) {
+      const std::string_view name = ivars[i];
+      const auto given = ivars.begin() + static_cast<std::ptrdiff_t>(i);
+      const bool redeclared =
+          std::find(ivars.begin(), given, name) != given ||
+          std::any_of(inherited.begin(), inherited.end(), [&](Oop slotName) {
+            return slotName.isHeap() && ctx.heap.size(slotName) == name.size() &&
+                   std::memcmp(ctx.heap.bytes(slotName), name.data(), name.size()) == 0;
+          });
+      if (redeclared) {
+        return abortEvaluation(ctx, std::string_view("duplicate instance variable: " +
+                                                     std::string(name)));
+      }
+    }
+  }
   const auto instSize = superInst + static_cast<std::int64_t>(ivars.size());
   const Oop fmt =
       Format::make(instSize, Format::isIndexable(superFmt), Format::isBytes(superFmt));
@@ -238,6 +279,10 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   if (!ivarNames.slot.isHeap()) {
     return Oop{};
   }
+  Root pool(ctx.roots, makeClassPool(ctx, args[2]));
+  if (!pool.slot.isHeap()) {
+    return Oop{};
+  }
 
   std::string metaName = nameBytes;
   metaName += " class";
@@ -245,14 +290,20 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   if (!metaNameOop.slot.isHeap()) {
     return Oop{};
   }
+  // SPEC §3.6: the name is the interned Symbol of its bytes, whether args[0] is a Symbol or a
+  // String. intern does not collect; it fails only at old's max, with out of memory flagged.
+  const Oop nameSym = ctx.wk.intern(nameBytes);
+  if (!nameSym.isHeap()) {
+    return Oop{};
+  }
 
   ctx.heap.slotAtPut(cls.slot, kClassSlotSuperclass, receiver);
   ctx.heap.slotAtPut(cls.slot, kClassSlotMethodDict, dict.slot);
   ctx.heap.slotAtPut(cls.slot, kClassSlotFormat, fmt);
-  ctx.heap.slotAtPut(cls.slot, kClassSlotName, args[0]);
+  ctx.heap.slotAtPut(cls.slot, kClassSlotName, nameSym);
   ctx.heap.slotAtPut(cls.slot, kClassSlotThisClass, Oop::nil());
   ctx.heap.slotAtPut(cls.slot, kClassSlotCategory, args[4]);
-  ctx.heap.slotAtPut(cls.slot, kClassSlotClassPool, Oop::nil());
+  ctx.heap.slotAtPut(cls.slot, kClassSlotClassPool, pool.slot);
   ctx.heap.slotAtPut(cls.slot, kClassSlotInstVarNames, ivarNames.slot);
 
   // 親のメタクラスは、最後の割り当てのあとでルート済みの receiver から求める。
@@ -265,7 +316,12 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   ctx.heap.slotAtPut(meta.slot, kClassSlotClassPool, Oop::nil());
   ctx.heap.slotAtPut(meta.slot, kClassSlotInstVarNames, Oop::nil());
 
-  ctx.wk.define(nameBytes, cls.slot);
+  // SPEC §3.6: Smalltalk binds the class to its name, unless the name is a fixed global or a
+  // pseudo-variable. define does not collect; it fails at old's max, with out of memory flagged.
+  if (!ctx.wk.isFixedGlobal(nameBytes) && !WellKnown::isPseudoVariableName(nameBytes) &&
+      !ctx.wk.define(nameBytes, cls.slot)) {
+    return Oop{};
+  }
   // SPEC §3.3: the name may have meant another class, which the cache then still holds. Every
   // class definition drops the whole cache; a new name only costs the re-lookups.
   invalidateMethodCache(ctx.cache, Oop{});
@@ -275,6 +331,20 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
 Oop ao_Metaclass_thisClass(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotThisClass);
+}
+
+// SPEC §3.6: a metaclass's name is its class's name followed by " class", a String computed from
+// thisClass, for a Kernel metaclass and a user one alike.
+Oop ao_Metaclass_name(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
+  const Oop cls = ctx.heap.slotAt(receiver, kClassSlotThisClass);
+  const Oop name = isClassShaped(ctx.heap, cls) ? ctx.heap.slotAt(cls, kClassSlotName) : Oop{};
+  if (!name.isHeap() || (ctx.heap.flags(name) & kFlagBytes) == 0) {
+    return Oop{};
+  }
+  // The text is copied before the allocation, which may collect.
+  const std::string text = Str::toUtf8(ctx.heap, name) + " class";
+  return Str::fromUtf8(ctx, text);
 }
 
 // SPEC §3.3: a metaclass makes no instances; new aborts like shouldNotImplement.
@@ -315,6 +385,7 @@ void installBehavior(Heap& heap, WellKnown& wk) {
 
   const Oop meta = wk.metaclassClass;
   putNative(heap, wk, meta, "thisClass", 0, "ao_Metaclass_thisClass", ao_Metaclass_thisClass);
+  putNative(heap, wk, meta, "name", 0, "ao_Metaclass_name", ao_Metaclass_name);
   putNative(heap, wk, meta, "new", 0, "ao_Metaclass_newForbidden", ao_Metaclass_newForbidden);
   putNative(heap, wk, wk.metaclassMetaclass, "new", 0, "ao_Metaclass_newForbidden",
             ao_Metaclass_newForbidden);

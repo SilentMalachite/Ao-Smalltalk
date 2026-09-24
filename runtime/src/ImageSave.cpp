@@ -133,9 +133,7 @@ bool appendRecord(std::vector<std::byte>& dst, const Trace& tr, const NamedOop& 
 }
 
 struct NameCollect {
-  const WellKnown* wk = nullptr;
   std::vector<NamedOop>* out = nullptr;
-  bool rejectCatalog = false;
   bool failed = false;
 };
 
@@ -154,22 +152,6 @@ void collectImageSlot(void* ctx, const char* name, Oop value) {
     return;
   }
   c->out->push_back(NamedOop{std::string(view), value});
-}
-
-void collectExtra(void* ctx, std::string_view name, Oop cls) {
-  auto* c = static_cast<NameCollect*>(ctx);
-  if (c->failed) {
-    return;
-  }
-  if (c->rejectCatalog && c->wk->isCatalogName(name)) {
-    c->failed = true;
-    return;
-  }
-  if (!validName(name)) {
-    c->failed = true;
-    return;
-  }
-  c->out->push_back(NamedOop{std::string(name), cls});
 }
 
 bool writeObject(const Heap& heap, const Trace& tr, Oop obj, std::byte* dst) {
@@ -229,7 +211,8 @@ bool writeFile(std::string_view path, const std::byte* data, std::size_t n) {
 }  // namespace
 
 bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path) {
-  if (!wk.smalltalk.isHeap() || heap.size(wk.smalltalk) != Globals::kSmalltalkCount) {
+  // SPEC §3.11: the global dictionary goes with the heap. Nothing else records a global.
+  if (!Globals::isDictionary(wk, wk.smalltalk)) {
     return false;
   }
 
@@ -239,15 +222,9 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   }
 
   std::vector<NamedOop> wellKnown;
-  std::vector<NamedOop> extra;
-  NameCollect wkCollect{&wk, &wellKnown, false, false};
+  NameCollect wkCollect{&wellKnown, false};
   wk.eachImageSlot(collectImageSlot, &wkCollect);
   if (wkCollect.failed) {
-    return false;
-  }
-  NameCollect exCollect{&wk, &extra, true, false};
-  wk.eachExtra(collectExtra, &exCollect);
-  if (exCollect.failed) {
     return false;
   }
 
@@ -258,7 +235,12 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
     if (name == nullptr || !validName(name)) {
       return false;
     }
-    globals.push_back(NamedOop{std::string(name), heap.slotAt(wk.smalltalk, i)});
+    // The values the load checks the dictionary against.
+    const Oop value = Globals::lookup(wk, wk.findSymbol(name));
+    if (value.isEmpty()) {
+      return false;
+    }
+    globals.push_back(NamedOop{std::string(name), value});
   }
 
   // 既定の上限（kOldMaxBytes）を超えるヒープは保存しない。保存できてもロードできない。
@@ -288,11 +270,6 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
       return false;
     }
   }
-  for (const NamedOop& rec : extra) {
-    if (!appendRecord(tail, tr, rec)) {
-      return false;
-    }
-  }
   for (const NamedOop& rec : globals) {
     if (!appendRecord(tail, tr, rec)) {
       return false;
@@ -305,7 +282,7 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   header.endian = ImageFormat::kImageEndianLittle;
   header.heapBytes = static_cast<std::uint32_t>(tr.end);
   header.wellKnownCount = static_cast<std::uint32_t>(wellKnown.size());
-  header.extraCount = static_cast<std::uint32_t>(extra.size());
+  header.extraCount = 0;
   header.globalCount = Globals::kSmalltalkCount;
   header.nextHash = heap.hashCursor();
 

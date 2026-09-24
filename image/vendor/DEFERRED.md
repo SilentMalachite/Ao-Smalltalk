@@ -13,7 +13,7 @@ LOAD_ORDER による file-in で意図して載せないメソッドを、1 行�
 列挙したメソッドのエラーは数えず、報告もしない。そのメソッドはイメージに入らない。
 `vendor_filein_test` は、失敗するメソッドの集合がこの列挙と一致することを確かめる。直して載るようになったら、その行を消す。
 
-いまの 17 件は、どれもコンパイルエラーである。括弧内は実際のエラーメッセージ。
+いまの 16 件は、どれもコンパイルエラーである。括弧内は実際のエラーメッセージ。
 
 ```text
 Bag>>product:: ブロックが引数と temp を両方持つ構文 [ :each :times | | v | ... ] を解析できない（expected ']'）。B7 のパーサで直す
@@ -32,5 +32,4 @@ Timespan class>>includingDateAndTime:: コンパイル時リテラル `Duration 
 Time class>>primHighResClock: 名前付きプリミティブ <primitive: 'primitiveHighResClock'> は Blue Book の構文でない（expected primitive number）。B7 で image/patches/ に書き換えるか、ここに残す
 Time class>>primUtcWithOffset: 名前付きプリミティブ <primitive: 'primitiveUtcWithOffset'> は Blue Book の構文でない（expected primitive number）。B7 で image/patches/ に書き換えるか、ここに残す
 Time class>>primUtcWithOffset:: 名前付きプリミティブ <primitive: 'primitiveUtcWithOffset'> は Blue Book の構文でない（expected primitive number）。B7 で image/patches/ に書き換えるか、ここに残す
-Time class>>releaseClassCachedState: クラス変数 MillisecondClockOffset に代入できない（cannot assign）。B4 のクラス変数で直す
 ```

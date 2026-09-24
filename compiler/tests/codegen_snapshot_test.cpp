@@ -493,3 +493,110 @@ TEST(Inline, LoopVariableAssignIsError) {
   EXPECT_FALSE(r.ok);
   EXPECT_EQ("cannot assign to argument", r.error.message);
 }
+
+namespace {
+
+// A method of a class with the instance variable x and the class variables Count and x.
+ao::compiler::CompileEnv classVarEnv() {
+  ao::compiler::CompileEnv env;
+  env.instVarNames = {"x"};
+  env.classVarNames = {"Count", "x"};
+  return env;
+}
+
+// The class variable literals named `name` in image and the blocks inside it.
+int classVarLiterals(const MethodImage& image, const std::string& name) {
+  int n = 0;
+  for (const auto& lit : image.literals) {
+    if (lit.kind == LitKind::ClassVariable && lit.text == name) {
+      ++n;
+    }
+    if (lit.kind == LitKind::Method && lit.method) {
+      n += classVarLiterals(*lit.method, name);
+    }
+  }
+  return n;
+}
+
+}  // namespace
+
+// B4 (docs/claude-review/05 High) / SPEC §3.8: 失敗シナリオ。クラス変数への代入は「cannot assign」に
+// ならず PopStoreLitVar / StoreLitVar、読みは PushLitVar で、どれも 1 つのクラス変数リテラルを使う。
+TEST(ClassVariable, ReadAndAssignUseOneLitVarLiteral) {
+  auto r = compileMethod("bump\n  Count := 1.\n  ^Count := Count + 1", classVarEnv());
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const std::string d = disassemble(r.image);
+  EXPECT_EQ(1, classVarLiterals(r.image, "Count")) << d;
+  EXPECT_EQ(1, countOp(r.image, Op::PopStoreLitVar)) << d;
+  EXPECT_EQ(1, countOp(r.image, Op::StoreLitVar)) << d;
+  EXPECT_EQ(1, countOp(r.image, Op::PushLitVar)) << d;
+  EXPECT_EQ(0, countOp(r.image, Op::PushGlobal)) << d;
+}
+
+// SPEC §3.8: ローカル → インスタンス変数 → 擬変数 → クラス変数 → グローバル。ローカル（temp、引数、
+// ブロック引数）とインスタンス変数は、同じ名前のクラス変数を隠す。
+TEST(ClassVariable, LocalsAndInstanceVariablesHideClassVariables) {
+  for (const char* src : {"temp\n  | Count | Count := 2. ^Count", "arg: Count\n  ^Count",
+                          "blockArg\n  ^[:Count | Count] value: 3", "ivar\n  x := 4. ^x"}) {
+    SCOPED_TRACE(src);
+    auto r = compileMethod(src, classVarEnv());
+    ASSERT_TRUE(r.ok) << r.error.message;
+    EXPECT_EQ(0, classVarLiterals(r.image, "Count")) << disassemble(r.image);
+    EXPECT_EQ(0, classVarLiterals(r.image, "x")) << disassemble(r.image);
+    EXPECT_EQ(0, countOp(r.image, Op::PushLitVar)) << disassemble(r.image);
+  }
+  auto iv = compileMethod("ivar\n  ^x", classVarEnv());
+  ASSERT_TRUE(iv.ok) << iv.error.message;
+  EXPECT_EQ(1, countOp(iv.image, Op::PushInstVar)) << disassemble(iv.image);
+}
+
+// SPEC §3.8: クラス変数は同じ名前のグローバルを隠し、ブロックの中からも同じリテラルで読み書きする。
+// クラス変数でない名前は、今までどおり PushGlobal で、代入は「cannot assign」。
+TEST(ClassVariable, ClassVariableHidesGlobalInsideBlocks) {
+  auto r = compileMethod("g\n  ^[Count := Count] value", classVarEnv());
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const auto* blk = firstBlock(r.image);
+  ASSERT_NE(nullptr, blk);
+  const std::string db = disassemble(*blk);
+  EXPECT_EQ(1, classVarLiterals(*blk, "Count")) << db;
+  EXPECT_EQ(1, countOp(*blk, Op::PushLitVar)) << db;
+  EXPECT_EQ(1, countOp(*blk, Op::StoreLitVar)) << db;
+  EXPECT_EQ(0, countOp(*blk, Op::PushGlobal)) << db;
+
+  auto global = compileMethod("g\n  ^Count");
+  ASSERT_TRUE(global.ok) << global.error.message;
+  EXPECT_EQ(1, countOp(global.image, Op::PushGlobal)) << disassemble(global.image);
+  auto assign = compileMethod("s\n  Count := 1");
+  EXPECT_FALSE(assign.ok);
+  EXPECT_EQ("cannot assign", assign.error.message);
+}
+
+// B4 review (Claude M2) / SPEC §3.6, §3.8: 先頭の kernelInstVarCount 個のインスタンス変数（Kernel
+// クラスが足したスロット）は読めるが、代入はコンパイルエラーで、区間は代入の式。ブロックの中でも、
+// 代入の値として使っても同じ。後ろの変数には今までどおり代入できる。
+TEST(KernelInstanceVariable, LeadingSlotsAreReadOnly) {
+  ao::compiler::CompileEnv env;
+  env.instVarNames = {"array", "firstIndex", "extra"};
+  env.kernelInstVarCount = 2;
+  const struct {
+    const char* source;
+    const char* name;
+  } refused[] = {
+      {"a\n  array := 1", "array"},
+      {"b\n  ^[firstIndex := 2] value", "firstIndex"},
+      {"c\n  extra := firstIndex := 3", "firstIndex"},
+  };
+  for (const auto& r : refused) {
+    SCOPED_TRACE(r.source);
+    auto m = compileMethod(r.source, env);
+    EXPECT_FALSE(m.ok);
+    EXPECT_EQ(std::string("cannot assign to Kernel instance variable ") + r.name, m.error.message);
+    const std::string src = r.source;
+    const std::string assign = std::string(r.name) + " := ";
+    EXPECT_EQ(src.find(assign), m.error.span.start);
+  }
+  auto ok = compileMethod("d\n  extra := array. ^firstIndex", env);
+  ASSERT_TRUE(ok.ok) << ok.error.message;
+  EXPECT_EQ(2, countOp(ok.image, Op::PushInstVar)) << disassemble(ok.image);
+  EXPECT_EQ(1, countOp(ok.image, Op::PopStoreInstVar)) << disassemble(ok.image);
+}

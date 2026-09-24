@@ -1,6 +1,7 @@
 #include "ao/Lookup.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/Format.hpp"
 #include "ao/MethodDictionary.hpp"
 
 #include <algorithm>
@@ -28,6 +29,25 @@ std::vector<Oop> superclassChainFromRoot(const Heap& heap, Oop start) {
   }
   std::reverse(chain.begin(), chain.end());
   return chain;
+}
+
+std::vector<Oop> namedSlotNames(const Heap& heap, Oop cls) {
+  std::vector<Oop> names;
+  for (const Oop c : superclassChainFromRoot(heap, cls)) {
+    const auto size = static_cast<std::size_t>(Format::instSize(heap.slotAt(c, kClassSlotFormat)));
+    // A class smaller than the one before it keeps only the slots it has.
+    if (names.size() > size) {
+      names.resize(size);
+    }
+    const Oop own = heap.slotAt(c, kClassSlotInstVarNames);
+    const std::size_t ownCount =
+        own.isHeap() && (heap.flags(own) & kFlagBytes) == 0 ? heap.size(own) : 0;
+    for (std::size_t i = 0; names.size() < size; ++i) {
+      const Oop name = i < ownCount ? heap.slotAt(own, static_cast<std::uint32_t>(i)) : Oop{};
+      names.push_back(name.isHeap() && (heap.flags(name) & kFlagBytes) != 0 ? name : Oop{});
+    }
+  }
+  return names;
 }
 
 Oop lookup(Heap& heap, Oop startClass, Oop selector) {

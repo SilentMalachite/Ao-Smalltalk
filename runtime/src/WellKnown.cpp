@@ -20,14 +20,6 @@ struct WellKnown::InternTable {
   std::unordered_map<std::string, std::size_t> byBytes;
 };
 
-struct WellKnown::ExtraTable {
-  struct Entry {
-    std::string name;
-    Oop cls;
-  };
-  std::deque<Entry> table;
-};
-
 namespace {
 
 struct NamedClass {
@@ -121,7 +113,7 @@ constexpr ImageSelector kImageSelectors[] = {
     {"==", &WellKnown::selIdentityEquals},
 };
 
-bool extraIsClass(const WellKnown& wk, Oop obj) {
+bool isClassObject(const WellKnown& wk, Oop obj) {
   if (!obj.isHeap()) {
     return false;
   }
@@ -141,8 +133,7 @@ bool extraIsClass(const WellKnown& wk, Oop obj) {
 WellKnown::WellKnown(Heap& heap, Roots& roots)
     : heap_(&heap),
       roots_(&roots),
-      intern_(std::make_unique<InternTable>()),
-      extra_(std::make_unique<ExtraTable>()) {
+      intern_(std::make_unique<InternTable>()) {
   for (const auto& e : kNamedClasses) {
     this->*e.cls = Oop::nil();
     this->*e.meta = Oop::nil();
@@ -193,36 +184,35 @@ Oop WellKnown::named(std::string_view name) const {
   if (name == "nil") return nil();
   if (name == "true") return true_();
   if (name == "false") return false_();
+  if (Globals::isDictionary(*this, smalltalk)) {
+    return global(findSymbol(name));
+  }
+  // SPEC §3.7: Bootstrap installs Smalltalk after the classes; until then the slots are the names.
   if (name == "Smalltalk") return smalltalk;
   if (name == "Processor") return processor;
   for (const auto& e : kNamedClasses) {
     if (name == e.name) return this->*e.cls;
   }
-  if (extra_ != nullptr) {
-    for (const auto& e : extra_->table) {
-      if (name == e.name) return e.cls;
-    }
-  }
   return Oop::nil();
 }
 
-void WellKnown::define(std::string_view name, Oop cls) {
-  // Catalog names live in the well-known slots. extra_ would make save fail.
-  if (isCatalogName(name)) {
-    return;
+Oop WellKnown::global(Oop symbol) const {
+  const Oop value = Globals::lookup(*this, symbol);
+  return value.isEmpty() ? Oop::nil() : value;
+}
+
+bool WellKnown::define(std::string_view name, Oop value) {
+  // A fixed global keeps its value: a catalog name its well-known slot (save checks the two agree).
+  // A pseudo-variable is never a global (SPEC §3.6).
+  if (isFixedGlobal(name) || isPseudoVariableName(name)) {
+    return false;
   }
-  if (extra_ == nullptr) {
-    extra_ = std::make_unique<ExtraTable>();
+  const Oop key = intern(name);
+  if (!key.isHeap() || !Globals::bind(*this, key, value)) {
+    return false;
   }
   ++globalsVersion_;
-  for (auto& e : extra_->table) {
-    if (e.name == name) {
-      e.cls = cls;
-      return;
-    }
-  }
-  extra_->table.push_back(ExtraTable::Entry{std::string(name), cls});
-  roots_->add(&extra_->table.back().cls);
+  return true;
 }
 
 bool WellKnown::isCatalogName(std::string_view name) const {
@@ -234,6 +224,15 @@ bool WellKnown::isCatalogName(std::string_view name) const {
   return false;
 }
 
+bool WellKnown::isFixedGlobal(std::string_view name) const {
+  return name == "Smalltalk" || name == "Processor" || isCatalogName(name);
+}
+
+bool WellKnown::isPseudoVariableName(std::string_view name) {
+  return name == "nil" || name == "true" || name == "false" || name == "self" || name == "super" ||
+         name == "thisContext";
+}
+
 bool WellKnown::rebind(std::string_view name, Oop cls) {
   if (!isVendorStub(name) || !cls.isHeap()) {
     return false;
@@ -242,9 +241,13 @@ bool WellKnown::rebind(std::string_view name, Oop cls) {
     if (name != e.name) {
       continue;
     }
+    // Smalltalk and the well-known slot change together, or neither does. Nothing here collects.
+    const Oop key = intern(name);
+    if (!key.isHeap() || !Globals::bind(*this, key, cls)) {
+      return false;
+    }
     this->*e.cls = cls;
     this->*e.meta = heap_->klass(cls);
-    Globals::atPut(*this, name, cls);
     ++globalsVersion_;
     return true;
   }
@@ -255,18 +258,26 @@ void WellKnown::eachClass(void (*fn)(void* baton, Oop cls), void* baton) const {
   if (fn == nullptr) {
     return;
   }
-  for (const auto& e : kNamedClasses) {
-    fn(baton, this->*e.cls);
-  }
-  if (extra_ == nullptr) {
+  if (!Globals::isDictionary(*this, smalltalk)) {
+    for (const auto& e : kNamedClasses) {
+      fn(baton, this->*e.cls);
+    }
     return;
   }
-  for (const auto& e : extra_->table) {
-    if (!extraIsClass(*this, e.cls)) {
-      continue;
-    }
-    fn(baton, e.cls);
-  }
+  struct Each {
+    const WellKnown* wk;
+    void (*fn)(void*, Oop);
+    void* baton;
+  } each{this, fn, baton};
+  Globals::each(
+      *this,
+      [](void* p, Oop, Oop value) {
+        const auto* e = static_cast<const Each*>(p);
+        if (isClassObject(*e->wk, value)) {
+          e->fn(e->baton, value);
+        }
+      },
+      &each);
 }
 
 void WellKnown::eachNativeRequiredClass(void (*fn)(void* baton, Oop cls), void* baton) const {
@@ -318,6 +329,11 @@ Oop WellKnown::internWith(std::string_view utf8, bool tenured) {
   return intern_->table.back();
 }
 
+Oop WellKnown::findSymbol(std::string_view utf8) const {
+  const auto it = intern_->byBytes.find(std::string(utf8));
+  return it == intern_->byBytes.end() ? Oop{} : intern_->table[it->second];
+}
+
 void WellKnown::eachImageSlot(void (*fn)(void*, const char* name, Oop value), void* baton) const {
   if (fn == nullptr) {
     return;
@@ -332,15 +348,6 @@ void WellKnown::eachImageSlot(void (*fn)(void*, const char* name, Oop value), vo
   fn(baton, "transcript", transcript);
   for (const auto& sel : kImageSelectors) {
     fn(baton, sel.name, this->*sel.field);
-  }
-}
-
-void WellKnown::eachExtra(void (*fn)(void*, std::string_view name, Oop cls), void* baton) const {
-  if (fn == nullptr || extra_ == nullptr) {
-    return;
-  }
-  for (const auto& e : extra_->table) {
-    fn(baton, e.name, e.cls);
   }
 }
 

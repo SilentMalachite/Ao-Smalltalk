@@ -26,22 +26,41 @@ class WellKnown {
   Oop true_() const { return Oop::true_(); }
   Oop false_() const { return Oop::false_(); }
 
+  // What the global name means: nil, true and false, else the value Smalltalk binds to it, or nil
+  // when it binds none (SPEC §3.6). Before Globals::install only the well-known slots count.
   Oop named(std::string_view name) const;
+  // The value Smalltalk binds to symbol (an interned Symbol), or nil. PushGlobal reads it.
+  Oop global(Oop symbol) const;
   Oop classOf(Oop obj) const;
   // A new Symbol goes to the nursery, or to old when the nursery is full (allocateNoGc).
   // Does not GC; empty Oop when old is at its max.
   Oop intern(std::string_view utf8);
   // A new Symbol goes straight to old (allocateTenured). Empty Oop when old is at its max.
   Oop internTenured(std::string_view utf8);
-  void define(std::string_view name, Oop cls);
+  // The Symbol intern made for these bytes, or the empty Oop when there is none. Allocates nothing.
+  Oop findSymbol(std::string_view utf8) const;
+  // Binds name to value in Smalltalk (SPEC §3.6). A fixed global is left as it is: false. False
+  // also when the Symbol or the dictionary's growth cannot be allocated (old at its max; the
+  // out-of-memory flag is set). Does not GC.
+  bool define(std::string_view name, Oop value);
   bool isCatalogName(std::string_view name) const;
+  // The names Bootstrap binds and nothing rebinds but file-in's vendor stubs: the catalog,
+  // Smalltalk and Processor (SPEC §3.6).
+  bool isFixedGlobal(std::string_view name) const;
+  // The pseudo-variables nil true false self super thisContext (SPEC §3.8). The compiler resolves
+  // them before globals, so Smalltalk binds none of them: define refuses them as it refuses a fixed
+  // global (SPEC §3.6).
+  static bool isPseudoVariableName(std::string_view name);
   bool rebind(std::string_view name, Oop cls);
   // Grows whenever define or rebind changes the global names, so caches of them can tell.
   std::uint64_t globalsVersion() const { return globalsVersion_; }
+  // The classes Smalltalk binds, in the order they were bound (an alias again); before
+  // Globals::install, the catalog's. fn must not collect or bind a global: the walk reads
+  // Smalltalk's pair array as raw Oops (Globals::each), which a collection would move and a bind
+  // could replace.
   void eachClass(void (*fn)(void* baton, Oop cls), void* baton) const;
   void eachNativeRequiredClass(void (*fn)(void* baton, Oop cls), void* baton) const;
   void eachImageSlot(void (*fn)(void*, const char* name, Oop value), void* baton) const;
-  void eachExtra(void (*fn)(void*, std::string_view name, Oop cls), void* baton) const;
   bool bindImageSlot(std::string_view name, Oop value);
   bool rememberSymbol(Oop sym);
 
@@ -197,11 +216,9 @@ class WellKnown {
   void addRoots(Roots& roots);
   Oop internWith(std::string_view utf8, bool tenured);
   struct InternTable;
-  struct ExtraTable;
   Heap* heap_;
   Roots* roots_ = nullptr;
   std::unique_ptr<InternTable> intern_;
-  std::unique_ptr<ExtraTable> extra_;
   std::uint64_t globalsVersion_ = 0;
   // Slots of intern_->table. A deque keeps its elements in place as it grows.
   std::array<const Oop*, kSpecialSelectorCount> specialSlots_{};

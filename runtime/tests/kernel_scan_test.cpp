@@ -106,6 +106,10 @@ TEST(KernelScan, RequiredSelectorsAreNativeMethods) {
       {b.wk.blockContextClass, "ensure:"},
       {b.wk.blockContextClass, "ifCurtailed:"},
       {b.wk.blockContextClass, "cannotReturn:"},
+      {b.wk.smalltalkImageClass, "at:"},
+      {b.wk.smalltalkImageClass, "at:put:"},
+      {b.wk.smalltalkImageClass, "at:ifAbsent:"},
+      {b.wk.smalltalkImageClass, "includesKey:"},
   };
   for (const auto& r : reqs) {
     auto sel = ao::Symbol::intern(b.wk, r.sel);

@@ -4,6 +4,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstring>
+#include <string>
 
 namespace ao {
 namespace {
@@ -97,24 +98,35 @@ void ImageFormat::writeHeader(std::byte* dst, const ImageHeader& h) {
   std::memcpy(dst, &d, sizeof(d));
 }
 
-bool ImageFormat::readHeader(const std::byte* src, std::size_t n, ImageHeader* out) {
-  if (src == nullptr || out == nullptr || n < kImageHeaderBytes) {
+bool ImageFormat::readHeader(const std::byte* src, std::size_t n, ImageHeader* out,
+                             std::string* reason) {
+  auto refuse = [reason](std::string why) {
+    if (reason != nullptr) {
+      *reason = std::move(why);
+    }
     return false;
+  };
+  if (src == nullptr || out == nullptr || n < kImageHeaderBytes) {
+    return refuse("not an Ao image");
   }
   DiskHeader d{};
   std::memcpy(&d, src, sizeof(d));
   if (d.magic[0] != 'A' || d.magic[1] != 'O' || d.magic[2] != 'I' || d.magic[3] != 'M') {
-    return false;
+    return refuse("not an Ao image");
   }
-  if (d.version != kImageVersion || d.pointerBits != kImagePointerBits ||
-      d.endian != kImageEndianLittle || d.headerBytes != kImageHeaderBytes) {
-    return false;
+  // SPEC §3.11: an image of another version is refused before anything else is read from it.
+  if (d.version != kImageVersion) {
+    return refuse("unsupported image version " + std::to_string(d.version));
+  }
+  if (d.pointerBits != kImagePointerBits || d.endian != kImageEndianLittle ||
+      d.headerBytes != kImageHeaderBytes) {
+    return refuse("unsupported image format");
   }
   if (d.reserved16 != 0 || d.reserved32a != 0 || d.reserved32b != 0 || d.reserved64 != 0) {
-    return false;
+    return refuse("damaged image");
   }
   if (d.heapBytes < 16 || (d.heapBytes % 8) != 0) {
-    return false;
+    return refuse("damaged image");
   }
   out->version = d.version;
   out->pointerBits = d.pointerBits;

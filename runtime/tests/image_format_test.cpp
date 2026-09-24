@@ -2,6 +2,7 @@
 #include "ao/Oop.hpp"
 
 #include <gtest/gtest.h>
+#include <string>
 #include <vector>
 
 TEST(ImageFormat, ImmediateBitsRoundTrip) {
@@ -57,11 +58,20 @@ TEST(ImageFormat, HeaderRoundTripAndRejects) {
   EXPECT_EQ(1u, out.nextHash);
 
   buf[0] = std::byte{'X'};
-  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out));
+  std::string reason;
+  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
+  EXPECT_EQ("not an Ao image", reason);
   ao::ImageFormat::writeHeader(buf.data(), h);
-  buf[4] = std::byte{2};
+  buf[4] = std::byte{3};
   buf[5] = std::byte{0};
-  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out));
+  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
+  EXPECT_EQ("unsupported image version 3", reason);
+  ao::ImageFormat::writeHeader(buf.data(), h);
+  buf[6] = std::byte{32};
+  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
+  EXPECT_EQ("unsupported image format", reason);
+  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), 8, &out, &reason));
+  EXPECT_EQ("not an Ao image", reason);
 
   std::byte filler[16];
   ao::ImageFormat::writeFiller(filler);
@@ -77,4 +87,23 @@ TEST(ImageFormat, HeaderRoundTripAndRejects) {
   ao::Oop klass;
   ASSERT_TRUE(ao::ImageFormat::decodeNonHeap(0x4u, &klass));
   EXPECT_TRUE(klass.isNil());
+}
+
+// B4 review (Codex P2) / SPEC §3.11: 失敗シナリオ。版が 1 のままで、B4 より前の旧形式と壊れた
+// ファイルが区別できなかった。形式の版は 2 で、版 1 はヘッダの段階で理由付きで拒む。
+TEST(ImageFormat, VersionOneIsRefusedWithReason) {
+  EXPECT_EQ(2u, ao::ImageFormat::kImageVersion);
+  ao::ImageFormat::ImageHeader h;
+  h.version = 1;
+  h.pointerBits = ao::ImageFormat::kImagePointerBits;
+  h.endian = ao::ImageFormat::kImageEndianLittle;
+  h.heapBytes = 16;
+  h.wellKnownCount = 127;
+  h.globalCount = 57;
+  std::vector<std::byte> buf(ao::ImageFormat::kImageHeaderBytes);
+  ao::ImageFormat::writeHeader(buf.data(), h);
+  ao::ImageFormat::ImageHeader out;
+  std::string reason;
+  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
+  EXPECT_EQ("unsupported image version 1", reason);
 }

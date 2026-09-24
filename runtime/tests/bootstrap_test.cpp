@@ -1,4 +1,5 @@
 #include "ao/Bootstrap.hpp"
+#include "ao/Format.hpp"
 #include "ao/Gc.hpp"
 #include "ao/Globals.hpp"
 #include "ao/Heap.hpp"
@@ -7,7 +8,10 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <string>
 #include <type_traits>
+#include <vector>
 
 static_assert(!std::is_copy_constructible_v<ao::WellKnown>);
 static_assert(!std::is_copy_assignable_v<ao::WellKnown>);
@@ -231,9 +235,19 @@ TEST(Bootstrap, SmalltalkMapsObjectNameToClass) {
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
   ASSERT_TRUE(wk.smalltalk.isHeap());
-  EXPECT_EQ(ao::Globals::kSmalltalkCount, heap.size(wk.smalltalk));
+  // SPEC §3.6: a SmalltalkImage whose tally counts the 57 names and Smalltalk itself.
+  EXPECT_EQ(wk.smalltalkImageClass, heap.klass(wk.smalltalk));
+  EXPECT_EQ(ao::Globals::kSmalltalkSlotCount, heap.size(wk.smalltalk));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(ao::Globals::kSmalltalkCount + 1),
+            heap.slotAt(wk.smalltalk, ao::Globals::kSmalltalkSlotTally));
+  const ao::Oop pairs = heap.slotAt(wk.smalltalk, ao::Globals::kSmalltalkSlotArray);
+  ASSERT_TRUE(pairs.isHeap());
+  EXPECT_EQ(wk.arrayClass, heap.klass(pairs));
+  EXPECT_EQ(wk.intern("Object"), heap.slotAt(pairs, 0));
+  EXPECT_EQ(wk.objectClass, heap.slotAt(pairs, 1));
   EXPECT_EQ(wk.objectClass, ao::Globals::at(wk, "Object"));
-  EXPECT_EQ(wk.objectClass, heap.slotAt(wk.smalltalk, 0));
+  EXPECT_EQ(wk.smalltalk, ao::Globals::at(wk, "Smalltalk"));
+  EXPECT_EQ(wk.processor, ao::Globals::at(wk, "Processor"));
   EXPECT_EQ(wk.metaclassClass, ao::Globals::at(wk, "Metaclass"));
   EXPECT_EQ(wk.undefinedObjectClass, ao::Globals::at(wk, "UndefinedObject"));
   EXPECT_EQ(wk.smallIntegerClass, ao::Globals::at(wk, "SmallInteger"));
@@ -267,16 +281,101 @@ TEST(Bootstrap, SmalltalkContainsAllNamedClasses) {
   }
 }
 
-// レビュー指摘: クラスを nil のまま保存した古いイメージでも、ロード後に Smalltalk は
-// SmalltalkImage になる（SPEC §3.10）。
-TEST(Bootstrap, OldGlobalTableAdoptsImageClass) {
+namespace {
+
+// The Symbols in cls's instVarNames slot, as text, or {"<not an Array of Symbols>"}.
+std::vector<std::string> ownInstVarNames(ao::Heap& heap, ao::WellKnown& wk, ao::Oop cls) {
+  const ao::Oop names = heap.slotAt(cls, ao::kClassSlotInstVarNames);
+  std::vector<std::string> out;
+  if (names.isNil()) {
+    return out;
+  }
+  if (!names.isHeap() || heap.klass(names) != wk.arrayClass) {
+    return {"<not an Array of Symbols>"};
+  }
+  for (std::uint32_t i = 0; i < heap.size(names); ++i) {
+    const ao::Oop name = heap.slotAt(names, i);
+    if (!name.isHeap() || heap.klass(name) != wk.symbolClass) {
+      return {"<not an Array of Symbols>"};
+    }
+    out.emplace_back(reinterpret_cast<const char*>(heap.bytes(name)), heap.size(name));
+  }
+  return out;
+}
+
+}  // namespace
+
+// B4 (docs/claude-review/05 Critical) / SPEC §3.6: a Kernel class names every slot it adds to its
+// superclass's, and no more. Changing a Kernel instSize without the names fails here.
+TEST(Bootstrap, KernelInstVarNamesFillTheSlotsEachClassAdds) {
   ao::Heap heap;
   ao::Roots roots;
   ao::WellKnown wk(heap, roots);
   ao::Bootstrap::run(heap, roots, wk);
-  ASSERT_TRUE(wk.smalltalk.isHeap());
-  EXPECT_EQ(wk.smalltalkImageClass, heap.klass(wk.smalltalk));
-  heap.header(wk.smalltalk)->klass = ao::Oop::nil();
-  ao::Globals::adoptImageClass(heap, wk);
-  EXPECT_EQ(wk.smalltalkImageClass, heap.klass(wk.smalltalk));
+  struct Bag {
+    ao::Heap* heap;
+    ao::WellKnown* wk;
+  } bag{&heap, &wk};
+  wk.eachClass(
+      [](void* p, ao::Oop cls) {
+        auto* b = static_cast<Bag*>(p);
+        for (const ao::Oop side : {cls, b->heap->klass(cls)}) {
+          const ao::Oop super = b->heap->slotAt(side, ao::kClassSlotSuperclass);
+          const auto size = ao::Format::instSize(b->heap->slotAt(side, ao::kClassSlotFormat));
+          const auto superSize =
+              super.isHeap() ? ao::Format::instSize(b->heap->slotAt(super, ao::kClassSlotFormat))
+                             : 0;
+          const std::string name(
+              reinterpret_cast<const char*>(b->heap->bytes(b->heap->slotAt(cls, ao::kClassSlotName))),
+              b->heap->size(b->heap->slotAt(cls, ao::kClassSlotName)));
+          const auto names = ownInstVarNames(*b->heap, *b->wk, side);
+          EXPECT_EQ(static_cast<std::size_t>(size - superSize), names.size())
+              << name << (side == cls ? "" : " class");
+        }
+      },
+      &bag);
+  using Names = std::vector<std::string>;
+  EXPECT_EQ((Names{"key", "value"}), ownInstVarNames(heap, wk, wk.associationClass));
+  EXPECT_EQ((Names{"array", "firstIndex", "lastIndex"}),
+            ownInstVarNames(heap, wk, wk.orderedCollectionClass));
+  EXPECT_EQ((Names{"superclass", "methodDict", "format", "name", "thisClass", "category",
+                   "classPool", "instVarNames"}),
+            ownInstVarNames(heap, wk, wk.behaviorClass));
+  EXPECT_EQ((Names{"writeLimit"}), ownInstVarNames(heap, wk, wk.writeStreamClass));
+  EXPECT_EQ((Names{"home", "copied"}), ownInstVarNames(heap, wk, wk.blockContextClass));
+  EXPECT_TRUE(ownInstVarNames(heap, wk, wk.classClass).empty());
+  EXPECT_TRUE(ownInstVarNames(heap, wk, wk.identitySetClass).empty());
+}
+
+// B4 (docs/claude-review/01 High) / SPEC §3.6 / §3.7 step 5: each Kernel class's name slot holds
+// the interned Symbol of its name, and its metaclass's the String "<name> class".
+TEST(Bootstrap, KernelClassNamesAreInternedSymbols) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  for (const char* n : {"Object", "SmallInteger", "Metaclass", "OrderedCollection", "Time"}) {
+    const ao::Oop cls = wk.named(n);
+    ASSERT_TRUE(cls.isHeap()) << n;
+    EXPECT_EQ(wk.intern(n), heap.slotAt(cls, ao::kClassSlotName)) << n;
+    const ao::Oop metaName = heap.slotAt(heap.klass(cls), ao::kClassSlotName);
+    ASSERT_TRUE(metaName.isHeap()) << n;
+    EXPECT_EQ(wk.stringClass, heap.klass(metaName)) << n;
+    EXPECT_EQ(std::string(n) + " class",
+              std::string(reinterpret_cast<const char*>(heap.bytes(metaName)), heap.size(metaName)));
+  }
+  struct Bag {
+    ao::Heap* heap;
+    ao::WellKnown* wk;
+  } bag{&heap, &wk};
+  wk.eachClass(
+      [](void* p, ao::Oop cls) {
+        auto* b = static_cast<Bag*>(p);
+        const ao::Oop name = b->heap->slotAt(cls, ao::kClassSlotName);
+        ASSERT_TRUE(name.isHeap());
+        EXPECT_EQ(b->wk->symbolClass, b->heap->klass(name));
+        EXPECT_EQ(b->wk->stringClass,
+                  b->heap->klass(b->heap->slotAt(b->heap->klass(cls), ao::kClassSlotName)));
+      },
+      &bag);
 }

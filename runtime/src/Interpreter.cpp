@@ -7,7 +7,6 @@
 #include "ao/HandleScope.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
-#include "ao/Symbol.hpp"
 
 #include <pthread.h>
 
@@ -638,7 +637,8 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
         if (!literalAt(ctx, frame->method, argb[0], &lit)) {
           return Oop{};
         }
-        stack.push(ctx.wk.named(Symbol::bytes(ctx.heap, lit)));
+        // SPEC §3.6: read at run time from Smalltalk, so a later at:put: or class is seen.
+        stack.push(ctx.wk.global(lit));
         break;
       }
       case compiler::Op::Pop: {

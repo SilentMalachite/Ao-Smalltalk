@@ -1,6 +1,7 @@
 #include "Session.hpp"
 
 #include "ao/Bootstrap.hpp"
+#include "ao/ClassPool.hpp"
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
@@ -174,13 +175,22 @@ int sessionImageSave(const char* path) {
   return Image::save(g_session->heap, g_session->roots, g_session->wk, path) ? 0 : 1;
 }
 
-int sessionImageLoad(const char* path) {
-  if (g_session == nullptr || path == nullptr) {
+int sessionImageLoad(const char* path, std::string* reason) {
+  auto fail = [reason](const char* why) {
+    if (reason != nullptr && reason->empty()) {
+      *reason = why;
+    }
     return 1;
+  };
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  if (g_session == nullptr || path == nullptr) {
+    return fail("image load failed");
   }
   auto next = std::make_unique<Session>(false);
-  if (!Image::load(next->heap, next->roots, next->wk, path)) {
-    return 1;
+  if (!Image::load(next->heap, next->roots, next->wk, path, reason)) {
+    return fail("image load failed");
   }
   HostOopHook transcript = nullptr;
   HostOopHook inspect = nullptr;
@@ -190,13 +200,13 @@ int sessionImageLoad(const char* path) {
   }
   installEmptyCache(*next, transcript, inspect);
   if (!installEmptyWorkspace(*next)) {
-    return 1;
+    return fail("image load failed");
   }
   // SPEC §3.10: the natives and the probes run on the new session. Only when both pass does it
   // replace the current one; otherwise the current session stays as it was.
   ensureKernelNatives(*next);
   if (!loadedImageProbes(*next)) {
-    return 1;
+    return fail("image probes failed");
   }
   g_session = std::move(next);
   clearMethodSources();
@@ -231,7 +241,6 @@ void ensureKernelNatives(Session& s) {
   // SPEC §3.10: add the Kernel natives the image lacks (those added after it was saved) and keep
   // every method it has.
   kernel::installMissing(s.heap, s.roots, s.wk, s.cache.get());
-  Globals::adoptImageClass(s.heap, s.wk);
   // SPEC §3.5: installMissing may have added one of the eight; a kept user method may hide one.
   s.wk.checkSmallIntegerFastPath();
 }
@@ -327,6 +336,22 @@ std::string instVarList(Heap& heap, Oop cls) {
       out.push_back(' ');
     }
     out += one;
+  }
+  return out;
+}
+
+// SPEC §3.10: the class's own class variables (its classPool's names, not the superclasses'), in
+// order, one blank apart.
+std::string classVarList(Heap& heap, Oop cls) {
+  if (!pointerSlots(heap, cls, kClassSlotClassPool + 1)) {
+    return {};
+  }
+  std::string out;
+  for (const std::string& name : ClassPool::names(heap, heap.slotAt(cls, kClassSlotClassPool))) {
+    if (!out.empty()) {
+      out.push_back(' ');
+    }
+    out += name;
   }
   return out;
 }
@@ -506,7 +531,9 @@ std::string definitionOf(Session& s, const ClassRow& row) {
   text += row.name;
   text += "\n  instanceVariableNames: '";
   text += instVarList(s.heap, row.cls);
-  text += "'\n  classVariableNames: ''\n  poolDictionaries: ''\n  category: '";
+  text += "'\n  classVariableNames: '";
+  text += classVarList(s.heap, row.cls);
+  text += "'\n  poolDictionaries: ''\n  category: '";
   text += definitionCategory(s.heap, row.cls);
   text += "'";
   return text;
@@ -540,38 +567,17 @@ struct NameBag {
   std::vector<std::string>* names = nullptr;
 };
 
-void collectClassGlobal(void* baton, Oop cls) {
-  auto* bag = static_cast<NameBag*>(baton);
-  if (bag->heap == nullptr || bag->names == nullptr ||
-      !pointerSlots(*bag->heap, cls, kClassSlotName + 1)) {
-    return;
-  }
-  const Oop name = bag->heap->slotAt(cls, kClassSlotName);
-  if (!name.isHeap() || (bag->heap->flags(name) & kFlagBytes) == 0) {
-    return;
-  }
-  bag->names->push_back(byteText(*bag->heap, name));
-}
-
-void collectExtraGlobal(void* baton, std::string_view name, Oop) {
-  auto* bag = static_cast<NameBag*>(baton);
-  if (bag->names != nullptr) {
-    bag->names->emplace_back(name);
-  }
-}
-
+// SPEC §3.10: the keys of Smalltalk, the fixed globals and those subclass: and at:put: added.
 void collectKnownGlobals(Session& session, std::vector<std::string>* names) {
   names->clear();
-  for (std::uint32_t i = 0; i < Globals::kSmalltalkCount; ++i) {
-    const char* name = Globals::nameAt(i);
-    if (name != nullptr) {
-      names->emplace_back(name);
-    }
-  }
-  names->emplace_back("Smalltalk");
   NameBag bag{&session.heap, names};
-  session.wk.eachExtra(collectExtraGlobal, &bag);
-  session.wk.eachClass(collectClassGlobal, &bag);
+  Globals::each(
+      session.wk,
+      [](void* baton, Oop key, Oop) {
+        auto* b = static_cast<NameBag*>(baton);
+        b->names->push_back(byteText(*b->heap, key));
+      },
+      &bag);
 }
 
 // SPEC §3.10: cached, and rebuilt only after a class definition or Smalltalk at:put:.
@@ -841,6 +847,18 @@ bool methodSource(Oop method, std::string& utf8) {
     }
   }
   return false;
+}
+
+std::vector<const Oop*> methodSourceRootSlots() {
+  std::vector<const Oop*> slots;
+  if (Session* s = session()) {
+    slots.reserve(2 * s->methodSources.size());
+    for (const auto& pair : s->methodSources) {
+      slots.push_back(&pair->method);
+      slots.push_back(&pair->text);
+    }
+  }
+  return slots;
 }
 
 void clearMethodSources() {

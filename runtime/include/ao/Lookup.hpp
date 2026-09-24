@@ -56,6 +56,13 @@ bool chainIncludes(const Heap& heap, Oop start, Oop target);
 // 鎖のクラスを根（Object）の側から並べる。すでに通ったクラスに戻ったところ（循環）で切る。
 std::vector<Oop> superclassChainFromRoot(const Heap& heap, Oop start);
 
+// SPEC §3.6: cls のインスタンスの名前付きスロットの名前を、添字の順に並べる。鎖を根の側からたどり、
+// 各クラスは自分の instSize が 1 つ前のクラスより増えた分のスロットに、自分の instVarNames を先頭から
+// 当てる。名前の無いスロットは空の Oop である。名前が足りなくなるのは、ユーザーがクラスの
+// instVarNames を変えたとき（`instVarAt: 8 put: nil` など）だけである（旧形式のイメージはロードで
+// 拒否する）。増えた分より多い名前は使わない。生の Oop を返すので、使い終わるまで GC を起こさないこと。
+std::vector<Oop> namedSlotNames(const Heap& heap, Oop cls);
+
 Oop lookup(Heap& heap, Oop startClass, Oop selector);
 
 }  // namespace ao

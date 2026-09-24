@@ -42,7 +42,8 @@ Session* session();
 int sessionBoot();
 int sessionShutdown();
 int sessionImageSave(const char* path);
-int sessionImageLoad(const char* path);
+// SPEC §3.10: nonzero when the load or its probes fail; *reason (when given) then says why.
+int sessionImageLoad(const char* path, std::string* reason = nullptr);
 int sessionFileInLoadOrder(const char* path);
 int sessionWorkspaceReset();
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
@@ -53,6 +54,10 @@ void rememberMethodSource(Oop method, Oop text, Oop replaced);
 // names `to` from now on. False when `from` has no source.
 bool moveMethodSource(Oop from, Oop to);
 bool methodSource(Oop method, std::string& utf8);
+// The root slots the method source table adds, each method's and its text's. The table is session
+// state no Smalltalk object reaches, so a trace for what is alive (SPEC §3.9) does not start from
+// them. Empty outside a session.
+std::vector<const Oop*> methodSourceRootSlots();
 void clearMethodSources();
 void ensureKernelNatives(Session& s);
 

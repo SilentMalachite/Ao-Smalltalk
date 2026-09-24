@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -53,7 +54,7 @@ TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
   ASSERT_EQ(AO_OK, ao_image_save(path));
   ao_runtime_shutdown();
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  ASSERT_EQ(AO_OK, ao_image_load(path));
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
   char out[64];
   ASSERT_EQ(AO_OK, ao_eval("P9Foo new foo", 13, AO_EVAL_PRINTIT, out, 64, &err));
   EXPECT_STREQ("nil", out);
@@ -380,8 +381,8 @@ TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   EXPECT_EQ(before, ao_browser_class_count());
   char buf[256];
   EXPECT_EQ(AO_ERR, ao_browser_class_definition("B3Pq", buf, 256));
-  ASSERT_EQ(AO_OK, printIt("(Smalltalk at: #B3Zz) isNil")) << err.message;
-  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("Smalltalk includesKey: #B3Zz")) << err.message;
+  EXPECT_STREQ("false", out);
   // 末尾の `.` だけなら受け付ける。
   ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B3Pq instanceVariableNames: '' "
                                    "classVariableNames: '' poolDictionaries: '' category: 'P'.\n",
@@ -1087,5 +1088,1169 @@ TEST(AcceptAbi, AcceptClassStopsAtRefusedDefinitionKeepingEarlierChunks) {
   EXPECT_EQ(1, ao_browser_selector_count("B5First", 0, "user"));
   EXPECT_EQ("<missing>", b5Category("B5Third"));
   EXPECT_EQ(AO_ERR_EVAL, printIt("B5First new two"));
+  ao_runtime_shutdown();
+}
+
+// B4 (docs/claude-review/05 Critical) / SPEC §3.6: 失敗シナリオ。OrderedCollection のサブクラスが
+// 足す x は、親の 3 つのスロット（array firstIndex lastIndex）の後ろに置かれる。getX は内部配列では
+// なく x を返す。x y z に文字列と整数を入れても、add: は親のスロットを読んで動く。
+TEST(AcceptAbi, KernelSubclassVariablesFollowParentSlots) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "R5OC", "x", "B4-Test").c_str(),
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OC", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("R5OC new getX")) << err.message;
+  EXPECT_STREQ("nil", out);
+  ASSERT_EQ(AO_OK, printIt("R5OC new instVarNamed: #x")) << err.message;
+  EXPECT_STREQ("nil", out);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(
+                       b5Definition("OrderedCollection", "R5OCz", "x y z", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OCz", 0,
+                                    "fill\n  x := 'ab'. y := 1000000. z := 1000000\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OCz", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("r := R5OCz new. r fill. r add: 7. r add: 8. r size")) << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, printIt("r at: 2")) << err.message;
+  EXPECT_STREQ("8", out);
+  ASSERT_EQ(AO_OK, printIt("r getX")) << err.message;
+  EXPECT_STREQ("'ab'", out);
+  ASSERT_EQ(AO_OK, printIt("r instVarAt: 6")) << err.message;
+  EXPECT_STREQ("1000000", out);
+  ao_runtime_shutdown();
+}
+
+// B4 (docs/claude-review/04「既報との関係」) / SPEC §3.6: Kernel クラスのスロットは名前を持つ。
+// instVarNamed: は見つけ、Accept したメソッドはグローバルではなくスロットを読む。
+TEST(AcceptAbi, KernelClassSlotsHaveNames) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) instVarNamed: #key")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) instVarNamed: #value")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Association", 0, "probeKey\n  ^key\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) probeKey")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Point", 0, "probeY\n  ^y\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("(Point x: 3 y: 4) probeY")) << err.message;
+  EXPECT_STREQ("4", out);
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.6 / §3.9: 形を変える再 Accept も、Kernel の親のスロットの後ろに変数を置く。親を
+// Object に替える定義は、親のスロットの名前（firstIndex）を読むメソッドがあれば拒む。
+TEST(AcceptAbi, ShapeChangeUnderKernelSuperclassKeepsParentSlots) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "B4Re", "x", "B4-Test").c_str(),
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Re", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Re", 0, "setX: v\n  x := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Re", 0, "readFirst\n  ^firstIndex\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(
+                       b5Definition("OrderedCollection", "B4Re", "w x", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("b := B4Re new setX: 5. b add: 9. b getX")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("b instVarAt: 5")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("b size")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("b readFirst")) << err.message;
+  EXPECT_STREQ("1", out);
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("Object", "B4Re", "w x", "B4-Test").c_str(), &e));
+  EXPECT_STREQ("shape change refused: B4Re>>readFirst refers to removed instance variable "
+               "firstIndex",
+               e.message);
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.6: 名前を持たない Kernel クラス（instVarAt: 8 put: nil で instVarNames を消した
+// もの）でも、サブクラスの変数は親のスロットと重ならない。名前の無いスロットはソースから読めない（firstIndex はグローバルになる）。
+// チャンクの file-in、Accept、形を変える再 Accept の 3 経路とも同じ。
+TEST(AcceptAbi, UnnamedKernelSlotsKeepSubclassVariablesApart) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, printIt("OrderedCollection instVarAt: 8 put: nil. 0")) << err.message;
+  const std::string chunks = b5Definition("OrderedCollection", "B4Chunk", "x", "B4-Test") + "!\n" +
+                             "!B4Chunk methodsFor: 'b4'!\nsetX: v\n  x := v!\ngetX\n  ^x! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(chunks.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("c := B4Chunk new setX: 4. c add: 9. c getX")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, printIt("c instVarAt: 4")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, printIt("c size")) << err.message;
+  EXPECT_STREQ("1", out);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "B4Old", "x", "B4-Test").c_str(),
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Old", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Old", 0, "setX: v\n  x := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4Old", 0, "readFirst\n  ^firstIndex\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("o := B4Old new setX: 5. o add: 9. o getX")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("o instVarAt: 4")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("o instVarNamed: #x")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("o size")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("o readFirst")) << err.message;
+  EXPECT_STREQ("nil", out);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(
+                       b5Definition("OrderedCollection", "B4Old", "w x", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("p := B4Old new setX: 6. p add: 9. p getX")) << err.message;
+  EXPECT_STREQ("6", out);
+  ASSERT_EQ(AO_OK, printIt("p instVarAt: 5")) << err.message;
+  EXPECT_STREQ("6", out);
+  ASSERT_EQ(AO_OK, printIt("p size")) << err.message;
+  EXPECT_STREQ("1", out);
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.6: 保存して読み直したイメージでも、Kernel クラスの名前は残る。読み直す前に
+// コンパイルしたメソッドも、あとでコンパイルするメソッドも、親のスロットの後ろの x を読む。
+TEST(AcceptAbi, KernelSlotNamesSurviveImageSaveAndLoad) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "R5OC", "x", "B4-Test").c_str(),
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OC", 0, "getX\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("Association", 0, "probeKey\n  ^key\n", &err)) << err.message;
+  const char* path = "b4-kernel-slots.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
+  std::remove(path);
+
+  ASSERT_EQ(AO_OK, ao_accept_method("R5OC", 0, "setX: v\n  x := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("r := R5OC new setX: 5. r add: 9. r getX")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("r size")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) instVarNamed: #key")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) probeKey")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Association", 0, "probeValue\n  ^value\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("(Association key: 3 value: 4) probeValue")) << err.message;
+  EXPECT_STREQ("4", out);
+  ao_runtime_shutdown();
+}
+
+// B4 (docs/claude-review/04 Low) / SPEC §3.6: バイト列のクラスに名前付き変数を足す定義はエラーで、
+// クラスを作らない。定義メッセージを評価しても同じ理由で中断する。変数の無いサブクラスは作れる。
+TEST(AcceptAbi, BytesSuperclassRefusesInstanceVariables) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  char defn[512];
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("String", "PJ", "tag", "B4-Test").c_str(), &e));
+  EXPECT_STREQ("subclass failed: PJ: bytes class cannot have instance variables", e.message);
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition("PJ", defn, 512));
+
+  EXPECT_EQ(AO_ERR_EVAL, printIt("ByteArray subclass: #PJ2 instanceVariableNames: 'a b' "
+                                 "classVariableNames: '' poolDictionaries: '' category: 'B4-Test'"));
+  EXPECT_STREQ("bytes class cannot have instance variables", err.message);
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition("PJ2", defn, 512));
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("String", "PJ3", "", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("PJ3 isBytes")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("(PJ3 new: 2) size")) << err.message;
+  EXPECT_STREQ("2", out);
+  ao_runtime_shutdown();
+}
+
+// B4 (docs/claude-review/01 High) / SPEC §3.6: 失敗シナリオ。Kernel クラスの名前は intern した Symbol
+// で、メッセージが届く。メタクラスの name は thisClass の名前に ' class' を続けた String で、Kernel
+// クラスもユーザークラスも同じ規則。保存して読み直したイメージでも同じ。
+TEST(AcceptAbi, ClassNamesAreSymbolsAndMetaclassNamesFollowThem) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "B4Named", "", "B4-Test").c_str(), &err))
+      << err.message;
+  const struct {
+    const char* source;
+    const char* printed;
+  } checks[] = {
+      {"Object name == #Object", "true"},
+      {"Object name size", "6"},
+      {"3 class name == #SmallInteger", "true"},
+      {"Metaclass name == #Metaclass", "true"},
+      {"B4Named name == #B4Named", "true"},
+      {"Object class name", "'Object class'"},
+      {"Object class name class == String", "true"},
+      {"B4Named class name", "'B4Named class'"},
+      {"B4Named class name class == String", "true"},
+      {"Metaclass class name", "'Metaclass class'"},
+      {"Object class class name == #Metaclass", "true"},
+  };
+  auto expectChecks = [&](const char* when) {
+    for (const auto& c : checks) {
+      ASSERT_EQ(AO_OK, printIt(c.source)) << when << ": " << c.source << ": " << err.message;
+      EXPECT_STREQ(c.printed, out) << when << ": " << c.source;
+    }
+  };
+  expectChecks("booted");
+  const char* path = "b4-class-names.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
+  std::remove(path);
+  expectChecks("loaded");
+  ao_runtime_shutdown();
+}
+
+// 01 Medium / 00 High / SPEC §3.6: Smalltalk は SmalltalkImage で、名前（Symbol）から値への辞書を
+// 持つ。Workspace も Accept したメソッドも、グローバルの名前を実行時にこの辞書で引くので、Accept が
+// 先でも後でも Smalltalk at:put: の値を読む。subclass: で作ったクラスと at:put: で足した名前は辞書に
+// 入り、保存して読み直しても残る。
+TEST(AcceptAbi, SmalltalkIsTheGlobalDictionary) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto run = [&](const char* src, int mode) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), mode, out, 128, &err);
+  };
+  auto printIt = [&](const char* src) { return run(src, AO_EVAL_PRINTIT); };
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "probeB4ZapEarly\n  ^Zap\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("3 probeB4ZapEarly")) << err.message;
+  EXPECT_STREQ("nil", out);
+  ASSERT_EQ(AO_OK, printIt("Smalltalk at: #Zap put: 3")) << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "probeB4ZapLate\n  ^Zap\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "probeStIsNil\n  ^Smalltalk isNil\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, run(b5Definition("Object", "B4Reg", "", "B4-Test").c_str(), AO_EVAL_DOIT))
+      << err.message;
+  const struct {
+    const char* source;
+    const char* printed;
+  } checks[] = {
+      {"Smalltalk isNil", "false"},
+      {"Smalltalk class == SmalltalkImage", "true"},
+      {"3 probeStIsNil", "false"},
+      {"(Smalltalk at: #Object) == Object", "true"},
+      {"(Smalltalk at: 'Object') == Object", "true"},
+      {"(Smalltalk at: #Smalltalk) == Smalltalk", "true"},
+      {"(Smalltalk at: #Processor) == Processor", "true"},
+      {"Smalltalk includesKey: #Nope", "false"},
+      {"Smalltalk includesKey: #Object", "true"},
+      {"Smalltalk includesKey: 3", "false"},
+      {"Smalltalk at: #Nope ifAbsent: [7]", "7"},
+      {"(Smalltalk at: #Object ifAbsent: [7]) == Object", "true"},
+      {"Zap", "3"},
+      {"Smalltalk at: #Zap", "3"},
+      {"3 probeB4ZapEarly", "3"},
+      {"3 probeB4ZapLate", "3"},
+      {"Smalltalk includesKey: #B4Reg", "true"},
+      {"(Smalltalk at: #B4Reg) == B4Reg", "true"},
+      {"B4Reg new class == B4Reg", "true"},
+  };
+  const struct {
+    const char* source;
+    const char* reason;
+  } failures[] = {
+      {"Smalltalk at: #Nope", "key not found: #Nope"},
+      {"Smalltalk at: 3", "key not found"},
+      {"Smalltalk at: #Object put: 3", "cannot rebind Kernel global: Object"},
+      {"Smalltalk at: #Smalltalk put: 3", "cannot rebind Kernel global: Smalltalk"},
+      {"Smalltalk at: #Processor put: 3", "cannot rebind Kernel global: Processor"},
+      {"Smalltalk at: 3 put: 4", "key must be a Symbol or String"},
+  };
+  auto expectChecks = [&](const char* when) {
+    for (const auto& c : checks) {
+      ASSERT_EQ(AO_OK, printIt(c.source)) << when << ": " << c.source << ": " << err.message;
+      EXPECT_STREQ(c.printed, out) << when << ": " << c.source;
+    }
+    for (const auto& f : failures) {
+      EXPECT_EQ(AO_ERR_EVAL, printIt(f.source)) << when << ": " << f.source;
+      EXPECT_STREQ(f.reason, err.message) << when << ": " << f.source;
+    }
+    // 拒んだ at:put: は何も変えない。
+    ASSERT_EQ(AO_OK, printIt("(Smalltalk at: #Object) == Object")) << err.message;
+    EXPECT_STREQ("true", out) << when;
+    ASSERT_EQ(AO_OK, printIt("Smalltalk class == SmalltalkImage")) << err.message;
+    EXPECT_STREQ("true", out) << when;
+  };
+  expectChecks("booted");
+  const char* path = "b4-smalltalk-dictionary.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
+  std::remove(path);
+  expectChecks("loaded");
+  // 読み直したあとも、メソッドは実行時の値を読む。
+  ASSERT_EQ(AO_OK, printIt("Smalltalk at: #Zap put: 4")) << err.message;
+  ASSERT_EQ(AO_OK, printIt("3 probeB4ZapEarly")) << err.message;
+  EXPECT_STREQ("4", out);
+  ASSERT_EQ(AO_OK, printIt("Zap")) << err.message;
+  EXPECT_STREQ("4", out);
+  ao_runtime_shutdown();
+}
+
+namespace {
+
+// A class definition message with class variables, for ao_accept_class.
+std::string b4Definition(const char* superName, const char* name, const char* instVars,
+                         const char* classVars, const char* category = "B4-Test") {
+  std::string def = superName;
+  def += " subclass: #";
+  def += name;
+  def += "\n  instanceVariableNames: '";
+  def += instVars;
+  def += "'\n  classVariableNames: '";
+  def += classVars;
+  def += "'\n  poolDictionaries: ''\n  category: '";
+  def += category;
+  def += "'\n";
+  return def;
+}
+
+struct Check {
+  const char* source;
+  const char* printed;
+};
+
+// Prints each source in turn and expects its printString. The checks run in order, so a later
+// one sees what an earlier one did.
+void expectPrints(const std::vector<Check>& checks, const char* when = "") {
+  for (const Check& c : checks) {
+    char out[128];
+    AoSpan err{};
+    ASSERT_EQ(AO_OK, ao_eval(c.source, static_cast<int>(std::strlen(c.source)), AO_EVAL_PRINTIT,
+                             out, 128, &err))
+        << when << ": " << c.source << ": " << err.message;
+    EXPECT_STREQ(c.printed, out) << when << ": " << c.source;
+  }
+}
+
+// Accepts each method source on the given side of className.
+void acceptMethods(const char* className, int meta, const std::vector<const char*>& sources) {
+  for (const char* src : sources) {
+    AoSpan err{};
+    ASSERT_EQ(AO_OK, ao_accept_method(className, meta, src, &err))
+        << className << (meta ? " class" : "") << ": " << src << ": " << err.message;
+  }
+}
+
+}  // namespace
+
+// B4 (docs/claude-review/05 High, 04「既報との関係」) / SPEC §3.6, §3.8: 失敗シナリオ。
+// classVariableNames: 'Count' のクラスで bump Count := 1 を Accept でき（cannot assign にならない）、
+// count ^Count がそのあと 1 を返す。ブロックの中、展開したブロックの中の読み書きも同じ変数である。
+// classPool は名前から束縛（Association）への Dictionary で、束縛の value がクラス変数の値。
+// 束縛はメソッドと共有する。名前は Smalltalk に登録しない。
+TEST(AcceptAbi, ClassVariablesAreReadAndWrittenByMethods) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CV", "", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CV", 0,
+                {"bump\n  Count := 1\n", "count\n  ^Count\n", "incr\n  ^Count := Count + 1\n",
+                 "blockSet: v\n  [:w | Count := w] value: v\n",
+                 "inlined\n  Count isNil ifFalse: [Count := Count * 10].\n  ^Count\n"});
+  expectPrints({
+      {"B4CV new count", "nil"},
+      {"B4CV new bump; count", "1"},
+      {"B4CV new count", "1"},
+      {"B4CV new incr", "2"},
+      {"B4CV new blockSet: 7; count", "7"},
+      {"B4CV new inlined", "70"},
+      {"B4CV classPool class == Dictionary", "true"},
+      {"B4CV classPool size", "1"},
+      {"(B4CV classPool at: #Count) class == Association", "true"},
+      {"(B4CV classPool at: #Count) key == #Count", "true"},
+      {"(B4CV classPool at: #Count) value", "70"},
+      {"(B4CV classPool at: #Count) value: 3. B4CV new count", "3"},
+      {"Smalltalk includesKey: #Count", "false"},
+      {"(B4CV class instVarNamed: #classPool) isNil", "true"},
+      {"Object classPool isNil", "true"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.6: サブクラスのメソッドは親のクラス変数を読み書きし、親と同じ値を共有する。
+// クラス側のメソッドで書いた値をインスタンス側で読め、その逆もできる。サブクラスの classPool には
+// 自分のクラス変数だけがある。
+TEST(AcceptAbi, SubclassesAndClassSideShareClassVariables) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvSup", "", "Shared").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4CvSup", "B4CvSub", "", "Own").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvSup", 0, {"shared\n  ^Shared\n", "shared: v\n  Shared := v\n"});
+  acceptMethods("B4CvSup", 1, {"setShared: v\n  Shared := v\n"});
+  acceptMethods("B4CvSub", 0,
+                {"subShared\n  ^Shared\n", "subShared: v\n  Shared := v\n", "own\n  ^Own\n"});
+  acceptMethods("B4CvSub", 1, {"classShared\n  ^Shared\n", "classOwn: v\n  Own := v\n"});
+  expectPrints({
+      {"B4CvSub new subShared: 3. B4CvSup new shared", "3"},
+      {"B4CvSup new shared: 4. B4CvSub new subShared", "4"},
+      {"B4CvSub classShared", "4"},
+      {"B4CvSup setShared: 5. B4CvSub new subShared", "5"},
+      {"B4CvSub classOwn: 6. B4CvSub new own", "6"},
+      {"(B4CvSup classPool at: #Shared) value", "5"},
+      {"B4CvSub classPool includesKey: #Shared", "false"},
+      {"(B4CvSub classPool at: #Own) value", "6"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.8: 解決順はローカル → インスタンス変数 → 擬変数 → クラス変数 → グローバル。同じ名前の
+// グローバル（Smalltalk at: #Count put: 99）があっても、メソッドの Count はクラス変数を読む。temp と
+// 引数はクラス変数を隠す。クラス側では Behavior の枠の名前（name）がクラス変数を隠す。
+TEST(AcceptAbi, ClassVariablesResolveBetweenLocalsAndGlobals) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("Object", "B4CvOrd", "", "Count name").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvOrd", 0,
+                {"count\n  ^Count\n", "count: v\n  Count := v\n",
+                 "temp\n  | Count |\n  Count := 5.\n  ^Count\n", "arg: Count\n  ^Count\n",
+                 "blockArg\n  ^[:Count | Count] value: 8\n", "name\n  ^name\n",
+                 "name: v\n  name := v\n"});
+  acceptMethods("B4CvOrd", 1, {"probeName\n  ^name\n"});
+  expectPrints({{"Smalltalk at: #Count put: 99", "99"}});
+  acceptMethods("B4CvOrd", 0, {"countLate\n  ^Count\n"});
+  expectPrints({
+      {"B4CvOrd new count: 1; count", "1"},
+      {"B4CvOrd new countLate", "1"},
+      {"Count", "99"},
+      {"B4CvOrd new temp", "5"},
+      {"B4CvOrd new arg: 7", "7"},
+      {"B4CvOrd new blockArg", "8"},
+      {"B4CvOrd new count", "1"},
+      {"B4CvOrd new name: 4; name", "4"},
+      {"B4CvOrd probeName == #B4CvOrd", "true"},
+      {"(B4CvOrd classPool at: #name) value", "4"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.9: 形が同じ再 Accept でクラス変数を足しても、クラスは同じで、残る名前の束縛と値は
+// そのまま。既存メソッドは同じ値を読む。定義テキストは自分のクラス変数を並べ、それを Accept し直しても
+// 値は変わらない。
+TEST(AcceptAbi, ReacceptSameShapeKeepsClassVariableBindings) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvRe", "a", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvRe", 0, {"count\n  ^Count\n", "count: v\n  Count := v\n"});
+  acceptMethods("B4CvRe", 1, {"classCount\n  ^Count\n"});
+  expectPrints({{"oldRe := B4CvRe. oldBinding := B4CvRe classPool at: #Count. B4CvRe new count: 7; "
+                 "count",
+                 "7"}});
+
+  ASSERT_EQ(AO_OK, ao_accept_class(
+                       b4Definition("Object", "B4CvRe", "a", " Count  Total ", "B4-New").c_str(), &err))
+      << err.message;
+  EXPECT_EQ("B4-New", b5Category("B4CvRe"));
+  acceptMethods("B4CvRe", 0, {"total\n  ^Total\n", "total: v\n  Total := v\n"});
+  expectPrints({
+      {"oldRe == B4CvRe", "true"},
+      {"B4CvRe new count", "7"},
+      {"B4CvRe classCount", "7"},
+      {"(B4CvRe classPool at: #Count) == oldBinding", "true"},
+      {"B4CvRe new total", "nil"},
+      {"B4CvRe new total: 3; total", "3"},
+      {"B4CvRe new count: 8. B4CvRe classCount", "8"},
+      {"B4CvRe classPool size", "2"},
+  });
+  const std::string shown = b5ClassDefinition("B4CvRe");
+  EXPECT_NE(shown.find("classVariableNames: 'Count Total'"), std::string::npos) << shown;
+  ASSERT_EQ(AO_OK, ao_accept_class(shown.c_str(), &err)) << err.message;
+  expectPrints({
+      {"oldRe == B4CvRe", "true"},
+      {"B4CvRe new count", "8"},
+      {"B4CvRe new total", "3"},
+      {"(B4CvRe classPool at: #Count) == oldBinding", "true"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.9: 形が同じ再 Accept で、消えるクラス変数の束縛をメソッドが持っていれば（読みも代入も、
+// ブロックの中も、クラス側も、ソースの無いメソッドも、サブクラスのメソッドも）、何も変えずに
+// AO_ERR_COMPILE。どのメソッドも使っていなければ、その名前を classPool から除く。
+TEST(AcceptAbi, ReacceptRefusesDroppingClassVariableAMethodHolds) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  struct Case {
+    const char* name;
+    const char* superName;
+    const char* methodClass;
+    int meta;
+    const char* source;
+    const char* expected;
+  };
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("Object", "B4CvRmSup", "", "Keep Gone").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4CvRmSup", "B4CvRmSub", "", "").c_str(), &err))
+      << err.message;
+  const Case cases[] = {
+      {"B4CvRmRead", "Object", "B4CvRmRead", 0, "gone\n  ^Gone\n",
+       "class variable change refused: B4CvRmRead>>gone refers to removed class variable Gone"},
+      {"B4CvRmBlock", "Object", "B4CvRmBlock", 0, "gone: v\n  [Gone := v] value\n",
+       "class variable change refused: B4CvRmBlock>>gone: refers to removed class variable Gone"},
+      {"B4CvRmSide", "Object", "B4CvRmSide", 1, "gone\n  ^Gone\n",
+       "class variable change refused: B4CvRmSide class>>gone refers to removed class variable "
+       "Gone"},
+      {"B4CvRmSup", "Object", "B4CvRmSub", 0, "gone\n  ^Gone\n",
+       "class variable change refused: B4CvRmSub>>gone refers to removed class variable Gone"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    if (std::string(c.name) != "B4CvRmSup") {
+      ASSERT_EQ(AO_OK,
+                ao_accept_class(b4Definition(c.superName, c.name, "", "Keep Gone").c_str(), &err))
+          << err.message;
+    }
+    ASSERT_EQ(AO_OK, ao_accept_method(c.methodClass, c.meta, c.source, &err)) << err.message;
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE,
+              ao_accept_class(b4Definition(c.superName, c.name, "", "Keep", "B4-Other").c_str(), &e));
+    EXPECT_STREQ(c.expected, e.message);
+    EXPECT_EQ("B4-Test", b5Category(c.name));
+    const std::string probe = std::string(c.name) + " classPool includesKey: #Gone";
+    expectPrints({{probe.c_str(), "true"}});
+  }
+  expectPrints({{"B4CvRmRead new gone", "nil"}, {"B4CvRmSide gone", "nil"}});
+
+  // A method file-in put in has no source; it holds the binding all the same.
+  const std::string chunks = b4Definition("Object", "B4CvRmChunk", "", "Keep Gone") +
+                             "!\n!B4CvRmChunk methodsFor: 'b4'!\ngone\n  ^Gone! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(chunks.c_str(), &err)) << err.message;
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4CvRmChunk", "", "Keep").c_str(), &e));
+  EXPECT_STREQ("class variable change refused: B4CvRmChunk>>gone refers to removed class variable Gone",
+               e.message);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvDrop", "", "A B").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvDrop", 0, {"a\n  ^A\n", "a: v\n  A := v\n", "sendsB\n  ^self b\n"});
+  expectPrints({{"B4CvDrop new a: 2; a", "2"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvDrop", "", "A", "B4-New").c_str(),
+                                   &err))
+      << err.message;
+  EXPECT_EQ("B4-New", b5Category("B4CvDrop"));
+  expectPrints({
+      {"B4CvDrop classPool includesKey: #B", "false"},
+      {"B4CvDrop classPool size", "1"},
+      {"B4CvDrop new a", "2"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.9: 形が変わる再 Accept（インスタンス変数を足す）のあとも、クラス変数の値は残る。
+// 新しいクラスは旧クラスの束縛をそのまま使うので、旧クラスのインスタンスとも値を共有する。
+TEST(AcceptAbi, ShapeChangeKeepsClassVariableBindings) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("Object", "B4CvShape", "x", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvShape", 0,
+                {"count\n  ^Count\n", "count: v\n  Count := v\n", "x\n  ^x\n", "x: v\n  x := v\n"});
+  acceptMethods("B4CvShape", 1, {"classCount\n  ^Count\n"});
+  expectPrints({{"oldShape := B4CvShape. oldInst := B4CvShape new. oldBinding := B4CvShape "
+                 "classPool at: #Count. oldInst count: 5; count",
+                 "5"}});
+
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("Object", "B4CvShape", "w x", "Count Extra").c_str(), &err))
+      << err.message;
+  expectPrints({
+      {"oldShape == B4CvShape", "false"},
+      {"B4CvShape new count", "5"},
+      {"B4CvShape classCount", "5"},
+      {"(B4CvShape classPool at: #Count) == oldBinding", "true"},
+      {"(B4CvShape classPool at: #Extra) value", "nil"},
+      {"B4CvShape new count: 6. oldInst count", "6"},
+      {"oldInst count: 7. B4CvShape classCount", "7"},
+      {"(B4CvShape new x: 3; yourself) x", "3"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.9: 形が変わる再 Accept で、旧クラスから見えて新しい定義から見えないクラス変数を
+// メソッドが読めば拒む。代入はコンパイルし直しの失敗。クラス側、ブロックの中、スーパークラスの
+// クラス変数も数える。名前は旧クラスを指したまま。
+TEST(AcceptAbi, ShapeChangeRefusesMethodReadingRemovedClassVariable) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  for (const std::string& sup : {b4Definition("Object", "B4CvShOldSup", "", "Inh"),
+                                 b4Definition("Object", "B4CvShNewSup", "", "")}) {
+    ASSERT_EQ(AO_OK, ao_accept_class(sup.c_str(), &err)) << err.message;
+  }
+  struct Case {
+    const char* name;
+    const char* oldSuper;
+    const char* newSuper;
+    int meta;
+    const char* source;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"B4CvShRead", "Object", "Object", 0, "count\n  ^Count\n",
+       "shape change refused: B4CvShRead>>count refers to removed class variable Count"},
+      {"B4CvShWrite", "Object", "Object", 0, "count: v\n  Count := v\n",
+       "shape change refused: B4CvShWrite>>count: does not compile: cannot assign"},
+      {"B4CvShSide", "Object", "Object", 1, "count\n  ^Count\n",
+       "shape change refused: B4CvShSide class>>count refers to removed class variable Count"},
+      {"B4CvShBlock", "Object", "Object", 0, "count\n  ^[[Count]] value value\n",
+       "shape change refused: B4CvShBlock>>count refers to removed class variable Count"},
+      {"B4CvShInh", "B4CvShOldSup", "B4CvShNewSup", 0, "inh\n  ^Inh\n",
+       "shape change refused: B4CvShInh>>inh refers to removed class variable Inh"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    ASSERT_EQ(AO_OK, ao_accept_class(b4Definition(c.oldSuper, c.name, "x", "Count").c_str(), &err))
+        << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method(c.name, c.meta, c.source, &err)) << err.message;
+    const std::string keep = std::string("oldSh := ") + c.name + ". oldSh == " + c.name;
+    expectPrints({{keep.c_str(), "true"}});
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE,
+              ao_accept_class(b4Definition(c.newSuper, c.name, "x y", "").c_str(), &e));
+    EXPECT_STREQ(c.expected, e.message);
+    const std::string same = std::string("oldSh == ") + c.name;
+    expectPrints({{same.c_str(), "true"}});
+  }
+  expectPrints({{"B4CvShRead new count", "nil"}, {"B4CvShSide count", "nil"}});
+  ao_runtime_shutdown();
+}
+
+// B4 review (Codex P2) / SPEC §3.9: 失敗シナリオ。superclass のクラス側の上書きが、名前を既存の別の
+// クラス（B4AtTarget。クラス変数 Count は 99）に付け替えてそれを答えると、その並びでは read が消える
+// インスタンス変数 gone を読むので拒否される。拒否されたら、答えたクラスの classPool も束縛も
+// メソッド辞書も変わらない（旧クラスの Count の束縛は移らず、99 のまま）。名前は旧クラスに戻る。
+TEST(AcceptAbi, RefusedShapeChangeLeavesTheAnsweredClassUntouched) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4AtSup", "", "").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4AtTarget", "", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4AtTarget", 1, {"count\n  ^Count\n", "count: v\n  Count := v\n"});
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b4Definition("B4AtSup", "B4AtVictim", "gone", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4AtVictim", 0, {"read\n  ^gone\n"});
+  acceptMethods("B4AtVictim", 1, {"count\n  ^Count\n", "count: v\n  Count := v\n"});
+  acceptMethods("B4AtSup", 1,
+                {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+                 "category: k\n  Smalltalk at: n put: B4AtTarget.\n  ^B4AtTarget\n"});
+  expectPrints({{"B4AtTarget count: 99. B4AtVictim count: 7. oldVictim := B4AtVictim. "
+                 "oldTargetPool := B4AtTarget instVarNamed: #classPool. oldTargetBinding := oldTargetPool at: "
+                 "#Count. oldVictimBinding := B4AtVictim classPool at: #Count. B4AtTarget count",
+                 "99"}});
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("B4AtSup", "B4AtVictim", "gone y", "Count").c_str(), &e));
+  EXPECT_STREQ("shape change refused: B4AtVictim>>read refers to removed instance variable gone",
+               e.message);
+  expectPrints({
+      {"oldVictim == B4AtVictim", "true"},
+      {"B4AtTarget count", "99"},
+      {"(B4AtTarget instVarNamed: #classPool) == oldTargetPool", "true"},
+      {"(B4AtTarget classPool at: #Count) == oldTargetBinding", "true"},
+      {"(B4AtTarget classPool at: #Count) value", "99"},
+      {"oldTargetBinding value", "99"},
+      {"B4AtTarget selectors size", "0"},
+      {"B4AtTarget class selectors size", "2"},
+      {"B4AtVictim count", "7"},
+      {"(B4AtVictim classPool at: #Count) == oldVictimBinding", "true"},
+      {"B4AtTarget count: 100. B4AtVictim count", "7"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 review (Codex P2) / SPEC §3.9: 失敗シナリオ。インスタンス変数 x を同じ名前のクラス変数に
+// 付け替える（ivar y、classvar x）と、x を読み書きしていたメソッドは、黙ってクラス変数を読み書き
+// するようになっていた。逆向き（classvar x を ivar x に）も同じ。変更前にコンパイルされたメソッドが
+// 何を読み書きしていたかで数えるので、読みも代入も拒否する。名前は旧クラスを指したまま。
+TEST(AcceptAbi, ShapeChangeRefusesMovingAVariableToTheOtherKind) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  struct Case {
+    const char* name;
+    const char* oldIvars;
+    const char* oldCvars;
+    const char* newIvars;
+    const char* newCvars;
+    const char* source;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"B4KindIvRead", "x", "", "y", "x", "read\n  ^x\n",
+       "shape change refused: B4KindIvRead>>read refers to removed instance variable x"},
+      {"B4KindIvWrite", "x", "", "y", "x", "set: v\n  x := v\n",
+       "shape change refused: B4KindIvWrite>>set: refers to removed instance variable x"},
+      {"B4KindCvRead", "", "x", "x", "", "read\n  ^x\n",
+       "shape change refused: B4KindCvRead>>read refers to removed class variable x"},
+      {"B4KindCvWrite", "", "x", "x", "", "set: v\n  x := v\n",
+       "shape change refused: B4KindCvWrite>>set: refers to removed class variable x"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    ASSERT_EQ(AO_OK,
+              ao_accept_class(b4Definition("Object", c.name, c.oldIvars, c.oldCvars).c_str(), &err))
+        << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method(c.name, 0, c.source, &err)) << err.message;
+    const std::string keep = std::string("oldKind := ") + c.name + ". oldKind == " + c.name;
+    expectPrints({{keep.c_str(), "true"}});
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE,
+              ao_accept_class(b4Definition("Object", c.name, c.newIvars, c.newCvars).c_str(), &e));
+    EXPECT_STREQ(c.expected, e.message);
+    const std::string same = std::string("oldKind == ") + c.name;
+    expectPrints({{same.c_str(), "true"}});
+  }
+  // 旧クラスのメソッドは、今までどおり元の変数を読み書きする。
+  acceptMethods("B4KindIvRead", 0, {"set: v\n  x := v\n"});
+  acceptMethods("B4KindCvRead", 0, {"set: v\n  x := v\n"});
+  expectPrints({
+      {"(B4KindIvRead new set: 7; yourself) read", "7"},
+      {"B4KindIvRead new read", "nil"},
+      {"B4KindCvRead new set: 8. B4KindCvRead new read", "8"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 review (Codex P2) / SPEC §3.9: 失敗シナリオ。Smalltalk に束縛されていなくても、生きている
+// サブクラス（インスタンスが変数に残るクラス、形の変更で残った旧クラス）は「子孫すべて」に数える。
+// どこからも届かないクラス（メソッドのソースとメソッドのキャッシュからしか届かないもの）は数えない。
+TEST(AcceptAbi, ReacceptCountsLiveSubclassesThatNoNameBinds) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  // 名前を外したサブクラスのインスタンスが残っている。
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvPar", "", "Gone").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4LvPar", "B4LvChild", "", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvChild", 0, {"gone\n  ^Gone\n"});
+  expectPrints({{"(B4LvPar classPool at: #Gone) value: 42. survivor := B4LvChild new. Smalltalk "
+                 "at: #B4LvChild put: nil. survivor gone",
+                 "42"}});
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4LvPar", "", "", "B4-Other").c_str(), &e));
+  EXPECT_STREQ("class variable change refused: B4LvChild>>gone refers to removed class variable Gone",
+               e.message);
+  EXPECT_EQ("B4-Test", b5Category("B4LvPar"));
+  expectPrints({{"survivor gone", "42"}, {"B4LvPar classPool includesKey: #Gone", "true"}});
+  e = AoSpan{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4LvPar", "a", "Gone").c_str(), &e));
+  EXPECT_STREQ("shape change refused: B4LvPar has subclasses", e.message);
+  expectPrints({{"survivor class superclass == B4LvPar", "true"}});
+
+  // 形の変更で残った旧クラスのインスタンスが残っている。新しいクラスはもう Gone を使わない。
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvOld", "", "Gone").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4LvOld", "B4LvOldKid", "a", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvOldKid", 0, {"gone\n  ^Gone\n"});
+  expectPrints({{"(B4LvOld classPool at: #Gone) value: 43. oldKid := B4LvOldKid new. oldKid gone",
+                 "43"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4LvOld", "B4LvOldKid", "a b", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvOldKid", 0, {"gone\n  ^nil\n"});
+  expectPrints({{"oldKid class == B4LvOldKid", "false"}, {"B4LvOldKid new gone", "nil"}});
+  e = AoSpan{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4LvOld", "", "").c_str(), &e));
+  EXPECT_STREQ(
+      "class variable change refused: B4LvOldKid>>gone refers to removed class variable Gone",
+      e.message);
+  expectPrints({{"oldKid gone", "43"}});
+
+  // 形の変更で残った、そのクラス自身の旧クラス。束縛を今のクラスと共有する。
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvSelf", "", "Gone").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvSelf", 0, {"gone\n  ^Gone\n"});
+  expectPrints({{"(B4LvSelf classPool at: #Gone) value: 44. oldSelf := B4LvSelf new. oldSelf gone",
+                 "44"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvSelf", "a", "Gone").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvSelf", 0, {"gone\n  ^nil\n"});
+  e = AoSpan{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("Object", "B4LvSelf", "a", "").c_str(), &e));
+  EXPECT_STREQ("class variable change refused: B4LvSelf>>gone refers to removed class variable Gone",
+               e.message);
+  expectPrints({{"oldSelf gone", "44"}, {"B4LvSelf classPool includesKey: #Gone", "true"}});
+
+  // 何も届かないサブクラスは数えない。ソースの表とメソッドのキャッシュはメソッドを持つが、数えない。
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvGc", "", "Gone").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4LvGc", "B4LvGcKid", "", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4LvGcKid", 0, {"gone\n  ^Gone\n"});
+  expectPrints({{"tmp := B4LvGcKid new. tmp gone. tmp := nil. Smalltalk at: #B4LvGcKid put: nil. "
+                 "tmp",
+                 "nil"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvGc", "", "").c_str(), &err))
+      << err.message;
+  expectPrints({{"B4LvGc classPool includesKey: #Gone", "false"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4LvGc", "a", "").c_str(), &err))
+      << err.message;
+  ao_runtime_shutdown();
+}
+
+// B4 review (Claude L1) / SPEC §3.9: 失敗シナリオ。65 段に入れ子にしたブロックの中で使うクラス変数を
+// 消せていた（64 段で探索を打ち切り、未使用とみなしていた）。深さによらず数える。形が変わるときの
+// 消える変数の検査も同じ。
+TEST(AcceptAbi, ReacceptCountsVariablesInBlocksNestedAtAnyDepth) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  auto nested = [](const char* var, int depth) {
+    std::string src = "deep\n  ^";
+    for (int i = 0; i < depth; ++i) {
+      src += "[";
+    }
+    src += var;
+    for (int i = 0; i < depth; ++i) {
+      src += "] value";
+    }
+    return src + "\n";
+  };
+  struct Case {
+    const char* name;
+    const char* oldIvars;
+    const char* oldCvars;
+    const char* newIvars;
+    const char* newCvars;
+    const char* var;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"B4DeepDrop", "", "Keep Gone", "", "Keep", "Gone",
+       "class variable change refused: B4DeepDrop>>deep refers to removed class variable Gone"},
+      {"B4DeepShCv", "x", "Gone", "x y", "", "Gone",
+       "shape change refused: B4DeepShCv>>deep refers to removed class variable Gone"},
+      {"B4DeepShIv", "x y", "", "x", "", "y",
+       "shape change refused: B4DeepShIv>>deep refers to removed instance variable y"},
+  };
+  for (const Case& c : cases) {
+    for (const int depth : {64, 65, 130}) {
+      const std::string name = std::string(c.name) + std::to_string(depth);
+      SCOPED_TRACE(name);
+      const std::string before = b4Definition("Object", name.c_str(), c.oldIvars, c.oldCvars);
+      ASSERT_EQ(AO_OK, ao_accept_class(before.c_str(), &err)) << err.message;
+      ASSERT_EQ(AO_OK, ao_accept_method(name.c_str(), 0, nested(c.var, depth).c_str(), &err))
+          << err.message;
+      const std::string run = name + " new deep";
+      expectPrints({{run.c_str(), "nil"}});
+      AoSpan e{};
+      EXPECT_EQ(AO_ERR_COMPILE,
+                ao_accept_class(
+                    b4Definition("Object", name.c_str(), c.newIvars, c.newCvars).c_str(), &e));
+      std::string expected = c.expected;
+      expected.replace(expected.find(c.name), std::strlen(c.name), name);
+      EXPECT_EQ(expected, e.message);
+    }
+  }
+  ao_runtime_shutdown();
+}
+
+// B4 / SPEC §3.11: 保存して読み直したイメージでも、クラス変数の値と、メソッドと classPool の共有は
+// 保たれる。読み直したあとに Accept したメソッドも同じ束縛を使う。
+TEST(AcceptAbi, ClassVariablesSurviveImageSaveAndLoad) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvImg", "", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvImg", 0, {"count\n  ^Count\n", "count: v\n  Count := v\n"});
+  acceptMethods("B4CvImg", 1, {"classCount\n  ^Count\n"});
+  expectPrints({{"B4CvImg new count: 3; count", "3"}});
+  const char* path = "b4-class-variables.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
+  std::remove(path);
+  acceptMethods("B4CvImg", 0, {"twice\n  ^Count * 2\n"});
+  expectPrints(
+      {
+          {"B4CvImg new count", "3"},
+          {"B4CvImg classCount", "3"},
+          {"B4CvImg new count: 4. (B4CvImg classPool at: #Count) value", "4"},
+          {"B4CvImg classCount", "4"},
+          {"B4CvImg new twice", "8"},
+          {"(B4CvImg classPool at: #Count) value: 5. B4CvImg new twice", "10"},
+      },
+      "loaded");
+  ao_runtime_shutdown();
+}
+
+// B4 review (Claude M1) / SPEC §3.6: 失敗シナリオ。subclass: に名前を String で渡しても、クラスの
+// name は intern した Symbol で、Smalltalk もその Symbol で引ける。
+TEST(AcceptAbi, SubclassInternsAStringName) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  expectPrints({
+      {"(Object subclass: 'B4Zq' instanceVariableNames: '' classVariableNames: '' "
+       "poolDictionaries: '' category: 'B4-Test') name == #B4Zq",
+       "true"},
+      {"B4Zq name class == Symbol", "true"},
+      {"(Smalltalk at: #B4Zq) == B4Zq", "true"},
+      {"B4Zq class name", "'B4Zq class'"},
+      {"B4Zq new class == B4Zq", "true"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 review (Claude M2) / SPEC §3.6, §3.8: 失敗シナリオ。Kernel クラスが足したスロットに、コンパイル
+// したコードから代入できると、ネイティブが前提にする形が壊れる（OrderedCollection の array に
+// String を入れると add: が slotAtPut のアサーションで止まる）。代入はコンパイルエラーで、読みは
+// 今までどおり許す。継承したスロットも、クラス側の Behavior の枠も同じ。自分の変数には代入できる。
+TEST(AcceptAbi, KernelInstanceVariablesAreReadOnlyInSource) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const struct {
+    const char* cls;
+    int meta;
+    const char* source;
+    const char* name;
+  } refused[] = {
+      {"OrderedCollection", 0, "b4zap\n  array := 'x'\n", "array"},
+      {"OrderedCollection", 0, "b4zap\n  ^firstIndex := 0\n", "firstIndex"},
+      {"Set", 0, "b4zap\n  tally := 'x'\n", "tally"},
+      {"Dictionary", 0, "b4zap\n  array := nil\n", "array"},
+      {"ReadStream", 0, "b4zap\n  position := 'x'\n", "position"},
+      {"WriteStream", 0, "b4zap\n  writeLimit := 'x'\n", "writeLimit"},
+      {"SmalltalkImage", 0, "b4zap\n  array := 3\n", "array"},
+      {"Association", 0, "b4zap\n  [:v | key := v] value: 3\n", "key"},
+      {"Object", 1, "b4zap\n  methodDict := nil\n", "methodDict"},
+      {"Object", 1, "b4zap\n  superclass := nil. format := 3\n", "superclass"},
+      {"OrderedCollection", 1, "b4zap\n  instVarNames := #()\n", "instVarNames"},
+  };
+  for (const auto& r : refused) {
+    AoSpan err{};
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method(r.cls, r.meta, r.source, &err))
+        << r.cls << (r.meta ? " class" : "") << ": " << r.source;
+    EXPECT_EQ(std::string("cannot assign to Kernel instance variable ") + r.name, err.message)
+        << r.cls << (r.meta ? " class" : "") << ": " << r.source;
+  }
+
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "B4RoOC", "extra", "B4-Test")
+                                       .c_str(),
+                                   &err))
+      << err.message;
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B4RoOC", 0, "b4zap\n  lastIndex := 9\n", &err));
+  EXPECT_STREQ("cannot assign to Kernel instance variable lastIndex", err.message);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B4RoOC", 1, "b4zap\n  category := 'x'\n", &err));
+  EXPECT_STREQ("cannot assign to Kernel instance variable category", err.message);
+  const std::string chunks = "!B4RoOC methodsFor: 'b4'!\nb4zap\n  array := 3! !\n";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(chunks.c_str(), &err));
+  EXPECT_STREQ("cannot assign to Kernel instance variable array", err.message);
+  acceptMethods("B4RoOC", 0,
+                {"setExtra: v\n  extra := v\n", "extra\n  ^extra\n", "peekFirst\n  ^firstIndex\n"});
+  acceptMethods("B4RoOC", 1, {"peekCategory\n  ^category\n"});
+  acceptMethods("Association", 0, {"b4probeKey\n  ^key\n"});
+  expectPrints({
+      {"OrderedCollection new add: 1; add: 2; size", "2"},
+      {"(OrderedCollection new respondsTo: #b4zap)", "false"},
+      {"(Object class includesSelector: #b4zap)", "false"},
+      {"c := B4RoOC new setExtra: 5; yourself. c add: 9. c size", "1"},
+      {"c extra", "5"},
+      {"c peekFirst", "1"},
+      {"B4RoOC peekCategory", "'B4-Test'"},
+      {"(Association key: 3 value: 4) b4probeKey", "3"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 review (Claude M3) / SPEC §3.6: 失敗シナリオ。CV classPool at: #Count put: 5 が classPool の
+// 束縛を素の 5 に差し替え、既存のメソッドは古い束縛を使い続け、新しい reread ^Count は install failed
+// で拒まれた。classPool は写し（束縛は共有）を答えるので、at:put: は本体に届かず、value: は届く。
+// classPool そのものの値が束縛でなくなったら（クラス側の classPool を直接書き換えた）、その名前を
+// 使うメソッドは名前入りの理由で拒む。
+TEST(AcceptAbi, ClassPoolAtPutLeavesTheBindingsAlone) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "B4CvPool", "", "Count").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvPool", 0, {"count\n  ^Count\n", "bump\n  Count := 2\n"});
+  expectPrints({
+      {"B4CvPool new bump; count", "2"},
+      {"B4CvPool classPool at: #Count put: 5. B4CvPool new count", "2"},
+      {"(B4CvPool classPool at: #Count) class == Association", "true"},
+      {"(B4CvPool classPool at: #Count) value", "2"},
+      {"B4CvPool classPool at: #Other put: 1. B4CvPool classPool size", "1"},
+      {"(B4CvPool classPool at: #Count) value: 5. B4CvPool new count", "5"},
+      {"(B4CvPool classPool at: #Count) == (B4CvPool classPool at: #Count)", "true"},
+      {"B4CvPool classPool class == Dictionary", "true"},
+      {"Object classPool isNil", "true"},
+  });
+  acceptMethods("B4CvPool", 0, {"reread\n  ^Count\n"});
+  expectPrints({{"B4CvPool new reread", "5"}});
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("B4CvPool", "B4CvPoolSub", "", "").c_str(), &err))
+      << err.message;
+  acceptMethods("B4CvPoolSub", 0, {"peekCount\n  ^Count\n"});
+
+  // クラス側のメソッドは classPool（Behavior の枠）を読める。そこから本体の束縛を差し替えると、
+  // その名前を使うメソッドは、Accept でも file-in でも形の変更でも入らない。
+  acceptMethods("B4CvPool", 1, {"smash\n  classPool at: #Count put: 7\n"});
+  expectPrints({{"B4CvPool smash. B4CvPool new count", "5"}});
+  const std::string why = "class variable Count is not bound to an Association";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B4CvPool", 0, "again\n  ^Count\n", &err));
+  EXPECT_EQ(why, err.message);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B4CvPool", 1, "again\n  ^[Count := 1] value\n", &err));
+  EXPECT_EQ(why, err.message);
+  const std::string chunks = "!B4CvPool methodsFor: 'b4'!\nagain\n  ^Count! !\n";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(chunks.c_str(), &err));
+  EXPECT_EQ(why, err.message);
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("B4CvPool", "B4CvPoolSub", "z", "").c_str(), &err));
+  EXPECT_EQ("shape change refused: B4CvPoolSub>>peekCount: " + why, err.message);
+  expectPrints({
+      {"B4CvPoolSub instSize", "0"},
+      {"B4CvPoolSub new peekCount", "5"},
+      {"(B4CvPool new respondsTo: #again)", "false"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 review (Claude M4) / SPEC §3.6: 失敗シナリオ。OrderedCollection subclass: #OC2
+// instanceVariableNames: 'array extra' が通り、OC2>>mine ^array は親の内部 Array を返して、OC2 の
+// array には届かなかった。継承した名前と、同じ定義の中の重複は、クラスを作らずに中断する。名前の
+// 無いスロットは数えない。形を変える再 Accept でも同じで、名前は旧クラスのまま。
+TEST(AcceptAbi, SubclassRefusesRedeclaredInstanceVariables) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("OrderedCollection", "B4OC2", "array extra", "B4-Test")
+                                .c_str(),
+                            &err));
+  EXPECT_STREQ("subclass failed: B4OC2: duplicate instance variable: array", err.message);
+  EXPECT_EQ("<missing>", b5ClassDefinition("B4OC2"));
+
+  EXPECT_EQ(AO_ERR_EVAL, printIt("Object subclass: #B4Dup instanceVariableNames: 'a b a' "
+                                 "classVariableNames: '' poolDictionaries: '' category: 'B4-Test'"));
+  EXPECT_STREQ("duplicate instance variable: a", err.message);
+  EXPECT_EQ("<missing>", b5ClassDefinition("B4Dup"));
+  // Behavior の枠はメタクラスのインスタンス（クラス）のもので、インスタンスの名前とは重ならない。
+  EXPECT_EQ(AO_OK, printIt("Object subclass: #B4DupCat instanceVariableNames: 'category' "
+                           "classVariableNames: '' poolDictionaries: '' category: 'B4-Test'"))
+      << err.message;
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "B4DupSup", "x", "B4-Test").c_str(), &err))
+      << err.message;
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("B4DupSup", "B4DupSub", "y x", "B4-Test").c_str(), &err));
+  EXPECT_STREQ("subclass failed: B4DupSub: duplicate instance variable: x", err.message);
+  EXPECT_EQ("<missing>", b5ClassDefinition("B4DupSub"));
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("B4DupSup", "B4DupRe", "y", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4DupRe", 0, "getY\n  ^y\n", &err)) << err.message;
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("B4DupSup", "B4DupRe", "y x", "B4-Test").c_str(), &err));
+  EXPECT_STREQ("subclass failed: B4DupRe: duplicate instance variable: x", err.message);
+
+  // 名前の無いスロットの名前は数えない（instVarNames を消したクラスの下）。
+  ASSERT_EQ(AO_OK, printIt("Rectangle instVarAt: 8 put: nil. 0")) << err.message;
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Rectangle", "B4DupRect", "origin", "B4-Test").c_str(), &err))
+      << err.message;
+  expectPrints({
+      {"B4DupRe instSize", "2"},
+      {"B4DupRe new getY", "nil"},
+      {"B4DupRect instSize", "3"},
+      {"(Smalltalk includesKey: #B4Dup) | (Smalltalk includesKey: #B4DupSub)", "false"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B4 review (Claude L) / SPEC §3.6: 失敗シナリオ。Smalltalk at: #nil put: 3 が通り、Smalltalk at: #nil
+// が 3 を答えた。擬変数の名前は、固定のグローバルと同じく理由付きで拒み、辞書は変わらない。
+// subclass: も擬変数の名前では登録しない。
+TEST(AcceptAbi, SmalltalkRefusesPseudoVariableKeys) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  for (const char* name : {"nil", "true", "false", "self", "super", "thisContext"}) {
+    for (const char* quote : {"#", "'"}) {
+      std::string src = "Smalltalk at: ";
+      src += quote;
+      src += name;
+      src += quote[0] == '\'' ? "'" : "";
+      src += " put: 3";
+      char out[128];
+      AoSpan err{};
+      EXPECT_EQ(AO_ERR_EVAL, ao_eval(src.c_str(), static_cast<int>(src.size()), AO_EVAL_PRINTIT,
+                                     out, 128, &err))
+          << src;
+      EXPECT_EQ(std::string("cannot bind pseudo-variable: ") + name, err.message) << src;
+    }
+  }
+  expectPrints({
+      {"Smalltalk includesKey: #nil", "false"},
+      {"Smalltalk includesKey: #thisContext", "false"},
+      {"Smalltalk at: #self ifAbsent: [7]", "7"},
+      {"(Object subclass: #super instanceVariableNames: '' classVariableNames: '' "
+       "poolDictionaries: '' category: 'B4-Test') name == #super",
+       "true"},
+      {"Smalltalk includesKey: #super", "false"},
+      {"Smalltalk at: #B4NotPseudo put: 4", "4"},
+  });
   ao_runtime_shutdown();
 }

@@ -1,8 +1,10 @@
 #include "test_support.hpp"
 
+#include "ao/ClassPool.hpp"
 #include "ao/Compile.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Lookup.hpp"
+#include "ao/Natives.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -73,6 +75,30 @@ TEST(VendorFileIn, MethodErrorsAreExactlyTheDeferredOnes) {
     EXPECT_EQ(1u, listed.count(m)) << "failed but not listed: " << m;
   }
   EXPECT_FALSE(b.ctx.aborting);
+}
+
+// B4 (docs/claude-review/05 High) / SPEC §3.6: vendor の Time は classVariableNames:
+// 'MillisecondClockOffset' を持つ。クラス側の releaseClassCachedState（MillisecondClockOffset := nil）
+// はコンパイルされて載り、classPool の束縛に書く。
+TEST(VendorFileIn, TimeClassVariableMethodIsFiledIn) {
+  Boot b;
+  const std::string order = std::string(AO_SOURCE_DIR) + "/image/vendor/LOAD_ORDER";
+  std::vector<ao::FileInError> errs;
+  ASSERT_TRUE(ao::fileInLoadOrder(b.ctx, order, errs)) << (errs.empty() ? "" : errs[0].error.message);
+  ao::Root time(b.roots, b.wk.named("Time"));
+  ASSERT_TRUE(ao::isClassShaped(b.heap, time.slot));
+  const ao::Oop release =
+      ao::lookup(b.heap, b.heap.klass(time.slot), b.wk.intern("releaseClassCachedState"));
+  ASSERT_TRUE(release.isHeap());
+  EXPECT_EQ(b.wk.compiledMethodClass, b.heap.klass(release));
+  ao::Root binding(b.roots, ao::ClassPool::bindingAt(
+                                b.heap, b.heap.slotAt(time.slot, ao::kClassSlotClassPool),
+                                "MillisecondClockOffset"));
+  ASSERT_TRUE(binding.slot.isHeap());
+  b.heap.slotAtPut(binding.slot, ao::kAssocValue, ao::Oop::fromSmallInteger(5));
+  send0(b, time.slot, "releaseClassCachedState");
+  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_TRUE(b.heap.slotAt(binding.slot, ao::kAssocValue).isNil());
 }
 
 namespace {

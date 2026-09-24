@@ -9,8 +9,10 @@
 #include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
 
-#include <cstdio>
-#include <cstring>
+#include <algorithm>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace ao {
 namespace Bootstrap {
@@ -136,32 +138,55 @@ constexpr ClassDef kDefs[] = {
      &WellKnown::writeStreamClass, 4, false, false, "ReadWriteStream"},
     {&WellKnown::transcriptClass, &WellKnown::transcriptMetaclass, &WellKnown::streamClass, 0, false,
      false, "Transcript"},
-    {&WellKnown::smalltalkImageClass, &WellKnown::smalltalkImageMetaclass, &WellKnown::objectClass, 0,
-     false, false, "SmalltalkImage"},
+    {&WellKnown::smalltalkImageClass, &WellKnown::smalltalkImageMetaclass, &WellKnown::objectClass,
+     static_cast<std::int64_t>(Globals::kSmalltalkSlotCount), false, false, "SmalltalkImage"},
     {&WellKnown::dateClass, &WellKnown::dateMetaclass, &WellKnown::magnitudeClass, 0, false, false,
      "Date"},
     {&WellKnown::timeClass, &WellKnown::timeMetaclass, &WellKnown::magnitudeClass, 0, false, false,
      "Time"},
 };
 
+// SPEC §3.6: the names of the slots a Kernel class adds to its superclass's, in slot order, as the
+// natives use the slots. A class not listed adds none. The test
+// Bootstrap.KernelInstVarNamesFillTheSlotsEachClassAdds checks each list against its instSize.
+struct SlotNames {
+  Oop WellKnown::* cls;
+  const char* names;
+};
+
+constexpr SlotNames kSlotNames[] = {
+    {&WellKnown::behaviorClass,
+     "superclass methodDict format name thisClass category classPool instVarNames"},
+    {&WellKnown::fractionClass, "numerator denominator"},
+    {&WellKnown::intervalClass, "start stop step"},
+    {&WellKnown::dictionaryClass, "tally array"},
+    {&WellKnown::setClass, "tally array"},
+    {&WellKnown::orderedCollectionClass, "array firstIndex lastIndex"},
+    {&WellKnown::associationClass, "key value"},
+    {&WellKnown::compiledMethodClass, "header literals bytecodes nativeCode selector methodClass"},
+    {&WellKnown::nativeMethodClass, "selector argc primitive name methodClass registryIndex"},
+    {&WellKnown::messageClass, "selector args"},
+    {&WellKnown::methodDictionaryClass, "tally array"},
+    {&WellKnown::methodContextClass, "sender pc stackp method receiver argc"},
+    {&WellKnown::blockContextClass, "home copied"},
+    {&WellKnown::processClass, "nextLink suspendedContext priority myList"},
+    {&WellKnown::processorSchedulerClass, "quiescentProcesses activeProcess"},
+    {&WellKnown::semaphoreClass, "excessSignals linkedList"},
+    {&WellKnown::sharedQueueClass, "contents readSynch writeSynch"},
+    {&WellKnown::pointClass, "x y"},
+    {&WellKnown::rectangleClass, "origin corner"},
+    {&WellKnown::positionableStreamClass, "collection position readLimit"},
+    {&WellKnown::writeStreamClass, "writeLimit"},
+    {&WellKnown::smalltalkImageClass, "tally array"},
+};
+
 static Oop allocClass(Heap& heap) { return heap.allocate(Oop::nil(), kClassSlotCount, 0); }
 
-static Oop makeName(Heap& heap, const char* s) {
-  const auto n = static_cast<std::uint32_t>(std::strlen(s));
-  auto bytes = heap.allocate(Oop::nil(), n, kFlagBytes);
-  if (bytes.isHeap()) {
-    std::memcpy(heap.bytes(bytes), s, n);
-  }
-  return bytes;
-}
-
-static void wireClass(Heap& heap, Oop cls, Oop meta, Oop superCls, Oop thisClass, Oop format,
-                      const char* name) {
+static void wireClass(Heap& heap, Oop cls, Oop meta, Oop superCls, Oop thisClass, Oop format) {
   heap.header(cls)->klass = meta;
   heap.slotAtPut(cls, kClassSlotSuperclass, superCls);
   heap.slotAtPut(cls, kClassSlotMethodDict, Oop::nil());
   heap.slotAtPut(cls, kClassSlotFormat, format);
-  heap.slotAtPut(cls, kClassSlotName, makeName(heap, name));
   heap.slotAtPut(cls, kClassSlotThisClass, thisClass);
 }
 
@@ -183,6 +208,46 @@ static void internHotSelectors(WellKnown& wk) {
   wk.selClass = wk.intern("class");
   wk.selIdentityEquals = wk.intern("==");
   wk.internSpecialSelectors();
+}
+
+// An Array of the interned Symbols in the space-separated names, or nil when old is full. Does not
+// GC, so the raw Oop stays valid.
+static Oop makeSlotNames(Heap& heap, WellKnown& wk, std::string_view names) {
+  std::vector<std::string_view> parts;
+  for (std::size_t i = 0; i < names.size();) {
+    const std::size_t end = std::min(names.find(' ', i), names.size());
+    if (end > i) {
+      parts.push_back(names.substr(i, end - i));
+    }
+    i = end + 1;
+  }
+  const Oop arr = heap.allocateNoGc(wk.arrayClass, static_cast<std::uint32_t>(parts.size()), 0);
+  if (!arr.isHeap()) {
+    return Oop::nil();
+  }
+  for (std::uint32_t i = 0; i < parts.size(); ++i) {
+    const Oop sym = wk.intern(parts[i]);
+    if (!sym.isHeap()) {
+      return Oop::nil();
+    }
+    heap.slotAtPut(arr, i, sym);
+  }
+  return arr;
+}
+
+// SPEC §3.7 step 5: after the cycle is wired, so Symbol, String and Array are classes. A class's
+// name is its interned Symbol and its metaclass's the String "<name> class", as subclass: makes
+// them (SPEC §3.6); the Kernel classes that add named slots get their names. Does not GC.
+static void nameClasses(Heap& heap, WellKnown& wk) {
+  for (const auto& d : kDefs) {
+    const Oop name = wk.intern(d.name);
+    heap.slotAtPut(wk.*(d.cls), kClassSlotName, name.isHeap() ? name : Oop::nil());
+    const Oop metaName = Str::fromUtf8(heap, wk, std::string(d.name) + " class");
+    heap.slotAtPut(wk.*(d.meta), kClassSlotName, metaName.isHeap() ? metaName : Oop::nil());
+  }
+  for (const auto& s : kSlotNames) {
+    heap.slotAtPut(wk.*(s.cls), kClassSlotInstVarNames, makeSlotNames(heap, wk, s.names));
+  }
 }
 
 static void ensureMethodDict(Heap& heap, WellKnown& wk, Oop cls) {
@@ -212,17 +277,14 @@ void wireCycle(Heap& heap, WellKnown& wk) {
     const Oop cls = wk.*(d.cls);
     const Oop meta = wk.*(d.meta);
     const Oop super = superOf(wk, d.superCls);
-    wireClass(heap, cls, meta, super, Oop::nil(), Format::make(d.instSize, d.indexable, d.bytes),
-              d.name);
+    wireClass(heap, cls, meta, super, Oop::nil(), Format::make(d.instSize, d.indexable, d.bytes));
   }
   for (const auto& d : kDefs) {
     const Oop cls = wk.*(d.cls);
     const Oop meta = wk.*(d.meta);
     const Oop super = superOf(wk, d.superCls);
     const Oop metaSuper = super.isNil() ? wk.classClass : heap.klass(super);
-    char metaName[128];
-    std::snprintf(metaName, sizeof(metaName), "%s class", d.name);
-    wireClass(heap, meta, wk.metaclassClass, metaSuper, cls, classFmt, metaName);
+    wireClass(heap, meta, wk.metaclassClass, metaSuper, cls, classFmt);
   }
 }
 
@@ -262,6 +324,7 @@ void installNatives(Heap& heap, Roots& roots, WellKnown& wk) {
 void run(Heap& heap, Roots& roots, WellKnown& wk) {
   allocateSkeletons(heap, roots, wk);
   wireCycle(heap, wk);
+  nameClasses(heap, wk);
   installNatives(heap, roots, wk);
   Globals::install(heap, roots, wk);
   wk.checkSmallIntegerFastPath();

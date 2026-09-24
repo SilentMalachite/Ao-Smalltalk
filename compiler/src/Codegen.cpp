@@ -51,7 +51,8 @@ int specialIndex(std::string_view sel) {
 }
 
 bool internable(LitKind k) {
-  return k == LitKind::Int || k == LitKind::Symbol || k == LitKind::Binding;
+  return k == LitKind::Int || k == LitKind::Symbol || k == LitKind::Binding ||
+         k == LitKind::ClassVariable;
 }
 
 bool sameIntern(const Literal& a, const Literal& b) {
@@ -61,7 +62,8 @@ bool sameIntern(const Literal& a, const Literal& b) {
   if (a.kind == LitKind::Int) {
     return a.intValue == b.intValue;
   }
-  if (a.kind == LitKind::Symbol || a.kind == LitKind::Binding) {
+  if (a.kind == LitKind::Symbol || a.kind == LitKind::Binding ||
+      a.kind == LitKind::ClassVariable) {
     return a.text == b.text;
   }
   return false;
@@ -713,10 +715,17 @@ class Emitter {
 
   bool isKnownGlobal(std::string_view name) const { return nameIn(env_.knownGlobals, name); }
 
-  // A workspace binding (SPEC §3.10): the literal names it; the runtime boxes the Association.
-  void emitLitVar(Op op, const std::string& name, SourceSpan span) {
+  // SPEC §3.8: a name the class's classPools declare (checked after locals, instance variables
+  // and pseudo-variables, before globals).
+  bool isClassVariable(std::string_view name) const {
+    return !isPseudo(name) && nameIn(env_.classVarNames, name);
+  }
+
+  // A binding, of a workspace variable (Binding, SPEC §3.10) or a class variable (ClassVariable,
+  // SPEC §3.6): the literal names it; the runtime boxes the Association.
+  void emitLitVar(Op op, LitKind kind, const std::string& name, SourceSpan span) {
     Literal lit;
-    lit.kind = LitKind::Binding;
+    lit.kind = kind;
     lit.text = name;
     const std::uint8_t li = intern(std::move(lit), span);
     if (failed_) {
@@ -955,14 +964,24 @@ class Emitter {
     std::uint8_t idx = 0;
     const int iv = instVarIndex(n.name);
     if (iv >= 0) {
+      // SPEC §3.6 / §3.8: a slot a Kernel class adds holds what its natives expect.
+      if (static_cast<std::size_t>(iv) < env_.kernelInstVarCount) {
+        fail(n.span, ("cannot assign to Kernel instance variable " + n.name).c_str());
+        return;
+      }
       if (!fitU8(static_cast<std::size_t>(iv), &idx, n.span)) {
         return;
       }
       emitU8(asStmt ? Op::PopStoreInstVar : Op::StoreInstVar, idx);
       return;
     }
+    if (isClassVariable(n.name)) {
+      emitLitVar(asStmt ? Op::PopStoreLitVar : Op::StoreLitVar, LitKind::ClassVariable, n.name,
+                 n.span);
+      return;
+    }
     if (env_.undeclaredAreBindings && !isPseudo(n.name) && !isKnownGlobal(n.name)) {
-      emitLitVar(asStmt ? Op::PopStoreLitVar : Op::StoreLitVar, n.name, n.span);
+      emitLitVar(asStmt ? Op::PopStoreLitVar : Op::StoreLitVar, LitKind::Binding, n.name, n.span);
       return;
     }
     fail(n.span, "cannot assign");
@@ -1200,8 +1219,12 @@ class Emitter {
       emit(Op::PushFalse);
       return;
     }
+    if (isClassVariable(n.name)) {
+      emitLitVar(Op::PushLitVar, LitKind::ClassVariable, n.name, n.span);
+      return;
+    }
     if (env_.undeclaredAreBindings && !isKnownGlobal(n.name)) {
-      emitLitVar(Op::PushLitVar, n.name, n.span);
+      emitLitVar(Op::PushLitVar, LitKind::Binding, n.name, n.span);
       return;
     }
     emitPushGlobal(n);
@@ -1427,6 +1450,7 @@ std::string formatLit(const Literal& lit) {
     case LitKind::Method:
       return "[method]";
     case LitKind::Binding:
+    case LitKind::ClassVariable:
       return "{" + lit.text + "}";
   }
   return "?";

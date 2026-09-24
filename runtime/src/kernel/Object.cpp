@@ -309,19 +309,13 @@ Oop ao_Object_instVarAt_put_(CallContext& ctx, const Oop& receiver, const Oop* a
 Oop ao_Object_instVarNamed_(CallContext& ctx, const Oop& receiver, const Oop* args,
                             std::uint32_t argc) {
   if (argc != 1) return Oop{};
-  std::int64_t index = 1;
-  for (const Oop cls : superclassChainFromRoot(ctx.heap, ctx.wk.classOf(receiver))) {
-    const Oop names = ctx.heap.slotAt(cls, kClassSlotInstVarNames);
-    if (!names.isHeap() || (ctx.heap.flags(names) & kFlagBytes) != 0) {
-      continue;
-    }
-    const auto n = ctx.heap.size(names);
-    for (std::uint32_t i = 0; i < n; ++i) {
-      if (nameEquals(ctx.heap, ctx.heap.slotAt(names, i), args[0])) {
-        Oop idx = Oop::fromSmallInteger(index);
-        return NativeMethod::invoke(ctx, ao_Object_instVarAt_, receiver, &idx, 1);
-      }
-      ++index;
+  // SPEC §3.6: the slot a name names, found as the compiler finds it. A slot with no name matches
+  // no name. Nothing allocates until the slot is read.
+  const std::vector<Oop> names = namedSlotNames(ctx.heap, ctx.wk.classOf(receiver));
+  for (std::size_t i = 0; i < names.size(); ++i) {
+    if (names[i].isHeap() && nameEquals(ctx.heap, names[i], args[0])) {
+      Oop idx = Oop::fromSmallInteger(static_cast<std::int64_t>(i + 1));
+      return NativeMethod::invoke(ctx, ao_Object_instVarAt_, receiver, &idx, 1);
     }
   }
   return fail(ctx, receiver, "instVarNamed: not found");

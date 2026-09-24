@@ -125,6 +125,17 @@ case "$CASE" in
     stderr_is ''
     [ -s deferred.aoimage ] || fail "image not written"
     run 0 "$AO" image load deferred.aoimage
+    stderr_is ''
+    # SPEC §3.11: a version 1 image (before B4) is refused at the header, with its reason.
+    cp deferred.aoimage v1.aoimage
+    printf '\001' | dd of=v1.aoimage bs=1 seek=4 conv=notrunc 2>/dev/null
+    run 1 "$AO" image load v1.aoimage
+    stderr_is 'ao: image load failed: unsupported image version 1'
+    printf 'not an image' >garbage.aoimage
+    run 1 "$AO" image load garbage.aoimage
+    stderr_is 'ao: image load failed: not an Ao image'
+    run 1 "$AO" image load none.aoimage
+    stderr_is 'ao: image load failed: cannot read image file'
     ;;
   test)
     mkdir -p tests empty pass

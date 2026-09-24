@@ -23,6 +23,9 @@ enum class LitKind : std::uint8_t {
   Method,
   // A workspace binding named `text`. The runtime boxes it as the session's Association.
   Binding,
+  // The class variable named `text` (SPEC §3.6). The runtime boxes it as its binding, the
+  // Association in the classPool of the method's class or of a superclass.
+  ClassVariable,
 };
 
 struct MethodImage;
@@ -82,6 +85,14 @@ inline Literal& Literal::operator=(const Literal& other) {
 
 struct CompileEnv {
   std::vector<std::string> instVarNames;
+  // SPEC §3.6 / §3.8: the first this many of instVarNames are the slots a Kernel class adds. The
+  // natives rely on what they hold, so source reads them and an assignment to one is the compile
+  // error "cannot assign to Kernel instance variable <name>".
+  std::size_t kernelInstVarCount = 0;
+  // SPEC §3.6 / §3.8: the class variables a method of the class sees, its own class's and its
+  // superclasses'. A name that is no local, no instance variable and no pseudo-variable is a class
+  // variable when it is here (LitVar on its binding), else a global.
+  std::vector<std::string> classVarNames;
   std::vector<std::string> knownGlobals;
   // Workspace (SPEC §3.10): a name that is not local, an instance variable, a pseudo-variable or
   // a known global is a binding (LitVar). The method answers its last expression.

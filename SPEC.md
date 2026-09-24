@@ -304,7 +304,7 @@ Blue Book 第 28 章の集合を現代化した **Ao バイトコード** を定
 
 - ジャンプのオフセットは符号付き 16 bit（リトルエンディアン）で、基点は次の命令の先頭である。後方ジャンプは、条件ジャンプも含めて safepoint を通る。
 - JumpTrue / JumpFalse で降ろした値が Boolean でなければ、その値に `mustBeBoolean` を送る。答えが Boolean ならそれで分岐し、Boolean でなければ「NonBoolean receiver」で abort する。`Object>>mustBeBoolean` の既定は、同じ理由の abort である。
-- LitVar 系のリテラルは Association（値のスロットを持つポインタオブジェクト）でなければならない。ワークスペースの束縛（§3.10）とクラス変数が使う。
+- LitVar 系のリテラルは Association（値のスロットを持つポインタオブジェクト）でなければならない。ワークスペースの束縛（§3.10）とクラス変数（§3.6）が使う。
 - SendSpecial の `+` `-` `*` `<` `>` `<=` `>=` `=` は、レシーバと引数がともに SmallInteger なら、送信せずに計算して積む（Blue Book の特殊セレクタと同じ）。比較は常にそうする。`+` `-` `*` は、答えが SmallInteger に収まるときだけそうする。それ以外（桁あふれ、SmallInteger でない値、ほかの特殊セレクタ）は通常の送信にする。
   - SmallInteger から引いたこれらのセレクタはネイティブに当たる。accept（§3.10）でも file-in（§3.12）でも、これを隠せない。したがって答えは、送信したときと同じである。
   - ロードしたイメージで、SmallInteger から引いたどれか 1 つがネイティブに当たらないことがある。隠すメソッドを入れられた古いイメージである。そのセッションでは高速路を使わない。
@@ -358,7 +358,7 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 
 `Class`: `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:`, `name`, `category`, `classPool`
 
-`Metaclass`: `thisClass`, クラス側 `new` の禁止または制御
+`Metaclass`: `thisClass`, `name`, クラス側 `new` の禁止または制御
 
 メタクラス循環は Blue Book ルール 6–10 を満たすこと。
 
@@ -367,6 +367,57 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 - すべてのメタクラスは `Class` を継承（`Object class` のスーパークラスが `Class`）
 - すべてのメタクラスは `Metaclass` のインスタンス
 - `Metaclass class` も `Metaclass` のインスタンス
+
+クラスの名前:
+
+- クラスの `name` は intern した Symbol である。Kernel クラスも `subclass:` で作ったクラスも同じで、`Object name == #Object` と `3 class name == #SmallInteger` は true である。`subclass:` に名前を String で渡しても（`Object subclass: 'Foo' …`）、名前の枠と `Smalltalk` の登録には、同じバイト列を intern した Symbol を使う。
+- メタクラスの `name` は、`thisClass` の名前のあとに ` class` を続けた String である（`Object class name` は `'Object class'`）。Kernel クラスのメタクラスもユーザークラスのメタクラスも、`thisClass` から計算する。メタクラスの名前の枠にも同じ文字列の String を置く（Browser と `printString` が読む）。
+
+インスタンス変数の名前:
+
+- 名前付きのスロットを足す Kernel クラスは、足したスロットの名前を instVarNames（Symbol の Array）に持つ。名前はネイティブが使うスロットの意味に合わせる。足すスロットと名前は次の表のとおりで、表に無い Kernel クラスはスロットを足さない（`ClassDescription`、`Class`、`Metaclass` は `Behavior` と同じ枠を持つ）。
+
+| クラス | 足すスロットの名前（先頭から順） |
+|---|---|
+| `Behavior` | `superclass methodDict format name thisClass category classPool instVarNames` |
+| `Fraction` | `numerator denominator` |
+| `Interval` | `start stop step` |
+| `Dictionary`, `Set` | `tally array` |
+| `OrderedCollection` | `array firstIndex lastIndex` |
+| `Association` | `key value` |
+| `CompiledMethod` | `header literals bytecodes nativeCode selector methodClass` |
+| `NativeMethod` | `selector argc primitive name methodClass registryIndex` |
+| `Message` | `selector args` |
+| `MethodDictionary` | `tally array` |
+| `MethodContext` | `sender pc stackp method receiver argc` |
+| `BlockContext` | `home copied` |
+| `Process` | `nextLink suspendedContext priority myList` |
+| `ProcessorScheduler` | `quiescentProcesses activeProcess` |
+| `Semaphore` | `excessSignals linkedList` |
+| `SharedQueue` | `contents readSynch writeSynch` |
+| `Point` | `x y` |
+| `Rectangle` | `origin corner` |
+| `PositionableStream` | `collection position readLimit` |
+| `WriteStream` | `writeLimit` |
+| `SmalltalkImage` | `tally array` |
+
+- インスタンス変数の名前と添字は、スーパークラス鎖を根から順にたどって決める。鎖の各クラスは、自分の instSize が 1 つ前のクラスの instSize より増えた分のスロットに、自分の instVarNames を先頭から順に当てる。名前が足りなければ、残りのスロットは名前を持たず、ソースから参照できない（コンパイラは識別子にならない仮の名前で埋める）。名前が足りなくなるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など）だけである。増えた分より多い名前は使わない。コンパイラ（§3.8）と `instVarNamed:` はこの規則に従う。これで、Kernel クラスのサブクラスが足す変数は、親のスロットと重ならない。
+- `subclass:instanceVariableNames:…` は、スーパークラスがバイト列のクラス（`isBytes`）で、instanceVariableNames が 1 つ以上あれば、クラスを作らずに評価を中断する（§3.3）。理由は `bytes class cannot have instance variables` である。バイト列のオブジェクトには名前付きのスロットが無いからである。インスタンス変数の無いサブクラスは今までどおり作れる。
+- `subclass:instanceVariableNames:…` は、instanceVariableNames の名前が、スーパークラス鎖の名前付きスロットの名前（上の規則で決まる名前。名前の無いスロットは数えない）にあるか、同じ instanceVariableNames に 2 度現れれば、クラスを作らずに評価を中断する（§3.3）。理由は `duplicate instance variable: <名前>` で、最初に当たった名前を示す。コンパイラは名前を先頭に近いスロットに解決するので、あとのスロットにはソースから届かないからである。検査はバイト列の検査のあと、何も割り当てる前にする。
+- Kernel クラスが足したスロットは、コンパイルしたコードからは読み取り専用である。読みは今までどおりインスタンス変数として読む（`Association>>probeKey ^key` は key を読む）。代入はコンパイルエラーで、理由は `cannot assign to Kernel instance variable <名前>` である（§3.8）。ネイティブは、これらのスロットに決まった種類の値（`OrderedCollection` の `array` なら Array）があるものとして読み書きするので、ソースから別の値を入れるとネイティブが壊れるからである。
+  - 読み取り専用のスロットは、メソッドのクラスのスーパークラス鎖（そのクラス自身を含む）でいちばん近い Kernel クラスの instSize までの、先頭のスロットである。サブクラスが継承したスロットも含む。クラス側のメソッドでは、鎖でいちばん近いのは Kernel クラスのメタクラス（`Object class` など）なので、Behavior の 8 つの枠（`superclass methodDict format name thisClass category classPool instVarNames`）が読み取り専用になる。vendor のスタブ（§3.12）は Kernel クラスに数えない。
+  - 既知の制約（v1）: `instVarAt:put:` はこの制限を受けない。Kernel クラスのスロットに `instVarAt:put:` で合わない値を入れると、ネイティブは壊れうる。
+
+クラス変数:
+
+- `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` は、classVariableNames を空白で区切った名前ごとにクラス変数を作り、作ったクラスの classPool（`kClassSlotClassPool`）に置く。classPool は Kernel の `Dictionary` で、名前（intern した Symbol）から束縛への辞書である。束縛は `Association` で、キーは同じ Symbol、値はクラス変数の値（最初は nil）である。名前は書いた順に並ぶ。同じ名前を 2 度書いても束縛は 1 つである。クラス変数が無くても、classPool は空の `Dictionary` である。
+- `Class>>classPool` はその辞書の写しを答える。写しは新しい `Dictionary` で、classPool と同じ名前を同じ順に、同じ束縛（Association そのもの）に結ぶ。`Foo classPool at: #Count` は束縛で、その `value` がクラス変数の値である。`(Foo classPool at: #Count) value: 5` はクラス変数の値を変える。写しへの `at:put:` はクラスの classPool も束縛も変えない。メソッドのリテラルは classPool の束縛そのもので、再 Accept の検査（§3.9）もそれを前提にするので、束縛を別の値に差し替えさせないためである。送るたびに新しい写しを答える。classPool の枠が辞書でなければ（Kernel クラスの nil など）、枠の値をそのまま答える。
+- classPool のある名前の値が束縛（`Association`）でないとき（クラス側のメソッドがインスタンス変数 `classPool` を読んで `at:put:` した、`instVarAt:` で classPool そのものを取り出して書き換えた、など）、その名前をクラス変数として読むか代入するメソッドは入れない。Accept と file-in では、コンパイルエラーで、理由は `class variable <名前> is not bound to an Association` である。形の変更での移し替え（§3.9）では、送信のあとの検査と同じく、どのクラスも変えずに名前を旧クラスに戻して `AO_ERR_COMPILE` を返す。理由は同じ文の前に `shape change refused: <Class>>><selector>: ` を付けたものである。
+- Kernel クラスはクラス変数を持たない（classPool は nil）。メタクラスの classPool の枠も nil である。
+- メソッドから見えるクラス変数は、そのクラス（クラス側のメソッドなら、メタクラスの thisClass）とそのスーパークラス鎖のクラスの classPool にある名前である。近いクラスの名前が、遠いクラスの同じ名前を隠す。サブクラスのメソッドも、クラス側のメソッドも、同じ束縛を読み書きする。コンパイラの名前の解決順は §3.8 に書く。
+- メソッドは束縛そのものをリテラルに持つ（§3.5 の LitVar 系）。classPool と束縛はヒープにあり、イメージを保存して読み直しても、値もメソッドとの共有も保つ（§3.11）。
+- クラス変数の名前は `Smalltalk` の辞書（下の「グローバル辞書」）に登録しない。
+- poolDictionaries は v1 では受け取って捨てる。プール辞書は無い。
 
 #### Kernel-Methods
 
@@ -425,6 +476,23 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 - `Transcript` モデル（実際の出力先はホストウィンドウ）
 - `SmalltalkImage`（グローバル辞書のホスト。クラシック `Smalltalk`）
 
+グローバル辞書:
+
+- グローバル `Smalltalk` は `SmalltalkImage` のインスタンスで、グローバル名（intern した Symbol）から値への辞書を持つ。グローバル名の解決は、すべてこの辞書を引く。インタプリタの `PushGlobal`（実行時に引く。無い名前は nil）、クラス定義・Browser・file-in の名前の解決（`WellKnown::named`）、ワークスペースの `knownGlobals`（§3.10）である。
+- 辞書は `Smalltalk` の 2 つのスロット `tally array` に置く。`tally` は対の数、`array` は Array で、キーと値を交互に並べる。キーが nil の対は空きである。対は登録した順に並ぶ。v1 ではグローバルを消さない。
+- ブートストラップ（§3.7）は、56 個の Kernel クラスをクラス名で、`Processor` をスケジューラで、`Smalltalk` を辞書自身で登録する。この 58 個の名前を固定のグローバルと呼ぶ。固定のグローバルの値は、vendor のスタブを file-in が結び直すとき（§3.12）のほかは変わらない。
+- `subclass:instanceVariableNames:…` は、作ったクラスをその名前（intern した Symbol）で登録する。同じ名前があれば値を置き換える。固定のグローバルの名前なら登録しない。擬変数の名前（`nil true false self super thisContext`。§3.8）も登録しない。
+- 擬変数の名前は、`Smalltalk` の辞書のキーにならない。コンパイラは擬変数をグローバルより先に解決するので（§3.8）、辞書に入れてもソースから読めず、`Smalltalk at: #nil` だけが別の値を答えることになるからである。
+- 次のネイティブは、レシーバによらず `Smalltalk` の辞書を読み書きする（`SmalltalkImage new` も同じ辞書を指す）。キーは Symbol か String で、同じバイト列の Symbol として扱う。
+
+| セレクタ | 動作 |
+|---|---|
+| `at: key` | key の値。key が無ければ評価を中断する（§3.3）。理由は `key not found: #<名前>`（key が Symbol でも String でもなければ `key not found`） |
+| `at: key put: value` | key を value に結び、value を答える。key が固定のグローバルなら中断し、理由は `cannot rebind Kernel global: <名前>`。key が擬変数の名前なら中断し、理由は `cannot bind pseudo-variable: <名前>`。key が Symbol でも String でもなければ `key must be a Symbol or String` |
+| `at: key ifAbsent: aBlock` | key の値。key が無ければ `aBlock value` の答え |
+| `includesKey: key` | key があれば true。key が Symbol でも String でもなければ false |
+| `globals` | レシーバ |
+
 ### 3.7 ブートストラップ手順
 
 循環（`Object` のクラスは `Object class`、`Object class` のクラスは `Metaclass`、…）を Smalltalk ソースから作れない。C++ で手書きする。
@@ -435,10 +503,11 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 2. `nil` / `true` / `false` の即値または専用オブジェクトを登録する。
 3. クラスオブジェクトの骨格を未初期化で割り当て、well-known 表に載せる。
 4. 各クラスの `superclass` / `methodDict` / `format` / メタクラスリンクを結ぶ。
-5. `NativeMethod` を関数ポインタから生成し、各メソッド辞書へ `Symbol` キーで入れる。
-6. グローバル `Smalltalk` にクラス名 → クラスを登録する。
-7. スナップショット可能にする。
-8. 以降の非 Kernel クラスは `image/vendor/` の file-in で追加する。自作しない。
+5. 循環を結んだあと（`Symbol`、`String`、`Array` のクラスが結ばれてから）、クラスの名前の枠に intern した Symbol を、メタクラスの名前の枠に `<クラス名> class` の String を、名前付きのスロットを足す Kernel クラスの instVarNames に §3.6 の表の名前（Symbol の Array）を入れる。
+6. `NativeMethod` を関数ポインタから生成し、各メソッド辞書へ `Symbol` キーで入れる。
+7. グローバル `Smalltalk`（`SmalltalkImage` の辞書。§3.6）を作り、Kernel クラスをクラス名で、`Processor` と `Smalltalk` 自身を登録する。
+8. スナップショット可能にする。
+9. 以降の非 Kernel クラスは `image/vendor/` の file-in で追加する。自作しない。
 
 well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名前で参照する。
 
@@ -461,6 +530,11 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - インライン展開（§3.5）
 - 引数（メソッドとブロック）と `to:do:` のループ変数への代入は、コンパイルエラー `cannot assign to argument` にする。
 - temp の上限は 255 である。引数、temp、持ち上げた temp（展開したブロックの temp、`to:do:` のループ変数と上限）、temp ベクタを入れるスロット、コピーした値を合わせて数える。
+- 名前の解決順は、ローカル（メソッドとブロックの引数と temp）→ インスタンス変数 → 擬変数 → クラス変数（§3.6）→ グローバル（`Smalltalk` の辞書。§3.6）である。前のものが、後ろの同じ名前を隠す。ワークスペース（§3.10）の解決順は §3.10 に書く。ワークスペースのレシーバは nil なので、クラス変数は無い。
+  - クラス変数は、メソッドのクラスから見えるもの（§3.6）である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar` で、リテラルは classPool の束縛（Association）である。束縛は、メソッドを作るとき（リテラルを箱に入れるとき）に、メソッドのクラス（クラス側ならその thisClass）からスーパークラス鎖をたどって引く。
+  - どれにも当たらない名前はグローバルである。読みは `PushGlobal`（実行時に引く。§3.5）で、代入はコンパイルエラー `cannot assign` である。
+  - インスタンス変数のうち、Kernel クラスが足したスロット（§3.6）は読み取り専用である。読みは `PushInstVar` で、代入はコンパイルエラー `cannot assign to Kernel instance variable <名前>` である（区間は代入の式）。
+  - クラス側のメソッドでは、Behavior の 8 つの枠の名前（`superclass methodDict format name thisClass category classPool instVarNames`。§3.6）がインスタンス変数なので、同じ名前のクラス変数を隠す。この 8 つは読み取り専用のインスタンス変数である。
 
 エラーはソース区間付き。Browser の accept は失敗時にテキストを壊さずエラーを表示する。
 
@@ -517,16 +591,24 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 
 既にあるクラスの定義を `ao_accept_class` で受け付けたときの規則である。メソッドを黙って捨てない。Kernel クラスの再定義は今までどおり拒む（§3.12）。file-in（§3.12）のクラス定義の扱いは変えない。
 
+この節でサブクラス（子孫すべて）と言うときは、生きているクラスのうち、スーパークラスの連鎖にそのクラスを含むもの（そのクラス自身は除く）すべてを指す。Smalltalk に名前で束縛されているかどうかは問わない。名前を外したクラスでも、インスタンスや変数から届くものは数え、形の変更で残った旧クラスも数える。生きているとは、GC のルート（§3.2）から、各オブジェクトのクラスとポインタのスロットをたどって届くことである（弱い参照はたどらない）。ただし、メソッドのキャッシュ（§3.3）とソース表（§3.10）はルートからたどらない。どちらも Smalltalk のオブジェクトからは届かないセッションの表で、そこからしか届かないクラスのメソッドは、もう動かないからである。届かないクラスは、GC がまだ回収していなくても数えない。
+
 - superclass が、定義するクラスの名前が今指しているクラスそのものか、そのクラスを上位に持つクラスなら（`Foo subclass: #Foo …`）、何も変えずに `AO_ERR_COMPILE` を返す。メッセージは `superclass refused: <Super> is <Name> or its subclass` である。受け付けると、新しいクラスが旧クラスのサブクラスになり、Browser が表示した定義を Accept し直すたびに継承が 1 段深くなるからである。
-- 形が同じとき（superclass が、名前で引いた同じクラスで、instVarNames が同じ名前の同じ順のとき）は、既存のクラスオブジェクトを保つ。メソッド辞書（インスタンス側とクラス側）、メタクラス、既存インスタンスはそのままである。更新するのは category と classVariableNames だけで、classVariableNames は新しいクラスを定義するときと同じに扱う（今の runtime は classVariableNames を保持しないので、変わるのは category だけである）。
+- 形が同じとき（superclass が、名前で引いた同じクラスで、instVarNames が同じ名前の同じ順のとき）は、既存のクラスオブジェクトを保つ。メソッド辞書（インスタンス側とクラス側）、メタクラス、既存インスタンスはそのままである。更新するのは category と classVariableNames（classPool。§3.6）だけである。classPool は次のように更新する。
+  - 残る名前は、今の束縛（Association）と値をそのまま保つ。コンパイル済みのメソッドがその束縛を共有しているからである。
+  - 新しい名前は、値 nil の新しい束縛で足す。コンパイル済みのメソッドはコンパイルし直さない。新しい名前をグローバルとして読んでいたメソッドは、Accept し直すまでグローバルを読む。
+  - 消える名前の束縛を、生きているクラス（この節の冒頭の意味）のどれかのメソッドが持っていれば、何も変えずに `AO_ERR_COMPILE` を返す（category も変えない）。束縛を持ちうるのは、そのクラスとそのサブクラス（子孫すべて）、形の変更で残ったそれらの旧クラス（束縛を今のクラスと共有する。下）である。インスタンス側とクラス側のメソッド、ソースの無いメソッド、ブロックの中（入れ子の深さによらない）を数え、読みも代入も数える。束縛を持つメソッドは、classPool から外れた束縛を黙って読み書きし続けるからである。メッセージは `class variable change refused: <Class>>><selector> refers to removed class variable <var>` で、`<Class>` はメソッドのあるクラス（クラス側なら `<Class> class`）である。どのメソッドも持たなければ、消える名前を classPool から除く。
 - 形が変わるとき（superclass か instVarNames が違うとき）は、新しいクラスを作り、名前をそれに付け替える。旧クラスのメソッド（インスタンス側とクラス側のすべて）を、ソース表（§3.10「ソースはイメージに書かない」）のソースで新しいクラスに対してコンパイルし直して移す。移したメソッドのソースはソース表に入れる。
-- 形が変わるとき、次のどれかに当たれば、何も変えずに `AO_ERR_COMPILE` を返す。名前は旧クラスを指したまま、旧クラスとそのメソッドもそのままである。`AoSpan.message` は空にせず、理由（当たったセレクタ、サブクラスがあること、または消えるインスタンス変数）を入れる。
+- 形が変わるとき、新しいクラスの classPool にある名前のうち、旧クラスの classPool にもある名前は、旧クラスの束縛（Association）をそのまま使う。値も、旧クラスのメソッド（既存インスタンスが使う）との共有も保つ。移したメソッドは、この束縛を指す。
+- 形が変わるとき、次のどれかに当たれば、何も変えずに `AO_ERR_COMPILE` を返す。名前は旧クラスを指したまま、旧クラスとそのメソッドもそのままである。`AoSpan.message` は空にせず、理由（当たったセレクタ、サブクラスがあること、または消えるインスタンス変数かクラス変数）を入れる。
   - ソース表にソースの無いメソッド（NativeMethod を含む）が 1 つでもある。
   - コンパイルし直しが 1 つでも失敗する。
-  - インスタンス側のメソッドが、旧クラスにあって新しい形に無いインスタンス変数（継承したものを含む）を名前で読む。新しい形ではその名前が大域変数の読み出しにコンパイルされ、黙って意味が変わるからである（代入はコンパイルし直しの失敗になる）。ブロックの中（入れ子のブロックを含む）の読みも数える。送信（`self y`）、シンボル（`#y`）、同じ名前の引数と temp は数えない。メッセージは `shape change refused: <Name>>><selector> refers to removed instance variable <var>` である。コンパイルし直しの失敗があれば、そちらを先に報告する。
-  - そのクラスにサブクラスがある。サブクラスの付け替えは v1 ではしない。
+  - インスタンス側のメソッドが、旧クラスにあって新しい形に無いインスタンス変数（継承したものを含む）を読むか代入する。数えるのは、旧クラスのメソッドが変更前にコンパイルされたとおりにインスタンス変数として読み書きするものである。新しい形ではその名前が大域変数か、同じ名前のクラス変数に解決され、黙って意味が変わるからである。ブロックの中（入れ子の深さによらない）の読み書きも数える。送信（`self y`）、シンボル（`#y`）、同じ名前の引数と temp は数えない。メッセージは `shape change refused: <Name>>><selector> refers to removed instance variable <var>` である。コンパイルし直しの失敗（新しい形で代入できない名前への代入など）があれば、そちらを先に報告する。
+  - インスタンス側かクラス側のメソッドが、旧クラスから見えて新しい定義から見えないクラス変数（§3.6。スーパークラスのものを含む）を読むか代入する。数えるのは、旧クラスのメソッドが変更前にコンパイルされたとおりにクラス変数として（束縛を通して）読み書きするものである。インスタンス変数と同じ理由で、数え方も同じである（新しい形では同じ名前のインスタンス変数に解決されることもある）。メッセージは `shape change refused: <Name>>><selector> refers to removed class variable <var>`（クラス側は `<Name> class>><selector>`）である。消えるインスタンス変数の読み書きがあれば、そちらを先に報告する。
+  - そのクラスにサブクラス（この節の冒頭の意味で、名前の無いものを含む）がある。サブクラスの付け替えは v1 ではしない。
 - 形が変わるとき、新しいクラスを作る `subclass:…` の送信が失敗すれば（評価を中断した、またはクラスを答えなかった。superclass のクラス側でこのメッセージを上書きすると起こりうる）、`AO_ERR_COMPILE` を返し、名前を旧クラスに戻す。送信の途中で名前が新しいクラスに付け替わっていても戻す。旧クラスとそのメソッドはそのままである。
-- メソッドは、送信が答えたクラスのインスタンス変数の並び（インスタンス側とクラス側）で移す。superclass のクラス側の上書きで、並びが定義テキストと違うことがあるからである。その並びでコンパイルし直しか消えるインスタンス変数の検査が失敗すれば、上の拒否と同じメッセージで `AO_ERR_COMPILE` を返し、名前を旧クラスに戻す。旧クラスとそのメソッドはそのままである。
+- メソッドは、送信が答えたクラスのインスタンス変数の並び（インスタンス側とクラス側）とクラス変数で移す。superclass のクラス側の上書きで、並びやクラス変数が定義テキストと違うことがあるからである。それでコンパイルし直しか消える変数の検査が失敗すれば、上の拒否と同じメッセージで `AO_ERR_COMPILE` を返し、名前を旧クラスに戻す。旧クラスとそのメソッドはそのままである。
+- 送信が答えたクラス（上書きが答えた既存の別のクラスでもよい）の classPool とメソッド辞書は、上の検査がすべて通るまで変えない。束縛の引き継ぎ（上）とメソッドの移し替えはそのあとにする。拒否したときは、どのクラスの classPool も束縛もメソッド辞書も変わらない。移す途中で割り当てに失敗すれば、送信が答えたクラスの classPool とメソッド辞書（インスタンス側とクラス側）を元のオブジェクトに戻し、名前を旧クラスに戻して `AO_ERR_COMPILE` を返す。
 - 既存インスタンスは移行しない。形が変わったあとも旧クラスのインスタンスのまま残り、旧クラスのメソッドで動く。
 - 1 回の `ao_accept_class` に複数のクラス定義があれば、先頭から順に適用し、拒否された定義で止まって `AO_ERR_COMPILE` を返す。それより前のチャンク（クラス定義と `methodsFor:`）は適用済みのまま残り、それより後のチャンクは適用しない。
 
@@ -550,7 +632,7 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 
 中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。既定の初期容量（nursery 1 MiB×2、old 4 MiB）は変えない。old は上限まで伸びる。`ao_image_load` はヘッダの heapBytes に合わせてコミットする。
 
-`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureKernelNatives` を呼ぶ。これは、Kernel のネイティブ（Transcript のクラス側の転送を含む）のうち、ロードしたイメージのメソッド辞書に無いセレクタだけを `putNative` する。既にあるセレクタは上書きしない。後から足したネイティブが、古いイメージにも入る。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。ロードと探針は新しいセッションに対して行い、どちらも成功したときだけ現在のセッションと差し替える。どちらかに失敗したら `AO_ERR` を返し、ロード前のセッションをそのまま使い続ける（差し替えも、シャットダウンもしない）。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めないとき、または file-in のエラー（§3.12。`DEFERRED.md` で除外したものを除く）が 1 件でもあるときは `AO_ERR`。
+`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureKernelNatives` を呼ぶ。これは、Kernel のネイティブ（Transcript のクラス側の転送を含む）のうち、ロードしたイメージのメソッド辞書に無いセレクタだけを `putNative` する。既にあるセレクタは上書きしない。後から足したネイティブが、古いイメージにも入る。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。ロードと探針は新しいセッションに対して行い、どちらも成功したときだけ現在のセッションと差し替える。どちらかに失敗したら `AO_ERR` を返し、ロード前のセッションをそのまま使い続ける（差し替えも、シャットダウンもしない）。`AO_ERR` のとき、`err` が NULL でなければ `AoSpan.message` に理由を入れる（空にしない。`start` と `end` は 0）。理由は、`Image::load` が拒否したときはその理由（§3.11。`unsupported image version 1` など）、探針が失敗したときは `image probes failed`、それ以外（セッションが無い、`path` が NULL、ワークスペースを作れない）は `image load failed` である。`AO_OK` のときは空文字にする。CLI の `ao image load <path>` は、失敗したとき標準エラーに `ao: image load failed: <理由>` を 1 行出す。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めないとき、または file-in のエラー（§3.12。`DEFERRED.md` で除外したものを除く）が 1 件でもあるときは `AO_ERR`。
 
 #### C ABI
 
@@ -578,7 +660,7 @@ typedef void (*AoTranscriptFn)(const char* utf8, int len, int is_clear, void* us
 typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, void* user);
 
 int ao_image_save(const char* path);
-int ao_image_load(const char* path);
+int ao_image_load(const char* path, AoSpan* err);
 int ao_filein_load_order(const char* path);
 void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
 void ao_set_inspect_hook(AoInspectFn fn, void* user);
@@ -626,7 +708,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 #### プロトコルとカテゴリ
 
-プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列。
+プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列。定義テキストの classVariableNames は、そのクラスの classPool の名前（§3.6。スーパークラスのものは含めない）を並んだ順に空白 1 つで区切ったもの。poolDictionaries は常に空文字 `''`。表示した定義を Accept し直しても、クラス変数は変わらない（§3.9）。
 
 #### Transcript のクラス側転送
 
@@ -637,7 +719,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 ワークスペースはセッションに 1 つ。`IdentityDictionary` ではなく、名前文字列をキーにした `Dictionary` をルートする。値は束縛（`Association`。キーは名前の文字列、値は変数の値）である。`ao_workspace_reset` は空の辞書に戻す。
 
 - 名前の解決順は、ローカル（引数と temp）→ インスタンス変数 → 擬変数 → `knownGlobals` → 束縛。宣言した temp（`| q |`）は同じ名前の束縛と関係しない。
-- `knownGlobals` は `Globals::nameAt` の 57 名、`Smalltalk`、`eachExtra` の名、`eachClass` のクラス名バイト。`Smalltalk` はグローバル表そのもので、クラスは `SmalltalkImage` である（`at:` と `at:put:` を受ける）。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
+- `knownGlobals` は `Smalltalk` の辞書（§3.6）のキー全部である。固定のグローバル（Kernel クラス名、`Processor`、`Smalltalk`）と、`subclass:` と `Smalltalk at:put:` で足した名前を含む。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
 - どれにも当たらない名前は束縛である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar`。束縛が辞書に無ければ、メソッドを作るとき（リテラルを箱に入れるとき）に値 nil で作って辞書に入れる。同じ名前の束縛は評価をまたいで同じ Association なので、ブロックに捕捉した束縛への代入も辞書に残る。束縛の数に上限は無い（temp の 255 に数えない）。
 
 `ao_eval` は、`out` が NULL か `out_len` が 1 未満なら、何も評価せずに `AO_ERR` を返す（副作用を起こさない。呼び出し側が再試行しても二重にならない）。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。評価の失敗（§3.3 の失敗の規則。どれも abort）は `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。理由が 255 バイトを超えれば切る。`AO_ERR_EVAL` のときの `AoSpan.message` は空にしない。abort 以外で値が得られなかったとき（理由が無いとき）は `evaluation failed` を入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。
@@ -663,13 +745,29 @@ LargeInteger とそれ以外はクラス名のまま。
 
 ### 3.11 イメージ形式 `.aoimage`
 
-- マジック `AOIM`、バージョン、ポインタサイズ、エンディアン
+- マジック `AOIM`、バージョン（2）、ポインタサイズ、エンディアン
 - well-known 表
 - ヒープダンプ（直接ポインタはファイル内オフセットに再配置）
-- グローバル辞書
+- グローバル辞書（`Smalltalk` の中身としてヒープダンプに入る）
+- クラス変数（classPool の辞書と束縛。§3.6）もヒープダンプに入る。メソッドのリテラルと classPool は、ロードのあとも同じ束縛を指す
 - 起動時に再配置し、NativeMethod の関数ポインタは **ロード時にシンボル名で結び直す**（ポインタをファイルに書かない）
 
-`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。古いイメージのコンパイル済みブロックは、再 Accept するまでコピーの意味論のまま動く。
+`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。
+
+形式の版は 2 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。ロードは版 1 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 2 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
+
+ロードが拒否するときの理由は次のとおりである。`ao_image_load`（§3.10）と CLI の `ao image load` はこれを出す。
+
+| 場合 | 理由 |
+|---|---|
+| ファイルが読めない | `cannot read image file` |
+| ヘッダより短い、マジックが `AOIM` でない | `not an Ao image` |
+| 版が 2 でない | `unsupported image version <版>` |
+| ポインタサイズ、エンディアン、ヘッダ長が違う | `unsupported image format` |
+| heapBytes が old の上限を超える | `image heap exceeds the old space limit` |
+| それ以外（予約欄、レコード、ヒープ、グローバルの照合などが合わない） | `damaged image` |
+
+グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。辞書より前に保存した旧イメージ（`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つもの）は版 1 なので、ヘッダの段階で拒否する。版 2 で `Smalltalk` がグローバル辞書でないイメージと、extra のレコードを持つイメージは、壊れたイメージとして拒否する。
 
 ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
 

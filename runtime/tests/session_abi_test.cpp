@@ -23,7 +23,7 @@ TEST_F(SessionAbi, BootThenImageRoundTripKeepsOnePlusTwo) {
   ASSERT_EQ(AO_OK, ao_image_save(path));
   ao_runtime_shutdown();
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  ASSERT_EQ(AO_OK, ao_image_load(path));
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
   ao_runtime_shutdown();
   std::remove(path);
 }
