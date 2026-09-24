@@ -1,6 +1,7 @@
 #include "ao/Scanner.hpp"
 #include <cstdint>
 #include <gtest/gtest.h>
+#include <string>
 
 using ao::compiler::Scanner;
 using ao::compiler::Tok;
@@ -84,4 +85,29 @@ TEST(Scanner, CommaIsABinaryCharacter) {
   EXPECT_EQ(",", tight.text);
   EXPECT_EQ(Tok::Ident, s.next().kind);
   EXPECT_EQ(Tok::Eof, s.next().kind);
+}
+
+// SPEC §3.8: a `-` after the first binary character is left out of the selector when a digit
+// follows; it starts a negative literal.
+TEST(Scanner, MinusBeforeDigitEndsBinarySelector) {
+  auto binaries = [](const char* src) {
+    Scanner s(src);
+    std::string seen;
+    for (auto t = s.next(); t.kind != Tok::Eof; t = s.next()) {
+      if (t.kind == Tok::Error) {
+        return std::string("error");
+      }
+      seen += t.kind == Tok::Binary ? "[" + t.text + "]" : t.text;
+    }
+    return seen;
+  };
+  EXPECT_EQ("2[*][-]1", binaries("2*-1"));
+  EXPECT_EQ("3[@][-]2", binaries("3@-2"));
+  EXPECT_EQ("3[>][-]1", binaries("3>-1"));
+  EXPECT_EQ("3[-][-]1", binaries("3--1"));
+  EXPECT_EQ("3[-]1", binaries("3-1"));
+  EXPECT_EQ("x[-]y", binaries("x-y"));
+  EXPECT_EQ("x[--]y", binaries("x--y"));
+  EXPECT_EQ("2[*-]1", binaries("2*- 1"));
+  EXPECT_EQ("a[->]b", binaries("a->b"));
 }

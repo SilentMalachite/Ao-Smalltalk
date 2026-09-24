@@ -318,6 +318,11 @@ Token Scanner::lexCharacter(std::uint32_t start) {
 
 Token Scanner::lexBinary(std::uint32_t start) {
   while (i_ < src_.size() && isBinaryChar(src_[i_])) {
+    // SPEC §3.8: after the first character, a `-` followed by a digit starts a negative literal
+    // (`2*-1` is `2 * -1`).
+    if (i_ > start && src_[i_] == '-' && i_ + 1 < src_.size() && isDigit(src_[i_ + 1])) {
+      break;
+    }
     i_++;
   }
   return make(Tok::Binary, start, std::string(src_.substr(start, i_ - start)));

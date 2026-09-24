@@ -2282,3 +2282,31 @@ TEST(AcceptAbi, CommaIsABinarySelector) {
       << err.message;
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/05 Medium) / SPEC §3.8: `2*-1` was the selector `*-` (doesNotUnderstand:).
+// A `-` after the first binary character, followed by a digit, starts a negative literal.
+TEST(AcceptAbi, MinusAfterBinaryCharacterStartsNegativeLiteral) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Minus\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  acceptMethods("B7Minus", 0, {"foo: n\n  ^n\n", "@ n\n  ^n\n", "sub: x from: y\n  ^y-x\n"});
+  expectPrints({
+      {"2*-1", "-2"},
+      {"B7Minus new@-2", "-2"},
+      {"3>-1", "true"},
+      {"3--1", "4"},
+      {"3-1", "2"},
+      {"3 - 1", "2"},
+      {"3 -1", "2"},
+      {"B7Minus new foo: -1", "-1"},
+      {"B7Minus new foo:-1", "-1"},
+      {"B7Minus new sub: 1 from: 5", "4"},
+  });
+  ao_runtime_shutdown();
+}
