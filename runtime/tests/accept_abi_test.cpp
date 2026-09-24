@@ -946,3 +946,33 @@ TEST(AcceptAbi, AcceptClassRefusesClassAsItsOwnSuperclass) {
   EXPECT_STREQ("4", out);
   ao_runtime_shutdown();
 }
+
+// B5 review L2 / SPEC §3.9: 1 回の ao_accept_class に複数のクラス定義があれば、先頭から順に適用し、
+// 拒否された定義で止まって AO_ERR_COMPILE。それより前のチャンク（クラス定義と methodsFor:）は
+// 適用済みのまま残り、それより後のチャンクは適用しない。
+TEST(AcceptAbi, AcceptClassStopsAtRefusedDefinitionKeepingEarlierChunks) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  const std::string chunks = b5Definition("Object", "B5First", "", "B5-Test") + "!\n" +
+                             "!B5First methodsFor: 'b5'!\none\n  ^1! !\n" +
+                             b5Definition("B5First", "B5First", "a", "B5-Test") + "!\n" +
+                             b5Definition("Object", "B5Third", "", "B5-Test") + "!\n" +
+                             "!B5First methodsFor: 'b5'!\ntwo\n  ^2! !\n";
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(chunks.c_str(), &e));
+  EXPECT_STREQ("superclass refused: B5First is B5First or its subclass", e.message);
+
+  EXPECT_EQ("B5-Test", b5Category("B5First"));
+  ASSERT_EQ(AO_OK, printIt("B5First new one")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("B5First instSize")) << err.message;
+  EXPECT_STREQ("0", out);
+  EXPECT_EQ(1, ao_browser_selector_count("B5First", 0, "user"));
+  EXPECT_EQ("<missing>", b5Category("B5Third"));
+  EXPECT_EQ(AO_ERR_EVAL, printIt("B5First new two"));
+  ao_runtime_shutdown();
+}
