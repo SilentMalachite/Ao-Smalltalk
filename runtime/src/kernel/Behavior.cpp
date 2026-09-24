@@ -9,7 +9,9 @@
 #include "ao/MethodDictionary.hpp"
 #include "ao/Send.hpp"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -233,6 +235,26 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   // SPEC §3.6: a bytes object has no named slots, so a variable on a bytes class could hold nothing.
   if (Format::isBytes(superFmt) && !ivars.empty()) {
     return abortEvaluation(ctx, "bytes class cannot have instance variables");
+  }
+  // SPEC §3.6: a name the superclass chain has, or one given twice, would leave the later slot out
+  // of reach, since the compiler resolves a name to the slot nearest the front. A slot without a
+  // name does not count. Nothing here collects.
+  {
+    const std::vector<Oop> inherited = namedSlotNames(ctx.heap, receiver);
+    for (std::size_t i = 0; i < ivars.size(); ++i) {
+      const std::string_view name = ivars[i];
+      const auto given = ivars.begin() + static_cast<std::ptrdiff_t>(i);
+      const bool redeclared =
+          std::find(ivars.begin(), given, name) != given ||
+          std::any_of(inherited.begin(), inherited.end(), [&](Oop slotName) {
+            return slotName.isHeap() && ctx.heap.size(slotName) == name.size() &&
+                   std::memcmp(ctx.heap.bytes(slotName), name.data(), name.size()) == 0;
+          });
+      if (redeclared) {
+        return abortEvaluation(ctx, std::string_view("duplicate instance variable: " +
+                                                     std::string(name)));
+      }
+    }
   }
   const auto instSize = superInst + static_cast<std::int64_t>(ivars.size());
   const Oop fmt =

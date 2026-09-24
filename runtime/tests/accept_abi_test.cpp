@@ -2166,3 +2166,58 @@ TEST(AcceptAbi, ClassPoolAtPutLeavesTheBindingsAlone) {
   });
   ao_runtime_shutdown();
 }
+
+// B4 review (Claude M4) / SPEC §3.6: 失敗シナリオ。OrderedCollection subclass: #OC2
+// instanceVariableNames: 'array extra' が通り、OC2>>mine ^array は親の内部 Array を返して、OC2 の
+// array には届かなかった。継承した名前と、同じ定義の中の重複は、クラスを作らずに中断する。名前の
+// 無いスロットは数えない。形を変える再 Accept でも同じで、名前は旧クラスのまま。
+TEST(AcceptAbi, SubclassRefusesRedeclaredInstanceVariables) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("OrderedCollection", "B4OC2", "array extra", "B4-Test")
+                                .c_str(),
+                            &err));
+  EXPECT_STREQ("subclass failed: B4OC2: duplicate instance variable: array", err.message);
+  EXPECT_EQ("<missing>", b5ClassDefinition("B4OC2"));
+
+  EXPECT_EQ(AO_ERR_EVAL, printIt("Object subclass: #B4Dup instanceVariableNames: 'a b a' "
+                                 "classVariableNames: '' poolDictionaries: '' category: 'B4-Test'"));
+  EXPECT_STREQ("duplicate instance variable: a", err.message);
+  EXPECT_EQ("<missing>", b5ClassDefinition("B4Dup"));
+  // Behavior の枠はメタクラスのインスタンス（クラス）のもので、インスタンスの名前とは重ならない。
+  EXPECT_EQ(AO_OK, printIt("Object subclass: #B4DupCat instanceVariableNames: 'category' "
+                           "classVariableNames: '' poolDictionaries: '' category: 'B4-Test'"))
+      << err.message;
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "B4DupSup", "x", "B4-Test").c_str(), &err))
+      << err.message;
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("B4DupSup", "B4DupSub", "y x", "B4-Test").c_str(), &err));
+  EXPECT_STREQ("subclass failed: B4DupSub: duplicate instance variable: x", err.message);
+  EXPECT_EQ("<missing>", b5ClassDefinition("B4DupSub"));
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("B4DupSup", "B4DupRe", "y", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B4DupRe", 0, "getY\n  ^y\n", &err)) << err.message;
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("B4DupSup", "B4DupRe", "y x", "B4-Test").c_str(), &err));
+  EXPECT_STREQ("subclass failed: B4DupRe: duplicate instance variable: x", err.message);
+
+  // 名前の無いスロットの名前は数えない（instVarNames を消したクラスの下）。
+  ASSERT_EQ(AO_OK, printIt("Rectangle instVarAt: 8 put: nil. 0")) << err.message;
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Rectangle", "B4DupRect", "origin", "B4-Test").c_str(), &err))
+      << err.message;
+  expectPrints({
+      {"B4DupRe instSize", "2"},
+      {"B4DupRe new getY", "nil"},
+      {"B4DupRect instSize", "3"},
+      {"(Smalltalk includesKey: #B4Dup) | (Smalltalk includesKey: #B4DupSub)", "false"},
+  });
+  ao_runtime_shutdown();
+}
