@@ -814,31 +814,31 @@ Oop bitXor(CallContext& ctx, Oop a, Oop b) {
 
 Oop bitShift(CallContext& ctx, Oop a, Oop n) {
   Big A;
-  if (!parse(ctx.heap, ctx.wk, a, A)) {
+  Big N;
+  if (!parse(ctx.heap, ctx.wk, a, A) || !parse(ctx.heap, ctx.wk, n, N)) {
     return Oop{};
   }
-  bool fits = false;
-  const std::int64_t sh = asInt64IfFits(ctx.heap, ctx.wk, n, &fits);
-  if (!fits) {
+  // SPEC §3.6: a right shift past 2^24 bits leaves the sign. It is decided on the Integer itself,
+  // before any negation: -2^63 (and a negative LargeInteger) would overflow when negated.
+  constexpr std::int64_t kMaxShift = std::int64_t{1} << 24;
+  std::int64_t sh = 0;
+  const bool fits = toInt64(N, &sh);
+  if (N.neg && (!fits || sh < -kMaxShift)) {
+    return A.neg ? Oop::fromSmallInteger(-1) : Oop::fromSmallInteger(0);
+  }
+  if (!fits || sh > kMaxShift) {
     return Oop{};
   }
   if (A.isZero() || sh == 0) {
     return box(ctx, A);
   }
   if (sh > 0) {
-    if (sh > 1 << 24) {
-      return Oop{};
-    }
     magShl(A.d, static_cast<unsigned>(sh));
     return box(ctx, A);
   }
-  const std::int64_t right = -sh;
-  if (right > 1 << 24) {
-    return A.neg ? Oop::fromSmallInteger(-1) : Oop::fromSmallInteger(0);
-  }
   Big den;
   den.d.push_back(1);
-  magShl(den.d, static_cast<unsigned>(right));
+  magShl(den.d, static_cast<unsigned>(-sh));
   Big q;
   Big r;
   floorDivMod(A, den, q, r);

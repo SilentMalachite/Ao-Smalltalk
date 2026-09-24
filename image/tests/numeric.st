@@ -28,3 +28,6 @@ self assert: (1/3) > 0.3333333333333333 equals: true.
 self assert: ((1/2) max: (2/3)) equals: 2/3.
 self assert: ((1/2) between: 0 and: 1) equals: true.
 self assert: ((Rectangle origin: (Point x: 0 y: 0) corner: (Point x: 10 y: 10)) containsPoint: (Point x: 0.5 y: 0.5)) equals: true.
+"SPEC §3.6 bitShift: のシフト量が -2^24 より小さければ 0 か -1"
+self assert: (5 bitShift: (-1 bitShift: 63)) equals: 0.
+self assert: (-5 bitShift: (-1 bitShift: 63)) equals: -1.

@@ -296,3 +296,25 @@ TEST_F(KernelNumeric, NonNumberArgumentFailsLessThanAndFallsBackForTheOthers) {
   EXPECT_EQ("true", printIt("3 > (B8Money new amount: 2)"));
   EXPECT_EQ("false", printIt("1.5 > (B8Money new amount: 2)"));
 }
+
+// 03 Medium: シフト量 -2^63 は符号反転の前に範囲を判定する。-2^24 より小さければ 0 か -1。
+TEST_F(KernelNumeric, BitShiftBeyondMinusTwoToThe24AnswersZeroOrMinusOne) {
+  EXPECT_EQ("0", printIt("5 bitShift: (-1 bitShift: 63)"));
+  EXPECT_EQ("-1", printIt("-5 bitShift: (-1 bitShift: 63)"));
+  EXPECT_EQ("0", printIt("5 bitShift: -16777217"));
+  EXPECT_EQ("-1", printIt("-5 bitShift: -16777217"));
+  EXPECT_EQ("0", printIt("(1 bitShift: 100) bitShift: (0 - (1 bitShift: 80))"));
+  EXPECT_EQ("-1", printIt("(0 - (1 bitShift: 100)) bitShift: (0 - (1 bitShift: 80))"));
+  EXPECT_EQ("0", printIt("0 bitShift: (-1 bitShift: 63)"));
+  // 範囲内の右シフトは床（負数は -∞ 側へ）。
+  EXPECT_EQ("0", printIt("5 bitShift: -16777216"));
+  EXPECT_EQ("-1", printIt("-5 bitShift: -16777216"));
+  EXPECT_EQ("-3", printIt("-5 bitShift: -1"));
+  EXPECT_EQ("-1", printIt("-1 bitShift: -64"));
+  EXPECT_EQ("5", printIt("5 bitShift: 0"));
+  EXPECT_EQ("true", printIt("(1 bitShift: 64) = ((1 bitShift: 63) * 2)"));
+  EXPECT_EQ("1", printIt("(1 bitShift: 64) bitShift: -64"));
+  // 2^24 を超える左シフトは失敗する。
+  EXPECT_EQ("<eval error: failed: #bitShift:>", printIt("5 bitShift: 16777217"));
+  EXPECT_EQ("<eval error: failed: #bitShift:>", printIt("5 bitShift: (1 bitShift: 63)"));
+}
