@@ -158,9 +158,8 @@ TEST(Process, SignalWithExcessAtSmiMaxFails) {
   ASSERT_TRUE(sem.slot.isHeap());
   const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
   ASSERT_EQ(max, send2(b, sem.slot, "instVarAt:put:", ao::Oop::fromSmallInteger(1), max));
-  const ao::Oop r = send0(b, sem.slot, "signal");
-  ASSERT_TRUE(r.isHeap());
-  ASSERT_EQ(b.wk.stringClass, b.heap.klass(r));
-  EXPECT_EQ("signal: excess signals out of range", ao::Str::toUtf8(b.heap, r));
+  // SPEC §3.3: the failure aborts with its message instead of answering it.
+  EXPECT_TRUE(send0(b, sem.slot, "signal").isEmpty());
+  EXPECT_EQ("signal: excess signals out of range", takeAbortReason(b));
   EXPECT_EQ(max, send1(b, sem.slot, "instVarAt:", ao::Oop::fromSmallInteger(1)));
 }

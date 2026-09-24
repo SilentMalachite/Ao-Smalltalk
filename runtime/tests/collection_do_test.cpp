@@ -283,9 +283,9 @@ TEST(CollectionDo, BagLinkedListMappedCollectionStubs) {
     ASSERT_TRUE(o.slot.isHeap());
     EXPECT_EQ(0, send0(b, o.slot, "size").smallIntegerValue());
     EXPECT_EQ(o.slot, send1(b, o.slot, "do:", ao::Oop::nil()));
-    auto r = send1(b, o.slot, "add:", ao::Oop::fromSmallInteger(1));
-    ASSERT_TRUE(r.isHeap());
-    EXPECT_EQ("subclassResponsibility", ao::Str::toUtf8(b.heap, r));
+    // SPEC §3.3: スタブの add: は値を返さず、subclassResponsibility で評価を中断する。
+    EXPECT_TRUE(send1(b, o.slot, "add:", ao::Oop::fromSmallInteger(1)).isEmpty());
+    EXPECT_EQ("subclassResponsibility", takeAbortReason(b));
     ao::Root doMeth(b.roots, send1(b, classes[i], "compiledMethodAt:", b.wk.intern("do:")));
     auto sizeMeth = send1(b, classes[i], "compiledMethodAt:", b.wk.intern("size"));
     EXPECT_EQ(doNames[i], ao::NativeMethod::nameBytes(b.heap, doMeth.slot));
@@ -296,11 +296,10 @@ TEST(CollectionDo, BagLinkedListMappedCollectionStubs) {
 namespace {
 
 // 内部のカウンタ（Smalltalk から書き換えられるスロット）を SmallInteger の最大値にしてから操作する。
-// ±1 が SmallInteger の範囲を超えるので、abort せず、error: の慣習どおりメッセージ文字列で失敗する。
-void expectFailString(Boot& b, ao::Oop r, const char* message) {
-  ASSERT_TRUE(r.isHeap());
-  ASSERT_EQ(b.wk.stringClass, b.heap.klass(r));
-  EXPECT_EQ(message, ao::Str::toUtf8(b.heap, r));
+// ±1 が SmallInteger の範囲を超えるので、error: の慣習どおり、その文言で評価を中断する（SPEC §3.3）。
+void expectFailAbort(Boot& b, ao::Oop r, const char* message) {
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ(message, takeAbortReason(b));
 }
 
 ao::Oop smi(std::int64_t v) { return ao::Oop::fromSmallInteger(v); }
@@ -313,7 +312,7 @@ TEST(CollectionDo, DictionaryAtPutWithTallyAtSmiMaxFails) {
   ASSERT_TRUE(dict.slot.isHeap());
   ASSERT_EQ(smi(ao::kSmiMax), send2(b, dict.slot, "instVarAt:put:", smi(1), smi(ao::kSmiMax)));
   ao::Root key(b.roots, b.wk.intern("smiMaxKey"));
-  expectFailString(b, send2(b, dict.slot, "at:put:", key.slot, smi(1)),
+  expectFailAbort(b, send2(b, dict.slot, "at:put:", key.slot, smi(1)),
                    "at:put: tally out of range");
   EXPECT_EQ(smi(ao::kSmiMax), send1(b, dict.slot, "instVarAt:", smi(1)));
 }
@@ -323,7 +322,7 @@ TEST(CollectionDo, SetAddWithTallyAtSmiMaxFails) {
   ao::Root set(b.roots, send0(b, b.wk.setClass, "new"));
   ASSERT_TRUE(set.slot.isHeap());
   ASSERT_EQ(smi(ao::kSmiMax), send2(b, set.slot, "instVarAt:put:", smi(1), smi(ao::kSmiMax)));
-  expectFailString(b, send1(b, set.slot, "add:", smi(7)), "add: tally out of range");
+  expectFailAbort(b, send1(b, set.slot, "add:", smi(7)), "add: tally out of range");
   EXPECT_EQ(smi(ao::kSmiMax), send1(b, set.slot, "instVarAt:", smi(1)));
 }
 
@@ -334,30 +333,35 @@ TEST(CollectionDo, OrderedCollectionSizeBeyondSmiMaxFails) {
   ASSERT_TRUE(oc.slot.isHeap());
   send2(b, oc.slot, "instVarAt:put:", smi(2), smi(0));
   send2(b, oc.slot, "instVarAt:put:", smi(3), smi(ao::kSmiMax));
-  expectFailString(b, send0(b, oc.slot, "size"), "size out of range");
+  expectFailAbort(b, send0(b, oc.slot, "size"), "size out of range");
   send2(b, oc.slot, "instVarAt:put:", smi(2), smi(ao::kSmiMin));
-  expectFailString(b, send0(b, oc.slot, "size"), "size out of range");
+  expectFailAbort(b, send0(b, oc.slot, "size"), "size out of range");
 }
 
 namespace {
 
 // collect: と select: は、ネイティブのブロック（thunk）の pc を添字や件数に使う。do: を書き換えた
-// コレクションは、そのブロックを受け取って pc を書き換えられる。
+// コレクションは、そのブロックを受け取って pc を書き換えられる。失敗は評価を中断するので、select:
+// の 2 回目の do:（詰める側）を試すときは、skip: で 1 回目を書き換えずに通す。
 const char* kSmiMaxPoker =
     "!Collection subclass: #SmiMaxPoker\n"
-    "  instanceVariableNames: 'results'\n"
+    "  instanceVariableNames: 'results skip'\n"
     "  classVariableNames: ''\n"
     "  poolDictionaries: ''\n"
     "  category: 'SmiRange'!\n"
     "!SmiMaxPoker methodsFor: 'enumerating'!\n"
     "reset\n"
-    "  results := OrderedCollection new!\n"
+    "  results := OrderedCollection new.\n"
+    "  skip := 0!\n"
+    "skip: n\n"
+    "  skip := n!\n"
     "results\n"
     "  ^results!\n"
     "size\n"
     "  ^1!\n"
     "do: aBlock\n"
     "  | saved |\n"
+    "  skip > 0 ifTrue: [skip := skip - 1. ^aBlock value: 1].\n"
     "  saved := aBlock instVarAt: 2.\n"
     "  aBlock instVarAt: 2 put: 4611686018427387903.\n"
     "  results add: (aBlock value: 1).\n"
@@ -382,10 +386,9 @@ TEST(CollectionDo, CollectIndexAtSmiMaxFails) {
     return args[0];
   };
   ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, +body, 1));
-  send1(b, poker.slot, "collect:", blk.slot);
+  expectFailAbort(b, send1(b, poker.slot, "collect:", blk.slot), "collect: index out of range");
   ao::Root results(b.roots, send0(b, poker.slot, "results"));
-  ASSERT_EQ(smi(1), send0(b, results.slot, "size"));
-  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "collect: index out of range");
+  EXPECT_EQ(smi(0), send0(b, results.slot, "size"));
 }
 
 // select: は件数を数える do: と、詰める do: の 2 回を回す。どちらのブロックも失敗する。
@@ -397,26 +400,30 @@ TEST(CollectionDo, SelectCountersAtSmiMaxFail) {
     return ao::Oop::true_();
   };
   ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, +body, 1));
-  send1(b, poker.slot, "select:", blk.slot);
+  expectFailAbort(b, send1(b, poker.slot, "select:", blk.slot), "select: count out of range");
+  send1(b, poker.slot, "skip:", smi(1));
+  expectFailAbort(b, send1(b, poker.slot, "select:", blk.slot), "select: index out of range");
   ao::Root results(b.roots, send0(b, poker.slot, "results"));
-  ASSERT_EQ(smi(2), send0(b, results.slot, "size"));
-  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "select: count out of range");
-  expectFailString(b, send1(b, results.slot, "at:", smi(2)), "select: index out of range");
+  EXPECT_EQ(smi(0), send0(b, results.slot, "size"));
 }
 
 namespace {
 
 // 入口の検査のあとで利用者のブロックが走り、thunk の pc を書き換える。do: はブロックを ivar に
-// 保存し、collect: / select: / reject: のブロックがそれを SmallInteger の最大値にする。
+// 保存し、collect: / select: / reject: のブロックがそれを SmallInteger の最大値にする。skip: の回数
+// だけは書き換えない（select: / reject: の 2 回目の do: を試すため）。
 const char* kSmiMaxLatePoker =
     "!Collection subclass: #SmiMaxLatePoker\n"
-    "  instanceVariableNames: 'thunk results'\n"
+    "  instanceVariableNames: 'thunk results skip'\n"
     "  classVariableNames: ''\n"
     "  poolDictionaries: ''\n"
     "  category: 'SmiRange'!\n"
     "!SmiMaxLatePoker methodsFor: 'enumerating'!\n"
     "reset\n"
-    "  results := OrderedCollection new!\n"
+    "  results := OrderedCollection new.\n"
+    "  skip := 0!\n"
+    "skip: n\n"
+    "  skip := n!\n"
     "results\n"
     "  ^results!\n"
     "size\n"
@@ -428,6 +435,7 @@ const char* kSmiMaxLatePoker =
     "  results add: (aBlock value: 1).\n"
     "  aBlock instVarAt: 2 put: saved!\n"
     "poke\n"
+    "  skip > 0 ifTrue: [skip := skip - 1. ^self].\n"
     "  thunk instVarAt: 2 put: 4611686018427387903!\n"
     "pokeCollect\n"
     "  ^self collect: [:x | self poke. x]!\n"
@@ -452,30 +460,30 @@ TEST(CollectionDo, CollectIndexPokedByUserBlockFails) {
   Boot b;
   ao::Root poker(b.roots, newLatePoker(b));
   ASSERT_TRUE(poker.slot.isHeap());
-  send0(b, poker.slot, "pokeCollect");
+  // 書き換えた添字への at:put: が先に失敗し、その文言で中断する。
+  expectFailAbort(b, send0(b, poker.slot, "pokeCollect"), "basicAt:put: index out of range");
   ao::Root results(b.roots, send0(b, poker.slot, "results"));
-  ASSERT_EQ(smi(1), send0(b, results.slot, "size"));
-  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "collect: index out of range");
+  EXPECT_EQ(smi(0), send0(b, results.slot, "size"));
 }
 
 TEST(CollectionDo, SelectCountersPokedByUserBlockFail) {
   Boot b;
   ao::Root poker(b.roots, newLatePoker(b));
   ASSERT_TRUE(poker.slot.isHeap());
-  send0(b, poker.slot, "pokeSelect");
+  expectFailAbort(b, send0(b, poker.slot, "pokeSelect"), "select: count out of range");
+  send1(b, poker.slot, "skip:", smi(1));
+  expectFailAbort(b, send0(b, poker.slot, "pokeSelect"), "basicAt:put: index out of range");
   ao::Root results(b.roots, send0(b, poker.slot, "results"));
-  ASSERT_EQ(smi(2), send0(b, results.slot, "size"));
-  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "select: count out of range");
-  expectFailString(b, send1(b, results.slot, "at:", smi(2)), "select: index out of range");
+  EXPECT_EQ(smi(1), send0(b, results.slot, "size"));
 }
 
 TEST(CollectionDo, RejectCountersPokedByUserBlockFail) {
   Boot b;
   ao::Root poker(b.roots, newLatePoker(b));
   ASSERT_TRUE(poker.slot.isHeap());
-  send0(b, poker.slot, "pokeReject");
+  expectFailAbort(b, send0(b, poker.slot, "pokeReject"), "reject: count out of range");
+  send1(b, poker.slot, "skip:", smi(1));
+  expectFailAbort(b, send0(b, poker.slot, "pokeReject"), "basicAt:put: index out of range");
   ao::Root results(b.roots, send0(b, poker.slot, "results"));
-  ASSERT_EQ(smi(2), send0(b, results.slot, "size"));
-  expectFailString(b, send1(b, results.slot, "at:", smi(1)), "reject: count out of range");
-  expectFailString(b, send1(b, results.slot, "at:", smi(2)), "reject: index out of range");
+  EXPECT_EQ(smi(1), send0(b, results.slot, "size"));
 }

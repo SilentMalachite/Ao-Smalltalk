@@ -7,14 +7,18 @@
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/MethodImage.hpp"
+#include "ao/Parser.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 #include "ao/Vendor.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -170,27 +174,43 @@ bool isKernelClass(const WellKnown& wk, Oop cls) {
   return probe.found;
 }
 
-bool refusesKernelRedefinition(bool kernel, std::string_view className,
-                               std::vector<compiler::CompileError>& errors) {
+// The file is filled in by whoever knows it (fileInLoadOrder). method is set for a method-level
+// error only (SPEC §3.12).
+void addError(std::vector<FileInError>& errors, compiler::CompileError error,
+              std::string method = {}) {
+  errors.push_back(FileInError{{}, std::move(method), std::move(error)});
+}
+
+// SPEC §3.12: how DEFERRED.md names a method, `Class>>selector` or `Class class>>selector`.
+std::string methodKey(const compiler::ChunkAction& action, std::string_view selector) {
+  std::string key = action.className;
+  if (action.meta) {
+    key += " class";
+  }
+  key += ">>";
+  key += selector;
+  return key;
+}
+
+bool refusesKernelRedefinition(bool kernel, const compiler::ChunkAction& action,
+                               std::vector<FileInError>& errors) {
   if (kernel) {
-    errors.push_back(
-        compiler::CompileError{{}, "refusing to redefine kernel class: " + std::string(className)});
+    addError(errors, {action.span, "refusing to redefine kernel class: " + action.className});
     return true;
   }
   return false;
 }
 
 bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
-                   std::vector<compiler::CompileError>& errors) {
+                   std::vector<FileInError>& errors) {
   // subclass: makes a new class and rebinds only the name (an alias too), never a Kernel class in
   // place. A catalog name is refused: define keeps its well-known slot.
-  if (refusesKernelRedefinition(isKernelClassName(ctx.wk, action.className), action.className,
-                                errors)) {
+  if (refusesKernelRedefinition(isKernelClassName(ctx.wk, action.className), action, errors)) {
     return false;
   }
   Root super(ctx.roots, ctx.wk.named(action.superName));
   if (!super.slot.isHeap()) {
-    errors.push_back(compiler::CompileError{{}, "missing class: " + action.superName});
+    addError(errors, {action.span, "missing class: " + action.superName});
     return false;
   }
   Root name(ctx.roots, ctx.wk.intern(action.className));
@@ -200,50 +220,67 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
   Root cat(ctx.roots, boxUtf8(ctx, action.category));
   if (!name.slot.isHeap() || !ivars.slot.isHeap() || !cvars.slot.isHeap() || !pools.slot.isHeap() ||
       !cat.slot.isHeap()) {
-    errors.push_back(compiler::CompileError{{}, "class definition allocation failed: " + action.className});
+    addError(errors, {action.span, "class definition allocation failed: " + action.className});
     return false;
   }
   const Oop sel = Symbol::intern(
       ctx.wk, "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:");
+  // SPEC §3.4 / §3.12: the definition's send is an outermost evaluation. What an earlier one left
+  // over is not blamed on it, and an abort it ends in is this chunk's error: the reason goes into
+  // the message and the abort is cleared here, not carried into the next evaluation. Neither
+  // clearing nor refreshing collects.
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
   // Read the rooted slots after the last allocation. The send roots its own copies on entry.
   const Oop args[5] = {name.slot, ivars.slot, cvars.slot, pools.slot, cat.slot};
   const Oop created = send(ctx, super.slot, sel, args, 5, nullptr);
+  if (unwinding(ctx)) {
+    const std::string reason = abortReasonText(ctx);
+    clearUnwinding(ctx);
+    addError(errors, {action.span,
+                      "subclass failed: " + action.className + ": " +
+                          (reason.empty() ? std::string("evaluation aborted") : reason)});
+    return false;
+  }
   if (!created.isHeap()) {
-    errors.push_back(compiler::CompileError{{}, "subclass failed: " + action.className});
+    addError(errors, {action.span, "subclass failed: " + action.className});
     return false;
   }
   if (isVendorStub(action.className) && !ctx.wk.rebind(action.className, created)) {
-    errors.push_back(compiler::CompileError{{}, "rebind failed: " + action.className});
+    addError(errors, {action.span, "rebind failed: " + action.className});
     return false;
   }
   return true;
 }
 
 bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
-                     std::vector<compiler::CompileError>& errors) {
+                     std::vector<FileInError>& errors) {
   Root cls(ctx.roots, ctx.wk.named(action.className));
   if (!cls.slot.isHeap()) {
-    errors.push_back(compiler::CompileError{{}, "missing class: " + action.className});
+    addError(errors, {action.span, "missing class: " + action.className});
     return false;
   }
-  if (refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action.className, errors)) {
+  if (refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action, errors)) {
     return false;
   }
   const Oop target = action.meta ? ctx.heap.klass(cls.slot) : cls.slot;
   if (!target.isHeap()) {
-    errors.push_back(compiler::CompileError{{}, "missing class: " + action.className});
+    addError(errors, {action.span, "missing class: " + action.className});
     return false;
   }
   Root tgt(ctx.roots, target);
   compiler::CompileEnv env;
   fillInstVars(ctx, tgt.slot, env);
+  // SPEC §3.12: a method-level error names its method and does not stop the rest.
   for (const auto& m : action.methods) {
     compiler::CompileResult cr = compiler::compileMethod(m.source, env);
     if (!cr.ok) {
       compiler::CompileError e = std::move(cr.error);
       e.span.start += m.span.start;
       e.span.end += m.span.start;
-      errors.push_back(std::move(e));
+      // The pattern parses even when the body does not, so the partial method has its selector.
+      addError(errors, std::move(e),
+               methodKey(action, compiler::parseMethod(m.source).method.name));
       continue;
     }
     const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
@@ -251,17 +288,116 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
     if (dict.isHeap() && sel.isHeap()) {
       const Oop existing = MethodDictionary::at(ctx.heap, dict, sel);
       if (existing.isHeap() && ctx.heap.klass(existing) == ctx.wk.nativeMethodClass) {
-        errors.push_back(compiler::CompileError{
-            m.span, "native selector overwrite refused: " + cr.image.selector});
+        addError(errors, {m.span, "native selector overwrite refused: " + cr.image.selector},
+                 methodKey(action, cr.image.selector));
         continue;
       }
     }
     const Oop installed = installMethod(ctx, tgt.slot, cr.image);
     if (!installed.isHeap()) {
-      errors.push_back(compiler::CompileError{m.span, "install failed"});
+      addError(errors, {m.span, "install failed"}, methodKey(action, cr.image.selector));
     }
   }
   return true;
+}
+
+// False when a chunk stopped the file-in (a class definition failed, a methodsFor: was refused
+// or named no class). Errors that do not stop it are only added to errors.
+bool applyChunkActions(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
+                       std::vector<FileInError>& errors) {
+  for (const auto& action : actions) {
+    switch (action.kind) {
+      case compiler::ChunkKind::ClassDef:
+        if (!applyClassDef(ctx, action, errors)) {
+          return false;
+        }
+        break;
+      case compiler::ChunkKind::MethodsFor:
+        if (!applyMethodsFor(ctx, action, errors)) {
+          return false;
+        }
+        break;
+      case compiler::ChunkKind::DoIt:
+        break;
+    }
+  }
+  return true;
+}
+
+bool readSource(const std::filesystem::path& path, std::string* out) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    return false;
+  }
+  std::ostringstream buf;
+  buf << in.rdbuf();
+  if (!in && !in.eof()) {
+    return false;
+  }
+  *out = buf.str();
+  return true;
+}
+
+// One file a LOAD_ORDER lists. False when it cannot be read or a chunk stopped it.
+bool fileInListedFile(CallContext& ctx, const std::filesystem::path& path,
+                      std::vector<FileInError>& errors) {
+  std::string src;
+  if (!readSource(path, &src)) {
+    addError(errors, {{}, "cannot read: " + path.string()});
+    return false;
+  }
+  std::vector<compiler::CompileError> parseErrors;
+  const std::vector<compiler::ChunkAction> actions = compiler::parseChunks(src, parseErrors);
+  for (auto& e : parseErrors) {
+    addError(errors, std::move(e));
+  }
+  return applyChunkActions(ctx, actions, errors);
+}
+
+bool isClassName(std::string_view name) {
+  if (name.empty() || std::isalpha(static_cast<unsigned char>(name.front())) == 0) {
+    return false;
+  }
+  return std::all_of(name.begin(), name.end(), [](char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
+  });
+}
+
+// A DEFERRED.md line (SPEC §3.12). `Class>>selector: reason` or `Class class>>selector: reason`
+// answers `Class>>selector` (`Class class>>selector`); the selector is the text up to the first
+// ": ", so a keyword selector is written `Class>>at:put:: reason`. Any other line is a note and
+// answers "".
+std::string deferredListing(std::string_view line) {
+  while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) {
+    line.remove_suffix(1);
+  }
+  const std::size_t arrows = line.find(">>");
+  if (arrows == std::string_view::npos) {
+    return {};
+  }
+  const std::string_view owner = line.substr(0, arrows);
+  constexpr std::string_view kClassSide = " class";
+  std::string_view name = owner;
+  if (name.size() > kClassSide.size() &&
+      name.substr(name.size() - kClassSide.size()) == kClassSide) {
+    name.remove_suffix(kClassSide.size());
+  }
+  if (!isClassName(name)) {
+    return {};
+  }
+  const std::string_view rest = line.substr(arrows + 2);
+  const std::size_t colon = rest.find(": ");
+  if (colon == 0 || colon == std::string_view::npos) {
+    return {};
+  }
+  const std::string_view selector = rest.substr(0, colon);
+  if (selector.find_first_of(" \t") != std::string_view::npos) {
+    return {};
+  }
+  std::string key(owner);
+  key += ">>";
+  key += selector;
+  return key;
 }
 
 }  // namespace
@@ -312,63 +448,65 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
   if (!MethodDictionary::atPut(ctx.heap, dict, sel, cm.slot)) {
     return Oop{};
   }
+  // SPEC §3.3: accept and file-in method chunks both come here. atPut did not GC, so sel is valid.
+  invalidateMethodCache(ctx.cache, sel);
   return cm.slot;
 }
 
 bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
                  std::vector<compiler::CompileError>& errors) {
-  for (const auto& action : actions) {
-    switch (action.kind) {
-      case compiler::ChunkKind::ClassDef:
-        if (!applyClassDef(ctx, action, errors)) {
-          return false;
-        }
-        break;
-      case compiler::ChunkKind::MethodsFor:
-        if (!applyMethodsFor(ctx, action, errors)) {
-          return false;
-        }
-        break;
-      case compiler::ChunkKind::DoIt:
-        break;
-    }
+  std::vector<FileInError> found;
+  const bool completed = applyChunkActions(ctx, actions, found);
+  for (auto& e : found) {
+    errors.push_back(std::move(e.error));
   }
-  return true;
+  return completed && found.empty();
 }
 
 bool fileInString(CallContext& ctx, std::string_view src,
                   std::vector<compiler::CompileError>& errors) {
+  const std::size_t before = errors.size();
   const std::vector<compiler::ChunkAction> actions = compiler::parseChunks(src, errors);
-  return applyChunks(ctx, actions, errors);
+  return applyChunks(ctx, actions, errors) && errors.size() == before;
 }
 
 bool fileInFile(CallContext& ctx, const std::filesystem::path& path,
                 std::vector<compiler::CompileError>& errors) {
-  std::ifstream in(path, std::ios::binary);
-  if (!in) {
+  std::string src;
+  if (!readSource(path, &src)) {
     errors.push_back(compiler::CompileError{{}, "cannot read: " + path.string()});
     return false;
   }
-  std::ostringstream buf;
-  buf << in.rdbuf();
-  if (!in && !in.eof()) {
-    errors.push_back(compiler::CompileError{{}, "cannot read: " + path.string()});
-    return false;
-  }
-  const std::string src = buf.str();
   return fileInString(ctx, src, errors);
 }
 
+std::vector<std::string> deferredMethods(const std::filesystem::path& deferredMd) {
+  std::vector<std::string> listed;
+  std::ifstream in(deferredMd, std::ios::binary);
+  std::string line;
+  while (in && std::getline(in, line)) {
+    std::string key = deferredListing(line);
+    if (!key.empty()) {
+      listed.push_back(std::move(key));
+    }
+  }
+  return listed;
+}
+
 bool fileInLoadOrder(CallContext& ctx, const std::filesystem::path& loadOrder,
-                     std::vector<compiler::CompileError>& errors) {
+                     std::vector<FileInError>& errors, std::vector<FileInError>* deferred) {
+  const std::size_t before = errors.size();
   std::ifstream in(loadOrder);
   if (!in) {
-    errors.push_back(compiler::CompileError{{}, "cannot read: " + loadOrder.string()});
+    errors.push_back(FileInError{loadOrder.string(), {}, {{}, "cannot read: " + loadOrder.string()}});
     return false;
   }
   const std::filesystem::path base = loadOrder.parent_path();
+  const std::vector<std::string> listed = deferredMethods(base / "DEFERRED.md");
+  std::vector<FileInError> found;
+  bool completed = true;
   std::string line;
-  while (std::getline(in, line)) {
+  while (completed && std::getline(in, line)) {
     if (!line.empty() && line.back() == '\r') {
       line.pop_back();
     }
@@ -384,15 +522,27 @@ bool fileInLoadOrder(CallContext& ctx, const std::filesystem::path& loadOrder,
       continue;
     }
     const std::filesystem::path path = base / line.substr(begin, end - begin);
-    if (!fileInFile(ctx, path, errors)) {
-      return false;
+    const std::size_t first = found.size();
+    completed = fileInListedFile(ctx, path, found);
+    for (std::size_t i = first; i < found.size(); ++i) {
+      found[i].file = path.string();
     }
   }
-  if (!in.eof()) {
-    errors.push_back(compiler::CompileError{{}, "cannot read: " + loadOrder.string()});
-    return false;
+  if (completed && !in.eof()) {
+    found.push_back(FileInError{loadOrder.string(), {}, {{}, "cannot read: " + loadOrder.string()}});
+    completed = false;
   }
-  return true;
+  // SPEC §3.12: the error of a method DEFERRED.md lists is neither counted nor reported.
+  for (FileInError& e : found) {
+    const bool isDeferred =
+        !e.method.empty() && std::find(listed.begin(), listed.end(), e.method) != listed.end();
+    if (!isDeferred) {
+      errors.push_back(std::move(e));
+    } else if (deferred != nullptr) {
+      deferred->push_back(std::move(e));
+    }
+  }
+  return completed && errors.size() == before;
 }
 
 void assignError(compiler::CompileError* error, std::string message) {
@@ -403,16 +553,24 @@ void assignError(compiler::CompileError* error, std::string message) {
   error->message = std::move(message);
 }
 
+bool namesBehavior(CallContext& ctx, std::string_view className) {
+  // A class inherits from Behavior through its metaclass, a metaclass through Metaclass.
+  // Processor, Smalltalk, nil and other globals do not (SPEC §3.10).
+  const Oop obj = ctx.wk.named(className);
+  return isClassShaped(ctx.heap, obj) &&
+         chainIncludes(ctx.heap, ctx.heap.klass(obj), ctx.wk.behaviorClass);
+}
+
 bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
                         std::string_view source, compiler::CompileError* error) {
   if (error != nullptr) {
     *error = {};
   }
-  Root cls(ctx.roots, ctx.wk.named(className));
-  if (!cls.slot.isHeap()) {
+  if (!namesBehavior(ctx, className)) {
     assignError(error, "missing class: " + std::string(className));
     return false;
   }
+  Root cls(ctx.roots, ctx.wk.named(className));
   const Oop side = meta ? ctx.heap.klass(cls.slot) : cls.slot;
   if (!side.isHeap()) {
     assignError(error, "missing class: " + std::string(className));
@@ -467,9 +625,6 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
     assignError(error, "install failed");
     return false;
   }
-  if (ctx.cache != nullptr) {
-    ctx.cache->forget(ctx.heap, tgt.slot, selNow);
-  }
   const Oop replaced = old.slot.isHeap() ? old.slot : Oop{};
   rememberMethodSource(kept.slot, text.slot, replaced);
   return true;
@@ -480,7 +635,30 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
     *error = {};
   }
   std::vector<compiler::CompileError> errors;
-  const bool ok = fileInString(ctx, source, errors);
+  const std::vector<compiler::ChunkAction> actions = compiler::parseChunks(source, errors);
+  // SPEC §3.10: only class definitions and methodsFor: chunks. Every chunk is checked before any
+  // is applied, so a stray expression or method body leaves the image as it was. A definition
+  // chunk is its message alone, and a chunk after the `! !` that ended a methodsFor: section is an
+  // expression, not one of its methods.
+  const bool definitionsOnly =
+      !actions.empty() &&
+      std::all_of(actions.begin(), actions.end(), [](const compiler::ChunkAction& action) {
+        switch (action.kind) {
+          case compiler::ChunkKind::ClassDef:
+            return action.soleDefinition;
+          case compiler::ChunkKind::MethodsFor:
+            return std::none_of(action.methods.begin(), action.methods.end(),
+                                [](const compiler::ChunkMethod& m) { return m.afterSectionEnd; });
+          case compiler::ChunkKind::DoIt:
+            return false;
+        }
+        return false;
+      });
+  if (!definitionsOnly) {
+    assignError(error, "not a class definition");
+    return false;
+  }
+  const bool ok = applyChunks(ctx, actions, errors);
   if (ok && errors.empty()) {
     return true;
   }

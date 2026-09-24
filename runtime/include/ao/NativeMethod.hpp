@@ -29,8 +29,18 @@ struct ClassMethodCache {
   void addRoots(Roots& roots);
   Oop probe(Heap& heap, Oop klass, Oop selector) const;
   void insert(Heap& heap, Oop klass, Oop selector, Oop method);
-  void forget(Heap& heap, Oop klass, Oop selector);
+  // Drops every entry for selector, whatever the receiver's class. Does not GC.
+  void flushSelector(Oop selector);
+  // Drops every entry. Does not GC.
+  void flushAll();
 };
+
+// SPEC §3.3 (キャッシュの無効化): the one function every change of what a send finds goes
+// through. A method added to or replaced in a dictionary (installMethod: Browser accept, file-in
+// method chunks; putNative) passes its selector, and every entry for it is dropped. A class
+// definition, which may replace the class a name meant, passes the empty Oop, and the whole
+// cache is dropped. A null cache (outside a session, Bootstrap) has nothing to drop. Does not GC.
+void invalidateMethodCache(ClassMethodCache* cache, Oop selector);
 
 struct CallContext;
 
@@ -56,9 +66,13 @@ struct CallContext {
   Oop nonlocalHome{};
   Oop nonlocalValue{};
   // SPEC §3.4 abort: a non-local return with no home. Only abortEvaluation sets it; the
-  // outermost entry reads the reason (a static string) and clears it.
+  // outermost entry reads the reason (abortReasonText) and clears it. The reason is either a
+  // static string (abortReason, set without allocating) or a heap String held in the roots'
+  // handle table (abortReasonHandle), so it survives GCs until it is cleared.
+  static constexpr std::uint32_t kNoAbortReasonHandle = 0xFFFFFFFFu;
   bool aborting = false;
   const char* abortReason = nullptr;
+  std::uint32_t abortReasonHandle = kNoAbortReasonHandle;
   // Stack guard (SPEC §3.4) of the thread that last applied a method: a method may be applied
   // at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them, and
   // every outermost entry refreshes them too (a new thread may reuse an old thread's stack).

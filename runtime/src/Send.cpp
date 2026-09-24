@@ -2,12 +2,14 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/CompiledMethod.hpp"
+#include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/Symbol.hpp"
 
 #include <iterator>
+#include <string>
 
 namespace ao {
 namespace {
@@ -90,19 +92,51 @@ Oop doesNotUnderstand(CallContext& ctx, Oop receiver, Oop selector, const Oop* a
   for (std::uint32_t i = 0; i < argc; ++i) {
     in[i + 2] = args[i];
   }
+  // SPEC §3.3: without a Message or a doesNotUnderstand: to send it to, the send aborts as the
+  // default doesNotUnderstand: would. Only out of memory stops the Message, and then the reason
+  // cannot be allocated either: it becomes "out of memory".
   Root msg(ctx.roots, allocateMessage(ctx, in, argc));
   if (!msg.slot.isHeap()) {
-    return Oop{};
+    return abortDoesNotUnderstand(ctx, in[1]);
   }
   const Oop dnuSel = Symbol::intern(ctx.wk, "doesNotUnderstand:");
   if (!dnuSel.isHeap()) {
-    return msg.slot;
+    return abortDoesNotUnderstand(ctx, in[1]);
   }
   const Oop meth = lookup(ctx.heap, ctx.wk.classOf(in[0]), dnuSel);
   if (!meth.isHeap()) {
-    return msg.slot;
+    return abortDoesNotUnderstand(ctx, in[1]);
   }
   return applyMethod(ctx, meth, in[0], &msg.slot, 1);
+}
+
+void dropNonlocal(CallContext& ctx) {
+  ctx.nonlocalReturn = false;
+  ctx.nonlocalHome = Oop{};
+  ctx.nonlocalValue = Oop{};
+}
+
+// Aborts with prefix followed by the selector's bytes, or with the static fallback when selector
+// is not a Symbol. The bytes are copied out before the reason is allocated.
+Oop abortWithSelector(CallContext& ctx, const char* prefix, Oop selector, const char* fallback) {
+  if (!selector.isHeap() || (ctx.heap.flags(selector) & kFlagBytes) == 0) {
+    return abortEvaluation(ctx, fallback);
+  }
+  std::string reason(prefix);
+  reason += Str::toUtf8(ctx.heap, selector);
+  return abortEvaluation(ctx, std::string_view(reason));
+}
+
+// value, value:, ... for up to four arguments; the empty Oop beyond that.
+Oop valueSelector(CallContext& ctx, std::uint32_t n) {
+  static constexpr const char* kValueSelectors[] = {
+      "value", "value:", "value:value:", "value:value:value:", "value:value:value:value:"};
+  if (n >= std::size(kValueSelectors)) {
+    return Oop{};
+  }
+  return n == 0   ? ctx.wk.selValue
+         : n == 1 ? ctx.wk.selValue_
+                  : ctx.wk.intern(kValueSelectors[n]);
 }
 
 }  // namespace
@@ -130,15 +164,38 @@ void ClassMethodCache::insert(Heap& heap, Oop klass, Oop selector, Oop method) {
   e.method = method;
 }
 
-void ClassMethodCache::forget(Heap& heap, Oop klass, Oop selector) {
-  auto& e = entries[cacheIndex(heap, klass, selector)];
-  if (e.klass == klass && e.selector == selector) {
-    e.method = Oop{};
+void ClassMethodCache::flushSelector(Oop selector) {
+  // The index hashes the receiver's class too, so the selector's entries may be in any row.
+  for (auto& e : entries) {
+    if (e.selector == selector) {
+      e = Entry{};
+    }
+  }
+}
+
+void ClassMethodCache::flushAll() {
+  for (auto& e : entries) {
+    e = Entry{};
+  }
+}
+
+void invalidateMethodCache(ClassMethodCache* cache, Oop selector) {
+  if (cache == nullptr) {
+    return;
+  }
+  if (selector.isEmpty()) {
+    cache->flushAll();
+  } else {
+    cache->flushSelector(selector);
   }
 }
 
 Oop send(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uint32_t argc,
          InlineCache* ic) {
+  // SPEC §3.3: the empty Oop is a failure, not a receiver. classOf would answer nil for it.
+  if (receiver.isEmpty()) {
+    return abortFailedSend(ctx, selector);
+  }
   IcGuard guard(ctx.roots, ic);
   const Oop klass = ctx.wk.classOf(receiver);
   if (icMatches(ctx, ic, klass, selector)) {
@@ -161,6 +218,9 @@ Oop send(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uin
 
 Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uint32_t argc,
               Oop methodClass) {
+  if (receiver.isEmpty()) {
+    return abortFailedSend(ctx, selector);
+  }
   const Oop meth = lookup(ctx.heap, superclassOf(ctx.heap, methodClass), selector);
   if (!meth.isHeap()) {
     return doesNotUnderstand(ctx, receiver, selector, args, argc);
@@ -176,35 +236,87 @@ Oop abortEvaluation(CallContext& ctx, const char* reason) {
     ctx.abortReason = reason;
   }
   // An abort has no home: it overrides a non-local return still in flight.
-  ctx.nonlocalReturn = false;
-  ctx.nonlocalHome = Oop{};
-  ctx.nonlocalValue = Oop{};
+  dropNonlocal(ctx);
   return Oop{};
 }
 
+Oop abortEvaluation(CallContext& ctx, std::string_view reason) {
+  if (!ctx.aborting) {
+    // The allocation may collect, and outside the interpreter a non-local return's home and
+    // value are not rooted. The abort overrides that return anyway, so it is dropped first.
+    dropNonlocal(ctx);
+    const Oop text = Str::fromUtf8(ctx, reason);
+    if (!text.isHeap()) {
+      return abortEvaluation(ctx, "out of memory");
+    }
+    ctx.abortReasonHandle = ctx.roots.pushHandle(text);
+  }
+  return abortEvaluation(ctx, static_cast<const char*>(nullptr));
+}
+
+Oop abortDoesNotUnderstand(CallContext& ctx, Oop selector) {
+  return abortWithSelector(ctx, "doesNotUnderstand: #", selector, "doesNotUnderstand:");
+}
+
+Oop abortFailedSend(CallContext& ctx, Oop selector) {
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  // SPEC §3.3: after the heap ran out, that is the reason, and building another string would fail.
+  if (ctx.heap.outOfMemory()) {
+    return abortEvaluation(ctx, "out of memory");
+  }
+  return abortWithSelector(ctx, "failed: #", selector, "failed");
+}
+
+std::string abortReasonText(const CallContext& ctx) {
+  if (!ctx.aborting) {
+    return {};
+  }
+  const Oop text = ctx.roots.handleAt(ctx.abortReasonHandle);
+  if (text.isHeap() && (ctx.heap.flags(text) & kFlagBytes) != 0) {
+    // SPEC §3.3: NUL は `\0` の 2 文字にして、C 文字列で途切れないようにする。
+    std::string reason;
+    for (const char c : Str::toUtf8(ctx.heap, text)) {
+      if (c == '\0') {
+        reason += "\\0";
+      } else {
+        reason += c;
+      }
+    }
+    return reason;
+  }
+  return ctx.abortReason != nullptr ? std::string(ctx.abortReason) : std::string();
+}
+
 void clearUnwinding(CallContext& ctx) {
+  if (ctx.abortReasonHandle != CallContext::kNoAbortReasonHandle) {
+    ctx.roots.dropHandle(ctx.abortReasonHandle);
+    ctx.abortReasonHandle = CallContext::kNoAbortReasonHandle;
+  }
   ctx.aborting = false;
   ctx.abortReason = nullptr;
-  ctx.nonlocalReturn = false;
-  ctx.nonlocalHome = Oop{};
-  ctx.nonlocalValue = Oop{};
+  dropNonlocal(ctx);
 }
 
 bool callBlock(CallContext& ctx, Oop blk, const Oop* args, std::uint32_t n, Oop* out) {
-  static constexpr const char* kValueSelectors[] = {
-      "value", "value:", "value:value:", "value:value:value:", "value:value:value:value:"};
   *out = Oop{};
-  if (n >= std::size(kValueSelectors)) {
-    return !unwinding(ctx);
-  }
-  const Oop sel = n == 0   ? ctx.wk.selValue
-                  : n == 1 ? ctx.wk.selValue_
-                           : ctx.wk.intern(kValueSelectors[n]);
+  const Oop sel = valueSelector(ctx, n);
   if (!sel.isHeap()) {
-    return !unwinding(ctx);
+    // More than four arguments, or no Symbol for the selector (out of memory).
+    if (!unwinding(ctx)) {
+      abortEvaluation(ctx, ctx.heap.outOfMemory() ? "out of memory" : "too many block arguments");
+    }
+    return false;
   }
   const Oop result = send(ctx, blk, sel, args, n, nullptr);
   if (unwinding(ctx)) {
+    return false;
+  }
+  if (result.isEmpty()) {
+    // SPEC §3.3: the block failed (wrong argument count, ...). Its value is not an element. The
+    // selector is fetched again: the call may have moved it.
+    abortFailedSend(ctx, valueSelector(ctx, n));
     return false;
   }
   *out = result;

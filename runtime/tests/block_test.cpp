@@ -6,6 +6,7 @@
 #include "ao/TestRunner.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Send.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -154,6 +155,46 @@ TEST(AoTestRunner, EarlierOutOfMemoryIsNotBlamedOnFile) {
   const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
   EXPECT_EQ(0, code);
   EXPECT_EQ(0, b.ctx.testFailures);
+}
+
+// SPEC §4.4: 実行中の abort（doesNotUnderstand:、0 除算）もコンパイルエラーもファイルの失敗で、
+// 失敗したファイルの後も残りを実行する。失敗ごとに 1 行を stderr に出し、コンパイルエラーの位置は
+// ファイル本文のバイト位置である。
+TEST(AoTestRunner, FailuresAreCountedAndLaterFilesStillRun) {
+  const TestDir dir("ao-test-runner-failures");
+  ASSERT_TRUE(dir.write("a_dnu.st", "nil foo.\nself assert: 1 equals: 1.\n"));
+  ASSERT_TRUE(dir.write("b_zero.st", "1/0.\nself assert: 1 equals: 1.\n"));
+  ASSERT_TRUE(dir.write("c_compile.st", "self assert: 1 + equals: 4.\n"));
+  ASSERT_TRUE(dir.write("d_pass.st", "self assert: 1 + 2 equals: 3.\n"));
+  ASSERT_TRUE(dir.write("e_mismatch.st", "self assert: 1 + 2 equals: 4.\n"));
+  Boot b;
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string reported = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(1, code);
+  EXPECT_EQ(4, b.ctx.testFailures);
+  const auto line = [&dir](const char* file, const char* rest) {
+    return "ao --test: " + (dir.path / file).string() + rest + "\n";
+  };
+  const std::string expected = line("a_dnu.st", ": doesNotUnderstand: #foo") +
+                               line("b_zero.st", ": division by zero") +
+                               line("c_compile.st", ":17-24: expected expression") +
+                               line("e_mismatch.st", ": 3 ~= 4");
+  EXPECT_EQ(expected, reported);
+  EXPECT_FALSE(b.ctx.aborting);
+}
+
+// SPEC §4.4: .st が 0 件か、ディレクトリが読めなければ exit 1。理由を stderr に出す。
+TEST(AoTestRunner, EmptyOrMissingDirectoryFails) {
+  const TestDir dir("ao-test-runner-empty");
+  ASSERT_TRUE(dir.write("notes.txt", "not a test\n"));
+  Boot b;
+  testing::internal::CaptureStderr();
+  EXPECT_EQ(1, ao::runSmalltalkTests(b.ctx, dir.path.string()));
+  EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+  testing::internal::CaptureStderr();
+  EXPECT_EQ(1, ao::runSmalltalkTests(b.ctx, (dir.path / "no-such-dir").string()));
+  EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
 }
 
 namespace {
@@ -435,11 +476,11 @@ TEST(BlockNatives, IfCurtailedRunsOnlyOnUnwind) {
 // 02 Low: OrderedCollection の内部スロットを引数に展開しない。
 TEST(BlockNatives, ValueWithArgumentsRejectsNonArray) {
   Boot b;
+  // SPEC §3.3: the rejection aborts with error:'s message instead of answering it.
   const ao::Oop rejected =
       evalExpr(b, "^[:a :b :c | c] valueWithArguments: (OrderedCollection new add: 7; yourself)");
-  ASSERT_TRUE(rejected.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(rejected));
-  EXPECT_EQ("valueWithArguments: expects an Array", ao::Str::toUtf8(b.heap, rejected));
+  EXPECT_TRUE(rejected.isEmpty());
+  EXPECT_EQ("valueWithArguments: expects an Array", takeAbortReason(b));
   EXPECT_EQ(9, evalExpr(b, "^[:a :b | a + b] valueWithArguments: #(4 5)").smallIntegerValue());
 }
 
@@ -503,20 +544,13 @@ TEST(BlockActivation, RecursiveBlockKeepsOwnSender) {
   EXPECT_EQ(b.wk.blockContextClass, b.heap.klass(innerBefore));
 }
 
-// 02 Medium: ホームが返ったあとの ^ は cannotReturn: の答えをブロックの値にし、呼び出し元は続く。
-TEST(BlockActivation, DeadHomeReturnAnswersErrorAndContinues) {
+// 02 Medium: ホームが返ったあとの ^ はホームを探して巻き戻さず、cannotReturn: を送る。SPEC §3.3 /
+// §3.4: その既定は error: と同じで、理由のある「cannot return」で評価を中断する。
+TEST(BlockActivation, DeadHomeReturnAbortsWithCannotReturn) {
   Boot b;
-  ao::Root log(b.roots, runActivationProbe(b, "useDeadHome"));
-  ASSERT_TRUE(log.slot.isHeap());
-  ASSERT_EQ(3, send0(b, log.slot, "size").smallIntegerValue());
-  EXPECT_EQ(b.wk.intern("before"), ocAt(b, log.slot, 1));
-  const ao::Oop answer = ocAt(b, log.slot, 2);
-  ASSERT_TRUE(answer.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(answer));
-  EXPECT_EQ("cannot return", ao::Str::toUtf8(b.heap, answer));
-  EXPECT_EQ(b.wk.intern("after"), ocAt(b, log.slot, 3));
+  EXPECT_TRUE(runActivationProbe(b, "useDeadHome").isEmpty());
   EXPECT_FALSE(b.ctx.nonlocalReturn);
-  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_EQ("cannot return", takeAbortReason(b));
 }
 
 // SPEC §3.4: フレームを抜けたコンテキストは pc と sender が nil になる。
@@ -887,7 +921,7 @@ TEST(BlockInline, NonBooleanReceiverAborts) {
 // vendor の LinkedList>>do: は whileFalse: と外側の temp への代入で回る。
 TEST(BlockInline, LinkedListDoCountsLinks) {
   Boot b;
-  std::vector<ao::compiler::CompileError> errs;
+  std::vector<ao::FileInError> errs;
   ASSERT_TRUE(ao::fileInLoadOrder(b.ctx, std::string(AO_SOURCE_DIR) + "/image/vendor/LOAD_ORDER", errs));
   ASSERT_TRUE(b.wk.named("LinkedList").isHeap());
   ASSERT_TRUE(b.wk.named("Link").isHeap());
@@ -1165,4 +1199,100 @@ TEST(NativeSendUnwind, NativesAnswerEmptyWhenTheirSendAborts) {
     ASSERT_FALSE(arg.slot.isEmpty());
     expectAbortedEmpty(b, send1(b, rcvr.slot, c.sel, arg.slot));
   }
+}
+
+namespace {
+
+int gB3PrintStrings = 0;
+
+ao::Oop countingPrintString(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+  ++gB3PrintStrings;
+  return ao::Str::fromUtf8(ctx, "B3Eq");
+}
+
+}  // namespace
+
+// 指摘 4 / SPEC §3.4: assert:equals: は、= が abort したら printString も error: も送らない。
+// Smalltalk のメソッドは巻き戻しの最中に始まらないので、数えるネイティブの printString で見る。
+TEST(AoTestRunner, AssertEqualsStopsAfterAbortingEquals) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #B3Eq\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B3-Test'!\n"
+                               "!B3Eq methodsFor: 'b3'!\n"
+                               "= other\n"
+                               "  ^self kaboom! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B3Eq");
+  ASSERT_TRUE(cls.isHeap());
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, &b.cache, cls, "printString", 0,
+                                    "b3_test_countingPrintString", countingPrintString));
+  TestDir dir("ao-test-runner-aborting-equals");
+  ASSERT_TRUE(dir.write("a.st", "self assert: B3Eq new equals: 1.\n"));
+  gB3PrintStrings = 0;
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string err = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(1, code);
+  EXPECT_NE(std::string::npos, err.find("a.st: doesNotUnderstand: #kaboom")) << err;
+  EXPECT_EQ(0, gB3PrintStrings);
+  // 一致しないだけなら、従来どおり両方の printString を理由にする。
+  ASSERT_TRUE(dir.write("a.st", "self assert: 1 equals: B3Eq new.\n"));
+  testing::internal::CaptureStderr();
+  EXPECT_EQ(1, ao::runSmalltalkTests(b.ctx, dir.path.string()));
+  const std::string mismatch = testing::internal::GetCapturedStderr();
+  EXPECT_NE(std::string::npos, mismatch.find("a.st: 1 ~= B3Eq")) << mismatch;
+  EXPECT_EQ(1, gB3PrintStrings);
+}
+
+namespace {
+
+ao::Oop abortingSubclass(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+  return ao::abortEvaluation(ctx, std::string("no test class"));
+}
+
+}  // namespace
+
+// 指摘 5 / SPEC §3.4: テストクラスの作成は最外である。前の abort を持ち越さずに作る。
+// クラス側の subclass:… が Smalltalk のメソッドなら、持ち越した abort で途中から巻き戻ってしまう。
+TEST(AoTestRunner, TestClassIsMadeAfterLeftOverAbort) {
+  Boot b;
+  TestDir dir("ao-test-runner-left-over-abort");
+  ASSERT_TRUE(dir.write("a.st", "self assert: 1 + 2 equals: 3.\n"));
+  auto img = ao::compiler::compileMethod(
+      "subclass: a instanceVariableNames: b classVariableNames: c poolDictionaries: d "
+      "category: e\n"
+      "  ^super subclass: a instanceVariableNames: b classVariableNames: c poolDictionaries: d "
+      "category: e");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ASSERT_TRUE(ao::installMethod(b.ctx, b.heap.klass(b.wk.objectClass), img.image).isHeap());
+  (void)ao::abortEvaluation(b.ctx, std::string("left over"));
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string err = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(0, code) << err;
+  EXPECT_FALSE(ao::unwinding(b.ctx));
+}
+
+// 指摘 5 / SPEC §3.4: テストクラスの作成の abort は ao --test の失敗で、理由を読んで消す。
+TEST(AoTestRunner, AbortingTestClassFailsAndClears) {
+  Boot b;
+  TestDir dir("ao-test-runner-aborting-class");
+  ASSERT_TRUE(dir.write("a.st", "self assert: 1 + 2 equals: 3.\n"));
+  ASSERT_TRUE(ao::kernel::putNative(
+      b.heap, b.wk, &b.cache, b.heap.klass(b.wk.objectClass),
+      "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:", 5,
+      "b3_test_abortingSubclass", abortingSubclass));
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string err = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(1, code);
+  EXPECT_NE(std::string::npos, err.find("no test class")) << err;
+  EXPECT_FALSE(ao::unwinding(b.ctx));
+  EXPECT_EQ("", ao::abortReasonText(b.ctx));
 }

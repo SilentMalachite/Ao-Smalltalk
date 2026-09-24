@@ -156,3 +156,231 @@ TEST(AcceptAbi, ObjectSubclassObjectIsCompileError) {
   EXPECT_EQ(before, ao_browser_class_count());
   ao_runtime_shutdown();
 }
+
+// SPEC §3.3 キャッシュの無効化: キャッシュは受信側のクラスで引く。Object>>zork を再 Accept したら、
+// `3 zork` が SmallInteger の下に残したエントリも捨てる（定義クラスの分だけでは足りない）。
+TEST(AcceptAbi, ReacceptReachesSendCachedForSubclassReceiver) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "zork\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("3 zork")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "zork\n  ^2\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("3 zork")) << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, printIt("Object new zork")) << err.message;
+  EXPECT_STREQ("2", out);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.3: メソッドチャンク（file-in、ao_accept_class）による再定義も、キャッシュ済みの送信に届く。
+// 定義クラスのインスタンスにも、継承するサブクラスのインスタンスにも。
+TEST(AcceptAbi, ChunkRedefinitionReachesCachedSends) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B3R5M\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B3-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class("B3R5M subclass: #B3R5M2\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B3-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B3R5M", 0, "foo\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("B3R5M new foo")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, printIt("B3R5M2 new foo")) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, ao_accept_class("!B3R5M methodsFor: 'x'!\nfoo\n  ^2! !", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("B3R5M new foo")) << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, printIt("B3R5M2 new foo")) << err.message;
+  EXPECT_STREQ("2", out);
+  ao_runtime_shutdown();
+}
+
+// 00 Critical / SPEC §3.10: ao_accept_class はクラス定義メッセージと、チャンク形式のクラス定義・
+// methodsFor: のチャンクだけを受け付ける。ほかのチャンクが 1 つでもあれば、全体を検査してから
+// 何も適用せずに AO_ERR_COMPILE「not a class definition」を返す。
+TEST(AcceptAbi, AcceptClassRefusesNonDefinitionWithoutApplying) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const int before = ao_browser_class_count();
+  const char* refused[] = {
+      "3 + 4",
+      "zork\n  ^5\n",
+      "   \n",
+      // 式のあとにクラス定義。
+      "3 + 4!\n"
+      "Object subclass: #B3NotDefA\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'!\n",
+      // クラス定義のあとに式。
+      "Object subclass: #B3NotDefB\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'!\n"
+      "3 + 4!\n",
+      // 式のあとに methodsFor: のチャンク。
+      "3 + 4!\n"
+      "!Object methodsFor: 'b3'!\n"
+      "b3Zap\n"
+      "  ^1! !\n",
+  };
+  for (const char* src : refused) {
+    SCOPED_TRACE(src);
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(src, &e));
+    EXPECT_STREQ("not a class definition", e.message);
+  }
+  EXPECT_EQ(before, ao_browser_class_count());
+  char buf[256];
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition("B3NotDefA", buf, 256));
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition("B3NotDefB", buf, 256));
+  char out[64];
+  EXPECT_EQ(AO_ERR_EVAL, ao_eval("Object new b3Zap", 16, AO_EVAL_PRINTIT, out, 64, &err));
+  ASSERT_EQ(AO_OK, ao_eval("3 + 4", 5, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10: チャンク形式のクラス定義と methodsFor: のチャンクを 1 つのソースで受け付ける。
+TEST(AcceptAbi, AcceptClassTakesChunkDefinitionAndMethods) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const char* src =
+      "Object subclass: #B3Chunked\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'!\n"
+      "!B3Chunked methodsFor: 'b3'!\n"
+      "seven\n"
+      "  ^7! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(src, &err)) << err.message;
+  char out[64];
+  ASSERT_EQ(AO_OK, ao_eval("B3Chunked new seven", 19, AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("7", out);
+  ao_runtime_shutdown();
+}
+
+// 00 Critical / SPEC §3.10: 名前で引いた先がクラス（Behavior）でなければ、何もせずに AO_ERR。
+TEST(AcceptAbi, AcceptMethodRefusesNonBehaviorName) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto run = [&](const char* src, int mode) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), mode, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, run("Smalltalk at: #B3NotClass put: 'text'", AO_EVAL_DOIT)) << err.message;
+  const char* names[] = {"Processor", "Smalltalk", "nil", "B3NoSuchClass", "B3NotClass"};
+  for (const char* name : names) {
+    SCOPED_TRACE(name);
+    for (int meta = 0; meta <= 1; ++meta) {
+      EXPECT_EQ(AO_ERR, ao_accept_method(name, meta, "b3Foo\n  ^1\n", &err));
+    }
+  }
+  ASSERT_EQ(AO_OK, run("3 + 4", AO_EVAL_PRINTIT)) << err.message;
+  EXPECT_STREQ("7", out);
+  ASSERT_EQ(AO_OK, run("Smalltalk at: #B3NotClass", AO_EVAL_PRINTIT)) << err.message;
+  EXPECT_STREQ("'text'", out);
+  ao_runtime_shutdown();
+}
+
+// 指摘 1 / SPEC §3.10: methodsFor: のグループは `! !` で終わる。そのあとのヘッダでないチャンクは
+// 式として拒み、グループの前のメソッドも入れない（部分適用しない）。
+TEST(AcceptAbi, AcceptClassRefusesChunksAfterSectionEnd) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B3Px\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B3-Test'\n",
+                                   &err))
+      << err.message;
+  const char* refused[] = {
+      "!B3Px methodsFor: 'x'!\nfoo\n  ^1! !\n3 + 4!\n",
+      "!B3Px methodsFor: 'x'!\nbar\n  ^2! !\nSmalltalk halt!\n",
+      "!B3Px methodsFor: 'x'! !\nbaz\n  ^3!\n",
+      "!B3Px methodsFor: 'x'!\nfoo\n  ^1!\n! !\n3 + 4!\n",
+  };
+  for (const char* src : refused) {
+    SCOPED_TRACE(src);
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(src, &e));
+    EXPECT_STREQ("not a class definition", e.message);
+  }
+  const char* absent[] = {"B3Px new foo", "B3Px new bar", "B3Px new baz", "B3Px new Smalltalk",
+                          "B3Px new three"};
+  for (const char* src : absent) {
+    SCOPED_TRACE(src);
+    EXPECT_EQ(AO_ERR_EVAL, printIt(src));
+  }
+  // ヘッダごとに `! !` で閉じる形は受け付ける。
+  ASSERT_EQ(AO_OK, ao_accept_class("!B3Px methodsFor: 'x'!\nfoo\n  ^1! !\n"
+                                   "!B3Px methodsFor: 'y'!\nbar\n  ^2! !\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("B3Px new foo + B3Px new bar")) << err.message;
+  EXPECT_STREQ("3", out);
+  ao_runtime_shutdown();
+}
+
+// 指摘 8 / SPEC §3.10: クラス定義メッセージのあとに文が続けば、何も適用せずに拒む。
+TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  const int before = ao_browser_class_count();
+  const char* refused[] = {
+      "Object subclass: #B3Pq instanceVariableNames: '' classVariableNames: '' "
+      "poolDictionaries: '' category: 'P'.\nSmalltalk at: #B3Zz put: 1",
+      "Object subclass: #B3Pq\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n  category: 'P'\nSmalltalk at: #B3Zz put: 1\n",
+      "Object subclass: #B3Pq category: 'P' at: #B3Zz put: 1",
+  };
+  for (const char* src : refused) {
+    SCOPED_TRACE(src);
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(src, &e));
+    EXPECT_STREQ("not a class definition", e.message);
+  }
+  EXPECT_EQ(before, ao_browser_class_count());
+  char buf[256];
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition("B3Pq", buf, 256));
+  ASSERT_EQ(AO_OK, printIt("(Smalltalk at: #B3Zz) isNil")) << err.message;
+  EXPECT_STREQ("true", out);
+  // 末尾の `.` だけなら受け付ける。
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B3Pq instanceVariableNames: '' "
+                                   "classVariableNames: '' poolDictionaries: '' category: 'P'.\n",
+                                   &err))
+      << err.message;
+  EXPECT_EQ(AO_OK, ao_browser_class_definition("B3Pq", buf, 256));
+  ao_runtime_shutdown();
+}

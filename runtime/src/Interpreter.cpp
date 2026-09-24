@@ -426,6 +426,11 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   } else {
     result = send(ctx, rcvr.slot, sel.slot, argp, argc, nullptr);
   }
+  // SPEC §3.3: an empty result is a failure, never a value on the stack. Unless the frames are
+  // unwinding already, it aborts with the selector as the reason (sel is rooted).
+  if (result.isEmpty() && !unwinding(ctx)) {
+    abortFailedSend(ctx, sel.slot);
+  }
   const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);
   if (nl.leave) {
     return nl;

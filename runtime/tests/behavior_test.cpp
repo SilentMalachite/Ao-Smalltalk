@@ -24,8 +24,10 @@ TEST(Behavior, ObjectNewClassIsObject) {
 
 TEST(Behavior, MetaclassNewIsForbidden) {
   Boot b;
+  // SPEC §3.3: 値を返さず、shouldNotImplement で評価を中断する。
   auto r = send0(b, b.wk.metaclassClass, "new");
-  EXPECT_TRUE(r.isHeap() || r.isNil()); // error string or nil; 実装は intern した 'shouldNotImplement'
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("shouldNotImplement", takeAbortReason(b));
 }
 
 TEST(Behavior, SubclassIsRegistered) {
@@ -40,12 +42,11 @@ TEST(Behavior, SubclassIsRegistered) {
   EXPECT_EQ(b.wk.objectClass, b.heap.slotAt(foo, ao::kClassSlotSuperclass));
 }
 
-TEST(Behavior, MetaclassNewReturnsShouldNotImplementString) {
+TEST(Behavior, MetaclassNewAbortsWithShouldNotImplement) {
   Boot b;
-  auto r = send0(b, b.wk.metaclassClass, "new");
-  ASSERT_TRUE(r.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(r));
-  EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, r));
+  auto r = send0(b, b.heap.klass(b.wk.objectClass), "new");
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("shouldNotImplement", takeAbortReason(b));
 }
 
 TEST(Behavior, ArrayNewIsEmptyArray) {

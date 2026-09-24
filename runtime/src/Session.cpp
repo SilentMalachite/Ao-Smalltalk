@@ -51,8 +51,16 @@ bool installEmptyWorkspace(Session& session) {
   if (!sel.isHeap()) {
     return false;
   }
-  const Oop dict = send(*session.ctx, session.wk.dictionaryClass, sel, nullptr, 0, nullptr);
-  if (!dict.isHeap()) {
+  // SPEC §3.4: making the workspace is an outermost entry. What an earlier entry left over is not
+  // blamed on it, and an abort it ends in is its failure, read and cleared here. Neither clearing
+  // nor refreshing collects.
+  CallContext& ctx = *session.ctx;
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
+  const Oop dict = send(ctx, session.wk.dictionaryClass, sel, nullptr, 0, nullptr);
+  const bool aborted = unwinding(ctx);
+  clearUnwinding(ctx);
+  if (aborted || !dict.isHeap()) {
     return false;
   }
   session.workspace = dict;
@@ -60,11 +68,22 @@ bool installEmptyWorkspace(Session& session) {
 }
 
 bool loadedImageProbes(Session& session) {
+  // SPEC §3.4 / §3.10: each probe is an outermost entry, and an abort is a failed probe.
+  CallContext& ctx = *session.ctx;
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
   Oop arg = Oop::fromSmallInteger(2);
-  const Oop three =
-      send(*session.ctx, Oop::fromSmallInteger(1), session.wk.intern("+"), &arg, 1, nullptr);
-  const Oop isNil = send(*session.ctx, Oop::nil(), session.wk.intern("isNil"), nullptr, 0, nullptr);
-  return three.isSmallInteger() && three.smallIntegerValue() == 3 && isNil.isTrue();
+  const Oop three = send(ctx, Oop::fromSmallInteger(1), session.wk.intern("+"), &arg, 1, nullptr);
+  const bool added = !unwinding(ctx) && three.isSmallInteger() && three.smallIntegerValue() == 3;
+  clearUnwinding(ctx);
+  if (!added) {
+    return false;
+  }
+  refreshStackLimit(ctx);
+  const Oop isNil = send(ctx, Oop::nil(), session.wk.intern("isNil"), nullptr, 0, nullptr);
+  const bool answered = !unwinding(ctx) && isNil.isTrue();
+  clearUnwinding(ctx);
+  return answered;
 }
 
 void unrootMethodSources(Session& session) {
@@ -173,11 +192,13 @@ int sessionImageLoad(const char* path) {
   if (!installEmptyWorkspace(*next)) {
     return 1;
   }
-  g_session = std::move(next);
-  ensureKernelNatives();
-  if (!loadedImageProbes(*g_session)) {
+  // SPEC §3.10: the natives and the probes run on the new session. Only when both pass does it
+  // replace the current one; otherwise the current session stays as it was.
+  ensureKernelNatives(*next);
+  if (!loadedImageProbes(*next)) {
     return 1;
   }
+  g_session = std::move(next);
   clearMethodSources();
   return 0;
 }
@@ -193,15 +214,12 @@ int sessionFileInLoadOrder(const char* path) {
   if (g_session == nullptr || g_session->ctx == nullptr || path == nullptr) {
     return 1;
   }
-  std::vector<compiler::CompileError> errors;
+  // SPEC §3.10 / §3.12: fails on an unreadable path or on any error DEFERRED.md does not list.
+  std::vector<FileInError> errors;
   return fileInLoadOrder(*g_session->ctx, path, errors) ? 0 : 1;
 }
 
-void ensureKernelNatives() {
-  if (g_session == nullptr) {
-    return;
-  }
-  Session& s = *g_session;
+void ensureKernelNatives(Session& s) {
   // An image may have a Transcript metaclass without a dictionary; the class-side natives need one.
   const Oop meta = s.wk.transcriptMetaclass;
   if (meta.isHeap() && !s.heap.slotAt(meta, kClassSlotMethodDict).isHeap()) {
@@ -212,7 +230,7 @@ void ensureKernelNatives() {
   }
   // SPEC §3.10: add the Kernel natives the image lacks (those added after it was saved) and keep
   // every method it has.
-  kernel::installMissing(s.heap, s.roots, s.wk);
+  kernel::installMissing(s.heap, s.roots, s.wk, s.cache.get());
   Globals::adoptImageClass(s.heap, s.wk);
   // SPEC §3.5: installMissing may have added one of the eight; a kept user method may hide one.
   s.wk.checkSmallIntegerFastPath();
@@ -507,6 +525,9 @@ std::vector<std::string> subclassNames(Session& s, const std::string& name,
   return out;
 }
 
+// SPEC §3.10: a count function's failure. AO_ERR (1) would read as one row.
+constexpr int kCountFailed = -1;
+
 bool metaOk(int meta) { return meta == 0 || meta == 1; }
 
 struct NameBag {
@@ -614,7 +635,12 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR;
   }
-  if (sourceLen < 0 || (source == nullptr && sourceLen != 0) || (outLen > 0 && out == nullptr)) {
+  // SPEC §3.10: without a place for the answer nothing is compiled or evaluated, so a caller
+  // that retries does not run the side effects twice.
+  if (out == nullptr || outLen < 1) {
+    return AO_ERR;
+  }
+  if (sourceLen < 0 || (source == nullptr && sourceLen != 0)) {
     blankOut(out, outLen);
     return AO_ERR;
   }
@@ -722,26 +748,31 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   if (g_session == nullptr || g_session->ctx == nullptr) {
     return rc;
   }
-  // SPEC §3.4: abort は最外で理由を読んで消す。SPEC §3.2: old の上限で割り当てられなければ
-  // 評価エラー「out of memory」（巻き戻しは B3 まで無いので、走り切った後にフラグで判定する）。
+  // SPEC §3.4: abort は最外で理由を読んで消す。SPEC §3.2: old の上限で割り当てられず、それが
+  // abort にならずに走り切ったときも「out of memory」。SPEC §3.10: AO_ERR_EVAL の理由は空にしない。
   CallContext& ctx = *g_session->ctx;
-  const char* reason = nullptr;
+  std::string reason;
   if (ctx.aborting) {
-    reason = ctx.abortReason != nullptr ? ctx.abortReason : "evaluation aborted";
+    reason = abortReasonText(ctx);
+    if (reason.empty()) {
+      reason = "evaluation aborted";
+    }
   } else if (g_session->heap.outOfMemory()) {
     reason = "out of memory";
+  } else if (rc == AO_ERR_EVAL) {
+    reason = "evaluation failed";
   }
   clearUnwinding(ctx);
-  if (reason == nullptr) {
+  if (reason.empty()) {
     return rc;
   }
   g_session->heap.clearOutOfMemory();
   blankOut(out, outLen);
   if (err != nullptr) {
-    const std::size_t n = std::min(std::strlen(reason), sizeof(err->message) - 1);
+    const std::size_t n = std::min(reason.size(), sizeof(err->message) - 1);
     err->start = 0;
     err->end = 0;
-    std::memcpy(err->message, reason, n);
+    std::memcpy(err->message, reason.data(), n);
     err->message[n] = '\0';
   }
   return AO_ERR_EVAL;
@@ -801,7 +832,7 @@ void clearMethodSources() {
 int browserClassCount() {
   Session* s = session();
   if (s == nullptr) {
-    return 0;
+    return kCountFailed;
   }
   return static_cast<int>(classRows(*s).size());
 }
@@ -830,12 +861,12 @@ int browserClassAt(int index, char* name, int nameLen, char* category, int categ
 int browserProtocolCount(const char* className, int meta) {
   Session* s = session();
   if (s == nullptr || className == nullptr || !metaOk(meta)) {
-    return AO_ERR;
+    return kCountFailed;
   }
   const auto rows = classRows(*s);
   const ClassRow* row = findClass(rows, className);
   if (row == nullptr) {
-    return AO_ERR;
+    return kCountFailed;
   }
   return static_cast<int>(protocolsOf(methodsOf(*s, sideOf(*s, row->cls, meta))).size());
 }
@@ -860,12 +891,12 @@ int browserProtocolAt(const char* className, int meta, int index, char* buf, int
 int browserSelectorCount(const char* className, int meta, const char* protocol) {
   Session* s = session();
   if (s == nullptr || className == nullptr || protocol == nullptr || !metaOk(meta)) {
-    return AO_ERR;
+    return kCountFailed;
   }
   const auto rows = classRows(*s);
   const ClassRow* row = findClass(rows, className);
   if (row == nullptr) {
-    return AO_ERR;
+    return kCountFailed;
   }
   if (!knownProtocol(protocol)) {
     return 0;
@@ -940,11 +971,11 @@ int browserSuperclass(const char* className, int meta, char* buf, int len) {
 int browserSubclassCount(const char* className) {
   Session* s = session();
   if (s == nullptr || className == nullptr) {
-    return AO_ERR;
+    return kCountFailed;
   }
   const auto rows = classRows(*s);
   if (findClass(rows, className) == nullptr) {
-    return AO_ERR;
+    return kCountFailed;
   }
   return static_cast<int>(subclassNames(*s, className, rows).size());
 }

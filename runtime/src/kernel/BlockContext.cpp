@@ -61,20 +61,32 @@ void runAside(CallContext& ctx, Oop cleanup) {
   const bool nonlocal = ctx.nonlocalReturn;
   const bool aborting = ctx.aborting;
   const char* reason = ctx.abortReason;
+  // A reason built at run time stays in the handle table while it is set aside, so the cleanup's
+  // GCs keep it (SPEC §3.4). clearUnwinding must not drop it.
+  const std::uint32_t reasonHandle = ctx.abortReasonHandle;
+  ctx.abortReasonHandle = CallContext::kNoAbortReasonHandle;
   clearUnwinding(ctx);
   Oop ignored;
   // During a stack overflow abort the cleanup runs past the normal limit (SPEC §3.4).
   ++ctx.cleanupDepth;
   const bool ran = callBlock(ctx, blk.slot, nullptr, 0, &ignored);
   --ctx.cleanupDepth;
-  if (!ran) {
+  // SPEC §3.4: unwinding the cleanup started itself wins over a paused non-local return, but not
+  // over a paused abort. Then the cleanup's ^ is dropped, and so is its own abort's reason: the
+  // first reason stays (SPEC §3.3).
+  if (!ran && !aborting) {
+    if (reasonHandle != CallContext::kNoAbortReasonHandle) {
+      ctx.roots.dropHandle(reasonHandle);
+    }
     return;
   }
+  clearUnwinding(ctx);
   ctx.nonlocalReturn = nonlocal;
   ctx.nonlocalHome = home.slot;
   ctx.nonlocalValue = value.slot;
   ctx.aborting = aborting;
   ctx.abortReason = reason;
+  ctx.abortReasonHandle = reasonHandle;
 }
 
 }  // namespace

@@ -24,10 +24,16 @@ typedef struct AoSpan {
   char message[256];
 } AoSpan;
 
+/* SPEC §3.10. String buffers end in NUL when their length is > 0; an answer that does not fit
+   is AO_ERR_RANGE. */
+
+/* AO_ERR_RANGE when cut (buf still ends in NUL). AO_ERR when buf is NULL or buf_len < 1. */
 int ao_version(char* buf, int buf_len);
 int ao_runtime_boot(void);
 int ao_runtime_shutdown(void);
 int ao_image_save(const char* path);
+/* Loads into a new session and replaces the current one only when the load and the probes
+   (1 + 2, nil isNil) pass. On AO_ERR the current session stays in use. */
 int ao_image_load(const char* path);
 int ao_filein_load_order(const char* path);
 
@@ -37,6 +43,8 @@ typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, void
 void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
 void ao_set_inspect_hook(AoInspectFn fn, void* user);
 
+/* The four *_count functions answer 0 or more, or -1 on failure: no session, a name that is not
+   a class, meta other than 0 or 1, a NULL argument. Never AO_ERR, which reads as one row. */
 int ao_browser_class_count(void);
 int ao_browser_class_at(int index, char* name, int name_len, char* category, int category_len);
 int ao_browser_protocol_count(const char* class_name, int meta);
@@ -51,8 +59,14 @@ int ao_browser_subclass_count(const char* class_name);
 int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len);
 
 int ao_workspace_reset(void);
+/* out NULL or out_len < 1: AO_ERR before compiling or evaluating anything. A failed evaluation
+   is AO_ERR_EVAL with a non-empty err->message. */
 int ao_eval(const char* source, int source_len, int mode, char* out, int out_len, AoSpan* err);
+/* AO_ERR when class_name does not name a class (Processor, Smalltalk, an undefined name).
+   AO_ERR_COMPILE for a compile error or a refused native overwrite. */
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);
+/* Takes class definition messages and chunk-format class definitions and methodsFor: chunks
+   only. Any other chunk: AO_ERR_COMPILE "not a class definition", and nothing is applied. */
 int ao_accept_class(const char* source, AoSpan* err);
 
 #ifdef __cplusplus

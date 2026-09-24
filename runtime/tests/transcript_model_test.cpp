@@ -196,9 +196,8 @@ TEST(TranscriptModel, NextPutAtSmiMaxPositionFails) {
   ASSERT_TRUE(ws.slot.isHeap());
   const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
   ASSERT_EQ(max, send2(b, ws.slot, "instVarAt:put:", ao::Oop::fromSmallInteger(2), max));
-  const ao::Oop r = send1(b, ws.slot, "nextPut:", ao::Oop::fromSmallInteger(1));
-  ASSERT_TRUE(r.isHeap());
-  ASSERT_EQ(b.wk.stringClass, b.heap.klass(r));
-  EXPECT_EQ("nextPut: position out of range", ao::Str::toUtf8(b.heap, r));
+  // SPEC §3.3: the failure aborts with its message instead of answering it.
+  EXPECT_TRUE(send1(b, ws.slot, "nextPut:", ao::Oop::fromSmallInteger(1)).isEmpty());
+  EXPECT_EQ("nextPut: position out of range", takeAbortReason(b));
   EXPECT_EQ(max, send0(b, ws.slot, "position"));
 }

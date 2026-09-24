@@ -18,8 +18,9 @@ Oop asBool(bool v) { return v ? Oop::true_() : Oop::false_(); }
 
 }  // namespace
 
+// SPEC §3.3: aborts the evaluation like Object>>subclassResponsibility.
 Oop ao_Boolean_subclassResponsibility(CallContext& ctx, const Oop&, const Oop*, std::uint32_t) {
-  return Str::fromUtf8(ctx, "subclassResponsibility");
+  return abortEvaluation(ctx, "subclassResponsibility");
 }
 
 Oop ao_True_ifTrue_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {

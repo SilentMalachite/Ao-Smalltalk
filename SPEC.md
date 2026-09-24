@@ -170,7 +170,7 @@ bit 2:0 = 000      → ヒープオブジェクト。8 バイト整列ポイン�
   - スキャベンジが昇格に失敗し、かつ old に死んだオブジェクトを見つけたとき。old が上限に近いと閾値も上限に張り付き、第 1 の契機が成り立たないまま、同じ生存物を to-space に残すスキャベンジが続く。死んだオブジェクトが無ければ走らせないので、回収 0 の full GC を繰り返さない。
 - safepoint は、nursery の空きが半面の 1/8 を下回ったときにスキャベンジする。ただし、直前のスキャベンジが昇格に失敗し、その後 nursery への割り当ても full GC も無いときは、スキャベンジしない。同じ生存物を to-space に残すだけで、進捗が無い。
 - GC を走らせない割り当て（メソッド辞書の作成・拡張、Symbol の intern、NativeMethod の作成）は、nursery に置き、nursery が満杯なら old に置く（`asSymbol` の Symbol は old に直接置く）。失敗するのは old の上限のときだけである。
-- それでも割り当てられないとき（GC を走らせない割り当てが old の上限で失敗したときを含む）は、評価エラー「out of memory」にする。
+- それでも割り当てられないとき（GC を走らせない割り当てが old の上限で失敗したときを含む）は、評価を「out of memory」で中断する（§3.3 の失敗の規則）。
 - ネイティブが受け取る receiver と引数は、ルート済みとする。ネイティブの途中で GC が走っても、転送先を指す。
 
 ### 3.3 メッセージ送信
@@ -180,13 +180,13 @@ bit 2:0 = 000      → ヒープオブジェクト。8 バイト整列ポイン�
 1. `receiver` のクラス `C` を取る。
 2. `C` からスーパークラス鎖を `Object` まで辿り、メソッド辞書でセレクタを探す。
 3. 見つかればそのメソッドを適用する。
-4. 見つからなければ `receiver doesNotUnderstand: aMessage` を送る。
+4. 見つからなければ `receiver doesNotUnderstand: aMessage` を送る。`Object>>doesNotUnderstand:` の既定は、評価を中断し（§3.4 の abort）、`doesNotUnderstand: #sel` を理由として返す（`ao_eval` は `AO_ERR_EVAL` とこの文字列を返す）。
 5. `super` 送信は、メソッドが定義されたクラスのスーパークラスから探索を始める。
 
 スーパークラスの枠は `instVarAt:put:` で何にでも書き換えられるので、鎖が壊れていることがある。鎖をたどる処理（送信の探索、ネイティブ、コンパイラ）は、どれも次の規則で止まる。
 
 - 鎖は、`nil`、クラスの形をしていないもの（即値、バイト列、クラスの枠をすべて持たないポインタオブジェクト）、すでに通ったクラス（循環）、1024 段目、のどれかに当たったところで終わる。その先は無いものとして扱う。
-- 送信: 鎖が終わるまでにセレクタが見つからなければ `doesNotUnderstand:` を送る。`doesNotUnderstand:` も見つからなければ、送信の値は作った `Message` とする。
+- 送信: 鎖が終わるまでにセレクタが見つからなければ `doesNotUnderstand:` を送る。`doesNotUnderstand:` も見つからなければ、既定と同じく `doesNotUnderstand: #sel` で評価を中断する。
 - `isKindOf:` と `inheritsFrom:` は、鎖が終わるまでに引数に当たらなければ `false`。`respondsTo:` は、見つからなければ `false`。
 - `instVarNamed:` とコンパイラのインスタンス変数名は、鎖が終わるまでのクラスの変数名だけを集める。`instVarNamed:` は、名前が無ければ `error:` で失敗する（名前が無いときと同じ）。
 
@@ -200,6 +200,8 @@ lookup(receiver, selector)
   → doesNotUnderstand:
 ```
 
+キャッシュの無効化: メソッドの追加・置換（Browser の accept、file-in のメソッドチャンク、`putNative`）とクラスの差し替え（既存の名前へのクラス定義）は、どれも同じ 1 つの関数を通り、その関数がキャッシュを無効化する。無効化は、そのセレクタのエントリをレシーバのクラスによらずすべて捨てるか、キャッシュ全体を捨てる（クラスの差し替え）。定義クラスのエントリだけを捨てるのでは足りない（サブクラスをレシーバとするエントリが残る）。差し替えの直後の送信は、キャッシュ済みの送信でも新しいメソッドを適用する。例えば `Object>>zork` を再 Accept すると、それまで `3 zork` でキャッシュしていた送信にも反映される。反射（`instVarAt:put:` でメソッド辞書を書き換えること）はこの限りでない。
+
 メソッドは 2 種類だけ持つ。
 
 | 種類 | 表現 | 適用 |
@@ -210,6 +212,29 @@ lookup(receiver, selector)
 `NativeMethod` は Smalltalk オブジェクトとしても存在する（Inspect できる）が、実行は関数ポインタ直呼び。バイトコードインタプリタに入らない。
 
 セレクタは `Symbol`。同一文字列は intern され `#==` が成り立つ。
+
+#### 失敗は評価を中断する
+
+失敗を値として返さない。失敗はすべて abort（§3.4）で評価を中断する。abort は最外まで巻き戻し、途中の `ensure:` は実行する。`ao_eval` は `AO_ERR_EVAL` を返し、理由を `AoSpan.message` に入れる（§3.10）。理由は空にしない。
+
+| 失敗 | 理由 |
+|---|---|
+| `Object>>doesNotUnderstand:` の既定。`doesNotUnderstand:` も見つからない送信 | `doesNotUnderstand: #` とセレクタ（例: `doesNotUnderstand: #foo`） |
+| `Object>>error: anObject` | 下の細則 |
+| `Object>>subclassResponsibility`、`Object>>shouldNotImplement`、メタクラスへの `new` | `subclassResponsibility`、`shouldNotImplement` |
+| Kernel ネイティブの、文言のある失敗（範囲外の添字、0 除算、引数の型など） | その文言（例: `at: index out of range`、`division by zero`） |
+| 送信の結果が空 OOP で、巻き戻しの最中でない（文言の無いネイティブの失敗、ブロックの引数個数の不一致など） | `failed: #` とセレクタ（例: `failed: #value`）。ただし old の上限で割り当てられなかった後なら `out of memory` |
+| 空 OOP をレシーバにした送信 | 同上 |
+| old の上限（§3.2） | `out of memory` |
+| スタックガード（§3.4） | `stack overflow` |
+| 分岐の値が Boolean でない（§3.5） | `NonBoolean receiver` |
+| ホームが死んだ `^` の既定（§3.4） | `cannot return` |
+
+- `error:` の理由: 引数が String（Symbol など String のサブクラスを含む）なら、その内容（UTF-8 のバイト列）。それ以外は、引数に `printString` を送った答えの内容。`printString` が評価を中断したら、その理由のままにする。`printString` が String を答えなければ、理由は `error:` とする。
+- 空 OOP はネイティブの中だけで使う失敗の印であり、値ではない。インタプリタはそれをオペランドスタックに積まない。ヒープのスロットにもコレクションにも残らない。`classOf` が空 OOP にクラスでない値（nil）を返す経路は、送信の入口で止める。
+- 例外オブジェクトと `on:do:` による捕捉は、v1 では扱わない。vendor の `Exception` / `Error` / `Notification` は file-in するが、ランタイムはハンドラを探さない。`on:do:` は Kernel に無いので、送ると `doesNotUnderstand: #on:do:` で中断する。
+- 理由は、それを最外で読むまで GC をまたいで保つ。すでに abort の最中なら、最初の理由を保つ。abort の途中で走る `ensure:` の後始末が abort しても同じである（§3.4）。
+- 最外で読むとき、理由の NUL バイトは `\0` の 2 文字に置き換える（C 文字列で途切れないように）。
 
 ### 3.4 コンテキストとプロセス
 
@@ -230,12 +255,22 @@ v1 の実行モデル:
 #### 非局所リターン、ensure:、abort
 
 - ブロック内の `^` は、ホームのメソッドから返る（非局所リターン）。途中のフレームはネイティブも含めてすべて巻き戻す。ブロックを呼んだネイティブも、メッセージを送ったネイティブ（キーに `hash` や `=` を送る Dictionary など）も、呼んだ先から戻ったときに巻き戻しの最中なら、直ちに空 OOP を返す。残りの反復も、続く送信も、副作用も行わない。
-- ホームが死んでいれば、ブロックのアクティベーションに `cannotReturn: 値` を送り、その答えをブロックの値として呼び出し元に返す。無関係な呼び出し元は巻き込まない。`BlockContext>>cannotReturn:` の既定は `self error: 'cannot return'` と同じ答えである。
-- `ensure: aBlock` は、レシーバのブロックを評価したあと、正常に終わっても巻き戻しの途中でも `aBlock` を評価する。後始末の間は巻き戻しを止め、終わったら続ける。後始末が自分で巻き戻しを始めたら、そちらを優先する。`ifCurtailed: aBlock` は、レシーバのブロックが巻き戻ったときだけ `aBlock` を評価する。
-- abort は評価の中断である。ホームの無い非局所リターンとして扱い、どのフレームでも止まらずに最外（`ao_eval` の 1 回、`ao --test` の 1 ファイル）まで戻る。途中の `ensure:` は実行する。abort は理由の文字列を持つ。abort を始めるのは `abortEvaluation` だけである。
+- ホームが死んでいれば、ブロックのアクティベーションに `cannotReturn: 値` を送る。ホームを探してスタックを巻き戻すことはしない。`cannotReturn:` が答えを返せば、それをブロックの値として呼び出し元に返す。`BlockContext>>cannotReturn:` の既定は `self error: 'cannot return'` と同じで、評価を `cannot return` で中断する（§3.3）。
+- `ensure: aBlock` は、レシーバのブロックを評価したあと、正常に終わっても巻き戻しの途中でも `aBlock` を評価する。後始末の間は巻き戻しを止め、終わったら続ける。`ifCurtailed: aBlock` は、レシーバのブロックが巻き戻ったときだけ `aBlock` を評価する。後始末が自分で巻き戻し（非局所リターンか abort）を始めたときは、止めていた巻き戻しの種類で決める。`ensure:` と `ifCurtailed:` で同じである。
+  - 止めていたのが非局所リターンなら（`ensure:` のレシーバが正常に終わったときも）、後始末が始めた巻き戻しを優先する。
+  - 止めていたのが abort なら、abort を優先する。後始末が始めた非局所リターン（後始末の `^`）は捨てる。後始末が abort したときは、その理由を捨てて最初の理由を保つ（§3.3）。
+- abort は評価の中断である。ホームの無い非局所リターンとして扱い、どのフレームでも止まらずに最外（下記）まで戻る。途中の `ensure:` は実行する。abort を始めるのは `abortEvaluation` だけである。
+- abort は理由の文字列を持つ。理由には 2 種類ある。割り当てなしで入れる固定の文言（`stack overflow`、`NonBoolean receiver`、`out of memory` など）と、実行時に組み立てた文字列（ヒープの String）である。後者は、最外で読んで消すまで GC のルートに置く。後者を割り当てられなければ、理由は `out of memory` にする。`ensure:` の後始末の間も、退避した理由を保つ。
 - abort の状態は最外で読んで消す。前の評価の abort を次の評価に持ち越さない。
+- 最外は、C++ から Smalltalk へ送る入口の 1 回である。次のものが最外である。
+  - `ao_eval` の 1 回
+  - `ao --test` の 1 ファイルと、テストクラス（`AoTest`）の作成
+  - file-in と `ao_accept_class` の、クラス定義チャンク 1 つ（C++ から `subclass:…category:` を送るところ）
+  - ワークスペースの作成（起動、`ao_workspace_reset`、`ao_image_load`）
+  - `ao_image_load` のロード後の探針（§3.10）
+- 最外は、入る前に前の abort と非局所リターンを消して、スタックの範囲を取り直す。出るときに abort の理由を読んで消す。最外での abort は、その入口の失敗である。`ao_eval` は `AO_ERR_EVAL` と理由を返す（§3.3）。クラス定義チャンクの abort は、そのチャンクの file-in エラー `subclass failed: <クラス名>: <理由>` にする（§3.12）。ワークスペースの作成と探針の abort は、その ABI の失敗（`AO_ERR`）にする。テストクラスの作成の abort は `ao --test` の失敗（exit 1）にする。
 - スタックガード: メソッド（ネイティブを含む）を適用する前に、C スタックの残りが予約分（`min(512 KiB, スタックの大きさの 1/4)`）を下回っていれば、「stack overflow」で abort する。無限再帰でプロセスは落ちない。
-  - スタックの範囲は、最外の入口（`ao_eval`、`ao --test` の 1 ファイル、最外の `Interpreter::run`）で必ず取り直す。前のスレッドの範囲を使い続けない。
+  - スタックの範囲は、最外（上記）の入口と、最外の `Interpreter::run` で必ず取り直す。前のスレッドの範囲を使い続けない。
   - `ensure:` / `ifCurtailed:` の後始末の間は、予約分の半分まで使ってよい。stack overflow の abort の途中でも、限界近くの後始末が走る。
 
 ### 3.5 バイトコード（ユーザーメソッド）
@@ -488,7 +523,7 @@ C ABI（`bridge/ao_abi.h`）のみが runtime と app の境界。
 - 文字列ソースの評価（Workspace / Do it）
 - クラス一覧、セレクタ一覧、ソース取得、accept
 - Transcript コールバック（ランタイム → アプリ）
-- エラーオブジェクトの文字列化
+- 評価エラーの理由の文字列化（`AoSpan.message`。§3.3 の失敗の規則）
 
 AppKit オブジェクトを OOP としてヒープに直接置かない。ホストハンドル表で結ぶ。
 
@@ -498,7 +533,7 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 
 中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。既定の初期容量（nursery 1 MiB×2、old 4 MiB）は変えない。old は上限まで伸びる。`ao_image_load` はヘッダの heapBytes に合わせてコミットする。
 
-`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureKernelNatives` を呼ぶ。これは、Kernel のネイティブ（Transcript のクラス側の転送を含む）のうち、ロードしたイメージのメソッド辞書に無いセレクタだけを `putNative` する。既にあるセレクタは上書きしない。後から足したネイティブが、古いイメージにも入る。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。探針に失敗したセッションはシャットダウンしない。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めなければ `AO_ERR`。
+`ao_image_load` はヒープと well-known とキャッシュを載せ替える。transcript フック関数ポインタはセッション側に残し、ロードで消さない。ロードのあと `ensureKernelNatives` を呼ぶ。これは、Kernel のネイティブ（Transcript のクラス側の転送を含む）のうち、ロードしたイメージのメソッド辞書に無いセレクタだけを `putNative` する。既にあるセレクタは上書きしない。後から足したネイティブが、古いイメージにも入る。`ao_image_save` は実行中のインタプリタの外からだけ呼び、呼び出し規約は `Image::save` と同じ。`ao_image_load` は `Image::load` が成功したあと、`1 + 2` が SmallInteger の 3 で、`nil isNil` が true でなければ `AO_ERR`。ロードと探針は新しいセッションに対して行い、どちらも成功したときだけ現在のセッションと差し替える。どちらかに失敗したら `AO_ERR` を返し、ロード前のセッションをそのまま使い続ける（差し替えも、シャットダウンもしない）。`ao_filein_load_order` は `fileInLoadOrder` をセッションに対して呼ぶ。パスが読めないとき、または file-in のエラー（§3.12。`DEFERRED.md` で除外したものを除く）が 1 件でもあるときは `AO_ERR`。
 
 #### C ABI
 
@@ -510,7 +545,9 @@ AO_ERR_EVAL = 3
 AO_ERR_RANGE = 4
 ```
 
-文字列バッファは、`buf_len > 0` なら必ず NUL で終わる。入り切らないときは `AO_ERR_RANGE`。
+文字列バッファは、`buf_len > 0` なら必ず NUL で終わる。入り切らないときは `AO_ERR_RANGE`。`ao_version` も同じで、切り詰めたら（`buf` は NUL で終わる）`AO_ERR_RANGE`、`buf` が NULL か `buf_len` が 1 未満なら `AO_ERR` を返す。
+
+件数を返す関数（`ao_browser_class_count`、`ao_browser_protocol_count`、`ao_browser_selector_count`、`ao_browser_subclass_count`）は、成功なら 0 以上の件数を返し、失敗なら -1 を返す。失敗は、セッションが無い、名前がクラスに当たらない、`meta` が 0 でも 1 でない、引数が NULL、のどれかである。`AO_ERR`（1）を返さない。1 件と区別できないからである。
 
 ```c
 typedef struct AoSpan {
@@ -549,7 +586,12 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 `meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
 
-`ao_accept_method` は `NativeMethod` を CompiledMethod で置き換えない。対象の側のメソッド辞書にネイティブがあるセレクタに加えて、Kernel クラス（§3.6）では、そのクラスから引くとネイティブに当たるセレクタ（上位クラスから継承したネイティブ）も拒む。例えば `SmallInteger>><=` は `Magnitude>><=` のネイティブを隠すので拒む。どちらも `AO_ERR_COMPILE` で、メッセージは `native selector overwrite refused: <selector>` である。Kernel でないクラスは、継承したネイティブを上書きできる。Kernel クラスかどうかは、名前で引いた先のクラスそのもので決める（クラス側でも、名前で引いたクラスで決める。引いた先が Kernel クラスのメタクラスなら、Kernel クラスとみなす）。`Smalltalk at: #IntegerAlias put: SmallInteger` のような別名で指しても、Kernel クラスの名前で指したときと同じに拒む。
+`ao_accept_method` は `NativeMethod` を CompiledMethod で置き換えない。対象の側のメソッド辞書にネイティブがあるセレクタに加えて、Kernel クラス（§3.6）では、そのクラスから引くとネイティブに当たるセレクタ（上位クラスから継承したネイティブ）も拒む。例えば `SmallInteger>><=` は `Magnitude>><=` のネイティブを隠すので拒む。どちらも `AO_ERR_COMPILE` で、メッセージは `native selector overwrite refused: <selector>` である。Kernel でないクラスは、継承したネイティブを上書きできる。Kernel クラスかどうかは、名前で引いた先のクラスそのもので決める（クラス側でも、名前で引いたクラスで決める。引いた先が Kernel クラスのメタクラスなら、Kernel クラスとみなす）。`Smalltalk at: #IntegerAlias put: SmallInteger` のような別名で指しても、Kernel クラスの名前で指したときと同じに拒む。`ao_accept_method` は、名前で引いた先がクラス（Behavior）でなければ（`Processor`、`Smalltalk`、未定義の名前など）、何もせずに `AO_ERR` を返す。
+
+`ao_accept_class` が受け付けるのは、クラス定義メッセージ（`Super subclass: #Name instanceVariableNames: … category: …`）と、チャンク形式のクラス定義・`methodsFor:` のチャンクだけである。それ以外のチャンク（式、メソッドの本体だけのテキストなど）が 1 つでもあれば、何も適用せずに `AO_ERR_COMPILE` を返す。メッセージは `not a class definition` である。
+
+- `methodsFor:` のグループは `! !` で終わる。そのあとのヘッダでないチャンクは、グループのメソッドではなく式として拒む。例えば、ヘッダ `!Foo methodsFor: 'x'!`、メソッド `foo ^1! !`、式 `3 + 4!` の 3 チャンクは、`Foo>>foo` も入れずに拒む。
+- クラス定義メッセージのチャンクは、そのメッセージ 1 つだけからなる。メッセージは、クラス名に送るキーワードメッセージである。キーワードは `subclass:` で始まり、`instanceVariableNames:`、`classVariableNames:`、`poolDictionaries:`、`category:` をこの順に続ける（途中を省いてよい）。引数はどれも 1 つの字句（Symbol、String、名前）である。メッセージのあとに置いてよいのは `.` だけである。文が続けば（`… category: 'X'. Smalltalk at: #Y put: 1`）、それも拒む。
 
 #### ソースはイメージに書かない
 
@@ -571,7 +613,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 - `knownGlobals` は `Globals::nameAt` の 57 名、`Smalltalk`、`eachExtra` の名、`eachClass` のクラス名バイト。`Smalltalk` はグローバル表そのもので、クラスは `SmalltalkImage` である（`at:` と `at:put:` を受ける）。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
 - どれにも当たらない名前は束縛である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar`。束縛が辞書に無ければ、メソッドを作るとき（リテラルを箱に入れるとき）に値 nil で作って辞書に入れる。同じ名前の束縛は評価をまたいで同じ Association なので、ブロックに捕捉した束縛への代入も辞書に残る。束縛の数に上限は無い（temp の 255 に数えない）。
 
-Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。空 OOP は `AO_ERR_EVAL`。abort（§3.4）も `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。
+`ao_eval` は、`out` が NULL か `out_len` が 1 未満なら、何も評価せずに `AO_ERR` を返す（副作用を起こさない。呼び出し側が再試行しても二重にならない）。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。評価の失敗（§3.3 の失敗の規則。どれも abort）は `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。理由が 255 バイトを超えれば切る。`AO_ERR_EVAL` のときの `AoSpan.message` は空にしない。abort 以外で値が得られなかったとき（理由が無いとき）は `evaluation failed` を入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。
 
 #### printString
 
@@ -633,6 +675,18 @@ LargeInteger とそれ以外はクラス名のまま。
 4. P5 以降、`ao filein image/vendor/...` で `CompiledMethod` として載せる。
 5. ロード順は `image/vendor/LOAD_ORDER` に固定する。
 
+file-in のエラー:
+
+- file-in のエラーは、チャンク単位のエラーとメソッド単位のエラーである。エラーが 1 件でもあれば file-in は失敗である。成功扱いにしない。
+- チャンク単位のエラーは、クラス定義の失敗（Kernel クラスの再定義の拒否、スーパークラスが無い、`subclass:` の失敗など）、存在しないクラスへの `methodsFor:`、Kernel クラスへの `methodsFor:` の拒否である。チャンク単位のエラーは、そのファイルの残りのチャンクを止める。`fileInLoadOrder` では、LOAD_ORDER の残りのファイルも読まない。それまでに適用したチャンクは戻さない。チャンク単位のエラーは `DEFERRED.md` で除外できない。位置は、そのチャンク（クラス定義のチャンク、`methodsFor:` のヘッダのチャンク）のバイト範囲である（区切りの `!` を含まない）。
+- メソッド単位のエラーは、メソッドのコンパイルエラーとネイティブ上書きの拒否（とメソッドを登録できないこと）である。残りのチャンクの file-in を止めない。位置は、コンパイルエラーならファイル本文での箇所、それ以外はそのメソッドのチャンクのバイト範囲である。
+- 意図して載せないメソッドは、LOAD_ORDER と同じディレクトリの `DEFERRED.md` に、1 行に 1 つ `Class>>selector: 理由` の形式で、行頭から列挙する（クラス側は `Class class>>selector: 理由`）。セレクタは、`>>` のあと最初の `: `（コロンと空白）の手前までである。キーワードセレクタは、末尾の `:` のあとに `: 理由` を続ける（`Bag>>sum:ifEmpty:: 理由`）。理由の無い行（`: ` とそのあとの文字が無い行）と、この形式でない行は、注記として読み飛ばす。LOAD_ORDER による file-in（`fileInLoadOrder`）では、列挙したメソッドのエラーを失敗に数えず、報告もしない（そのメソッドは入らない）。単一ファイルの file-in には除外が無い。
+- `fileInLoadOrder` は、LOAD_ORDER かそこに書いたファイルが読めないとき、または数えるエラーが 1 件でもあるときに失敗を返す。エラーには、それが起きたファイルの名前を付ける。
+- `ao filein <file.st>` と `ao filein --load-order <LOAD_ORDER>` は、数えるエラーを 1 行に 1 件、`<ファイル名>:<start>-<end>: <メッセージ>` の形式で stderr に出す。位置の無いエラー（ファイルが読めない）は `0-0` である。失敗なら exit 1、成功なら exit 0。
+- `ao image save --load-order <LOAD_ORDER> <path>` は、file-in が失敗したら、同じ形式でエラーを stderr に出し、イメージを書かずに exit 1 で終わる。
+- `ao_filein_load_order` は、file-in が失敗したら `AO_ERR` を返す（§3.10）。
+- `vendor_filein_test` は、`image/vendor/LOAD_ORDER` の file-in で起きるメソッド単位のエラーの集合（`Class>>selector`）が、`DEFERRED.md` に列挙した集合と一致することを確かめる。列挙したのに成功するメソッドも、列挙していないのに失敗するメソッドも、テストの失敗である。
+
 v1 で載せる範囲（file-in）:
 
 - Collection 周辺でネイティブにしていない葉（`Bag`, `LinkedList`, `Heap` など）
@@ -674,7 +728,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `image_save_load_test`: save 後に同一評価結果
 - `transcript_model_test`: コールバックが呼ばれる
 
-GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体（時間計測の `KernelBench.*` を除く）を 1 プロセスでこのモードで回す。`gcstress_vendor` 項目は、vendor の file-in（`ao filein --load-order image/vendor/LOAD_ORDER`）と `ao --test image/tests` をこのモードで回す。`ao filein` は、file-in が成功してもメソッド単位のエラーを 1 行ずつ stderr に出す。vendor の file-in には既知のエラーがあるので、`gcstress_vendor` はストレスなしの 1 回の出力を基準にし、ストレス下の出力がそれと一致することを確かめる。
+GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体（時間計測の `KernelBench.*` を除く）を 1 プロセスでこのモードで回す。`gcstress_vendor` 項目は、vendor の file-in（`ao filein --load-order image/vendor/LOAD_ORDER`）と `ao --test image/tests` をこのモードで回す。`ao filein` の stderr と終了コードは §3.12 の「file-in のエラー」に従う。`gcstress_vendor` はストレスなしの 1 回の出力を基準にし、ストレス下の出力がそれと一致すること、どちらも exit 0 であることを確かめる。
 
 ### 4.2 compiler
 
@@ -700,6 +754,13 @@ self assert: (true ifTrue: [4] ifFalse: [5]) equals: 4.
 self assert: (Object new class) equals: Object.
 ```
 
+`ao --test <dir>` の契約:
+
+- `<dir>` の `*.st` を名前順に、1 ファイルずつ実行する。1 ファイルは最外の評価 1 回である（§3.4）。失敗したファイルがあっても、残りのファイルを実行する。
+- ファイルの失敗は、読めない、コンパイルエラー、実行中の abort（`assert:equals:` の不一致、`doesNotUnderstand:`、`error:`、ネイティブの失敗など §3.3 の失敗すべて）である。`assert:equals:` の不一致は、理由 `<実際の printString> ~= <期待の printString>` で abort する。
+- 失敗ごとに 1 行を stderr に出す。形式は `ao --test: <ファイル名>: <理由>`。コンパイルエラーは `ao --test: <ファイル名>:<start>-<end>: <メッセージ>`（位置はファイル本文のバイト位置）。
+- 終了コードは、1 つでも失敗があれば 1、`.st` が 0 件か `<dir>` が読めなければ 1、それ以外は 0。
+
 ---
 
 ## 5. 制約
@@ -711,7 +772,7 @@ self assert: (Object new class) equals: Object.
 5. **依存は最小。** runtime は C++20 標準ライブラリ + 必要なら mimalloc 程度。OS の API として mmap / mprotect を使ってよい（old の予約とコミット）。GUI は AppKit のみ。Boost、Qt、SDL、SwiftUI 主系統は使わない。
 6. **Apple Silicon を第一対象。** Intel Mac は考慮しない。
 7. **C ABI 以外で Swift が C++ テンプレートに依存しない。**
-8. **例外方針:** C++ は例外を境界で使わない。エラーは Smalltalk 例外オブジェクトか `AoError` コード。
+8. **例外方針:** C++ は例外を境界で使わない。エラーは評価の中断（§3.3。理由の文字列）か ABI のエラーコード。Smalltalk の例外オブジェクトによる捕捉は v1 では扱わない。
 9. **エンコーディング:** ソースと文字列は UTF-8。`Character` は Unicode スカラー。
 10. **ライセンス:** 新規コードは Apache License 2.0 を既定とする（変更するなら SPEC を更新）。条文の正本は英語の `LICENSE`。
 11. **Graphify と Serena を使う。** 手順は `CLAUDE.md`。この制約は開発プロセスにも適用する。
@@ -732,7 +793,7 @@ v1 は次をすべて満たす。
 - [x] `Object class class == Metaclass`
 - [x] `Metaclass class class == Metaclass`
 - [x] `Object superclass` は `nil`（または明示したルート方針に一致。採用したら SPEC を更新）
-- [ ] 未定義セレクタは `doesNotUnderstand:` に入り、デフォルトはエラーオブジェクトを返す
+- [x] 未定義セレクタは `doesNotUnderstand:` に入り、デフォルトは評価を中断して `doesNotUnderstand: #sel` を返す（`nil foo` の Print it は `AO_ERR_EVAL` と `doesNotUnderstand: #foo`）
 - [x] `#(1 2 3) collect: [:x | x * 2]` が `#(2 4 6)`
 - [x] ブロックが外側の temp を共有する（`| y | y := 0. 3 > 1 ifTrue: [y := 1]. y` が `1`、`#(1 2 3) do: [:e | sum := sum + e]` のあと `sum` が `6`）
 - [x] ユーザーが Browser から `Object>>foo` を追加し、Workspace から `Object new foo` を評価できる

@@ -194,17 +194,18 @@ TEST(ArrayString, AtPutShrinksUtf8WithinObjectBytes) {
 TEST(ArrayString, SymbolAtPutDoesNotMutateInternedBytes) {
   Boot b;
   // shouldNotImplement はメッセージの割り当てで GC する。Symbol はルートに載せて読み直す。
+  // SPEC §3.3: 失敗は値を返さず、評価を中断する。
   ao::Root sym(b.roots, b.wk.intern("foo"));
   auto r = send2(b, sym.slot, "at:put:", ao::Oop::fromSmallInteger(1),
                  ao::Oop::fromCharacter(U'Z'));
-  ASSERT_TRUE(r.isHeap());
-  EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, r));
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("shouldNotImplement", takeAbortReason(b));
   EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym.slot));
   EXPECT_EQ(sym.slot, b.wk.intern("foo"));
 
   auto br = send2(b, sym.slot, "basicAt:put:", ao::Oop::fromSmallInteger(1),
                   ao::Oop::fromSmallInteger(static_cast<std::int64_t>('Z')));
-  ASSERT_TRUE(br.isHeap());
-  EXPECT_EQ("shouldNotImplement", ao::Str::toUtf8(b.heap, br));
+  EXPECT_TRUE(br.isEmpty());
+  EXPECT_EQ("shouldNotImplement", takeAbortReason(b));
   EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym.slot));
 }

@@ -30,6 +30,12 @@ Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
   return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
+// A String or a subclass of it (a Symbol too) with byte contents.
+bool isBytesString(CallContext& ctx, Oop obj) {
+  return obj.isHeap() && (ctx.heap.flags(obj) & kFlagBytes) != 0 &&
+         chainIncludes(ctx.heap, ctx.wk.classOf(obj), ctx.wk.stringClass);
+}
+
 Oop classFormat(CallContext& ctx, Oop receiver) {
   const Oop cls = ctx.wk.classOf(receiver);
   if (!cls.isHeap()) {
@@ -171,14 +177,38 @@ Oop ao_Object_perform_withArguments_(CallContext& ctx, const Oop& receiver, cons
   return send(ctx, receiver, args[0], unpacked.ptr(), n, nullptr);
 }
 
-Oop ao_Object_doesNotUnderstand_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
+// SPEC §3.3: the default aborts the evaluation with "doesNotUnderstand: #<selector>".
+Oop ao_Object_doesNotUnderstand_(CallContext& ctx, const Oop&, const Oop* args,
+                                 std::uint32_t argc) {
   if (argc != 1) return Oop{};
-  return args[0];
+  // args[0] is the Message: its selector is slot 0 (see allocateMessage in Send.cpp).
+  const Oop msg = args[0];
+  Oop selector{};
+  if (msg.isHeap() && (ctx.heap.flags(msg) & kFlagBytes) == 0 && ctx.heap.size(msg) > 0) {
+    selector = ctx.heap.slotAt(msg, 0);
+  }
+  return abortDoesNotUnderstand(ctx, selector);
 }
 
-Oop ao_Object_error_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
+// SPEC §3.3: aborts the evaluation. The reason is the argument's contents when it is a String
+// (a Symbol too), otherwise the contents of its printString.
+Oop ao_Object_error_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
-  return args[0];
+  if (args[0].isEmpty()) {
+    // A native's message String could not be allocated.
+    return abortEvaluation(ctx, ctx.heap.outOfMemory() ? "out of memory" : "error:");
+  }
+  if (isBytesString(ctx, args[0])) {
+    return abortEvaluation(ctx, std::string_view(Str::toUtf8(ctx.heap, args[0])));
+  }
+  const Oop printed = send(ctx, args[0], ctx.wk.intern("printString"), nullptr, 0, nullptr);
+  if (unwinding(ctx)) {
+    return Oop{};
+  }
+  if (isBytesString(ctx, printed)) {
+    return abortEvaluation(ctx, std::string_view(Str::toUtf8(ctx.heap, printed)));
+  }
+  return abortEvaluation(ctx, "error:");
 }
 
 // SPEC §3.5: sent when a jump finds a non-Boolean. The default aborts the evaluation.
@@ -187,14 +217,15 @@ Oop ao_Object_mustBeBoolean(CallContext& ctx, const Oop&, const Oop*, std::uint3
   return abortEvaluation(ctx, "NonBoolean receiver");
 }
 
+// SPEC §3.3: both abort the evaluation with their selector as the reason.
 Oop ao_Object_subclassResponsibility(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx, "subclassResponsibility");
+  return abortEvaluation(ctx, "subclassResponsibility");
 }
 
 Oop ao_Object_shouldNotImplement(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return Str::fromUtf8(ctx, "shouldNotImplement");
+  return abortEvaluation(ctx, "shouldNotImplement");
 }
 
 Oop ao_Object_isKindOf_(CallContext& ctx, const Oop& receiver, const Oop* args,

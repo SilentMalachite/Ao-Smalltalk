@@ -402,7 +402,7 @@ TEST(GcSafety, LargeLiteralWithFullNursery) {
 
 // 04 Low: `3 perform: #+ withArguments: (OrderedCollection new add: 4; yourself)` は、内部配列と
 // 添字の 3 つを引数にして + を呼んでいた。引数は Array（とそのサブクラス）だけを受け付け、
-// それ以外は error: の慣習どおりメッセージ文字列で失敗する。
+// それ以外は error: の慣習どおり、その文言で評価を中断する（SPEC §3.3）。
 TEST(GcSafety, PerformWithArgumentsRejectsOrderedCollection) {
   Boot b;
   std::vector<ao::compiler::CompileError> errs;
@@ -420,10 +420,8 @@ TEST(GcSafety, PerformWithArgumentsRejectsOrderedCollection) {
   send1(b, oc.slot, "add:", smi(4));
   ASSERT_EQ(smi(1), send0(b, oc.slot, "size"));
 
-  const ao::Oop rejected = send2(b, smi(3), "perform:withArguments:", plus.slot, oc.slot);
-  ASSERT_TRUE(rejected.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(rejected));
-  EXPECT_EQ("perform:withArguments: expects an Array", ao::Str::toUtf8(b.heap, rejected));
+  EXPECT_TRUE(send2(b, smi(3), "perform:withArguments:", plus.slot, oc.slot).isEmpty());
+  EXPECT_EQ("perform:withArguments: expects an Array", takeAbortReason(b));
 
   ao::Root arr(b.roots, send1(b, b.wk.arrayClass, "new:", smi(1)));
   send2(b, arr.slot, "at:put:", smi(1), smi(4));
@@ -585,8 +583,7 @@ TEST(GcSafety, TestRunnerFailureMessageAfterFullGc) {
   } cleanup{dir};
   {
     std::ofstream fail(dir / "noisy.st");
-    fail << "SmalltalkImage new at: #GcSafetyMessage\n"
-         << "  put: (self assert: GcSafetyNoisy new equals: 3).\n";
+    fail << "self assert: GcSafetyNoisy new equals: 3.\n";
     ASSERT_TRUE(fail);
   }
   GarbageFirstBoot b;
@@ -604,27 +601,27 @@ TEST(GcSafety, TestRunnerFailureMessageAfterFullGc) {
                                errs))
       << (errs.empty() ? "" : errs[0].message);
   const auto collectionsBefore = b.heap.oldCollections();
+  // SPEC §4.4: the mismatch aborts the file with the message as its reason, reported on stderr.
+  testing::internal::CaptureStderr();
   EXPECT_EQ(1, ao::runSmalltalkTests(b.ctx, dir.string()));
+  const std::string reported = testing::internal::GetCapturedStderr();
   EXPECT_EQ(1, b.ctx.testFailures);
   EXPECT_GT(b.heap.oldCollections(), collectionsBefore);
-  const ao::Oop message = b.wk.named("GcSafetyMessage");
-  ASSERT_TRUE(message.isHeap());
-  ASSERT_EQ(b.wk.stringClass, b.heap.klass(message));
-  EXPECT_EQ("noisy ~= 3", ao::Str::toUtf8(b.heap, message));
+  EXPECT_NE(std::string::npos, reported.find("noisy.st: noisy ~= 3\n")) << reported;
 }
 
 namespace {
 
-// nursery を使い切ってから send する。error: の慣習で返す文字列は GC してでも作る（空にしない）。
+// nursery を使い切ってから send する。SPEC §3.3: 失敗は値を返さずに中断し、理由の文字列は GC して
+// でも作る（空にも、out of memory にもしない）。
 void expectErrorWithFullNursery(Boot& b, ao::Oop rcvr, const char* sel, const ao::Oop* args,
                                 std::uint32_t argc, const char* message) {
   SCOPED_TRACE(sel);
   ao::Root r(b.roots, rcvr);
   fillNursery(b);
   const ao::Oop got = ao::send(b.ctx, r.slot, b.wk.intern(sel), args, argc, nullptr);
-  ASSERT_TRUE(got.isHeap());
-  ASSERT_EQ(b.wk.stringClass, b.heap.klass(got));
-  EXPECT_EQ(message, ao::Str::toUtf8(b.heap, got));
+  EXPECT_TRUE(got.isEmpty());
+  EXPECT_EQ(message, takeAbortReason(b));
 }
 
 }  // namespace
@@ -878,10 +875,8 @@ ao::Oop defineWithSuperclassSlot(Boot& b, const char* superName, const std::stri
 void expectPerformRejects(Boot& b, ao::Oop argsObj) {
   ao::Root args(b.roots, argsObj);
   ao::Root plus(b.roots, b.wk.intern("+"));
-  const ao::Oop rejected = send2(b, smi(3), "perform:withArguments:", plus.slot, args.slot);
-  ASSERT_TRUE(rejected.isHeap());
-  EXPECT_EQ(b.wk.stringClass, b.heap.klass(rejected));
-  EXPECT_EQ("perform:withArguments: expects an Array", ao::Str::toUtf8(b.heap, rejected));
+  EXPECT_TRUE(send2(b, smi(3), "perform:withArguments:", plus.slot, args.slot).isEmpty());
+  EXPECT_EQ("perform:withArguments: expects an Array", takeAbortReason(b));
 }
 
 }  // namespace
@@ -997,10 +992,9 @@ TEST(BrokenSuperclassChain, ObjectAsItsOwnSuperclassStops) {
   EXPECT_TRUE(send1(b, object.slot, "inheritsFrom:", b.wk.undefinedObjectClass).isFalse());
   ao::Root missing(b.roots, b.wk.intern("chainProbeMissing"));
   EXPECT_TRUE(send1(b, inst.slot, "respondsTo:", missing.slot).isFalse());
-  // 無いセレクタの探索は鎖の上限で止まり、Object の doesNotUnderstand: が Message を返す。
-  const ao::Oop dnu = send0(b, inst.slot, "chainProbeMissing");
-  ASSERT_TRUE(dnu.isHeap());
-  EXPECT_EQ(b.wk.messageClass, b.heap.klass(dnu));
+  // 無いセレクタの探索は鎖の上限で止まり、Object の doesNotUnderstand: が評価を中断する（SPEC §3.3）。
+  EXPECT_TRUE(send0(b, inst.slot, "chainProbeMissing").isEmpty());
+  EXPECT_EQ("doesNotUnderstand: #chainProbeMissing", takeAbortReason(b));
 }
 
 // isKindOf: と inheritsFrom: は壊れた所で止まり、その先（Object）を見ない。
@@ -1033,15 +1027,15 @@ TEST(BrokenSuperclassChain, InstVarNamedStops) {
     ao::Root x(b.roots, b.wk.intern("x"));
     EXPECT_EQ(smi(7), callNative(b, ao::ao_Object_instVarNamed_, inst.slot, x.slot));
     ao::Root missing(b.roots, b.wk.intern("missing"));
-    const ao::Oop failed = callNative(b, ao::ao_Object_instVarNamed_, inst.slot, missing.slot);
-    ASSERT_TRUE(failed.isHeap());
-    EXPECT_EQ("instVarNamed: not found", ao::Str::toUtf8(b.heap, failed));
+    // SPEC §3.3: error: の失敗は値を返さず、その文言で評価を中断する。
+    EXPECT_TRUE(callNative(b, ao::ao_Object_instVarNamed_, inst.slot, missing.slot).isEmpty());
+    EXPECT_EQ("instVarNamed: not found", takeAbortReason(b));
   }
 }
 
 // 送信の探索は壊れた所で打ち切る。ChainProbe 自身のメソッドは見つかる。無いセレクタは
-// doesNotUnderstand: も見つからないので、送信の値は Message になる。super 送信も、String の = が
-// 引数のクラスを調べる走査も止まる。
+// doesNotUnderstand: も見つからないので、既定と同じく評価を中断する（SPEC §3.3）。super 送信も、
+// String の = が引数のクラスを調べる走査も止まる。
 TEST(BrokenSuperclassChain, SendAndDoesNotUnderstandStop) {
   for (const auto& c : kBrokenCases) {
     SCOPED_TRACE(c.label);
@@ -1056,12 +1050,10 @@ TEST(BrokenSuperclassChain, SendAndDoesNotUnderstandStop) {
     ao::Root inst(b.roots, newProbe(b, cls.slot));
     ASSERT_TRUE(inst.slot.isHeap());
     EXPECT_EQ(smi(7), send0(b, inst.slot, "getX"));
-    const ao::Oop dnu = send0(b, inst.slot, "chainProbeMissing");
-    ASSERT_TRUE(dnu.isHeap());
-    EXPECT_EQ(b.wk.messageClass, b.heap.klass(dnu));
-    const ao::Oop superDnu = send0(b, inst.slot, "superMissing");
-    ASSERT_TRUE(superDnu.isHeap());
-    EXPECT_EQ(b.wk.messageClass, b.heap.klass(superDnu));
+    EXPECT_TRUE(send0(b, inst.slot, "chainProbeMissing").isEmpty());
+    EXPECT_EQ("doesNotUnderstand: #chainProbeMissing", takeAbortReason(b));
+    EXPECT_TRUE(send0(b, inst.slot, "superMissing").isEmpty());
+    EXPECT_EQ("doesNotUnderstand: #chainProbeMissing", takeAbortReason(b));
     ao::Root missing(b.roots, b.wk.intern("chainProbeMissing"));
     EXPECT_TRUE(callNative(b, ao::ao_Object_respondsTo_, inst.slot, missing.slot).isFalse());
     ao::Root getX(b.roots, b.wk.intern("getX"));

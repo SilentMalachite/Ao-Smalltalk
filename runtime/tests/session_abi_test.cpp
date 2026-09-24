@@ -4,7 +4,10 @@
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -35,6 +38,47 @@ TEST_F(SessionAbi, SecondBootFailsUntilShutdown) {
 TEST_F(SessionAbi, MissingLoadOrderIsError) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   EXPECT_EQ(AO_ERR, ao_filein_load_order("/no/such/LOAD_ORDER"));
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10 / §3.12: a file-in error that DEFERRED.md does not list makes ao_filein_load_order
+// answer AO_ERR; once it is listed, AO_OK. The vendor LOAD_ORDER files in with AO_OK.
+TEST_F(SessionAbi, FileInLoadOrderFailsOnUndeferredError) {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ao-session-abi-filein";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir);
+  {
+    std::ofstream order(dir / "LOAD_ORDER");
+    order << "a.st\n";
+    std::ofstream a(dir / "a.st");
+    a << "!Object subclass: #AbiFileIn\n"
+         "  instanceVariableNames: ''\n"
+         "  classVariableNames: ''\n"
+         "  poolDictionaries: ''\n"
+         "  category: 'B3-Test'!\n"
+         "!AbiFileIn methodsFor: 't'!\n"
+         "bad\n"
+         "  ^1 +! !\n";
+    ASSERT_TRUE(order && a);
+  }
+  const std::string order = (dir / "LOAD_ORDER").string();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  EXPECT_EQ(AO_ERR, ao_filein_load_order(order.c_str()));
+  ao_runtime_shutdown();
+  {
+    std::ofstream deferred(dir / "DEFERRED.md");
+    deferred << "AbiFileIn>>bad: kept out on purpose\n";
+    ASSERT_TRUE(deferred);
+  }
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  EXPECT_EQ(AO_OK, ao_filein_load_order(order.c_str()));
+  ao_runtime_shutdown();
+  fs::remove_all(dir, ec);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const std::string vendor = std::string(AO_SOURCE_DIR) + "/image/vendor/LOAD_ORDER";
+  EXPECT_EQ(AO_OK, ao_filein_load_order(vendor.c_str()));
   ao_runtime_shutdown();
 }
 
@@ -306,8 +350,9 @@ TEST_F(SessionAbi, SmalltalkIsKnownGlobal) {
   ao_runtime_shutdown();
 }
 
-// 02 Medium: 前の Do it で作ったブロックの ^ は、その評価の呼び出し元を巻き込まない。
-TEST_F(SessionAbi, DeadHomeBlockDoesNotAbortLaterEval) {
+// 02 Medium: 前の Do it で作ったブロックの ^ は、ホームを探して評価を理由なしに打ち切らない。
+// SPEC §3.4: cannotReturn: の既定で「cannot return」と理由を返して中断し、次の評価は使える。
+TEST_F(SessionAbi, DeadHomeBlockAbortsWithReason) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   char out[64];
   AoSpan err{};
@@ -318,8 +363,11 @@ TEST_F(SessionAbi, DeadHomeBlockDoesNotAbortLaterEval) {
       "log add: (b value: 3).\n"
       "log add: #after.\n"
       "log size";
-  ASSERT_EQ(AO_OK, evalPrint(src, out, 64, &err)) << err.message;
-  EXPECT_STREQ("3", out);
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint(src, out, 64, &err));
+  EXPECT_STREQ("cannot return", err.message);
+  AoSpan err2{};
+  ASSERT_EQ(AO_OK, evalPrint("log size", out, 64, &err2)) << err2.message;
+  EXPECT_STREQ("1", out);
   ao_runtime_shutdown();
 }
 
@@ -345,5 +393,101 @@ TEST_F(SessionAbi, NonBooleanBranchReportsReason) {
   ASSERT_EQ(AO_OK, evalPrint("1 + 2", out, 64, &err3)) << err3.message;
   EXPECT_STREQ("3", out);
   EXPECT_STREQ("", err3.message);
+  ao_runtime_shutdown();
+}
+
+// 00 Critical: Array の = は先頭で == を見る（自分を含む配列も即 true）。クラスは class == で比べ、
+// Array のサブクラスのインスタンスどうしも要素で比べる。
+TEST_F(SessionAbi, ArrayEqualsChecksIdentityFirstAndSameClass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const char* def =
+      "Array subclass: #B3Arr\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B3-Test'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  struct Case {
+    const char* src;
+    const char* want;
+  };
+  const Case cases[] = {
+      {"#(1 2) = #(1 2)", "true"},
+      {"#(1 2) = #(1 3)", "false"},
+      {"#(1 2) = #(1 2 3)", "false"},
+      {"#(1 2) = 3", "false"},
+      {"a := #(1 2). a = a", "true"},
+      {"(B3Arr new: 2) = (B3Arr new: 2)", "true"},
+      {"(B3Arr new: 2) = (Array new: 2)", "false"},
+      {"(Array new: 2) = (B3Arr new: 2)", "false"},
+      {"m := B3Arr new: 1. m at: 1 put: m. m = m", "true"},
+      {"s := Array new: 1. s at: 1 put: s. s = s", "true"},
+      {"s = s copy", "true"},
+  };
+  char out[64];
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.src);
+    AoSpan e{};
+    ASSERT_EQ(AO_OK, evalPrint(c.src, out, 64, &e)) << e.message;
+    EXPECT_STREQ(c.want, out);
+  }
+  ao_runtime_shutdown();
+}
+
+// 00 Critical / SPEC §3.4: 相互に参照し合う 2 つの配列の = は、スタックガードで「stack overflow」の
+// abort になり、セッションはそのまま使える。
+TEST_F(SessionAbi, MutuallyReferencingArraysAbortWithStackOverflow) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("p := Array new: 1. q := Array new: 1. p at: 1 put: q. "
+                             "q at: 1 put: p. p size",
+                             out, 64, &err))
+      << err.message;
+  int rc = AO_OK;
+  runOnSmallStack([&] { rc = evalPrint("p = q", out, 64, &err); });
+  EXPECT_EQ(AO_ERR_EVAL, rc);
+  EXPECT_STREQ("stack overflow", err.message);
+  EXPECT_STREQ("", out);
+  AoSpan err2{};
+  ASSERT_EQ(AO_OK, evalPrint("(p at: 1) == q", out, 64, &err2)) << err2.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, evalPrint("1 + 2", out, 64, &err2)) << err2.message;
+  EXPECT_STREQ("3", out);
+  ao_runtime_shutdown();
+}
+
+// 00 High / SPEC §3.10: out が NULL か out_len が 1 未満なら、コンパイルも評価もせずに AO_ERR。
+// 代入も Transcript への出力も起きないので、呼び出し側が再試行しても二重にならない。
+TEST_F(SessionAbi, EvalWithoutOutBufferRefusesBeforeEvaluating) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(
+      [](const char* utf8, int len, int, void* user) {
+        if (utf8 != nullptr && len >= 0) {
+          static_cast<std::vector<std::string>*>(user)->emplace_back(
+              utf8, static_cast<std::size_t>(len));
+        }
+      },
+      &seen);
+  AoSpan err{};
+  char out[64];
+  const char* assign = "b3y := 3";
+  const int assignLen = static_cast<int>(std::strlen(assign));
+  EXPECT_EQ(AO_ERR, ao_eval(assign, assignLen, AO_EVAL_DOIT, nullptr, 0, &err));
+  EXPECT_EQ(AO_ERR, ao_eval(assign, assignLen, AO_EVAL_DOIT, out, 0, &err));
+  EXPECT_EQ(AO_ERR, ao_eval(assign, assignLen, AO_EVAL_DOIT, out, -1, &err));
+  EXPECT_EQ(AO_ERR, ao_eval(assign, assignLen, AO_EVAL_PRINTIT, nullptr, 64, &err));
+  const char* show = "Transcript show: 'b3'";
+  const int showLen = static_cast<int>(std::strlen(show));
+  EXPECT_EQ(AO_ERR, ao_eval(show, showLen, AO_EVAL_DOIT, nullptr, 0, &err));
+  EXPECT_EQ(AO_ERR, ao_eval(show, showLen, AO_EVAL_DOIT, out, 0, &err));
+  EXPECT_TRUE(seen.empty());
+  // コンパイルもしないので、壊れたソースでもコンパイルエラーにならない。
+  EXPECT_EQ(AO_ERR, ao_eval("1 +", 3, AO_EVAL_DOIT, nullptr, 0, &err));
+  ASSERT_EQ(AO_OK, evalPrint("b3y", out, 64, &err)) << err.message;
+  EXPECT_STREQ("nil", out);
+  ao_set_transcript_hook(nullptr, nullptr);
   ao_runtime_shutdown();
 }
