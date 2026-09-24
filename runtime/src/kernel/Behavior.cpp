@@ -266,11 +266,17 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   if (!metaNameOop.slot.isHeap()) {
     return Oop{};
   }
+  // SPEC §3.6: the name is the interned Symbol of its bytes, whether args[0] is a Symbol or a
+  // String. intern does not collect; it fails only at old's max, with out of memory flagged.
+  const Oop nameSym = ctx.wk.intern(nameBytes);
+  if (!nameSym.isHeap()) {
+    return Oop{};
+  }
 
   ctx.heap.slotAtPut(cls.slot, kClassSlotSuperclass, receiver);
   ctx.heap.slotAtPut(cls.slot, kClassSlotMethodDict, dict.slot);
   ctx.heap.slotAtPut(cls.slot, kClassSlotFormat, fmt);
-  ctx.heap.slotAtPut(cls.slot, kClassSlotName, args[0]);
+  ctx.heap.slotAtPut(cls.slot, kClassSlotName, nameSym);
   ctx.heap.slotAtPut(cls.slot, kClassSlotThisClass, Oop::nil());
   ctx.heap.slotAtPut(cls.slot, kClassSlotCategory, args[4]);
   ctx.heap.slotAtPut(cls.slot, kClassSlotClassPool, pool.slot);

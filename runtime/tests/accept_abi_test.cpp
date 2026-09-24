@@ -2038,3 +2038,19 @@ TEST(AcceptAbi, ClassVariablesSurviveImageSaveAndLoad) {
       "loaded");
   ao_runtime_shutdown();
 }
+
+// B4 review (Claude M1) / SPEC §3.6: 失敗シナリオ。subclass: に名前を String で渡しても、クラスの
+// name は intern した Symbol で、Smalltalk もその Symbol で引ける。
+TEST(AcceptAbi, SubclassInternsAStringName) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  expectPrints({
+      {"(Object subclass: 'B4Zq' instanceVariableNames: '' classVariableNames: '' "
+       "poolDictionaries: '' category: 'B4-Test') name == #B4Zq",
+       "true"},
+      {"B4Zq name class == Symbol", "true"},
+      {"(Smalltalk at: #B4Zq) == B4Zq", "true"},
+      {"B4Zq class name", "'B4Zq class'"},
+      {"B4Zq new class == B4Zq", "true"},
+  });
+  ao_runtime_shutdown();
+}
