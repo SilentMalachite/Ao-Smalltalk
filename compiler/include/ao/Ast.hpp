@@ -31,6 +31,8 @@ struct Ast {
   double floatValue = 0;
   std::string text;
   bool isFloat = false;
+  // A number Literal outside int64: Token::largeInt with its sign, [-][<radix>r]<digits>.
+  std::string largeInt;
   std::vector<Ast> kids;
   std::vector<std::string> params;
   std::vector<std::string> temps;

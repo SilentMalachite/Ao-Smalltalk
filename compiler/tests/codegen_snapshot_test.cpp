@@ -600,3 +600,24 @@ TEST(KernelInstanceVariable, LeadingSlotsAreReadOnly) {
   EXPECT_EQ(2, countOp(ok.image, Op::PushInstVar)) << disassemble(ok.image);
   EXPECT_EQ(1, countOp(ok.image, Op::PopStoreInstVar)) << disassemble(ok.image);
 }
+
+// SPEC §3.8: an Int literal outside int64 carries its digits in text. Two such literals are two
+// literals (they used to share intValue 0), and 0 is not pushed with PushZero for one.
+TEST(Codegen, IntegerBeyondInt64KeepsItsDigits) {
+  auto r = compileMethod("foo\n  ^100000000000000000000 = -200000000000000000000");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  ASSERT_EQ(2u, r.image.literals.size());
+  EXPECT_EQ(LitKind::Int, r.image.literals[0].kind);
+  EXPECT_EQ("100000000000000000000", r.image.literals[0].text);
+  EXPECT_EQ(LitKind::Int, r.image.literals[1].kind);
+  EXPECT_EQ("-200000000000000000000", r.image.literals[1].text);
+  const std::string d = disassemble(r.image);
+  EXPECT_NE(std::string::npos, d.find("literals: 100000000000000000000 -200000000000000000000\n"))
+      << d;
+  EXPECT_EQ(std::string::npos, d.find("PushZero")) << d;
+  auto small = compileMethod("foo\n  ^1000");
+  ASSERT_TRUE(small.ok) << small.error.message;
+  ASSERT_EQ(1u, small.image.literals.size());
+  EXPECT_TRUE(small.image.literals[0].text.empty());
+  EXPECT_EQ(1000, small.image.literals[0].intValue);
+}

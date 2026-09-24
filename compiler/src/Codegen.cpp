@@ -60,7 +60,7 @@ bool sameIntern(const Literal& a, const Literal& b) {
     return false;
   }
   if (a.kind == LitKind::Int) {
-    return a.intValue == b.intValue;
+    return a.intValue == b.intValue && a.text == b.text;
   }
   if (a.kind == LitKind::Symbol || a.kind == LitKind::Binding ||
       a.kind == LitKind::ClassVariable) {
@@ -164,7 +164,12 @@ bool literalBlock(const Ast& n, std::size_t params) {
 // Number literals are the Literal nodes without a name.
 bool numberLiteral(const Ast& n) { return n.kind == Ast::Kind::Literal && n.name.empty(); }
 
-bool negativeNumber(const Ast& n) { return n.isFloat ? n.floatValue < 0 : n.intValue < 0; }
+bool negativeNumber(const Ast& n) {
+  if (n.isFloat) {
+    return n.floatValue < 0;
+  }
+  return n.largeInt.empty() ? n.intValue < 0 : n.largeInt[0] == '-';
+}
 
 // The one decision on inlining: the analysis and the code generator both ask it, so they agree
 // on which blocks are real scopes. Only a send compiled with its own receiver is inlined; the
@@ -223,7 +228,8 @@ Inline inlinePlan(const Ast& send) {
   }
   if (nargs == 3 && sel == "to:by:do:" && arg(2, 1)) {
     const Ast& step = send.kids[2];
-    const bool nonzero = step.isFloat ? step.floatValue != 0 : step.intValue != 0;
+    const bool nonzero =
+        step.isFloat ? step.floatValue != 0 : step.intValue != 0 || !step.largeInt.empty();
     if (numberLiteral(step) && nonzero) {
       return Inline::ToByDo;
     }
@@ -1283,11 +1289,12 @@ class Emitter {
     }
     lit.kind = LitKind::Int;
     lit.intValue = n.intValue;
+    lit.text = n.largeInt;
     return lit;
   }
 
   void compileLiteral(const Ast& n) {
-    if (n.name.empty() && !n.isFloat) {
+    if (n.name.empty() && !n.isFloat && n.largeInt.empty()) {
       switch (n.intValue) {
         case -1:
           emit(Op::PushMinusOne);
@@ -1431,7 +1438,7 @@ std::string formatLit(const Literal& lit) {
     case LitKind::False:
       return "false";
     case LitKind::Int:
-      return std::to_string(lit.intValue);
+      return lit.text.empty() ? std::to_string(lit.intValue) : lit.text;
     case LitKind::Float: {
       std::ostringstream os;
       os << lit.floatValue;

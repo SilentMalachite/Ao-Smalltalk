@@ -111,3 +111,29 @@ TEST(Scanner, MinusBeforeDigitEndsBinarySelector) {
   EXPECT_EQ("2[*-]1", binaries("2*- 1"));
   EXPECT_EQ("a[->]b", binaries("a->b"));
 }
+
+// SPEC §3.8: an integer has no digit limit. One outside int64 keeps its digits (and radix) in
+// largeInt instead of becoming 0; one inside keeps intValue.
+TEST(Scanner, IntegerBeyondInt64KeepsItsDigits) {
+  auto scan = [](const char* src) {
+    Scanner s(src);
+    auto t = s.next();
+    EXPECT_EQ(Tok::Number, t.kind) << src;
+    EXPECT_FALSE(t.isFloat) << src;
+    EXPECT_EQ(Tok::Eof, s.next().kind) << src;
+    return t;
+  };
+  auto big = scan("100000000000000000000");
+  EXPECT_EQ("100000000000000000000", big.largeInt);
+  EXPECT_EQ(0, big.intValue);
+  EXPECT_EQ("9223372036854775808", scan("9223372036854775808").largeInt);
+  EXPECT_EQ("16r1FFFFFFFFFFFFFFFFFFFF", scan("16r1FFFFFFFFFFFFFFFFFFFF").largeInt);
+  EXPECT_EQ("16r1FFFFFFFFFFFFFFFFFFFF", scan("16r1ffffffffffffffffffff").largeInt);
+  EXPECT_EQ("100000000000000000000", scan("000100000000000000000000").largeInt);
+  auto max = scan("9223372036854775807");
+  EXPECT_TRUE(max.largeInt.empty());
+  EXPECT_EQ(INT64_MAX, max.intValue);
+  auto padded = scan("0000000000000000000000000001");
+  EXPECT_TRUE(padded.largeInt.empty());
+  EXPECT_EQ(1, padded.intValue);
+}

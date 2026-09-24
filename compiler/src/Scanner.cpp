@@ -79,6 +79,17 @@ std::uint32_t utf8Len(unsigned char lead) {
   return 1;
 }
 
+// Token::largeInt for integer digits outside int64: [<radix>r]<digits>, upper case, no leading
+// zeros. The digits are not all zeros.
+std::string largeIntText(std::string_view digits, int radix) {
+  std::string text = radix == 10 ? std::string() : std::to_string(radix) + "r";
+  for (std::size_t k = digits.find_first_not_of('0'); k < digits.size(); ++k) {
+    const char c = digits[k];
+    text.push_back(c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c);
+  }
+  return text;
+}
+
 }  // namespace
 
 Scanner::Scanner(std::string_view src) : src_(src) {}
@@ -144,10 +155,12 @@ Token Scanner::lexNumber(std::uint32_t start) {
   }
 
   int radix = 10;
+  std::uint32_t digitsStart = start;
   if ((at(0) == 'r' || at(0) == 'R') && !overflow && intAcc >= 2 && intAcc <= 36 &&
       digitValue(at(1), static_cast<int>(intAcc)) >= 0) {
     radix = static_cast<int>(intAcc);
     i_++;
+    digitsStart = i_;
     intAcc = 0;
     dblAcc = 0;
     overflow = false;
@@ -161,6 +174,7 @@ Token Scanner::lexNumber(std::uint32_t start) {
     }
   }
 
+  const std::string_view digits = src_.substr(digitsStart, i_ - digitsStart);
   bool isFloat = false;
   double value = overflow ? dblAcc : static_cast<double>(intAcc);
   if (at(0) == '.' && digitValue(at(1), radix) >= 0) {
@@ -218,6 +232,9 @@ Token Scanner::lexNumber(std::uint32_t start) {
   t.isFloat = isFloat;
   if (!isFloat && !overflow) {
     t.intValue = intAcc;
+  } else if (!isFloat) {
+    // SPEC §3.8: no digit limit. The runtime makes the LargeInteger from the digits.
+    t.largeInt = largeIntText(digits, radix);
   }
   return t;
 }

@@ -271,6 +271,19 @@ Big mulBig(const Big& a, const Big& b) {
   return r;
 }
 
+// d = d * mul + add.
+void magMulAddSmall(Digits& d, std::uint32_t mul, std::uint32_t add) {
+  std::uint64_t carry = add;
+  for (std::uint32_t& limb : d) {
+    const std::uint64_t t = static_cast<std::uint64_t>(limb) * mul + carry;
+    limb = static_cast<std::uint32_t>(t);
+    carry = t >> 32;
+  }
+  if (carry != 0) {
+    d.push_back(static_cast<std::uint32_t>(carry));
+  }
+}
+
 void digitsFromU64(std::uint64_t mag, Digits& d) {
   d.clear();
   if (mag == 0) {
@@ -503,6 +516,57 @@ Oop fromInt64(Heap& heap, WellKnown& wk, std::int64_t value) {
 }
 
 Oop fromInt64(CallContext& ctx, std::int64_t value) { return fromInt128(ctx, value); }
+
+Oop fromText(CallContext& ctx, std::string_view text) {
+  Big b;
+  std::size_t i = 0;
+  if (i < text.size() && text[i] == '-') {
+    b.neg = true;
+    ++i;
+  }
+  std::uint32_t radix = 10;
+  const std::size_t r = text.find('r', i);
+  if (r != std::string_view::npos) {
+    radix = 0;
+    for (; i < r; ++i) {
+      if (text[i] < '0' || text[i] > '9' || radix > 36) {
+        return Oop{};
+      }
+      radix = radix * 10 + static_cast<std::uint32_t>(text[i] - '0');
+    }
+    ++i;
+  }
+  if (radix < 2 || radix > 36 || i == text.size()) {
+    return Oop{};
+  }
+  // A chunk of digits at a time: chunk < scale = radix^(digits in the chunk) < 2^32.
+  std::uint32_t chunk = 0;
+  std::uint32_t scale = 1;
+  for (; i < text.size(); ++i) {
+    const char c = text[i];
+    std::uint32_t v = radix;
+    if (c >= '0' && c <= '9') {
+      v = static_cast<std::uint32_t>(c - '0');
+    } else if (c >= 'A' && c <= 'Z') {
+      v = static_cast<std::uint32_t>(c - 'A') + 10;
+    }
+    if (v >= radix) {
+      return Oop{};
+    }
+    chunk = chunk * radix + v;
+    scale *= radix;
+    if (scale > UINT32_MAX / radix || i + 1 == text.size()) {
+      magMulAddSmall(b.d, scale, chunk);
+      chunk = 0;
+      scale = 1;
+    }
+  }
+  strip(b.d);
+  if (b.d.empty()) {
+    b.neg = false;
+  }
+  return box(ctx, b);
+}
 
 bool isLarge(const WellKnown& wk, Oop o) {
   if (!o.isHeap()) {

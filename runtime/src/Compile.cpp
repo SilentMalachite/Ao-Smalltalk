@@ -80,6 +80,10 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
     case compiler::LitKind::False:
       return Oop::false_();
     case compiler::LitKind::Int:
+      if (!lit.text.empty()) {
+        // SPEC §3.8: outside int64, the compiler keeps the digits.
+        return LargeInteger::fromText(ctx, lit.text);
+      }
       if (lit.intValue >= kSmiMin && lit.intValue <= kSmiMax) {
         return Oop::fromSmallInteger(lit.intValue);
       }

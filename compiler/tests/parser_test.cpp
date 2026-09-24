@@ -137,3 +137,23 @@ TEST(Parser, CommaIsABinarySelector) {
   EXPECT_EQ(",", last.kids[1].text);
   EXPECT_EQ(",", last.kids[0].name);
 }
+
+// SPEC §3.8: a negative literal outside int64 keeps its digits; a byte array element or a
+// primitive number outside int64 is refused instead of read as 0.
+TEST(Parser, IntegerBeyondInt64) {
+  auto r = parseMethod("foo\n  ^-100000000000000000000");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  auto& lit = r.method.kids.at(0).kids.at(0);
+  EXPECT_EQ(Ast::Kind::Literal, lit.kind);
+  EXPECT_EQ("-100000000000000000000", lit.largeInt);
+  auto arr = parseMethod("foo\n  ^#(-16r1FFFFFFFFFFFFFFFFFFFF)");
+  ASSERT_TRUE(arr.ok) << arr.error.message;
+  EXPECT_EQ("-16r1FFFFFFFFFFFFFFFFFFFF", arr.method.kids.at(0).kids.at(0).kids.at(0).largeInt);
+  auto bytes = parseMethod("foo\n  ^#[1 99999999999999999999 3]");
+  EXPECT_FALSE(bytes.ok);
+  EXPECT_EQ("expected byte 0-255", bytes.error.message);
+  EXPECT_EQ(11u, bytes.error.span.start);
+  auto prim = parseMethod("foo\n  <primitive: 18446744073709551616>\n  ^1");
+  EXPECT_FALSE(prim.ok);
+  EXPECT_EQ("expected primitive number", prim.error.message);
+}

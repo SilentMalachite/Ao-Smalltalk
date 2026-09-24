@@ -199,7 +199,7 @@ class Parser {
       return {};
     }
     advance();
-    if (!check(Tok::Number) || cur_.isFloat) {
+    if (!check(Tok::Number) || cur_.isFloat || !cur_.largeInt.empty()) {
       fail("expected primitive number");
       return {};
     }
@@ -424,6 +424,9 @@ class Parser {
       return lit;
     }
     lit.intValue = sign < 0 ? -num.intValue : num.intValue;
+    if (!num.largeInt.empty()) {
+      lit.largeInt = (sign < 0 ? "-" : "") + num.largeInt;
+    }
     return lit;
   }
 
@@ -521,7 +524,7 @@ class Parser {
       fail("expected byte 0-255");
       return {};
     }
-    if (cur_.intValue < 0 || cur_.intValue > 255) {
+    if (cur_.intValue < 0 || cur_.intValue > 255 || !cur_.largeInt.empty()) {
       fail("expected byte 0-255");
       return {};
     }

@@ -2310,3 +2310,50 @@ TEST(AcceptAbi, MinusAfterBinaryCharacterStartsNegativeLiteral) {
   });
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/05 High, 03 High) / SPEC §3.8: an integer literal outside int64 became 0
+// (`100000000000000000000 printString` was '0'). It is a LargeInteger now, and a value that fits
+// SmallInteger stays one.
+TEST(AcceptAbi, IntegerLiteralsBeyondInt64AreLargeIntegers) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Big\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  acceptMethods("B7Big", 0, {"big\n  ^100000000000000000000\n"});
+  expectPrints({
+      {"100000000000000000000 = (10000000000 * 10000000000)", "true"},
+      {"100000000000000000000 class == LargePositiveInteger", "true"},
+      {"100000000000000000000 = 200000000000000000000", "false"},
+      {"-100000000000000000000 = (0 - (10000000000 * 10000000000))", "true"},
+      {"-100000000000000000000 class == LargeNegativeInteger", "true"},
+      {"-9223372036854775808 = (0 - (1 bitShift: 63))", "true"},
+      {"9223372036854775808 = (1 bitShift: 63)", "true"},
+      {"18446744073709551616 = (1 bitShift: 64)", "true"},
+      {"16r1FFFFFFFFFFFFFFFFFFFF = ((1 bitShift: 81) - 1)", "true"},
+      {"-2r10000000000000000000000000000000000000000000000000000000000000000000000 = "
+       "(0 - (1 bitShift: 70))",
+       "true"},
+      {"(#(100000000000000000000 -100000000000000000000) at: 1) = (10000000000 * 10000000000)",
+       "true"},
+      {"(#(100000000000000000000 -100000000000000000000) at: 2) class == LargeNegativeInteger",
+       "true"},
+      {"B7Big new big = (10000000000 * 10000000000)", "true"},
+      {"4611686018427387903 class == SmallInteger", "true"},
+      {"-4611686018427387904 class == SmallInteger", "true"},
+      {"4611686018427387904 class == LargePositiveInteger", "true"},
+      {"0000000000000000000000000001 class == SmallInteger", "true"},
+      {"| s | s := 0. 1 to: 3 by: 100000000000000000000 do: [:k | s := s + k]. s", "1"},
+      {"| s | s := 0. 3 to: 1 by: -100000000000000000000 do: [:k | s := s + k]. s", "3"},
+  });
+  char out[128];
+  const char* bytes = "#[1 99999999999999999999 3]";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_eval(bytes, static_cast<int>(std::strlen(bytes)), AO_EVAL_PRINTIT,
+                                    out, 128, &err));
+  EXPECT_STREQ("expected byte 0-255", err.message);
+  ao_runtime_shutdown();
+}

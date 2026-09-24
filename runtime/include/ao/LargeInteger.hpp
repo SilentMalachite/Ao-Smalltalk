@@ -5,6 +5,7 @@
 #include "ao/WellKnown.hpp"
 
 #include <cstdint>
+#include <string_view>
 
 namespace ao {
 
@@ -16,6 +17,10 @@ namespace LargeInteger {
 Oop fromInt64(Heap& heap, WellKnown& wk, std::int64_t value);
 // Boxes a LargeInteger with allocateRetry, so it may GC.
 Oop fromInt64(CallContext& ctx, std::int64_t value);
+// The Integer written [-][<radix>r]<digits> (radix 2 to 36, digits 0-9 and A-Z), the text of a
+// compiler Int literal outside int64 (SPEC §3.8). A SmallInteger when it fits. Empty Oop when the
+// text is not such an Integer or the allocation fails. Boxes with allocateRetry, so it may GC.
+Oop fromText(CallContext& ctx, std::string_view text);
 bool isLarge(const WellKnown& wk, Oop o);
 bool isInteger(const WellKnown& wk, Oop o);
 std::int64_t asInt64IfFits(Heap& heap, WellKnown& wk, Oop o, bool* fits);
