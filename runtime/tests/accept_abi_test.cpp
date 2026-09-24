@@ -1273,3 +1273,33 @@ TEST(AcceptAbi, KernelSlotNamesSurviveImageSaveAndLoad) {
   EXPECT_STREQ("4", out);
   ao_runtime_shutdown();
 }
+
+// B4 (docs/claude-review/04 Low) / SPEC §3.6: バイト列のクラスに名前付き変数を足す定義はエラーで、
+// クラスを作らない。定義メッセージを評価しても同じ理由で中断する。変数の無いサブクラスは作れる。
+TEST(AcceptAbi, BytesSuperclassRefusesInstanceVariables) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  char defn[512];
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("String", "PJ", "tag", "B4-Test").c_str(), &e));
+  EXPECT_STREQ("subclass failed: PJ: bytes class cannot have instance variables", e.message);
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition("PJ", defn, 512));
+
+  EXPECT_EQ(AO_ERR_EVAL, printIt("ByteArray subclass: #PJ2 instanceVariableNames: 'a b' "
+                                 "classVariableNames: '' poolDictionaries: '' category: 'B4-Test'"));
+  EXPECT_STREQ("bytes class cannot have instance variables", err.message);
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition("PJ2", defn, 512));
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("String", "PJ3", "", "B4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("PJ3 isBytes")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("(PJ3 new: 2) size")) << err.message;
+  EXPECT_STREQ("2", out);
+  ao_runtime_shutdown();
+}

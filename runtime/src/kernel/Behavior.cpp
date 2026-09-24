@@ -215,6 +215,10 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   const std::string ivarSpec = Str::toUtf8(ctx.heap, args[1]);
   std::vector<std::string_view> ivars;
   splitNames(ivarSpec, ivars);
+  // SPEC §3.6: a bytes object has no named slots, so a variable on a bytes class could hold nothing.
+  if (Format::isBytes(superFmt) && !ivars.empty()) {
+    return abortEvaluation(ctx, "bytes class cannot have instance variables");
+  }
   const auto instSize = superInst + static_cast<std::int64_t>(ivars.size());
   const Oop fmt =
       Format::make(instSize, Format::isIndexable(superFmt), Format::isBytes(superFmt));
