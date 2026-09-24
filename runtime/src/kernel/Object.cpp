@@ -428,7 +428,13 @@ Oop ao_Object_printOn_(CallContext& ctx, const Oop& receiver, const Oop* args, s
     // SPEC §3.3: printString failed without a reason; the Symbol is fetched again after the send.
     return abortFailedSend(ctx, ctx.wk.intern("printString"));
   }
-  return send(ctx, args[0], ctx.wk.intern("nextPutAll:"), &printed.slot, 1, nullptr);
+  const Oop written = send(ctx, args[0], ctx.wk.intern("nextPutAll:"), &printed.slot, 1, nullptr);
+  // An abort in nextPutAll:, or its failure without a reason, ends printOn: as it did before.
+  if (unwinding(ctx) || written.isEmpty()) {
+    return Oop{};
+  }
+  // SPEC §3.10: the answer is the receiver, read again from its rooted slot after the sends.
+  return receiver;
 }
 
 Oop ao_Object_storeOn_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {

@@ -1,5 +1,6 @@
 #include "test_support.hpp"
 
+#include "ao_abi.h"
 #include "ao/Compile.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
@@ -182,4 +183,42 @@ TEST(PrintString, PrintOnSendsAnOverriddenPrintString) {
   EXPECT_TRUE(send1(b, failing.slot, "printOn:", stream.slot).isEmpty());
   EXPECT_EQ("boom", takeAbortReason(b));
   EXPECT_EQ("", ao::Str::toUtf8(b.heap, send0(b, stream.slot, "contents")));
+}
+
+// B5 review L4 / SPEC §3.10 printString: printOn: と storeOn: はレシーバを答える。nextPutAll: の
+// 答え（書いた文字列）ではない。ストリームには今までどおり printString が出る。
+TEST(PrintString, PrintOnAnswersTheReceiver) {
+  Boot b;
+  ao::Root empty(b.roots, ao::Str::fromUtf8(b.heap, b.wk, ""));
+  ao::Root stream(b.roots, send1(b, b.wk.named("WriteStream"), "on:", empty.slot));
+  ASSERT_TRUE(stream.slot.isHeap());
+  const ao::Oop three = ao::Oop::fromSmallInteger(3);
+  EXPECT_TRUE(send1(b, three, "printOn:", stream.slot) == three);
+  EXPECT_TRUE(send1(b, three, "storeOn:", stream.slot) == three);
+  ao::Root object(b.roots, send0(b, b.wk.objectClass, "new"));
+  ao::Root answer(b.roots, send1(b, object.slot, "printOn:", stream.slot));
+  EXPECT_TRUE(answer.slot == object.slot);
+  EXPECT_EQ("33Object", ao::Str::toUtf8(b.heap, send0(b, stream.slot, "contents")));
+}
+
+// B5 review L4: 評価でも (3 printOn: s) == 3 は true。カスケードも同じレシーバに届く。
+TEST(PrintString, PrintOnAnswerIsIdenticalToTheReceiverInAnEvaluation) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, printIt("| s | s := WriteStream on: String new. (3 printOn: s) == 3"))
+      << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("| s o | s := WriteStream on: String new. o := Object new. "
+                           "(o printOn: s) == o"))
+      << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("| s | s := WriteStream on: String new. (3 printOn: s) printOn: s. "
+                           "s contents"))
+      << err.message;
+  EXPECT_STREQ("'33'", out);
+  ao_runtime_shutdown();
 }
