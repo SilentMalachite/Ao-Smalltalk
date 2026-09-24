@@ -756,8 +756,9 @@ TEST(ImageSaveLoad, FailedProbeKeepsCurrentSession) {
 TEST(ImageSaveLoad, RefusesSmalltalkWithoutGlobalDictionary) {
   Boot b;
   {
-    ao::Root old(b.roots,
-                 b.heap.allocate(b.wk.smalltalkImageClass, ao::Globals::kSmalltalkCount, 0));
+    // An Array: a SmalltalkImage has the format's 2 slots, and B6's format check (SPEC §3.11)
+    // refuses to save one of 57.
+    ao::Root old(b.roots, b.heap.allocate(b.wk.arrayClass, ao::Globals::kSmalltalkCount, 0));
     ASSERT_TRUE(old.slot.isHeap());
     for (std::uint32_t i = 0; i < ao::Globals::kSmalltalkCount; ++i) {
       b.heap.slotAtPut(old.slot, i, b.wk.named(ao::Globals::nameAt(i)));
@@ -1116,6 +1117,22 @@ struct ImageSurgery {
     return 0;
   }
   bool write(const std::filesystem::path& path) const { return writeAll(path, bytes); }
+  // The class-shaped object whose name slot holds a byte object with these bytes; 0 when none.
+  std::uint64_t classNamed(std::string_view name) const {
+    for (std::uint64_t off : objects()) {
+      const ao::ObjectHeader h = object(off);
+      if ((h.flags & ao::kFlagBytes) != 0 || h.size < ao::kClassSlotCount) continue;
+      const std::uint64_t nameOff = word(slotPos(off, ao::kClassSlotName));
+      if (nameOff == 0 || (nameOff & 7u) != 0 || nameOff >= header.heapBytes) continue;
+      const ao::ObjectHeader n = object(nameOff);
+      if ((n.flags & ao::kFlagBytes) == 0 || n.size != name.size()) continue;
+      if (std::memcmp(bytes.data() + kHeap + nameOff + sizeof(ao::ObjectHeader), name.data(),
+                      name.size()) == 0) {
+        return off;
+      }
+    }
+    return 0;
+  }
 };
 
 // Saves a fresh Boot to path and checks it loads; the tests then damage a copy of it.
@@ -1287,6 +1304,194 @@ TEST(ImageLoadChecks, RefusesHugeHeapBytesFromTheHeader) {
     ASSERT_TRUE(damaged.write(bad));
     expectRefused(bad, "damaged image");
   }
+  std::filesystem::remove(good);
+  std::filesystem::remove(bad);
+}
+
+namespace {
+
+// Boots, defines B6Bar (one instance variable, a method, an instance kept in a global) and saves
+// the session to path; then runs setup, a legal evaluation that leaves a heap the load's checks
+// refuse, and expects the save over path to fail with the old image left as it was.
+void expectSaveRefusedAfter(const std::filesystem::path& path, const std::string& setup) {
+  SCOPED_TRACE(setup);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const char* def =
+      "Object subclass: #B6Bar\n"
+      "  instanceVariableNames: 'a'\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B6-Test'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B6Bar", 0, "hello\n  ^'hi'\n", &err)) << err.message;
+  char out[64];
+  const std::string keep = "Smalltalk at: #B6BarKeep put: B6Bar new";
+  ASSERT_EQ(AO_OK, ao_eval(keep.c_str(), static_cast<int>(keep.size()), AO_EVAL_DOIT, out, 64,
+                           &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  const std::vector<char> before = readAll(path);
+  ASSERT_EQ(AO_OK, ao_eval(setup.c_str(), static_cast<int>(setup.size()), AO_EVAL_DOIT, out, 64,
+                           &err))
+      << err.message;
+  EXPECT_EQ(AO_ERR, ao_image_save(path.string().c_str()));
+  const std::vector<char> after = readAll(path);
+  EXPECT_TRUE(before == after);
+  EXPECT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  ao_runtime_shutdown();
+}
+
+}  // namespace
+
+// B6 review (Claude M) / SPEC §3.11: 失敗シナリオ。正当な Smalltalk で作れるヒープを、save は AO_OK で書き、
+// load は damaged image で拒否した。保存は成功したのに旧イメージを失う。保存は書く前にロードと同じ検査を
+// 当てるので、これらの保存は失敗し、旧イメージはそのまま残ってロードできる。
+TEST(ImageSaveChecks, SaveRefusesWhatTheLoadRefuses) {
+  const auto dir = freshDir("b6-save-checks");
+  const auto path = dir / "keep.aoimage";
+  for (const char* setup : {
+           "B6Bar instVarAt: 2 put: Dictionary new",
+           "B6Bar instVarAt: 2 put: 7",
+           "B6Bar instVarAt: 2 put: #(1 2)",
+           "| d | d := MethodDictionary new. d instVarAt: 2 put: 'xyz'. Smalltalk at: #B6MD put: d",
+           "B6Bar instVarAt: 1 put: #(1 2 3 4 5 6 7 8 9)",
+       }) {
+    expectSaveRefusedAfter(path, setup);
+  }
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// SPEC §3.11: Image::save says which object broke which rule.
+TEST(ImageSaveChecks, SaveReasonNamesTheClassAndTheRule) {
+  const auto dir = freshDir("b6-save-reason");
+  const auto path = dir / "reason.aoimage";
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(fileInSource(b, kUserMethods, &errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root cls(b.roots, b.wk.named("CmUser"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  ao::Root dict(b.roots, b.heap.slotAt(cls.slot, ao::kClassSlotMethodDict));
+  b.heap.slotAtPut(cls.slot, ao::kClassSlotMethodDict, ao::Oop::fromSmallInteger(7));
+  std::string reason;
+  EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason));
+  EXPECT_NE(std::string::npos, reason.find("CmUser")) << reason;
+  EXPECT_NE(std::string::npos, reason.find("methodDict")) << reason;
+  EXPECT_TRUE(fileNames(dir).empty());
+  b.heap.slotAtPut(cls.slot, ao::kClassSlotMethodDict, dict.slot);
+  reason = "unchanged";
+  EXPECT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason)) << reason;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// SPEC §3.11: a class of the runtime's reading. `Behavior new` makes a class whose format is nil,
+// which the runtime reads as no named slots: its instance saves and loads.
+TEST(ImageSaveChecks, AnonymousBehaviorInstanceSavesAndLoads) {
+  const auto path = std::filesystem::path(testing::TempDir()) / "b6-behavior-new.aoimage";
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  const std::string setup =
+      "| b | b := Behavior new. Smalltalk at: #B6BH put: b. Smalltalk at: #B6BI put: b basicNew";
+  ASSERT_EQ(AO_OK, ao_eval(setup.c_str(), static_cast<int>(setup.size()), AO_EVAL_DOIT, out, 64,
+                           &err))
+      << err.message;
+  EXPECT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  EXPECT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  ao_runtime_shutdown();
+  std::filesystem::remove(path);
+}
+
+// B6 review (Claude M / Codex P2 #1) / SPEC §3.11: 失敗シナリオ。インスタンスの無いユーザークラスの
+// methodDict を Symbol にしたイメージはロードが通り、Foo new foo が slotAt の assert で落ちた。Behavior の
+// オブジェクトは、インスタンスの有無によらず methodDict と superclass を確かめる。
+TEST(ImageLoadChecks, RefusesClassWithoutInstancesAndABadMethodDict) {
+  const auto good = std::filesystem::path(testing::TempDir()) / "b6-noinst-good.aoimage";
+  const auto bad = std::filesystem::path(testing::TempDir()) / "b6-noinst-bad.aoimage";
+  {
+    Boot b;
+    std::vector<ao::compiler::CompileError> errs;
+    ASSERT_TRUE(fileInSource(b, kUserMethods, &errs)) << (errs.empty() ? "" : errs[0].message);
+    ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, good.string()));
+  }
+  const ImageSurgery image(good);
+  const std::uint64_t user = image.classNamed("CmUser");
+  ASSERT_NE(0u, user);
+  for (std::uint64_t off : image.objects()) {
+    ASSERT_NE(user, image.object(off).klass.bits()) << "CmUser has an instance";
+  }
+  const std::uint64_t symbol = image.record("value");
+  auto refused = [&](const char* what, auto&& damage) {
+    SCOPED_TRACE(what);
+    ImageSurgery damaged = image;
+    damage(damaged);
+    ASSERT_TRUE(damaged.write(bad));
+    expectRefused(bad, "damaged image");
+  };
+  refused("methodDict is a Symbol", [&](ImageSurgery& d) {
+    d.setWord(d.slotPos(user, ao::kClassSlotMethodDict), symbol);
+  });
+  refused("superclass is a Symbol", [&](ImageSurgery& d) {
+    d.setWord(d.slotPos(user, ao::kClassSlotSuperclass), symbol);
+  });
+  refused("superclass is a 9-slot object that is no class", [&](ImageSurgery& d) {
+    std::uint64_t big = 0;
+    for (std::uint64_t off : d.objects()) {
+      const ao::ObjectHeader h = d.object(off);
+      if ((h.flags & ao::kFlagBytes) == 0 && h.size >= ao::kClassSlotCount &&
+          h.klass.bits() == d.record("Array")) {
+        big = off;
+        break;
+      }
+    }
+    ASSERT_NE(0u, big);
+    d.setWord(d.slotPos(user, ao::kClassSlotSuperclass), big);
+  });
+  std::filesystem::remove(good);
+  std::filesystem::remove(bad);
+}
+
+// B6 review (Claude M / Codex P2 #2) / SPEC §3.11: 失敗シナリオ。2 スロットのオブジェクトの klass を
+// ReadStream にしたイメージは、Kept next で i < h->size の assert になった。String の klass を Array に
+// すると printString が落ちた。インスタンスはクラスの format に合う形をしている。
+TEST(ImageLoadChecks, RefusesInstancesThatDoNotFitTheirClassFormat) {
+  const auto good = std::filesystem::path(testing::TempDir()) / "b6-format-good.aoimage";
+  const auto bad = std::filesystem::path(testing::TempDir()) / "b6-format-bad.aoimage";
+  saveFreshImage(good);
+  const ImageSurgery image(good);
+  const std::uint64_t processor = image.record("Processor");
+  ASSERT_EQ(2u, image.object(processor).size);
+  auto refused = [&](const std::string& what, auto&& damage) {
+    SCOPED_TRACE(what);
+    ImageSurgery damaged = image;
+    damage(damaged);
+    ASSERT_TRUE(damaged.write(bad));
+    expectRefused(bad, "damaged image");
+  };
+  for (const char* cls :
+       {"ReadStream", "OrderedCollection", "Interval", "Class", "BlockContext", "Symbol"}) {
+    refused(std::string("2 slots as a ") + cls, [&](ImageSurgery& d) {
+      ao::ObjectHeader h = d.object(processor);
+      h.klass = ao::Oop::fromBits(d.record(cls));
+      d.setObject(processor, h);
+    });
+  }
+  const std::uint64_t metaName = image.word(image.slotPos(image.record("Object class"),
+                                                          ao::kClassSlotName));
+  ASSERT_EQ(image.record("String"), image.object(metaName).klass.bits());
+  refused("a String as an Array", [&](ImageSurgery& d) {
+    ao::ObjectHeader h = d.object(metaName);
+    h.klass = ao::Oop::fromBits(d.record("Array"));
+    d.setObject(metaName, h);
+  });
+  refused("a weak object with a class", [&](ImageSurgery& d) {
+    const std::uint64_t smalltalk = d.record("Smalltalk");
+    ao::ObjectHeader h = d.object(smalltalk);
+    h.flags = static_cast<std::uint16_t>(h.flags | ao::kFlagWeak);
+    d.setObject(smalltalk, h);
+  });
   std::filesystem::remove(good);
   std::filesystem::remove(bad);
 }

@@ -2,7 +2,6 @@
 
 #include "ao/Globals.hpp"
 #include "ao/ImageFormat.hpp"
-#include "ao/NativeMethod.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -99,29 +98,6 @@ bool traceStrong(Heap& heap, Roots& roots, Trace& tr) {
     }
   }
   return !tr.failed && tr.end >= ImageFormat::kImageFillerBytes && (tr.end % 8u) == 0;
-}
-
-// SPEC §3.11: a load rebinds every NativeMethod by its name, so a heap holding one whose name this
-// runtime has not registered (an unnamed thunk) saves as an image that cannot load. The shape is
-// the one the load checks.
-bool nativeNamesResolve(Heap& heap, const WellKnown& wk, const Trace& tr) {
-  for (Oop obj : tr.order) {
-    if (heap.klass(obj) != wk.nativeMethodClass) {
-      continue;
-    }
-    if ((heap.flags(obj) & kFlagBytes) != 0 || heap.size(obj) < kNativeSlotCount) {
-      return false;
-    }
-    const Oop name = heap.slotAt(obj, kNativeSlotName);
-    if (!name.isHeap() || (heap.flags(name) & kFlagBytes) == 0 || !heap.klass(name).isNil()) {
-      return false;
-    }
-    const std::string_view bytes(reinterpret_cast<const char*>(heap.bytes(name)), heap.size(name));
-    if (!NativeRegistry::findName(bytes, nullptr)) {
-      return false;
-    }
-  }
-  return true;
 }
 
 bool encodeOop(const Trace& tr, Oop obj, bool missingBecomesNil, std::uint64_t* bits) {
@@ -317,22 +293,29 @@ bool writeFile(std::string_view path, const std::byte* data, std::size_t n) {
 
 }  // namespace
 
-bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path) {
+bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
+                 std::string* reason) {
+  auto refuse = [reason](std::string why) {
+    if (reason != nullptr) {
+      *reason = std::move(why);
+    }
+    return false;
+  };
   // SPEC §3.11: the global dictionary goes with the heap. Nothing else records a global.
   if (!Globals::isDictionary(wk, wk.smalltalk)) {
-    return false;
+    return refuse("Smalltalk is not the global dictionary");
   }
 
   Trace tr;
-  if (!traceStrong(heap, roots, tr) || !nativeNamesResolve(heap, wk, tr)) {
-    return false;
+  if (!traceStrong(heap, roots, tr)) {
+    return refuse("the heap could not be traced");
   }
 
   std::vector<NamedOop> wellKnown;
   NameCollect wkCollect{&wellKnown, false};
   wk.eachImageSlot(collectImageSlot, &wkCollect);
   if (wkCollect.failed) {
-    return false;
+    return refuse("a well-known name cannot be recorded");
   }
 
   std::vector<NamedOop> globals;
@@ -340,48 +323,49 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   for (std::uint32_t i = 0; i < Globals::kSmalltalkCount; ++i) {
     const char* name = Globals::nameAt(i);
     if (name == nullptr || !validName(name)) {
-      return false;
+      return refuse("a global name cannot be recorded");
     }
     // The values the load checks the dictionary against.
     const Oop value = Globals::lookup(wk, wk.findSymbol(name));
     if (value.isEmpty()) {
-      return false;
+      return refuse(std::string("the global ") + name + " is not bound");
     }
     globals.push_back(NamedOop{std::string(name), value});
   }
 
   // SPEC §3.11: the load lays the live objects of nursery and old out in one old space, so a heap
   // bigger than the old space limit (a session's: kOldMaxBytes, 4 GiB − 1 MiB) is not saved. It
-  // could be saved but not loaded back.
-  if (tr.end > std::min(kOldMaxBytes, heap.oldMaxBytes())) {
-    return false;
+  // could be saved but not loaded back. Image::check below makes the same check; this one keeps
+  // such a heap from being laid out in memory first.
+  const std::size_t oldMax = std::min(kOldMaxBytes, heap.oldMaxBytes());
+  if (tr.end > oldMax) {
+    return refuse("the heap is " + std::to_string(tr.end) + " bytes; the old space limit is " +
+                  std::to_string(oldMax));
   }
   std::vector<std::byte> heapBuf(static_cast<std::size_t>(tr.end), std::byte{0});
   ImageFormat::writeFiller(heapBuf.data());
   for (Oop obj : tr.order) {
     const auto it = tr.at.find(reinterpret_cast<std::uintptr_t>(obj.heapPointer()));
     if (it == tr.at.end()) {
-      return false;
+      return refuse("the heap could not be laid out");
     }
     const std::size_t off = static_cast<std::size_t>(it->second);
     const std::size_t nbytes = heap.objectBytes(heap.header(obj));
-    if (off > heapBuf.size() || nbytes > heapBuf.size() - off) {
-      return false;
-    }
-    if (!writeObject(heap, tr, obj, heapBuf.data() + off)) {
-      return false;
+    if (off > heapBuf.size() || nbytes > heapBuf.size() - off ||
+        !writeObject(heap, tr, obj, heapBuf.data() + off)) {
+      return refuse("the heap could not be laid out");
     }
   }
 
   std::vector<std::byte> tail;
   for (const NamedOop& rec : wellKnown) {
     if (!appendRecord(tail, tr, rec)) {
-      return false;
+      return refuse("the well-known " + rec.name + " is not in the heap");
     }
   }
   for (const NamedOop& rec : globals) {
     if (!appendRecord(tail, tr, rec)) {
-      return false;
+      return refuse("the global " + rec.name + " is not in the heap");
     }
   }
 
@@ -405,7 +389,17 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   if (!tail.empty()) {
     appendRaw(file, tail.data(), tail.size());
   }
-  return writeFile(path, file.data(), file.size());
+  // SPEC §3.11: a save that succeeds writes an image this runtime loads, so the bytes pass the
+  // load's own checks before anything is written. The reason names the object and the rule.
+  std::string refusal;
+  std::string detail;
+  if (!Image::check(heap, wk, file, oldMax, &refusal, &detail)) {
+    return refuse(detail.empty() ? refusal : detail);
+  }
+  if (!writeFile(path, file.data(), file.size())) {
+    return refuse("cannot write the image file");
+  }
+  return true;
 }
 
 }  // namespace ao

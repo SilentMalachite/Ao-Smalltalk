@@ -247,8 +247,10 @@ int runImage(int argc, char** argv) {
         return 1;
       }
     }
-    if (!ao::Image::save(heap, roots, wk, path)) {
-      std::fputs("ao: image save failed\n", stderr);
+    // SPEC §3.11: the reason names what broke which rule.
+    std::string why;
+    if (!ao::Image::save(heap, roots, wk, path, &why)) {
+      std::fprintf(stderr, "ao: image save failed: %s\n", why.c_str());
       return 1;
     }
     return 0;
