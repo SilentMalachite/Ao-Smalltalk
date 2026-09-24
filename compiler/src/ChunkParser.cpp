@@ -113,6 +113,8 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     bool inStr = false;
     bool inCmt = false;
     bool endsSection = false;
+    // Where the chunk's bytes end: its terminating `!` (the first one of `! !`), or the end of src.
+    std::uint32_t end = n;
     while (i < n) {
       const char c = src[i];
       if (!inStr && !inCmt && c == '!') {
@@ -128,11 +130,13 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         }
         std::uint32_t secondBang = 0;
         if (bangSpaceBangAt(src, i, secondBang)) {
+          end = i;
           i = secondBang;
           endsSection = true;
           break;
         }
         if (atLineEnd(src, i + 1)) {
+          end = i;
           break;
         }
         text.push_back(c);
@@ -177,7 +181,6 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
       text.push_back(c);
       i++;
     }
-    const std::uint32_t end = i;
     if (i < n && src[i] == '!') {
       i++;
     }

@@ -334,7 +334,8 @@ TEST(Chunk, SoleDefinitionIsTheMessageAlone) {
   }
 }
 
-// SPEC §3.12: each action carries its own chunk's bytes, without the `!` delimiters.
+// SPEC §3.12: each action carries its own chunk's bytes, without the `!` delimiters, also when
+// the chunk ends with `! !`.
 TEST(Chunk, ActionsCarryTheirChunkSpan) {
   const std::string src =
       "!Object subclass: #Foo\n  category: 'T'!\n"
@@ -342,14 +343,18 @@ TEST(Chunk, ActionsCarryTheirChunkSpan) {
       "!Foo methodsFor: 'x'!\n"
       "one\n"
       "  ^1! !\n"
-      "Foo initialize!\n";
+      "Foo initialize!\n"
+      "!Foo methodsFor: 'y'! !\n";
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(src, errs);
-  ASSERT_EQ(3u, acts.size());
+  ASSERT_EQ(4u, acts.size());
   auto text = [&](const ao::compiler::SourceSpan& s) {
     return src.substr(s.start, s.end - s.start);
   };
   EXPECT_EQ("Object subclass: #Foo\n  category: 'T'", text(acts[0].span));
   EXPECT_EQ("Foo methodsFor: 'x'", text(acts[1].span));
+  ASSERT_EQ(1u, acts[1].methods.size());
+  EXPECT_EQ("one\n  ^1", text(acts[1].methods[0].span));
   EXPECT_EQ("Foo initialize", text(acts[2].span));
+  EXPECT_EQ("Foo methodsFor: 'y'", text(acts[3].span));
 }
