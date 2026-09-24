@@ -1774,6 +1774,62 @@ TEST(AcceptAbi, ShapeChangeRefusesMethodReadingRemovedClassVariable) {
   ao_runtime_shutdown();
 }
 
+// B4 review (Claude L1) / SPEC §3.9: 失敗シナリオ。65 段に入れ子にしたブロックの中で使うクラス変数を
+// 消せていた（64 段で探索を打ち切り、未使用とみなしていた）。深さによらず数える。形が変わるときの
+// 消える変数の検査も同じ。
+TEST(AcceptAbi, ReacceptCountsVariablesInBlocksNestedAtAnyDepth) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  auto nested = [](const char* var, int depth) {
+    std::string src = "deep\n  ^";
+    for (int i = 0; i < depth; ++i) {
+      src += "[";
+    }
+    src += var;
+    for (int i = 0; i < depth; ++i) {
+      src += "] value";
+    }
+    return src + "\n";
+  };
+  struct Case {
+    const char* name;
+    const char* oldIvars;
+    const char* oldCvars;
+    const char* newIvars;
+    const char* newCvars;
+    const char* var;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"B4DeepDrop", "", "Keep Gone", "", "Keep", "Gone",
+       "class variable change refused: B4DeepDrop>>deep refers to removed class variable Gone"},
+      {"B4DeepShCv", "x", "Gone", "x y", "", "Gone",
+       "shape change refused: B4DeepShCv>>deep refers to removed class variable Gone"},
+      {"B4DeepShIv", "x y", "", "x", "", "y",
+       "shape change refused: B4DeepShIv>>deep refers to removed instance variable y"},
+  };
+  for (const Case& c : cases) {
+    for (const int depth : {64, 65, 130}) {
+      const std::string name = std::string(c.name) + std::to_string(depth);
+      SCOPED_TRACE(name);
+      const std::string before = b4Definition("Object", name.c_str(), c.oldIvars, c.oldCvars);
+      ASSERT_EQ(AO_OK, ao_accept_class(before.c_str(), &err)) << err.message;
+      ASSERT_EQ(AO_OK, ao_accept_method(name.c_str(), 0, nested(c.var, depth).c_str(), &err))
+          << err.message;
+      const std::string run = name + " new deep";
+      expectPrints({{run.c_str(), "nil"}});
+      AoSpan e{};
+      EXPECT_EQ(AO_ERR_COMPILE,
+                ao_accept_class(
+                    b4Definition("Object", name.c_str(), c.newIvars, c.newCvars).c_str(), &e));
+      std::string expected = c.expected;
+      expected.replace(expected.find(c.name), std::strlen(c.name), name);
+      EXPECT_EQ(expected, e.message);
+    }
+  }
+  ao_runtime_shutdown();
+}
+
 // B4 / SPEC §3.11: 保存して読み直したイメージでも、クラス変数の値と、メソッドと classPool の共有は
 // 保たれる。読み直したあとに Accept したメソッドも同じ束縛を使う。
 TEST(AcceptAbi, ClassVariablesSurviveImageSaveAndLoad) {

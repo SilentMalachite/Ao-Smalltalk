@@ -451,31 +451,56 @@ std::string readRemovedName(const compiler::MethodImage& image,
   return {};
 }
 
-// Whether method, a CompiledMethod, or a block inside it holds one of bindings as a literal (a
-// class variable it reads or writes). Does not collect.
-bool holdsBinding(CallContext& ctx, Oop method, const std::vector<Oop>& bindings,
-                  std::size_t* which, int depth = 0) {
-  if (depth > 64 || !method.isHeap() || ctx.heap.klass(method) != ctx.wk.compiledMethodClass ||
-      ctx.heap.size(method) <= kCmSlotLiterals) {
-    return false;
-  }
-  const Oop lits = ctx.heap.slotAt(method, kCmSlotLiterals);
-  if (!lits.isHeap() || (ctx.heap.flags(lits) & kFlagBytes) != 0) {
-    return false;
-  }
-  const std::uint32_t n = ctx.heap.size(lits);
-  for (std::uint32_t i = 0; i < n; ++i) {
-    const Oop lit = ctx.heap.slotAt(lits, i);
-    const auto found = std::find(bindings.begin(), bindings.end(), lit);
-    if (found != bindings.end()) {
-      *which = static_cast<std::size_t>(found - bindings.begin());
+// Calls visit(m) for method, a CompiledMethod, then for each CompiledMethod among its literals (its
+// blocks) and among theirs, at any depth, each once, until visit answers true. Whether one did.
+// Does not collect.
+template <typename Visit>
+bool anyMethodIn(CallContext& ctx, Oop method, Visit&& visit) {
+  std::vector<Oop> work{method};
+  std::vector<Oop> seen;
+  while (!work.empty()) {
+    const Oop m = work.back();
+    work.pop_back();
+    if (!m.isHeap() || ctx.heap.klass(m) != ctx.wk.compiledMethodClass ||
+        ctx.heap.size(m) <= kCmSlotLiterals ||
+        std::find(seen.begin(), seen.end(), m) != seen.end()) {
+      continue;
+    }
+    seen.push_back(m);
+    if (visit(m)) {
       return true;
     }
-    if (holdsBinding(ctx, lit, bindings, which, depth + 1)) {
-      return true;
+    const Oop lits = ctx.heap.slotAt(m, kCmSlotLiterals);
+    if (!lits.isHeap() || (ctx.heap.flags(lits) & kFlagBytes) != 0) {
+      continue;
+    }
+    const std::uint32_t n = ctx.heap.size(lits);
+    for (std::uint32_t i = 0; i < n; ++i) {
+      work.push_back(ctx.heap.slotAt(lits, i));
     }
   }
   return false;
+}
+
+// Whether method, a CompiledMethod, or a block inside it at any depth holds one of bindings as a
+// literal (a class variable it reads or writes); *which is then its index. Does not collect.
+bool holdsBinding(CallContext& ctx, Oop method, const std::vector<Oop>& bindings,
+                  std::size_t* which) {
+  return anyMethodIn(ctx, method, [&](Oop m) {
+    const Oop lits = ctx.heap.slotAt(m, kCmSlotLiterals);
+    if (!lits.isHeap() || (ctx.heap.flags(lits) & kFlagBytes) != 0) {
+      return false;
+    }
+    const std::uint32_t n = ctx.heap.size(lits);
+    for (std::uint32_t i = 0; i < n; ++i) {
+      const auto found = std::find(bindings.begin(), bindings.end(), ctx.heap.slotAt(lits, i));
+      if (found != bindings.end()) {
+        *which = static_cast<std::size_t>(found - bindings.begin());
+        return true;
+      }
+    }
+    return false;
+  });
 }
 
 // SPEC §3.9: the first method of cls or of a class below it, on either side, that holds the binding
