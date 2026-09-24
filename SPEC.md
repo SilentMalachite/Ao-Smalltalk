@@ -500,7 +500,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 左下: プロトコル
 - 右下: セレクタ
 - 下: ソース。accept でコンパイルしメソッド辞書を更新
-- クラス定義テキストの accept でクラス作成 / 再定義
+- クラス定義テキストの accept でクラス作成 / 再定義（下の「クラス定義の再 Accept」）
 - 階層表示（hierarchy）をクラスリストの代替または別コマンドで提供
 
 外観は macOS 標準（NSSplitView, NSTableView / NSOutlineView, NSTextView）。Smalltalk-80 の白黒ビットマップ見た目を再現しない。キーバインドは macOS 標準 + Smalltalk 慣習（Do it は `⌘D`、Print it は `⌘P` が衝突するため `⌘P` は Print it にせず、メニューで明示。Print it は `⌘I` を既定候補とし、設定可能にする）。
@@ -512,6 +512,18 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - Smalltalk: Do it, Print it, Inspect it, Accept
 
 アクセシビリティ: VoiceOver ラベルを主要コントロールに付ける。動的な過度なアニメーションを使わない。
+
+#### クラス定義の再 Accept
+
+既にあるクラスの定義を `ao_accept_class` で受け付けたときの規則である。メソッドを黙って捨てない。Kernel クラスの再定義は今までどおり拒む（§3.12）。file-in（§3.12）のクラス定義の扱いは変えない。
+
+- 形が同じとき（superclass が、名前で引いた同じクラスで、instVarNames が同じ名前の同じ順のとき）は、既存のクラスオブジェクトを保つ。メソッド辞書（インスタンス側とクラス側）、メタクラス、既存インスタンスはそのままである。更新するのは category と classVariableNames だけで、classVariableNames は新しいクラスを定義するときと同じに扱う（今の runtime は classVariableNames を保持しないので、変わるのは category だけである）。
+- 形が変わるとき（superclass か instVarNames が違うとき）は、新しいクラスを作り、名前をそれに付け替える。旧クラスのメソッド（インスタンス側とクラス側のすべて）を、ソース表（§3.10「ソースはイメージに書かない」）のソースで新しいクラスに対してコンパイルし直して移す。移したメソッドのソースはソース表に入れる。
+- 形が変わるとき、次のどれかに当たれば、何も変えずに `AO_ERR_COMPILE` を返す。名前は旧クラスを指したまま、旧クラスとそのメソッドもそのままである。`AoSpan.message` は空にせず、理由（当たったセレクタ、またはサブクラスがあること）を入れる。
+  - ソース表にソースの無いメソッド（NativeMethod を含む）が 1 つでもある。
+  - コンパイルし直しが 1 つでも失敗する。
+  - そのクラスにサブクラスがある。サブクラスの付け替えは v1 ではしない。
+- 既存インスタンスは移行しない。形が変わったあとも旧クラスのインスタンスのまま残り、旧クラスのメソッドで動く。
 
 ### 3.10 ブリッジ
 
@@ -543,9 +555,10 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 AO_ERR_COMPILE = 2
 AO_ERR_EVAL = 3
 AO_ERR_RANGE = 4
+AO_ERR_NOSOURCE = 5
 ```
 
-文字列バッファは、`buf_len > 0` なら必ず NUL で終わる。入り切らないときは `AO_ERR_RANGE`。`ao_version` も同じで、切り詰めたら（`buf` は NUL で終わる）`AO_ERR_RANGE`、`buf` が NULL か `buf_len` が 1 未満なら `AO_ERR` を返す。
+文字列バッファは、`buf_len > 0` なら必ず NUL で終わる。入り切らないときは `AO_ERR_RANGE`（`ao_browser_source` の `AO_ERR_NOSOURCE` だけは例外で、下に書く）。`ao_version` も同じで、切り詰めたら（`buf` は NUL で終わる）`AO_ERR_RANGE`、`buf` が NULL か `buf_len` が 1 未満なら `AO_ERR` を返す。
 
 件数を返す関数（`ao_browser_class_count`、`ao_browser_protocol_count`、`ao_browser_selector_count`、`ao_browser_subclass_count`）は、成功なら 0 以上の件数を返し、失敗なら -1 を返す。失敗は、セッションが無い、名前がクラスに当たらない、`meta` が 0 でも 1 でない、引数が NULL、のどれかである。`AO_ERR`（1）を返さない。1 件と区別できないからである。
 
@@ -585,6 +598,15 @@ int ao_accept_class(const char* source, AoSpan* err);
 ```
 
 `meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
+
+`ao_browser_source` は、ソース表（下の「ソースはイメージに書かない」）にソースがあるメソッドなら、そのソースを `buf` に書いて `AO_OK` を返す（入り切らなければ `AO_ERR_RANGE`）。ソース表にソースが無いメソッドなら `AO_ERR_NOSOURCE` を返し、`buf` にプレースホルダを書く。ソースが無いのは、NativeMethod、イメージを読み込んだあとのメソッド、vendor と file-in（`ao_accept_class` の `methodsFor:` のチャンクを含む）で入れたメソッドである。プレースホルダは、コメント 1 つだけの 1 行である（改行を含まない）。
+
+```
+"<クラス>>><セレクタ> source not available"      CompiledMethod
+"<クラス>>><セレクタ> native <シンボル名>"        NativeMethod
+```
+
+`<クラス>` はクラス名で、クラス側（`meta` が 1）なら `<クラス名> class` である。`<シンボル名>` は NativeMethod のシンボル名である（§3.11。例: `"Object>>printString native ao_Object_printString"`）。プレースホルダはセレクタのパターンを含まないので、そのまま `ao_accept_method` に渡してもコンパイルが失敗し（`AO_ERR_COMPILE`）、メソッドは変わらない。プレースホルダが `buf` に入り切らないときも `AO_ERR_NOSOURCE` を返し（`AO_ERR_RANGE` より優先する）、`buf` は切り詰めて NUL で終える。`buf` が NULL か `len` が 1 未満なら、今までどおり `AO_ERR` である。クラスやセレクタが見つからないときの `AO_ERR` も変えない。
 
 `ao_accept_method` は `NativeMethod` を CompiledMethod で置き換えない。対象の側のメソッド辞書にネイティブがあるセレクタに加えて、Kernel クラス（§3.6）では、そのクラスから引くとネイティブに当たるセレクタ（上位クラスから継承したネイティブ）も拒む。例えば `SmallInteger>><=` は `Magnitude>><=` のネイティブを隠すので拒む。どちらも `AO_ERR_COMPILE` で、メッセージは `native selector overwrite refused: <selector>` である。Kernel でないクラスは、継承したネイティブを上書きできる。Kernel クラスかどうかは、名前で引いた先のクラスそのもので決める（クラス側でも、名前で引いたクラスで決める。引いた先が Kernel クラスのメタクラスなら、Kernel クラスとみなす）。`Smalltalk at: #IntegerAlias put: SmallInteger` のような別名で指しても、Kernel クラスの名前で指したときと同じに拒む。`ao_accept_method` は、名前で引いた先がクラス（Behavior）でなければ（`Processor`、`Smalltalk`、未定義の名前など）、何もせずに `AO_ERR` を返す。
 
