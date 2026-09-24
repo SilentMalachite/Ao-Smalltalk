@@ -40,9 +40,12 @@ typedef struct AoSpan {
 int ao_version(char* buf, int buf_len);
 int ao_runtime_boot(void);
 int ao_runtime_shutdown(void);
-/* Writes a temporary file next to path, syncs it and renames it over path (SPEC §3.11). On
-   AO_ERR (a failed write, a heap over the old space limit, a native whose name does not resolve)
-   the file at path is left as it was. */
+/* SPEC §3.11. An image this answers AO_OK for passes this runtime's load checks: the bytes are
+   checked before anything is written, and a heap that breaks a check is AO_ERR. The file goes to
+   a temporary .aoimage-XXXXXX next to the file it replaces (a symbolic link at path is followed
+   and stays a link), is synced and renamed over it. On AO_ERR (a check, an existing file that is
+   not writable, a failed write) the file at path is left as it was. After the rename the save has
+   succeeded; the directory sync that follows is best effort. */
 int ao_image_save(const char* path);
 /* Loads into a new session and replaces the current one only when the load and the probes
    (1 + 2, nil isNil) pass. On AO_ERR the current session stays in use, and err (when not NULL)

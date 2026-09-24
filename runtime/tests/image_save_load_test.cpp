@@ -19,6 +19,8 @@
 #include "ao/Symbol.hpp"
 
 #include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <csignal>
@@ -1494,4 +1496,104 @@ TEST(ImageLoadChecks, RefusesInstancesThatDoNotFitTheirClassFormat) {
   });
   std::filesystem::remove(good);
   std::filesystem::remove(bad);
+}
+
+// B6 review (Claude Low) / SPEC §3.11: 失敗シナリオ。rename は保存先のシンボリックリンクを通常ファイルで
+// 置き換えていた。保存はリンクをたどった先を置き換え、リンクは残す。リンク先がまだ無くてもよい。
+TEST(ImageSave, SavingThroughASymbolicLinkKeepsTheLink) {
+  namespace fs = std::filesystem;
+  const auto dir = freshDir("b6-symlink");
+  Boot b;
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, (dir / "real.aoimage").string()));
+  fs::create_symlink("real.aoimage", dir / "link.aoimage");
+  ASSERT_TRUE(b.wk.define("B6LinkMark", ao::Oop::fromSmallInteger(7)));
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, (dir / "link.aoimage").string()));
+  EXPECT_TRUE(fs::is_symlink(dir / "link.aoimage"));
+  EXPECT_EQ(fs::path("real.aoimage"), fs::read_symlink(dir / "link.aoimage"));
+  {
+    Loaded loaded;
+    ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, (dir / "real.aoimage").string()));
+    EXPECT_EQ(ao::Oop::fromSmallInteger(7), loaded.wk.named("B6LinkMark"));
+  }
+  // A link to a file that is not there yet: the save makes the file and keeps the link.
+  fs::create_symlink("later.aoimage", dir / "dangling.aoimage");
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, (dir / "dangling.aoimage").string()));
+  EXPECT_TRUE(fs::is_symlink(dir / "dangling.aoimage"));
+  EXPECT_TRUE(fs::is_regular_file(dir / "later.aoimage"));
+  EXPECT_EQ((std::vector<std::string>{"dangling.aoimage", "later.aoimage", "link.aoimage",
+                                      "real.aoimage"}),
+            fileNames(dir));
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+// B6 review (Claude Low) / SPEC §3.11: 失敗シナリオ。書き込み権の無い既存のイメージも rename で置き換えて
+// いた。旧実装（保存先を開いて書く）と同じく、書き込めない保存先への保存は失敗し、何も変えない。
+TEST(ImageSave, ReadOnlyImageIsNotReplaced) {
+  namespace fs = std::filesystem;
+  const auto dir = freshDir("b6-readonly");
+  const auto path = dir / "ro.aoimage";
+  Boot b;
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> before = readAll(path);
+  fs::permissions(path, fs::perms::owner_read | fs::perms::group_read, fs::perm_options::replace);
+  ASSERT_TRUE(b.wk.define("B6ReadOnlyMark", ao::Oop::fromSmallInteger(1)));
+  std::string reason;
+  EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason));
+  EXPECT_FALSE(reason.empty());
+  const std::vector<char> after = readAll(path);
+  EXPECT_TRUE(before == after);
+  EXPECT_EQ(std::vector<std::string>{"ro.aoimage"}, fileNames(dir));
+  fs::permissions(path, fs::perms::owner_all, fs::perm_options::replace);
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+// B6 review (Claude Low) / SPEC §3.11: 失敗シナリオ。一時ファイルの名前は保存先の名前に .tmp-<pid>-<n> を
+// 足したもので、長い名前（250 バイト）の保存先では NAME_MAX を超えて保存できなかった。
+TEST(ImageSave, LongFileNameSaves) {
+  const auto dir = freshDir("b6-long-name");
+  const std::string name = std::string(242, 'a') + ".aoimage";
+  ASSERT_EQ(250u, name.size());
+  Boot b;
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, (dir / name).string()));
+  EXPECT_EQ(std::vector<std::string>{name}, fileNames(dir));
+  Loaded loaded;
+  ASSERT_TRUE(ao::Image::load(loaded.heap, loaded.roots, loaded.wk, (dir / name).string()));
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// B6 review (Claude Low) / SPEC §3.11: 失敗シナリオ。`ulimit -f 20; ao image save` は SIGXFSZ でプロセスが
+// 終わり、一時ファイルが残った。保存は書く間だけ SIGXFSZ を無視し、EFBIG で失敗して一時ファイルを消し、
+// そのあとシグナルの扱いを元に戻す。シグナルを無視しない子プロセスで確かめる。
+TEST(ImageSave, FileSizeLimitFailsWithoutTheSignal) {
+  const auto dir = freshDir("b6-sigxfsz");
+  const auto path = dir / "limit.aoimage";
+  const pid_t pid = fork();
+  ASSERT_NE(-1, pid);
+  if (pid == 0) {
+    struct sigaction dfl {};
+    dfl.sa_handler = SIG_DFL;
+    sigemptyset(&dfl.sa_mask);
+    sigaction(SIGXFSZ, &dfl, nullptr);
+    struct rlimit limit {};
+    getrlimit(RLIMIT_FSIZE, &limit);
+    limit.rlim_cur = 16u << 10;
+    if (setrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(2);
+    Boot b;
+    const bool saved = ao::Image::save(b.heap, b.roots, b.wk, path.string());
+    struct sigaction now {};
+    sigaction(SIGXFSZ, nullptr, &now);
+    if (now.sa_handler != SIG_DFL) _exit(3);
+    _exit(saved ? 4 : 0);
+  }
+  int status = 0;
+  ASSERT_EQ(pid, waitpid(pid, &status, 0));
+  ASSERT_FALSE(WIFSIGNALED(status)) << "signal " << WTERMSIG(status);
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(0, WEXITSTATUS(status));
+  EXPECT_TRUE(fileNames(dir).empty());
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
 }

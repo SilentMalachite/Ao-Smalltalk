@@ -8,11 +8,13 @@
 #include <unistd.h>
 
 #include <algorithm>
-#include <atomic>
 #include <bit>
 #include <cerrno>
+#include <climits>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -233,14 +235,9 @@ bool syncFile(int fd) {
   return ::fsync(fd) == 0;
 }
 
-// Makes the rename that put path in place durable. Best effort: the image is already in place, and
-// some file systems refuse fsync on a directory.
-void syncParentDirectory(const std::string& path) {
-  const std::size_t slash = path.find_last_of('/');
-  std::string dir = ".";
-  if (slash != std::string::npos) {
-    dir = slash == 0 ? std::string("/") : path.substr(0, slash);
-  }
+// Makes the rename in dir durable. Best effort and allocation-free: the image is already in
+// place, and some file systems refuse fsync on a directory.
+void syncDirectory(const std::string& dir) noexcept {
   const int fd = ::open(dir.c_str(), O_RDONLY | O_CLOEXEC);
   if (fd < 0) {
     return;
@@ -249,34 +246,115 @@ void syncParentDirectory(const std::string& path) {
   ::close(fd);
 }
 
-// SPEC §3.11 (保存): the image goes to a temporary file next to path, which replaces path only once
-// all of it is on disk. Any failure removes the temporary file and leaves path as it was.
-bool writeFile(std::string_view path, const std::byte* data, std::size_t n) {
-  static std::atomic<unsigned> serial{0};
-  const std::string target(path);
-  if (target.empty()) {
-    return false;
+// The directory part of path, "." when it has none.
+std::string directoryOf(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  if (slash == std::string::npos) {
+    return ".";
   }
-  std::string temp;
-  int fd = -1;
-  for (int attempt = 0; attempt < 64 && fd < 0; ++attempt) {
-    temp = target + ".tmp-" + std::to_string(::getpid()) + "-" + std::to_string(serial++);
-    // 0666 under the umask, as the file the save wrote before.
-    fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
-    if (fd < 0 && errno != EEXIST) {
-      return false;
+  return slash == 0 ? std::string("/") : path.substr(0, slash);
+}
+
+// SPEC §3.11: the file a save replaces. A symbolic link at path is followed (32 links at most, a
+// relative one against its link's directory) to a file that may not exist yet, and stays a link.
+// Empty when the links do not end.
+std::string saveTarget(const std::string& path) {
+  std::string current = path;
+  for (int hops = 0; hops <= 32; ++hops) {
+    struct stat st {};
+    if (::lstat(current.c_str(), &st) != 0 || !S_ISLNK(st.st_mode)) {
+      return current;
+    }
+    char buf[PATH_MAX];
+    const ssize_t n = ::readlink(current.c_str(), buf, sizeof buf);
+    if (n <= 0 || static_cast<std::size_t>(n) >= sizeof buf) {
+      return {};
+    }
+    const std::string link(buf, static_cast<std::size_t>(n));
+    current = link[0] == '/' ? link : directoryOf(current) + "/" + link;
+  }
+  return {};
+}
+
+// SPEC §3.11: a temporary file .aoimage-XXXXXX in dir, whatever the image's name. It is made with
+// O_EXCL and mode 0666, so the kernel applies the umask (mkstemp makes 0600, and reading the umask
+// back would change it for other threads a moment). -1 when none can be made.
+int makeTemporary(const std::string& dir, std::string* name) {
+  static constexpr char kChars[] =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  for (int attempt = 0; attempt < 64; ++attempt) {
+    std::string candidate = dir + "/.aoimage-";
+    for (int i = 0; i < 6; ++i) {
+      candidate += kChars[arc4random_uniform(sizeof kChars - 1)];
+    }
+    const int fd = ::open(candidate.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    if (fd >= 0) {
+      *name = std::move(candidate);
+      return fd;
+    }
+    if (errno != EEXIST) {
+      return -1;
     }
   }
-  if (fd < 0) {
+  return -1;
+}
+
+// SPEC §3.11: while the image is written, a write past RLIMIT_FSIZE fails with EFBIG instead of
+// ending the process with SIGXFSZ. The disposition from before comes back afterwards.
+class IgnoreFileSizeSignal {
+ public:
+  IgnoreFileSizeSignal() {
+    struct sigaction ignore {};
+    ignore.sa_handler = SIG_IGN;
+    sigemptyset(&ignore.sa_mask);
+    saved_ = ::sigaction(SIGXFSZ, &ignore, &old_) == 0;
+  }
+  ~IgnoreFileSizeSignal() {
+    if (saved_) {
+      ::sigaction(SIGXFSZ, &old_, nullptr);
+    }
+  }
+  IgnoreFileSizeSignal(const IgnoreFileSizeSignal&) = delete;
+  IgnoreFileSizeSignal& operator=(const IgnoreFileSizeSignal&) = delete;
+
+ private:
+  struct sigaction old_ {};
+  bool saved_ = false;
+};
+
+// SPEC §3.11 (保存): the image goes to a temporary file next to the file it replaces, which it
+// replaces only once all of it is on disk. Before the rename, any failure removes the temporary
+// file and leaves the old image as it was; after it, nothing can fail. *why says what failed.
+bool writeFile(std::string_view path, const std::byte* data, std::size_t n, std::string* why) {
+  auto fail = [why](const char* what) {
+    *why = what;
     return false;
+  };
+  const std::string target = saveTarget(std::string(path));
+  if (target.empty()) {
+    return fail("the symbolic links at the image path do not end");
   }
-  bool ok = true;
-  // A save over an image keeps that image's permissions.
+  // An image that is there but not writable is not replaced (the save opened it for writing and
+  // failed there before B6).
   struct stat old {};
-  if (::stat(target.c_str(), &old) == 0 && S_ISREG(old.st_mode)) {
-    ok = ::fchmod(fd, old.st_mode & 07777) == 0;
+  const bool exists = ::stat(target.c_str(), &old) == 0;
+  if (exists && ::access(target.c_str(), W_OK) != 0) {
+    return fail("the image file is not writable");
   }
-  ok = ok && writeAllBytes(fd, data, n) && syncFile(fd);
+  // What the steps after the rename use is made before it.
+  const std::string dir = directoryOf(target);
+  std::string temp;
+  const int fd = makeTemporary(dir, &temp);
+  if (fd < 0) {
+    return fail("cannot make a temporary file next to the image");
+  }
+  // A save over an image keeps that image's permissions.
+  bool ok = !exists || !S_ISREG(old.st_mode) || ::fchmod(fd, old.st_mode & 07777) == 0;
+  {
+    const IgnoreFileSizeSignal quiet;
+    ok = ok && writeAllBytes(fd, data, n);
+  }
+  ok = ok && syncFile(fd);
   if (::close(fd) != 0) {
     ok = false;
   }
@@ -285,9 +363,9 @@ bool writeFile(std::string_view path, const std::byte* data, std::size_t n) {
   }
   if (!ok) {
     ::unlink(temp.c_str());
-    return false;
+    return fail("cannot write the image file");
   }
-  syncParentDirectory(target);
+  syncDirectory(dir);
   return true;
 }
 
@@ -396,8 +474,9 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   if (!Image::check(heap, wk, file, oldMax, &refusal, &detail)) {
     return refuse(detail.empty() ? refusal : detail);
   }
-  if (!writeFile(path, file.data(), file.size())) {
-    return refuse("cannot write the image file");
+  std::string why;
+  if (!writeFile(path, file.data(), file.size(), &why)) {
+    return refuse(why);
   }
   return true;
 }
