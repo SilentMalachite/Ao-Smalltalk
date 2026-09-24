@@ -388,7 +388,7 @@ app:
 - Float に `>=` と `<=` のネイティブを置く（NaN の扱い。03 Low）。
 - 値ベースの `hash` を LargeInteger、Float、Point、String、Symbol、Array に足す（03 Low、04 Medium）。
 - Boolean: `True>>&` と `False>>|` は引数をそのまま返す。`eqv:` と `xor:` は、引数が Boolean でなければ失敗させる（03 Low）。
-- Point: 成分の計算が空 OOP なら失敗にする。サブクラスは `inheritsFrom` で判定し、割り当てるサイズは instSize から取る（03 Low ×2）。
+- Point: 成分の計算が空 OOP なら失敗にする。サブクラスは `inheritsFrom` で判定し、割り当てるサイズは instSize から取る（03 Low ×2）。割り当てるサイズは B6 で対応済み（`x:y:`、`origin:corner:` と、同じ型の `Association key:value:`、`Interval from:to:by:` は `allocateInstance` でクラスの instSize を割り当てる）。`inheritsFrom` での判定は残っている。
 - `asCharacter` はサロゲートを拒否する（03 Low）。
 - `to:do:` の終端が SmallInteger でないときは、汎用ループで回す（03 Low）。
 

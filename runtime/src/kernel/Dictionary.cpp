@@ -661,7 +661,8 @@ Oop ao_Association_key_value_(CallContext& ctx, const Oop& receiver, const Oop* 
   Root cls(ctx.roots, receiver);
   Root key(ctx.roots, args[0]);
   Root value(ctx.roots, args[1]);
-  Oop a = allocateRetry(ctx, cls.slot, 2, 0);
+  // SPEC §3.6: a subclass that adds variables gets them. May GC: key and value are read from roots.
+  Oop a = allocateInstance(ctx, cls.slot, 2);
   if (!a.isHeap()) {
     return Oop{};
   }
@@ -711,7 +712,8 @@ Oop ao_Interval_from_to_by_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root start(ctx.roots, args[0]);
   Root stop(ctx.roots, args[1]);
   Root step(ctx.roots, args[2]);
-  Oop iv = allocateRetry(ctx, cls.slot, 3, 0);
+  // SPEC §3.6: a subclass that adds variables gets them. May GC: the bounds are read from roots.
+  Oop iv = allocateInstance(ctx, cls.slot, 3);
   if (!iv.isHeap()) {
     return Oop{};
   }

@@ -1,8 +1,13 @@
 #include "ao/HandleScope.hpp"
 
+#include "ao/Bootstrap.hpp"
+#include "ao/Format.hpp"
 #include "ao/Gc.hpp"
 #include "ao/Heap.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/NativeMethod.hpp"
+
+#include <algorithm>
 
 namespace ao {
 
@@ -77,6 +82,15 @@ Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t f
   }
   ctx.heap.setOutOfMemory();
   return Oop{};
+}
+
+Oop allocateInstance(CallContext& ctx, Oop cls, std::uint32_t kernelSlots) {
+  std::int64_t inst = 0;
+  if (isClassShaped(ctx.heap, cls)) {
+    inst = Format::instSize(ctx.heap.slotAt(cls, kClassSlotFormat));
+  }
+  const auto size = static_cast<std::uint32_t>(std::max<std::int64_t>(inst, kernelSlots));
+  return allocateRetry(ctx, cls, size, 0);
 }
 
 }  // namespace ao

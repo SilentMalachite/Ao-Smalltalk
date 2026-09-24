@@ -728,3 +728,58 @@ TEST_F(SessionAbi, CallFromAnotherThreadWhileEvaluatingIsRefused) {
   ASSERT_EQ(AO_OK, ao_eval("1", 1, AO_EVAL_PRINTIT, other, 16, &err)) << err.message;
   EXPECT_STREQ("1", other);
 }
+
+// B6 review follow-up / SPEC §3.6: 失敗シナリオ。Association key:value:、Point x:y:、
+// Rectangle origin:corner:、Interval from:to:by: はレシーバのクラスによらず 2 か 3 スロットで割り当てた。
+// 変数を足したサブクラスのインスタンスは足した変数を読み書きできず、B6 の format の検査で保存もできな
+// かった。生成ネイティブはクラスの instSize だけ割り当て、足した変数は nil から始まる。
+TEST_F(SessionAbi, ClassSideConstructorsAllocateTheSubclassInstSize) {
+  struct Case {
+    const char* kernel;
+    const char* make;
+    int kernelSlots;
+    const char* firstSlot;
+  };
+  const Case cases[] = {
+      {"Association", "B6X key: 1 value: 2", 2, "1"},
+      {"Point", "B6X x: 1 y: 2", 2, "1"},
+      {"Rectangle", "B6X origin: 1 corner: 2", 2, "1"},
+      {"Interval", "B6X from: 1 to: 3 by: 1", 3, "1"},
+  };
+  const auto path = std::filesystem::temp_directory_path() / "ao-b6-constructors.aoimage";
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.kernel);
+    ASSERT_EQ(AO_OK, ao_runtime_boot());
+    AoSpan err{};
+    const std::string def = std::string(c.kernel) +
+                            " subclass: #B6X\n  instanceVariableNames: 'extra'\n"
+                            "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                            "  category: 'B6-Test'\n";
+    ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method("B6X", 0, "extra\n  ^extra\n", &err)) << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method("B6X", 0, "extra: x\n  extra := x\n", &err))
+        << err.message;
+    char out[128];
+    auto eval = [&](const std::string& src) {
+      return ao_eval(src.c_str(), static_cast<int>(src.size()), AO_EVAL_PRINTIT, out, 128, &err);
+    };
+    ASSERT_EQ(AO_OK, eval(std::string("Smalltalk at: #B6K put: (") + c.make + ")")) << err.message;
+    const std::string extraIndex = std::to_string(c.kernelSlots + 1);
+    ASSERT_EQ(AO_OK, eval("B6K instVarAt: " + extraIndex)) << err.message;
+    EXPECT_STREQ("nil", out);
+    EXPECT_EQ(AO_ERR_EVAL, eval("B6K instVarAt: " + std::to_string(c.kernelSlots + 2)));
+    ASSERT_EQ(AO_OK, eval("B6K instVarAt: 1")) << err.message;
+    EXPECT_STREQ(c.firstSlot, out);
+    ASSERT_EQ(AO_OK, eval("B6K extra: 9. B6K extra")) << err.message;
+    EXPECT_STREQ("9", out);
+
+    ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+    ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+    ASSERT_EQ(AO_OK, eval("B6K extra")) << err.message;
+    EXPECT_STREQ("9", out);
+    ASSERT_EQ(AO_OK, eval("B6K instVarAt: 1")) << err.message;
+    EXPECT_STREQ(c.firstSlot, out);
+    ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  }
+  std::filesystem::remove(path);
+}

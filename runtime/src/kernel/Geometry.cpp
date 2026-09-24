@@ -93,7 +93,8 @@ Oop ao_Point_x_y_(CallContext& ctx, const Oop& receiver, const Oop* args, std::u
   Root cls(ctx.roots, receiver);
   Root x(ctx.roots, args[0]);
   Root y(ctx.roots, args[1]);
-  Oop p = allocateRetry(ctx, cls.slot, 2, 0);
+  // SPEC §3.6: a subclass that adds variables gets them. May GC: x and y are read from roots.
+  Oop p = allocateInstance(ctx, cls.slot, 2);
   if (!p.isHeap()) {
     return Oop{};
   }
@@ -191,7 +192,9 @@ Oop ao_Rectangle_origin_corner_(CallContext& ctx, const Oop& receiver, const Oop
   Root cls(ctx.roots, receiver);
   Root origin(ctx.roots, args[0]);
   Root corner(ctx.roots, args[1]);
-  Oop r = allocateRetry(ctx, cls.slot, 2, 0);
+  // SPEC §3.6: a subclass that adds variables gets them. May GC: origin and corner are read from
+  // roots.
+  Oop r = allocateInstance(ctx, cls.slot, 2);
   if (!r.isHeap()) {
     return Oop{};
   }
