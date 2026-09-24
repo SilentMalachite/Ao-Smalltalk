@@ -534,7 +534,13 @@ std::string definitionOf(Session& s, const ClassRow& row) {
   text += "'\n  classVariableNames: '";
   text += classVarList(s.heap, row.cls);
   text += "'\n  poolDictionaries: ''\n  category: '";
-  text += definitionCategory(s.heap, row.cls);
+  // SPEC §3.10: a string literal in a chunk, so accepting the text again keeps the category.
+  for (const char c : definitionCategory(s.heap, row.cls)) {
+    if (c == '\'' || c == '!') {
+      text.push_back(c);
+    }
+    text.push_back(c);
+  }
   text += "'";
   return text;
 }

@@ -618,6 +618,24 @@ TEST(AcceptAbi, ReacceptWithNewCategoryKeepsClassAndMethods) {
   ao_runtime_shutdown();
 }
 
+// Codex review of PR #7 / SPEC §3.10: 定義テキストの category は、`'` と `!` を二重にした文字列
+// リテラル。表示した定義を Accept し直しても、`!!` を含むカテゴリが `!` 1 つに縮まず、`'` を
+// 含むカテゴリも構文エラーにならない。
+TEST(AcceptAbi, ReacceptShownDefinitionKeepsCategoryWithBangsAndQuotes) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  // The literal 'B7!!!! it''s' in a chunk is the category `B7!! it's`.
+  const std::string def = b5Definition("Object", "B7Cat", "", "B7!!!! it''s");
+  ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+  ASSERT_EQ("B7!! it's", b5Category("B7Cat"));
+  const std::string defn = b5ClassDefinition("B7Cat");
+  EXPECT_NE(defn.find("category: 'B7!!!! it''s'"), std::string::npos) << defn;
+  ASSERT_EQ(AO_OK, ao_accept_class(defn.c_str(), &err)) << err.message << "\n" << defn;
+  EXPECT_EQ("B7!! it's", b5Category("B7Cat"));
+  EXPECT_EQ(defn, b5ClassDefinition("B7Cat"));
+  ao_runtime_shutdown();
+}
+
 // SPEC §3.9: 形が変わるときは新しいクラスを作り、ソース表にあるメソッドを（インスタンス側も
 // クラス側も）新しい形でコンパイルし直して移す。w を x の前に足すので、x を読み書きするメソッドは
 // コンパイルし直したものでなければ 2 番目のスロットに届かない。旧クラスと既存インスタンスは、
