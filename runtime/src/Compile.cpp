@@ -8,6 +8,7 @@
 #include "ao/ClassPool.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
+#include "ao/Format.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/LargeInteger.hpp"
@@ -149,9 +150,25 @@ Oop boxUtf8(CallContext& ctx, std::string_view utf8) {
                   static_cast<std::uint32_t>(utf8.size()));
 }
 
+bool isKernelClass(const WellKnown& wk, Oop cls);
+
+// SPEC §3.6: how many leading slots of an instance of cls a Kernel class adds, the instSize of the
+// nearest Kernel class on cls's chain (cls too; on the class side a Kernel metaclass, whose slots
+// are Behavior's). Source cannot assign them (SPEC §3.8). Does not collect.
+std::size_t kernelSlotCount(CallContext& ctx, Oop cls) {
+  SuperclassWalk walk(ctx.heap, cls);
+  for (Oop c; walk.next(c);) {
+    if (isKernelClass(ctx.wk, c)) {
+      const std::int64_t size = Format::instSize(ctx.heap.slotAt(c, kClassSlotFormat));
+      return size > 0 ? static_cast<std::size_t>(size) : 0;
+    }
+  }
+  return 0;
+}
+
 // SPEC §3.6: the instance variables of cls, one per named slot (namedSlotNames). A slot with no
 // name gets "<slot N>", which no identifier matches, so source cannot name it and the names after
-// it keep their slots.
+// it keep their slots. The ones a Kernel class adds come first and are read-only (SPEC §3.8).
 void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
   const std::vector<Oop> names = namedSlotNames(ctx.heap, cls);
   for (std::size_t i = 0; i < names.size(); ++i) {
@@ -161,6 +178,7 @@ void fillInstVars(CallContext& ctx, Oop cls, compiler::CompileEnv& env) {
       env.instVarNames.push_back("<slot " + std::to_string(i + 1) + ">");
     }
   }
+  env.kernelInstVarCount = std::min(kernelSlotCount(ctx, cls), names.size());
 }
 
 // SPEC §3.8: the class variables a method of cls sees, those of cls (its thisClass for a
@@ -914,6 +932,8 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     fillClassVars(ctx, ctx.heap.klass(fresh.slot), freshClassEnv);
     if ((freshInstanceEnv.instVarNames != instanceEnv.instVarNames ||
          freshClassEnv.instVarNames != classEnv.instVarNames ||
+         freshInstanceEnv.kernelInstVarCount != instanceEnv.kernelInstVarCount ||
+         freshClassEnv.kernelInstVarCount != classEnv.kernelInstVarCount ||
          freshInstanceEnv.classVarNames != instanceEnv.classVarNames ||
          freshClassEnv.classVarNames != classEnv.classVarNames) &&
         !compileCarried(ctx, old, oldMethods, freshInstanceEnv, freshClassEnv, carried, action,

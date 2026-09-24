@@ -964,6 +964,11 @@ class Emitter {
     std::uint8_t idx = 0;
     const int iv = instVarIndex(n.name);
     if (iv >= 0) {
+      // SPEC §3.6 / §3.8: a slot a Kernel class adds holds what its natives expect.
+      if (static_cast<std::size_t>(iv) < env_.kernelInstVarCount) {
+        fail(n.span, ("cannot assign to Kernel instance variable " + n.name).c_str());
+        return;
+      }
       if (!fitU8(static_cast<std::size_t>(iv), &idx, n.span)) {
         return;
       }

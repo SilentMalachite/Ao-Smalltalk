@@ -2054,3 +2054,64 @@ TEST(AcceptAbi, SubclassInternsAStringName) {
   });
   ao_runtime_shutdown();
 }
+
+// B4 review (Claude M2) / SPEC §3.6, §3.8: 失敗シナリオ。Kernel クラスが足したスロットに、コンパイル
+// したコードから代入できると、ネイティブが前提にする形が壊れる（OrderedCollection の array に
+// String を入れると add: が slotAtPut のアサーションで止まる）。代入はコンパイルエラーで、読みは
+// 今までどおり許す。継承したスロットも、クラス側の Behavior の枠も同じ。自分の変数には代入できる。
+TEST(AcceptAbi, KernelInstanceVariablesAreReadOnlyInSource) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const struct {
+    const char* cls;
+    int meta;
+    const char* source;
+    const char* name;
+  } refused[] = {
+      {"OrderedCollection", 0, "b4zap\n  array := 'x'\n", "array"},
+      {"OrderedCollection", 0, "b4zap\n  ^firstIndex := 0\n", "firstIndex"},
+      {"Set", 0, "b4zap\n  tally := 'x'\n", "tally"},
+      {"Dictionary", 0, "b4zap\n  array := nil\n", "array"},
+      {"ReadStream", 0, "b4zap\n  position := 'x'\n", "position"},
+      {"WriteStream", 0, "b4zap\n  writeLimit := 'x'\n", "writeLimit"},
+      {"SmalltalkImage", 0, "b4zap\n  array := 3\n", "array"},
+      {"Association", 0, "b4zap\n  [:v | key := v] value: 3\n", "key"},
+      {"Object", 1, "b4zap\n  methodDict := nil\n", "methodDict"},
+      {"Object", 1, "b4zap\n  superclass := nil. format := 3\n", "superclass"},
+      {"OrderedCollection", 1, "b4zap\n  instVarNames := #()\n", "instVarNames"},
+  };
+  for (const auto& r : refused) {
+    AoSpan err{};
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method(r.cls, r.meta, r.source, &err))
+        << r.cls << (r.meta ? " class" : "") << ": " << r.source;
+    EXPECT_EQ(std::string("cannot assign to Kernel instance variable ") + r.name, err.message)
+        << r.cls << (r.meta ? " class" : "") << ": " << r.source;
+  }
+
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("OrderedCollection", "B4RoOC", "extra", "B4-Test")
+                                       .c_str(),
+                                   &err))
+      << err.message;
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B4RoOC", 0, "b4zap\n  lastIndex := 9\n", &err));
+  EXPECT_STREQ("cannot assign to Kernel instance variable lastIndex", err.message);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B4RoOC", 1, "b4zap\n  category := 'x'\n", &err));
+  EXPECT_STREQ("cannot assign to Kernel instance variable category", err.message);
+  const std::string chunks = "!B4RoOC methodsFor: 'b4'!\nb4zap\n  array := 3! !\n";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(chunks.c_str(), &err));
+  EXPECT_STREQ("cannot assign to Kernel instance variable array", err.message);
+  acceptMethods("B4RoOC", 0,
+                {"setExtra: v\n  extra := v\n", "extra\n  ^extra\n", "peekFirst\n  ^firstIndex\n"});
+  acceptMethods("B4RoOC", 1, {"peekCategory\n  ^category\n"});
+  acceptMethods("Association", 0, {"b4probeKey\n  ^key\n"});
+  expectPrints({
+      {"OrderedCollection new add: 1; add: 2; size", "2"},
+      {"(OrderedCollection new respondsTo: #b4zap)", "false"},
+      {"(Object class includesSelector: #b4zap)", "false"},
+      {"c := B4RoOC new setExtra: 5; yourself. c add: 9. c size", "1"},
+      {"c extra", "5"},
+      {"c peekFirst", "1"},
+      {"B4RoOC peekCategory", "'B4-Test'"},
+      {"(Association key: 3 value: 4) b4probeKey", "3"},
+  });
+  ao_runtime_shutdown();
+}

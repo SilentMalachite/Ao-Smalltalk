@@ -570,3 +570,33 @@ TEST(ClassVariable, ClassVariableHidesGlobalInsideBlocks) {
   EXPECT_FALSE(assign.ok);
   EXPECT_EQ("cannot assign", assign.error.message);
 }
+
+// B4 review (Claude M2) / SPEC §3.6, §3.8: 先頭の kernelInstVarCount 個のインスタンス変数（Kernel
+// クラスが足したスロット）は読めるが、代入はコンパイルエラーで、区間は代入の式。ブロックの中でも、
+// 代入の値として使っても同じ。後ろの変数には今までどおり代入できる。
+TEST(KernelInstanceVariable, LeadingSlotsAreReadOnly) {
+  ao::compiler::CompileEnv env;
+  env.instVarNames = {"array", "firstIndex", "extra"};
+  env.kernelInstVarCount = 2;
+  const struct {
+    const char* source;
+    const char* name;
+  } refused[] = {
+      {"a\n  array := 1", "array"},
+      {"b\n  ^[firstIndex := 2] value", "firstIndex"},
+      {"c\n  extra := firstIndex := 3", "firstIndex"},
+  };
+  for (const auto& r : refused) {
+    SCOPED_TRACE(r.source);
+    auto m = compileMethod(r.source, env);
+    EXPECT_FALSE(m.ok);
+    EXPECT_EQ(std::string("cannot assign to Kernel instance variable ") + r.name, m.error.message);
+    const std::string src = r.source;
+    const std::string assign = std::string(r.name) + " := ";
+    EXPECT_EQ(src.find(assign), m.error.span.start);
+  }
+  auto ok = compileMethod("d\n  extra := array. ^firstIndex", env);
+  ASSERT_TRUE(ok.ok) << ok.error.message;
+  EXPECT_EQ(2, countOp(ok.image, Op::PushInstVar)) << disassemble(ok.image);
+  EXPECT_EQ(1, countOp(ok.image, Op::PopStoreInstVar)) << disassemble(ok.image);
+}
