@@ -564,3 +564,77 @@ TEST_F(KernelNumeric, ShortFloatHashesAsItsEqualsReadsIt) {
   EXPECT_EQ("true", printIt("Float new hash = 0.0 hash"));
   EXPECT_EQ("true", printIt("(Float basicNew: 4) hash = (0.0 * -1) hash"));
 }
+
+namespace {
+
+// A user class whose hash allocates before it answers, so the Array and Point hash natives send
+// hash to it across a scavenge (under AO_GC_STRESS) with their receiver still in the nursery.
+// AK v: 1 hashes as '1' hash.
+void acceptAllocatingKey() {
+  acceptClass("Object", "AK", "v");
+  acceptMethod("AK", "v: x\n  v := x\n");
+  acceptMethod("AK", "v\n  ^v\n");
+  acceptMethod("AK", "= o\n  ^(o isKindOf: AK) and: [v = o v]\n");
+  acceptMethod("AK", "hash\n  | junk |\n  junk := Array new: 50.\n"
+                     "  1 to: 50 do: [:i | junk at: i put: i printString].\n"
+                     "  ^v printString hash\n");
+}
+
+}  // namespace
+
+// B8 レビュー（Claude A Medium）: 要素に hash を送るネイティブは、割り当てる送信のあと、
+// レシーバをルート済みスロットから読み直す。レシーバは生成したばかりで nursery にある。
+TEST_F(KernelNumeric, HashNativesReadTheReceiverAgainAfterAnAllocatingElementHash) {
+  acceptAllocatingKey();
+  EXPECT_EQ("true", printIt("| k1 k2 | k1 := AK new v: 1. k2 := AK new v: 2. "
+                            "((Array new: 2) at: 1 put: k1; at: 2 put: k2; yourself) hash "
+                            "= #('1' '2') hash"));
+  EXPECT_EQ("true", printIt("| k1 k2 | k1 := AK new v: 1. k2 := AK new v: 2. "
+                            "(Point x: k1 y: k2) hash = (Point x: '1' y: '2') hash"));
+  EXPECT_EQ("true", printIt("| a | a := Array new: 3. a at: 1 put: (AK new v: 1); "
+                            "at: 2 put: ((Array new: 1) at: 1 put: (AK new v: 2); yourself); "
+                            "at: 3 put: (Point x: (AK new v: 3) y: 4). "
+                            "a hash = #('1' #('2') nil) hash | (a hash class == SmallInteger)"));
+}
+
+// B8 レビュー（Claude A Medium）: 汎用の to:do: は、割り当てるブロックのあとも、ブロックと
+// 終端をルート済みの引数から読む。
+TEST_F(KernelNumeric, GenericToDoReadsTheBlockAgainAfterAnAllocatingBody) {
+  EXPECT_EQ("3", printIt("| lim s b | lim := 3.5. s := 0. "
+                         "1 to: lim do: (b := [:i | s := s + (i printString size)]). s"));
+  EXPECT_EQ("true", printIt("| lim s | lim := (1/2) + 3. s := 0. "
+                            "1 to: lim do: [:i | s := s + (Array new: 20) size]. s = 60"));
+}
+
+// B8 レビュー（Claude A Medium）: max: と min: は、割り当てる比較のあと、レシーバと引数を
+// ルート済みスロットから読む。
+TEST_F(KernelNumeric, MaxAndMinReadTheirOperandsAgainAfterAnAllocatingComparison) {
+  acceptClass("Magnitude", "AM2", "v");
+  acceptMethod("AM2", "v: x\n  v := x\n");
+  acceptMethod("AM2", "v\n  ^v\n");
+  acceptMethod("AM2", "< o\n  | junk | junk := Array new: 50.\n"
+                      "  1 to: 50 do: [:i | junk at: i put: i printString].\n  ^v < o\n");
+  EXPECT_EQ("'Fraction'", printIt("((1/3) max: (AM2 new v: 0)) printString"));
+  EXPECT_EQ("true", printIt("((1/3) max: (AM2 new v: 0)) = (1/3)"));
+  EXPECT_EQ("'AM2'", printIt("((AM2 new v: 0) min: (1/3)) printString"));
+  EXPECT_EQ("0", printIt("((AM2 new v: 0) min: (1/3)) v"));
+  EXPECT_EQ("'Fraction'", printIt("((AM2 new v: 1) min: (1/3)) printString"));
+  EXPECT_EQ("true", printIt("((AM2 new v: 1) min: (1/3)) = (1/3)"));
+}
+
+// B8 レビュー（Claude A Medium）: 要素の hash が中断しても、^ で抜けても、入れ子の数は 0 に戻る。
+// 戻らなければ、あとの 4 段の Array の hash が打ち切られて等しくなる。
+TEST_F(KernelNumeric, HashNestingReturnsToZeroAfterAnAbortOrAReturn) {
+  const std::string fresh = "(#(#(#(#(1)))) hash = #(#(#(#(2)))) hash) not";
+  ASSERT_EQ("true", printIt(fresh));
+  acceptClass("Object", "HK", "action");
+  acceptMethod("HK", "action: aBlock\n  action := aBlock\n");
+  acceptMethod("HK", "hash\n  ^action value\n");
+  EXPECT_EQ("<eval error: boom>",
+            printIt("| a | a := (Array new: 1) at: 1 put: ((Array new: 1) at: 1 put: "
+                    "(HK new action: [nil error: 'boom']); yourself); yourself. a hash"));
+  EXPECT_EQ("true", printIt(fresh));
+  EXPECT_EQ("42", printIt("| a | a := (Array new: 1) at: 1 put: ((Point x: (HK new action: "
+                          "[^42]) y: 1)); yourself. a hash. 0"));
+  EXPECT_EQ("true", printIt(fresh));
+}
