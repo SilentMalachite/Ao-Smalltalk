@@ -2,6 +2,7 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
@@ -14,14 +15,22 @@ constexpr std::uint32_t kPointY = 1;
 constexpr std::uint32_t kRectOrigin = 0;
 constexpr std::uint32_t kRectCorner = 1;
 
+// SPEC §3.6: an instance of cls or of a subclass (the chain rule of inheritsFrom:, SPEC §3.3),
+// with pointer slots up to the Kernel's last one.
+bool isKindWithSlots(CallContext& ctx, Oop o, Oop cls, std::uint32_t lastSlot) {
+  if (!o.isHeap() || ctx.heap.size(o) <= lastSlot || (ctx.heap.flags(o) & kFlagBytes) != 0) {
+    return false;
+  }
+  const Oop k = ctx.heap.klass(o);
+  return k == cls || chainIncludes(ctx.heap, k, cls);
+}
+
 bool isPoint(CallContext& ctx, Oop o) {
-  return o.isHeap() && ctx.heap.klass(o) == ctx.wk.pointClass && ctx.heap.size(o) > kPointY &&
-         (ctx.heap.flags(o) & kFlagBytes) == 0;
+  return isKindWithSlots(ctx, o, ctx.wk.pointClass, kPointY);
 }
 
 bool isRect(CallContext& ctx, Oop o) {
-  return o.isHeap() && ctx.heap.klass(o) == ctx.wk.rectangleClass &&
-         ctx.heap.size(o) > kRectCorner && (ctx.heap.flags(o) & kFlagBytes) == 0;
+  return isKindWithSlots(ctx, o, ctx.wk.rectangleClass, kRectCorner);
 }
 
 Oop sendBin(CallContext& ctx, const Oop& rcvr, const char* sel, const Oop& arg) {
@@ -62,12 +71,13 @@ Oop pointBin(CallContext& ctx, Oop receiver, Oop arg, const char* sel) {
     ox.slot = other.slot;
     oy.slot = other.slot;
   }
+  // SPEC §3.6: a component that fails (the empty Oop) fails the whole operation; no Point holds it.
   Root nx(ctx.roots, sendBin(ctx, x.slot, sel, ox.slot));
-  if (unwinding(ctx)) {
+  if (unwinding(ctx) || nx.slot.isEmpty()) {
     return Oop{};
   }
   Root ny(ctx.roots, sendBin(ctx, y.slot, sel, oy.slot));
-  if (unwinding(ctx)) {
+  if (unwinding(ctx) || ny.slot.isEmpty()) {
     return Oop{};
   }
   return makePoint(ctx, nx.slot, ny.slot);

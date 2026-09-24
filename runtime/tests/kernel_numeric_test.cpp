@@ -472,3 +472,40 @@ TEST_F(KernelNumeric, EqvAndXorFailOnNonBooleanArguments) {
   EXPECT_EQ("<eval error: failed: #eqv:>", printIt("true eqv: 3"));
   EXPECT_EQ("<eval error: failed: #eqv:>", printIt("false eqv: nil"));
 }
+
+// 03 Low: 成分の計算が失敗したら、Point を作らずに失敗する（空 OOP を Point に入れない）。
+TEST_F(KernelNumeric, PointArithmeticFailsOnAFailedComponent) {
+  EXPECT_EQ("<eval error: failed: #+>", printIt("(Point x: 1 y: 2) + nil"));
+  EXPECT_EQ("<eval error: failed: #*>", printIt("(Point x: 1 y: 2) * 'a'"));
+  EXPECT_EQ("<eval error: failed: #->", printIt("(Point x: 1 y: 2) - 'b'"));
+  EXPECT_EQ("<eval error: doesNotUnderstand: #->", printIt("(Point x: nil y: 2) - 1"));
+  EXPECT_EQ("<eval error: division by zero>", printIt("(Point x: 1 y: 2) // 0"));
+  EXPECT_EQ("true", printIt("((Point x: 1 y: 2) + 0.5) = (Point x: 1.5 y: 2.5)"));
+}
+
+// 03 Low: Point と Rectangle のネイティブは、サブクラスのインスタンスも同じに扱う。
+TEST_F(KernelNumeric, PointAndRectangleSubclassesUseTheNatives) {
+  acceptClass("Point", "B8Point", "z");
+  acceptClass("Rectangle", "B8Rect", "tag");
+  EXPECT_EQ("1", printIt("(B8Point x: 1 y: 2) x"));
+  EXPECT_EQ("2", printIt("(B8Point x: 1 y: 2) y"));
+  EXPECT_EQ("5", printIt("((B8Point x: 1 y: 2) x: 5) x"));
+  EXPECT_EQ("7", printIt("((B8Point x: 1 y: 2) y: 7) y"));
+  EXPECT_EQ("4", printIt("((B8Point x: 1 y: 2) + (Point x: 3 y: 4)) x"));
+  EXPECT_EQ("6", printIt("((Point x: 3 y: 4) + (B8Point x: 1 y: 2)) y"));
+  EXPECT_EQ("true", printIt("((B8Point x: 1 y: 2) * 2) class == Point"));
+  EXPECT_EQ("true", printIt("(B8Point x: 1 y: 2) = (Point x: 1 y: 2)"));
+  EXPECT_EQ("true", printIt("(Point x: 1 y: 2) = (B8Point x: 1 y: 2)"));
+  EXPECT_EQ("true", printIt("(B8Point x: 1 y: 2) hash = (Point x: 1 y: 2) hash"));
+  EXPECT_EQ("10", printIt("(B8Rect origin: (Point x: 0 y: 0) corner: (B8Point x: 10 y: 20)) "
+                          "width"));
+  EXPECT_EQ("20", printIt("(B8Rect origin: (B8Point x: 0 y: 0) corner: (Point x: 10 y: 20)) "
+                          "height"));
+  EXPECT_EQ("true", printIt("(B8Rect origin: (Point x: 0 y: 0) corner: (Point x: 10 y: 10)) "
+                            "origin = (Point x: 0 y: 0)"));
+  EXPECT_EQ("true", printIt("(B8Rect origin: (Point x: 0 y: 0) corner: (Point x: 10 y: 10)) "
+                            "containsPoint: (B8Point x: 1 y: 1)"));
+  EXPECT_EQ("true", printIt("((B8Rect origin: (Point x: 0 y: 0) corner: (Point x: 10 y: 10)) "
+                            "intersect: (Rectangle origin: (Point x: 5 y: 5) corner: "
+                            "(Point x: 20 y: 20))) origin = (Point x: 5 y: 5)"));
+}
