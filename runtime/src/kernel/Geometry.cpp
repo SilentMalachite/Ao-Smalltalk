@@ -2,6 +2,8 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Lookup.hpp"
+#include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 
@@ -13,14 +15,22 @@ constexpr std::uint32_t kPointY = 1;
 constexpr std::uint32_t kRectOrigin = 0;
 constexpr std::uint32_t kRectCorner = 1;
 
+// SPEC §3.6: an instance of cls or of a subclass (the chain rule of inheritsFrom:, SPEC §3.3),
+// with pointer slots up to the Kernel's last one.
+bool isKindWithSlots(CallContext& ctx, Oop o, Oop cls, std::uint32_t lastSlot) {
+  if (!o.isHeap() || ctx.heap.size(o) <= lastSlot || (ctx.heap.flags(o) & kFlagBytes) != 0) {
+    return false;
+  }
+  const Oop k = ctx.heap.klass(o);
+  return k == cls || chainIncludes(ctx.heap, k, cls);
+}
+
 bool isPoint(CallContext& ctx, Oop o) {
-  return o.isHeap() && ctx.heap.klass(o) == ctx.wk.pointClass && ctx.heap.size(o) > kPointY &&
-         (ctx.heap.flags(o) & kFlagBytes) == 0;
+  return isKindWithSlots(ctx, o, ctx.wk.pointClass, kPointY);
 }
 
 bool isRect(CallContext& ctx, Oop o) {
-  return o.isHeap() && ctx.heap.klass(o) == ctx.wk.rectangleClass &&
-         ctx.heap.size(o) > kRectCorner && (ctx.heap.flags(o) & kFlagBytes) == 0;
+  return isKindWithSlots(ctx, o, ctx.wk.rectangleClass, kRectCorner);
 }
 
 Oop sendBin(CallContext& ctx, const Oop& rcvr, const char* sel, const Oop& arg) {
@@ -61,27 +71,49 @@ Oop pointBin(CallContext& ctx, Oop receiver, Oop arg, const char* sel) {
     ox.slot = other.slot;
     oy.slot = other.slot;
   }
+  // SPEC §3.6: a component that fails (the empty Oop) fails the whole operation; no Point holds it.
   Root nx(ctx.roots, sendBin(ctx, x.slot, sel, ox.slot));
-  if (unwinding(ctx)) {
+  if (unwinding(ctx) || nx.slot.isEmpty()) {
     return Oop{};
   }
   Root ny(ctx.roots, sendBin(ctx, y.slot, sel, oy.slot));
-  if (unwinding(ctx)) {
+  if (unwinding(ctx) || ny.slot.isEmpty()) {
     return Oop{};
   }
   return makePoint(ctx, nx.slot, ny.slot);
 }
 
+// SPEC §3.6: `a sel b` as a C++ bool. False when the send unwinds or answers anything but a
+// Boolean (the empty Oop of a failure included): the caller then answers the empty Oop.
+bool compared(CallContext& ctx, const Oop& a, const char* sel, const Oop& b, bool* truth) {
+  const Oop answer = sendBin(ctx, a, sel, b);
+  if (unwinding(ctx) || (!answer.isTrue() && !answer.isFalse())) {
+    return false;
+  }
+  *truth = answer.isTrue();
+  return true;
+}
+
+// The larger of a and b by `a < b`, or the empty Oop when the comparison fails.
 Oop magMax(CallContext& ctx, Oop a, Oop b) {
   Root ra(ctx.roots, a);
   Root rb(ctx.roots, b);
-  return sendBin(ctx, ra.slot, "<", rb.slot).isTrue() ? rb.slot : ra.slot;
+  bool less = false;
+  if (!compared(ctx, ra.slot, "<", rb.slot, &less)) {
+    return Oop{};
+  }
+  return less ? rb.slot : ra.slot;
 }
 
+// The smaller of a and b by `a < b`, or the empty Oop when the comparison fails.
 Oop magMin(CallContext& ctx, Oop a, Oop b) {
   Root ra(ctx.roots, a);
   Root rb(ctx.roots, b);
-  return sendBin(ctx, ra.slot, "<", rb.slot).isTrue() ? ra.slot : rb.slot;
+  bool less = false;
+  if (!compared(ctx, ra.slot, "<", rb.slot, &less)) {
+    return Oop{};
+  }
+  return less ? ra.slot : rb.slot;
 }
 
 }  // namespace
@@ -184,6 +216,28 @@ Oop ao_Point_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   return eq.isTrue() ? Oop::true_() : Oop::false_();
 }
 
+
+// SPEC §3.6: from the hashes of x and y, as Point>>= compares them. Past kMaxHashNesting nested
+// element hashes, a constant.
+Oop ao_Point_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!isPoint(ctx, receiver)) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  std::uint64_t h = valueHashWord(kValueHashSeed, 2);
+  if (ctx.hashNesting < kMaxHashNesting) {
+    HashNesting nesting(ctx);
+    // receiver is a rooted slot: y is read after the send for x, where the GC moved it.
+    if (!mixElementHash(ctx, ctx.heap.slotAt(receiver, kPointX), &h) ||
+        !mixElementHash(ctx, ctx.heap.slotAt(receiver, kPointY), &h)) {
+      return Oop{};
+    }
+  }
+  return Oop::fromSmallInteger(valueHashFold(h));
+}
+
 Oop ao_Rectangle_origin_corner_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                 std::uint32_t argc) {
   if (argc != 2) {
@@ -268,18 +322,23 @@ Oop ao_Rectangle_containsPoint_(CallContext& ctx, const Oop& receiver, const Oop
   Root cy(ctx.roots, ctx.heap.slotAt(corner.slot, kPointY));
   Root px(ctx.roots, ctx.heap.slotAt(p.slot, kPointX));
   Root py(ctx.roots, ctx.heap.slotAt(p.slot, kPointY));
-  // A send that starts an unwind answers the empty OOP, which is not true (SPEC §3.4).
-  if (!sendBin(ctx, ox.slot, "<=", px.slot).isTrue()) {
-    return unwinding(ctx) ? Oop{} : Oop::false_();
-  }
-  if (!sendBin(ctx, oy.slot, "<=", py.slot).isTrue()) {
-    return unwinding(ctx) ? Oop{} : Oop::false_();
-  }
-  if (!sendBin(ctx, px.slot, "<", cx.slot).isTrue()) {
-    return unwinding(ctx) ? Oop{} : Oop::false_();
-  }
-  if (!sendBin(ctx, py.slot, "<", cy.slot).isTrue()) {
-    return unwinding(ctx) ? Oop{} : Oop::false_();
+  // SPEC §3.6: each answer must be a Boolean; a failure or an unwind answers the empty Oop.
+  const struct {
+    const Oop& a;
+    const char* sel;
+    const Oop& b;
+  } checks[] = {{ox.slot, "<=", px.slot},
+                {oy.slot, "<=", py.slot},
+                {px.slot, "<", cx.slot},
+                {py.slot, "<", cy.slot}};
+  for (const auto& check : checks) {
+    bool holds = false;
+    if (!compared(ctx, check.a, check.sel, check.b, &holds)) {
+      return Oop{};
+    }
+    if (!holds) {
+      return Oop::false_();
+    }
   }
   return Oop::true_();
 }
@@ -308,23 +367,29 @@ Oop ao_Rectangle_intersect_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root c2x(ctx.roots, ctx.heap.slotAt(c2.slot, kPointX));
   Root c2y(ctx.roots, ctx.heap.slotAt(c2.slot, kPointY));
   Root ox(ctx.roots, magMax(ctx, o1x.slot, o2x.slot));
-  if (unwinding(ctx)) {
+  if (unwinding(ctx) || ox.slot.isEmpty()) {
     return Oop{};
   }
   Root oy(ctx.roots, magMax(ctx, o1y.slot, o2y.slot));
-  if (unwinding(ctx)) {
+  if (unwinding(ctx) || oy.slot.isEmpty()) {
     return Oop{};
   }
   Root cx(ctx.roots, magMin(ctx, c1x.slot, c2x.slot));
-  if (unwinding(ctx)) {
+  if (unwinding(ctx) || cx.slot.isEmpty()) {
     return Oop{};
   }
   Root cy(ctx.roots, magMin(ctx, c1y.slot, c2y.slot));
-  if (unwinding(ctx)) {
+  if (unwinding(ctx) || cy.slot.isEmpty()) {
     return Oop{};
   }
   Root origin(ctx.roots, makePoint(ctx, ox.slot, oy.slot));
+  if (unwinding(ctx) || origin.slot.isEmpty()) {
+    return Oop{};
+  }
   Root corner(ctx.roots, makePoint(ctx, cx.slot, cy.slot));
+  if (unwinding(ctx) || corner.slot.isEmpty()) {
+    return Oop{};
+  }
   return makeRect(ctx, origin.slot, corner.slot);
 }
 
@@ -341,6 +406,7 @@ void installGeometry(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.pointClass, "*", 1, "ao_Point_multiply", ao_Point_multiply);
   putNative(heap, wk, wk.pointClass, "//", 1, "ao_Point_intDivide", ao_Point_intDivide);
   putNative(heap, wk, wk.pointClass, "=", 1, "ao_Point_equals", ao_Point_equals);
+  putNative(heap, wk, wk.pointClass, "hash", 0, "ao_Point_hash", ao_Point_hash);
 
   putNative(heap, wk, wk.rectangleMetaclass, "origin:corner:", 2, "ao_Rectangle_origin_corner_",
             ao_Rectangle_origin_corner_);

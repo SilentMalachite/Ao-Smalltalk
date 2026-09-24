@@ -2,6 +2,8 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/LargeInteger.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
@@ -121,6 +123,85 @@ Oop ao_Array_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   return Oop::true_();
 }
 
+
+namespace {
+
+// True when the hash method element finds is the Kernel Array or Point hash native (SPEC §3.6).
+bool findsKernelNestingHash(CallContext& ctx, Oop element, Oop selector) {
+  // An immediate's class is never an Array or a Point, so its hash is not one of these natives.
+  if (!element.isHeap()) {
+    return false;
+  }
+  const Oop klass = ctx.wk.classOf(element);
+  Oop method = ctx.cache != nullptr ? ctx.cache->probe(ctx.heap, klass, selector) : Oop{};
+  if (!method.isHeap()) {
+    method = lookup(ctx.heap, klass, selector);
+  }
+  const NativeFn fn = NativeMethod::functionOf(ctx.heap, ctx.wk, method);
+  return fn == ao_Array_hash || fn == ao_Point_hash;
+}
+
+// Sets CallContext::hashNesting to 0 for the scope when reset, and puts the outer count back when
+// the scope ends, whatever path leaves it (a failure, an unwind).
+struct SavedHashNesting {
+  SavedHashNesting(CallContext& c, bool reset) : ctx(c), outer(c.hashNesting) {
+    if (reset) {
+      ctx.hashNesting = 0;
+    }
+  }
+  ~SavedHashNesting() { ctx.hashNesting = outer; }
+  SavedHashNesting(const SavedHashNesting&) = delete;
+  SavedHashNesting& operator=(const SavedHashNesting&) = delete;
+  CallContext& ctx;
+  std::uint32_t outer;
+};
+
+}  // namespace
+
+bool mixElementHash(CallContext& ctx, Oop element, std::uint64_t* h) {
+  Root e(ctx.roots, element);
+  const Oop selector = ctx.wk.intern("hash");
+  Oop answer;
+  {
+    // SPEC §3.6: only Kernel Array and Point hashes nested in each other count toward the limit.
+    // Any other hash (a user method, another native) runs from 0, whatever depth asks for it.
+    const SavedHashNesting saved(ctx, !findsKernelNestingHash(ctx, e.slot, selector));
+    answer = send(ctx, e.slot, selector, nullptr, 0, nullptr);
+  }
+  if (unwinding(ctx)) {
+    return false;
+  }
+  std::int64_t v = 0;
+  if (!LargeInteger::valueHash(ctx.heap, ctx.wk, answer, &v)) {
+    return false;
+  }
+  *h = valueHashWord(*h, static_cast<std::uint64_t>(v));
+  return true;
+}
+
+// SPEC §3.6: from the size and the hashes of the first kMaxHashElements elements, as Array>>=
+// compares them. Past kMaxHashNesting nested element hashes, from the size alone.
+Oop ao_Array_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!receiver.isHeap() || (ctx.heap.flags(receiver) & kFlagBytes) != 0) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  const std::uint32_t n = ctx.heap.size(receiver);
+  std::uint64_t h = valueHashWord(kValueHashSeed, n);
+  if (ctx.hashNesting < kMaxHashNesting) {
+    HashNesting nesting(ctx);
+    for (std::uint32_t i = 0; i < n && i < kMaxHashElements; ++i) {
+      // receiver is a rooted slot: after each send it is where the GC moved it.
+      if (!mixElementHash(ctx, ctx.heap.slotAt(receiver, i), &h)) {
+        return Oop{};
+      }
+    }
+  }
+  return Oop::fromSmallInteger(valueHashFold(h));
+}
+
 Oop ao_ArrayedCollection_size(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
   return ao_Object_basicSize(ctx, receiver, args, argc);
@@ -171,6 +252,7 @@ void installArray(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.arrayClass, "printString", 0, "ao_Array_printString",
             ao_Array_printString);
   putNative(heap, wk, wk.arrayClass, "=", 1, "ao_Array_equals", ao_Array_equals);
+  putNative(heap, wk, wk.arrayClass, "hash", 0, "ao_Array_hash", ao_Array_hash);
 }
 
 }  // namespace kernel

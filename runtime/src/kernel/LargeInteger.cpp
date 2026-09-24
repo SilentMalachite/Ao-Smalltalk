@@ -2,10 +2,13 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Natives.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace ao {
@@ -171,6 +174,34 @@ void magShl(Digits& d, unsigned k) {
   if (carry != 0) {
     d.push_back(carry);
   }
+}
+
+// d >> k by moving digits and bits (time linear in the length). *lost is set when a 1 bit was
+// shifted out, so a negative value can round toward -inf.
+void magShr(Digits& d, std::uint64_t k, bool* lost) {
+  *lost = false;
+  const std::uint64_t words = k / 32;
+  const unsigned bits = static_cast<unsigned>(k % 32);
+  if (words >= d.size()) {
+    *lost = !d.empty();
+    d.clear();
+    return;
+  }
+  const auto w = static_cast<std::size_t>(words);
+  for (std::size_t i = 0; i < w && !*lost; ++i) {
+    *lost = d[i] != 0;
+  }
+  if (bits != 0 && (d[w] & ((1u << bits) - 1u)) != 0) {
+    *lost = true;
+  }
+  d.erase(d.begin(), d.begin() + static_cast<std::ptrdiff_t>(w));
+  if (bits != 0) {
+    for (std::size_t i = 0; i < d.size(); ++i) {
+      const std::uint32_t high = i + 1 < d.size() ? d[i + 1] : 0;
+      d[i] = (d[i] >> bits) | (high << (32 - bits));
+    }
+  }
+  strip(d);
 }
 
 void magFromU128(unsigned __int128 v, Digits& d) {
@@ -501,6 +532,74 @@ void floorDivMod(const Big& a, const Big& b, Big& q, Big& r) {
   }
 }
 
+// True when a bit of d below `bit` is set.
+bool magAnyBitBelow(const Digits& d, std::int64_t bit) {
+  if (bit <= 0) {
+    return false;
+  }
+  const auto whole = static_cast<std::size_t>(bit / 32);
+  for (std::size_t i = 0; i < whole && i < d.size(); ++i) {
+    if (d[i] != 0) {
+      return true;
+    }
+  }
+  const auto rest = static_cast<unsigned>(bit % 32);
+  return rest != 0 && whole < d.size() && (d[whole] & ((1u << rest) - 1u)) != 0;
+}
+
+bool magBitAt(const Digits& d, std::int64_t bit) {
+  return bit >= 0 && bit < static_cast<std::int64_t>(d.size()) * 32 &&
+         magBit(d, static_cast<int>(bit));
+}
+
+// SPEC §3.6: the double nearest to mag · 2^exp2 (IEEE754 binary64, ties to even, subnormals
+// included), +inf beyond the range. mag is not zero. sticky says nonzero bits below mag were
+// dropped: the value is a little above mag · 2^exp2.
+double roundToDouble(const Digits& mag, std::int64_t exp2, bool sticky) {
+  const std::int64_t len = magBitLength(mag);
+  const std::int64_t top = len - 1 + exp2;  // the exponent of the leading bit
+  if (top > 1023) {
+    return std::numeric_limits<double>::infinity();
+  }
+  // Significand bits kept: 53, fewer for a subnormal (none at all below 2^-1075).
+  const std::int64_t keep = top >= -1022 ? 53 : 53 - (-1022 - top);
+  const std::int64_t drop = len - keep;
+  std::uint64_t m = 0;
+  for (std::int64_t i = len - 1; i >= std::max<std::int64_t>(drop, 0); --i) {
+    m = (m << 1) | (magBitAt(mag, i) ? 1u : 0u);
+  }
+  if (drop <= 0) {
+    // Exact: at most 53 bits.
+    return std::ldexp(static_cast<double>(m), static_cast<int>(exp2));
+  }
+  const bool half = magBitAt(mag, drop - 1);
+  const bool rest = sticky || magAnyBitBelow(mag, drop - 1);
+  if (half && (rest || (m & 1u) != 0)) {
+    ++m;  // 2^53 at most; ldexp then gives the next binade, or inf past 2^1024
+  }
+  return std::ldexp(static_cast<double>(m), static_cast<int>(exp2 + drop));
+}
+
+Big bigOf(std::int64_t v) {
+  Big b;
+  b.neg = v < 0;
+  digitsFromU64(v >= 0 ? static_cast<std::uint64_t>(v) : 0u - static_cast<std::uint64_t>(v), b.d);
+  return b;
+}
+
+// Moves the sign of den into num, so that num / den keeps its value with den > 0. False when den
+// is 0.
+bool positiveDenominator(Big& num, Big& den) {
+  if (den.isZero()) {
+    return false;
+  }
+  if (den.neg) {
+    den.neg = false;
+    num.neg = !num.isZero() && !num.neg;
+  }
+  return true;
+}
+
 }  // namespace
 
 Oop fromInt64(Heap& heap, WellKnown& wk, std::int64_t value) {
@@ -744,35 +843,41 @@ Oop bitXor(CallContext& ctx, Oop a, Oop b) {
 
 Oop bitShift(CallContext& ctx, Oop a, Oop n) {
   Big A;
-  if (!parse(ctx.heap, ctx.wk, a, A)) {
+  Big N;
+  if (!parse(ctx.heap, ctx.wk, a, A) || !parse(ctx.heap, ctx.wk, n, N)) {
     return Oop{};
   }
-  bool fits = false;
-  const std::int64_t sh = asInt64IfFits(ctx.heap, ctx.wk, n, &fits);
-  if (!fits) {
+  // SPEC §3.6: a right shift past 2^24 bits leaves the sign. It is decided on the Integer itself,
+  // before any negation: -2^63 (and a negative LargeInteger) would overflow when negated.
+  constexpr std::int64_t kMaxShift = std::int64_t{1} << 24;
+  std::int64_t sh = 0;
+  const bool fits = toInt64(N, &sh);
+  if (N.neg && (!fits || sh < -kMaxShift)) {
+    return A.neg ? Oop::fromSmallInteger(-1) : Oop::fromSmallInteger(0);
+  }
+  if (!fits || sh > kMaxShift) {
     return Oop{};
   }
   if (A.isZero() || sh == 0) {
     return box(ctx, A);
   }
   if (sh > 0) {
-    if (sh > 1 << 24) {
-      return Oop{};
-    }
     magShl(A.d, static_cast<unsigned>(sh));
     return box(ctx, A);
   }
-  const std::int64_t right = -sh;
-  if (right > 1 << 24) {
-    return A.neg ? Oop::fromSmallInteger(-1) : Oop::fromSmallInteger(0);
+  // Right shift: floor(A / 2^-sh). The magnitude moves right; a negative value from which a 1 bit
+  // fell off is one further from zero.
+  bool lost = false;
+  magShr(A.d, static_cast<std::uint64_t>(-sh), &lost);
+  if (A.neg && lost) {
+    Digits bumped;
+    magAdd(A.d, Digits{1}, bumped);
+    A.d = std::move(bumped);
   }
-  Big den;
-  den.d.push_back(1);
-  magShl(den.d, static_cast<unsigned>(right));
-  Big q;
-  Big r;
-  floorDivMod(A, den, q, r);
-  return box(ctx, q);
+  if (A.d.empty()) {
+    A.neg = false;
+  }
+  return box(ctx, A);
 }
 
 Oop gcd(CallContext& ctx, Oop a, Oop b) {
@@ -802,6 +907,136 @@ Oop neg(CallContext& ctx, Oop a) {
     A.neg = !A.neg;
   }
   return box(ctx, A);
+}
+
+bool ratioToDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double* out) {
+  if (num.isSmallInteger() && den == Oop::fromSmallInteger(1)) {
+    // A SmallInteger has 63 bits; the conversion rounds to nearest even.
+    *out = static_cast<double>(num.smallIntegerValue());
+    return true;
+  }
+  Big n;
+  Big d;
+  if (!parse(heap, wk, num, n) || !parse(heap, wk, den, d) || d.isZero()) {
+    return false;
+  }
+  if (n.isZero()) {
+    *out = 0.0;
+    return true;
+  }
+  const bool negative = n.neg != d.neg;
+  double v = 0;
+  if (d.d.size() == 1 && d.d[0] == 1) {
+    v = roundToDouble(n.d, 0, false);
+  } else {
+    // The leading bit of n / d is at 2^e or 2^(e-1). Far outside the range the answer is known
+    // without dividing (and without shifting by a huge count).
+    const std::int64_t e = std::int64_t{magBitLength(n.d)} - magBitLength(d.d);
+    if (e > 1025) {
+      v = std::numeric_limits<double>::infinity();
+    } else if (e < -1077) {
+      v = 0.0;
+    } else {
+      // Scale so that the quotient has 66 or 67 bits; the remainder is the sticky bit.
+      const std::int64_t shift = 66 - e;
+      Digits a = n.d;
+      Digits b = d.d;
+      if (shift > 0) {
+        magShl(a, static_cast<unsigned>(shift));
+      } else if (shift < 0) {
+        magShl(b, static_cast<unsigned>(-shift));
+      }
+      Digits q;
+      Digits r;
+      magDivMod(a, b, q, r);
+      v = roundToDouble(q, -shift, !r.empty());
+    }
+  }
+  *out = negative ? -v : v;
+  return true;
+}
+
+
+bool compareRatioWithDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double d, int* out) {
+  if (std::isnan(d)) {
+    return false;
+  }
+  if (num.isSmallInteger() && den == Oop::fromSmallInteger(1)) {
+    // Rounding to double is monotonic and d is a double: when the rounded i differs from d, it
+    // is on the same side as i. When it equals d, d is an integer of at most 2^62 in magnitude,
+    // so it converts back exactly and decides.
+    const std::int64_t i = num.smallIntegerValue();
+    const auto di = static_cast<double>(i);
+    if (di != d) {
+      *out = di < d ? -1 : 1;
+      return true;
+    }
+    const auto t = static_cast<std::int64_t>(d);
+    *out = i < t ? -1 : (i > t ? 1 : 0);
+    return true;
+  }
+  Big n;
+  Big q;
+  if (!parse(heap, wk, num, n) || !parse(heap, wk, den, q) || !positiveDenominator(n, q)) {
+    return false;
+  }
+  if (std::isinf(d)) {
+    *out = d > 0 ? -1 : 1;
+    return true;
+  }
+  // d = m · 2^e exactly, with m an integer below 2^53 in magnitude. Compare n · 2^-e with m · q
+  // (e < 0), or n with m · q · 2^e.
+  int e = 0;
+  const double fraction = std::frexp(d, &e);
+  const auto m = static_cast<std::int64_t>(std::ldexp(fraction, 53));
+  e -= 53;
+  Big left = n;
+  Big right = mulBig(bigOf(m), q);
+  if (e < 0) {
+    magShl(left.d, static_cast<unsigned>(-e));
+  } else {
+    magShl(right.d, static_cast<unsigned>(e));
+  }
+  *out = cmpBig(left, right);
+  return true;
+}
+
+bool compareRatios(Heap& heap, WellKnown& wk, Oop n1, Oop d1, Oop n2, Oop d2, int* out) {
+  Big a;
+  Big b;
+  Big c;
+  Big d;
+  if (!parse(heap, wk, n1, a) || !parse(heap, wk, d1, b) || !parse(heap, wk, n2, c) ||
+      !parse(heap, wk, d2, d) || !positiveDenominator(a, b) || !positiveDenominator(c, d)) {
+    return false;
+  }
+  *out = cmpBig(mulBig(a, d), mulBig(c, b));
+  return true;
+}
+
+
+bool valueHash(Heap& heap, WellKnown& wk, Oop o, std::int64_t* out) {
+  if (o.isSmallInteger()) {
+    *out = o.smallIntegerValue();
+    return true;
+  }
+  Big b;
+  if (!parse(heap, wk, o, b)) {
+    return false;
+  }
+  // A LargeInteger is normalized, but one made by hand may hold a SmallInteger's value: it is
+  // = to that SmallInteger, so it hashes as it does.
+  std::int64_t v = 0;
+  if (toInt64(b, &v) && v >= kSmiMin && v <= kSmiMax) {
+    *out = v;
+    return true;
+  }
+  std::uint64_t h = valueHashWord(kValueHashSeed, b.neg ? 1u : 0u);
+  for (const std::uint32_t digit : b.d) {
+    h = valueHashWord(h, digit);
+  }
+  *out = valueHashFold(h);
+  return true;
 }
 
 }  // namespace LargeInteger

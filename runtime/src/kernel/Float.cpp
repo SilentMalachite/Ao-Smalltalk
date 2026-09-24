@@ -5,6 +5,7 @@
 #include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
@@ -43,18 +44,19 @@ double asDouble(Heap& heap, Oop o) {
   return v;
 }
 
+bool asNumDen(CallContext& ctx, Oop o, Oop* num, Oop* den);
+
+// SPEC §3.6: a Float's value, or the Integer or Fraction rounded once to the nearest double (ties
+// to even; the whole LargeInteger range, ±inf beyond it). False for anything else.
 bool asFloat(CallContext& ctx, Oop o, double* out) {
   if (isFloat(ctx.wk, o)) {
     *out = asDouble(ctx.heap, o);
     return true;
   }
-  bool fits = false;
-  const std::int64_t v = LargeInteger::asInt64IfFits(ctx.heap, ctx.wk, o, &fits);
-  if (fits) {
-    *out = static_cast<double>(v);
-    return true;
-  }
-  return false;
+  Oop num;
+  Oop den;
+  return asNumDen(ctx, o, &num, &den) &&
+         LargeInteger::ratioToDouble(ctx.heap, ctx.wk, num, den, out);
 }
 
 Oop makeFraction(CallContext& ctx, Oop num, Oop den) {
@@ -108,9 +110,9 @@ bool asNumDen(CallContext& ctx, Oop o, Oop* num, Oop* den) {
   return true;
 }
 
-enum class FracOp { Add, Sub, Mul, Div };
-
-Oop fracOp(CallContext& ctx, Oop a, Oop b, FracOp op) {
+// Exact arithmetic on Integers and Fractions (SPEC §3.6). a and b are read before anything
+// allocates.
+Oop fracOp(CallContext& ctx, Oop a, Oop b, NumberOp op) {
   Oop na;
   Oop da;
   Oop nb;
@@ -123,26 +125,26 @@ Oop fracOp(CallContext& ctx, Oop a, Oop b, FracOp op) {
   Root Nb(ctx.roots, nb);
   Root Db(ctx.roots, db);
   switch (op) {
-    case FracOp::Add: {
+    case NumberOp::Add: {
       Root left(ctx.roots, LargeInteger::mul(ctx, Na.slot, Db.slot));
       Root right(ctx.roots, LargeInteger::mul(ctx, Nb.slot, Da.slot));
       Root num(ctx.roots, LargeInteger::add(ctx, left.slot, right.slot));
       Root den(ctx.roots, LargeInteger::mul(ctx, Da.slot, Db.slot));
       return makeFraction(ctx, num.slot, den.slot);
     }
-    case FracOp::Sub: {
+    case NumberOp::Subtract: {
       Root left(ctx.roots, LargeInteger::mul(ctx, Na.slot, Db.slot));
       Root right(ctx.roots, LargeInteger::mul(ctx, Nb.slot, Da.slot));
       Root num(ctx.roots, LargeInteger::sub(ctx, left.slot, right.slot));
       Root den(ctx.roots, LargeInteger::mul(ctx, Da.slot, Db.slot));
       return makeFraction(ctx, num.slot, den.slot);
     }
-    case FracOp::Mul: {
+    case NumberOp::Multiply: {
       Root num(ctx.roots, LargeInteger::mul(ctx, Na.slot, Nb.slot));
       Root den(ctx.roots, LargeInteger::mul(ctx, Da.slot, Db.slot));
       return makeFraction(ctx, num.slot, den.slot);
     }
-    case FracOp::Div: {
+    case NumberOp::Divide: {
       Root num(ctx.roots, LargeInteger::mul(ctx, Na.slot, Db.slot));
       Root den(ctx.roots, LargeInteger::mul(ctx, Da.slot, Nb.slot));
       return makeFraction(ctx, num.slot, den.slot);
@@ -151,9 +153,7 @@ Oop fracOp(CallContext& ctx, Oop a, Oop b, FracOp op) {
   return Oop{};
 }
 
-enum class FlOp { Add, Sub, Mul, Div };
-
-Oop floatOp(CallContext& ctx, Oop a, Oop b, FlOp op) {
+Oop floatOp(CallContext& ctx, Oop a, Oop b, NumberOp op) {
   double x = 0;
   double y = 0;
   if (!asFloat(ctx, a, &x) || !asFloat(ctx, b, &y)) {
@@ -161,60 +161,175 @@ Oop floatOp(CallContext& ctx, Oop a, Oop b, FlOp op) {
   }
   double z = 0;
   switch (op) {
-    case FlOp::Add:
+    case NumberOp::Add:
       z = x + y;
       break;
-    case FlOp::Sub:
+    case NumberOp::Subtract:
       z = x - y;
       break;
-    case FlOp::Mul:
+    case NumberOp::Multiply:
       z = x * y;
       break;
-    case FlOp::Div:
+    case NumberOp::Divide:
       z = x / y;
       break;
   }
   return fromDouble(ctx, z);
 }
 
+enum class NumKind { None, Integer, Fraction, Float };
+
+// The place of o in SPEC §3.6's generality order (Integer < Fraction < Float).
+NumKind kindOf(CallContext& ctx, Oop o) {
+  if (o.isSmallInteger() || LargeInteger::isLarge(ctx.wk, o)) {
+    return NumKind::Integer;
+  }
+  if (isFloat(ctx.wk, o)) {
+    return NumKind::Float;
+  }
+  if (isFrac(ctx.wk, o)) {
+    return NumKind::Fraction;
+  }
+  return NumKind::None;
+}
+
+// SPEC §3.6: the exact order of a and b (-1, 0, 1). False when either is not an Integer, Fraction
+// or Float. *unordered is set when a NaN is involved; *order is then meaningless.
+bool numberOrder(CallContext& ctx, Oop a, Oop b, int* order, bool* unordered) {
+  *unordered = false;
+  const NumKind ka = kindOf(ctx, a);
+  const NumKind kb = kindOf(ctx, b);
+  if (ka == NumKind::None || kb == NumKind::None) {
+    return false;
+  }
+  if (ka == NumKind::Integer && kb == NumKind::Integer) {
+    *order = LargeInteger::compare(ctx.heap, ctx.wk, a, b);
+    return true;
+  }
+  if (ka == NumKind::Float && kb == NumKind::Float) {
+    const double x = asDouble(ctx.heap, a);
+    const double y = asDouble(ctx.heap, b);
+    *unordered = std::isnan(x) || std::isnan(y);
+    *order = x < y ? -1 : (x > y ? 1 : 0);
+    return true;
+  }
+  Oop num;
+  Oop den;
+  if (ka == NumKind::Float || kb == NumKind::Float) {
+    // One exact number and one Float: compare the Float as the exact value it is.
+    const bool floatFirst = ka == NumKind::Float;
+    const double x = asDouble(ctx.heap, floatFirst ? a : b);
+    if (std::isnan(x)) {
+      *unordered = true;
+      return true;
+    }
+    if (!asNumDen(ctx, floatFirst ? b : a, &num, &den) ||
+        !LargeInteger::compareRatioWithDouble(ctx.heap, ctx.wk, num, den, x, order)) {
+      return false;
+    }
+    if (floatFirst) {
+      *order = -*order;
+    }
+    return true;
+  }
+  Oop num2;
+  Oop den2;
+  return asNumDen(ctx, a, &num, &den) && asNumDen(ctx, b, &num2, &den2) &&
+         LargeInteger::compareRatios(ctx.heap, ctx.wk, num, den, num2, den2, order);
+}
+
 }  // namespace
+
+Oop numberArith(CallContext& ctx, const Oop& a, const Oop& b, NumberOp op) {
+  const NumKind ka = kindOf(ctx, a);
+  const NumKind kb = kindOf(ctx, b);
+  if (ka == NumKind::None || kb == NumKind::None) {
+    return Oop{};
+  }
+  if (ka == NumKind::Float || kb == NumKind::Float) {
+    return floatOp(ctx, a, b, op);
+  }
+  if (op == NumberOp::Divide || ka == NumKind::Fraction || kb == NumKind::Fraction) {
+    return fracOp(ctx, a, b, op);
+  }
+  switch (op) {
+    case NumberOp::Add:
+      return LargeInteger::add(ctx, a, b);
+    case NumberOp::Subtract:
+      return LargeInteger::sub(ctx, a, b);
+    case NumberOp::Multiply:
+      return LargeInteger::mul(ctx, a, b);
+    case NumberOp::Divide:
+      break;
+  }
+  return Oop{};
+}
+
+
+Oop numberCompare(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+                  NumberRelation rel, NativeFn fallback) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  int order = 0;
+  bool unordered = false;
+  if (!numberOrder(ctx, receiver, args[0], &order, &unordered)) {
+    return fallback != nullptr ? fallback(ctx, receiver, args, argc) : Oop{};
+  }
+  if (unordered) {
+    return Oop::false_();
+  }
+  bool holds = false;
+  switch (rel) {
+    case NumberRelation::Less:
+      holds = order < 0;
+      break;
+    case NumberRelation::Greater:
+      holds = order > 0;
+      break;
+    case NumberRelation::LessOrEqual:
+      holds = order <= 0;
+      break;
+    case NumberRelation::GreaterOrEqual:
+      holds = order >= 0;
+      break;
+  }
+  return holds ? Oop::true_() : Oop::false_();
+}
 
 Oop ao_Integer_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  if (isFloat(ctx.wk, args[0])) {
-    return floatOp(ctx, receiver, args[0], FlOp::Div);
-  }
-  return fracOp(ctx, receiver, args[0], FracOp::Div);
+  return numberArith(ctx, receiver, args[0], NumberOp::Divide);
 }
 
 Oop ao_Float_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return floatOp(ctx, receiver, args[0], FlOp::Add);
+  return numberArith(ctx, receiver, args[0], NumberOp::Add);
 }
 
 Oop ao_Float_subtract(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return floatOp(ctx, receiver, args[0], FlOp::Sub);
+  return numberArith(ctx, receiver, args[0], NumberOp::Subtract);
 }
 
 Oop ao_Float_multiply(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return floatOp(ctx, receiver, args[0], FlOp::Mul);
+  return numberArith(ctx, receiver, args[0], NumberOp::Multiply);
 }
 
 Oop ao_Float_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return floatOp(ctx, receiver, args[0], FlOp::Div);
+  return numberArith(ctx, receiver, args[0], NumberOp::Divide);
 }
 
 Oop ao_Float_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -229,22 +344,51 @@ Oop ao_Float_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
 }
 
 Oop ao_Float_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (argc != 1) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Less, nullptr);
+}
+
+Oop ao_Float_greaterThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Greater,
+                       ao_Magnitude_greaterThan);
+}
+
+Oop ao_Float_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::LessOrEqual,
+                       ao_Magnitude_lessOrEqual);
+}
+
+Oop ao_Float_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::GreaterOrEqual,
+                       ao_Magnitude_greaterOrEqual);
+}
+
+
+// SPEC §3.6: a value hash of the bits, -0.0 as 0.0 (they are =). A NaN equals nothing.
+Oop ao_Float_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
     return Oop{};
   }
-  double x = 0;
-  double y = 0;
-  if (!asFloat(ctx, receiver, &x) || !asFloat(ctx, args[0], &y)) {
-    return Oop{};
+  if (!isFloat(ctx.wk, receiver)) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
   }
-  return x < y ? Oop::true_() : Oop::false_();
+  // The value = reads (asDouble: a Float shorter than 8 bytes is 0.0), so = and hash agree.
+  double v = asDouble(ctx.heap, receiver);
+  if (v == 0.0) {
+    v = 0.0;
+  }
+  std::uint64_t bits = 0;
+  std::memcpy(&bits, &v, sizeof(bits));
+  return Oop::fromSmallInteger(valueHashFold(valueHashWord(kValueHashSeed, bits)));
 }
 
 Oop ao_Fraction_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return fracOp(ctx, receiver, args[0], FracOp::Add);
+  return numberArith(ctx, receiver, args[0], NumberOp::Add);
 }
 
 Oop ao_Fraction_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -252,7 +396,7 @@ Oop ao_Fraction_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
   if (argc != 1) {
     return Oop{};
   }
-  return fracOp(ctx, receiver, args[0], FracOp::Sub);
+  return numberArith(ctx, receiver, args[0], NumberOp::Subtract);
 }
 
 Oop ao_Fraction_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -260,14 +404,85 @@ Oop ao_Fraction_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
   if (argc != 1) {
     return Oop{};
   }
-  return fracOp(ctx, receiver, args[0], FracOp::Mul);
+  return numberArith(ctx, receiver, args[0], NumberOp::Multiply);
 }
 
 Oop ao_Fraction_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return fracOp(ctx, receiver, args[0], FracOp::Div);
+  return numberArith(ctx, receiver, args[0], NumberOp::Divide);
+}
+
+
+// SPEC §3.6: two Fractions are equal when their numerators and their denominators are (both are
+// normalized, so equal values have equal parts). Anything else only equals itself.
+Oop ao_Fraction_equals(CallContext& ctx, const Oop& receiver, const Oop* args,
+                       std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  if (receiver == args[0]) {
+    return Oop::true_();
+  }
+  Oop n1;
+  Oop d1;
+  Oop n2;
+  Oop d2;
+  if (!isFrac(ctx.wk, receiver) || !isFrac(ctx.wk, args[0]) || !asNumDen(ctx, receiver, &n1, &d1) ||
+      !asNumDen(ctx, args[0], &n2, &d2) || !LargeInteger::isInteger(ctx.wk, n1) ||
+      !LargeInteger::isInteger(ctx.wk, d1) || !LargeInteger::isInteger(ctx.wk, n2) ||
+      !LargeInteger::isInteger(ctx.wk, d2)) {
+    return Oop::false_();
+  }
+  return LargeInteger::compare(ctx.heap, ctx.wk, n1, n2) == 0 &&
+                 LargeInteger::compare(ctx.heap, ctx.wk, d1, d2) == 0
+             ? Oop::true_()
+             : Oop::false_();
+}
+
+Oop ao_Fraction_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Less, nullptr);
+}
+
+Oop ao_Fraction_greaterThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Greater,
+                       ao_Magnitude_greaterThan);
+}
+
+Oop ao_Fraction_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::LessOrEqual,
+                       ao_Magnitude_lessOrEqual);
+}
+
+Oop ao_Fraction_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::GreaterOrEqual,
+                       ao_Magnitude_greaterOrEqual);
+}
+
+
+// SPEC §3.6: from the hashes of the numerator and the denominator, as Fraction>>= compares them.
+Oop ao_Fraction_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  Oop num;
+  Oop den;
+  std::int64_t hn = 0;
+  std::int64_t hd = 0;
+  if (!isFrac(ctx.wk, receiver) || !asNumDen(ctx, receiver, &num, &den) ||
+      !LargeInteger::valueHash(ctx.heap, ctx.wk, num, &hn) ||
+      !LargeInteger::valueHash(ctx.heap, ctx.wk, den, &hd)) {
+    // Fraction>>= answers true only for itself then.
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  const std::uint64_t h = valueHashWord(valueHashWord(kValueHashSeed, static_cast<std::uint64_t>(hn)),
+                                        static_cast<std::uint64_t>(hd));
+  return Oop::fromSmallInteger(valueHashFold(h));
 }
 
 Oop ao_Float_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
@@ -298,6 +513,10 @@ void installFloat(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.floatClass, "/", 1, "ao_Float_divide", ao_Float_divide);
   putNative(heap, wk, wk.floatClass, "=", 1, "ao_Float_equals", ao_Float_equals);
   putNative(heap, wk, wk.floatClass, "<", 1, "ao_Float_lessThan", ao_Float_lessThan);
+  putNative(heap, wk, wk.floatClass, ">", 1, "ao_Float_greaterThan", ao_Float_greaterThan);
+  putNative(heap, wk, wk.floatClass, "<=", 1, "ao_Float_lessOrEqual", ao_Float_lessOrEqual);
+  putNative(heap, wk, wk.floatClass, ">=", 1, "ao_Float_greaterOrEqual", ao_Float_greaterOrEqual);
+  putNative(heap, wk, wk.floatClass, "hash", 0, "ao_Float_hash", ao_Float_hash);
   putNative(heap, wk, wk.floatClass, "printString", 0, "ao_Float_printString",
             ao_Float_printString);
 
@@ -305,6 +524,15 @@ void installFloat(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.fractionClass, "-", 1, "ao_Fraction_subtract", ao_Fraction_subtract);
   putNative(heap, wk, wk.fractionClass, "*", 1, "ao_Fraction_multiply", ao_Fraction_multiply);
   putNative(heap, wk, wk.fractionClass, "/", 1, "ao_Fraction_divide", ao_Fraction_divide);
+  putNative(heap, wk, wk.fractionClass, "=", 1, "ao_Fraction_equals", ao_Fraction_equals);
+  putNative(heap, wk, wk.fractionClass, "<", 1, "ao_Fraction_lessThan", ao_Fraction_lessThan);
+  putNative(heap, wk, wk.fractionClass, ">", 1, "ao_Fraction_greaterThan",
+            ao_Fraction_greaterThan);
+  putNative(heap, wk, wk.fractionClass, "<=", 1, "ao_Fraction_lessOrEqual",
+            ao_Fraction_lessOrEqual);
+  putNative(heap, wk, wk.fractionClass, ">=", 1, "ao_Fraction_greaterOrEqual",
+            ao_Fraction_greaterOrEqual);
+  putNative(heap, wk, wk.fractionClass, "hash", 0, "ao_Fraction_hash", ao_Fraction_hash);
 }
 
 }  // namespace kernel

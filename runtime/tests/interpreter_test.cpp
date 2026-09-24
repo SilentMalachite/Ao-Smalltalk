@@ -284,8 +284,8 @@ TEST(Interpreter, SendSpecialOverflowFallsBackToLargeInteger) {
 }
 
 // SPEC §3.5: SmallInteger でない値が混じれば通常の送信になり、答えは送信したときと同じ。
-// 期待値は高速路を入れる前に確かめた挙動である。Integer の算術と < のネイティブは Float を
-// 受けずに失敗し（空 Oop）、Integer>>= は Integer でない値に false を答える。
+// Integer の算術は Float の引数に Float を答え（SPEC §3.6）、Integer>>= は Integer でない値に
+// false を答える。
 TEST(Interpreter, SendSpecialNonSmallIntegerFallsBack) {
   Boot b;
   // 引数の片方だけをヒープに置く。ルートしてからコンパイル（GC しうる）して送る。
@@ -304,9 +304,19 @@ TEST(Interpreter, SendSpecialNonSmallIntegerFallsBack) {
     return got;
   };
   const ao::Oop three = smallInt(3);
-  for (const char* sel : {"+", "-", "*", "<", "<=", ">="}) {
-    EXPECT_TRUE(run(sel, three, makeFloat(b, 4.5)).isEmpty()) << sel;
-  }
+  const auto floatValue = [&b](ao::Oop o) {
+    double v = -1;
+    if (o.isHeap() && b.heap.klass(o) == b.wk.floatClass) {
+      std::memcpy(&v, b.heap.bytes(o), sizeof(v));
+    }
+    return v;
+  };
+  EXPECT_DOUBLE_EQ(7.5, floatValue(run("+", three, makeFloat(b, 4.5))));
+  EXPECT_DOUBLE_EQ(-1.5, floatValue(run("-", three, makeFloat(b, 4.5))));
+  EXPECT_DOUBLE_EQ(13.5, floatValue(run("*", three, makeFloat(b, 4.5))));
+  EXPECT_TRUE(run("<", three, makeFloat(b, 4.5)).isTrue());
+  EXPECT_TRUE(run("<=", three, makeFloat(b, 4.5)).isTrue());
+  EXPECT_TRUE(run(">=", three, makeFloat(b, 4.5)).isFalse());
   EXPECT_TRUE(run(">", three, makeFloat(b, 4.5)).isFalse());
   EXPECT_TRUE(run("=", three, makeFloat(b, 4.5)).isFalse());
   EXPECT_TRUE(run("=", three, makeFloat(b, 3.0)).isFalse());

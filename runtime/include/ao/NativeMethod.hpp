@@ -84,6 +84,9 @@ struct CallContext {
   std::uint32_t cleanupDepth = 0;
   // Boxes LitKind::Binding literals (SPEC §3.10). Null outside a session: such literals fail.
   BindingHook bindingHook = nullptr;
+  // SPEC §3.6 = と hash: how many Array and Point hash natives are sending hash to their elements
+  // right now (HashNesting). At the limit they stop sending, so a self-holding Array ends.
+  std::uint32_t hashNesting = 0;
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -108,6 +111,8 @@ Oop apply(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint
 // whose receiver or arguments are locals of the caller.
 Oop invoke(CallContext& ctx, NativeFn fn, Oop receiver, const Oop* args, std::uint32_t argc);
 std::string_view nameBytes(Heap& heap, Oop method);
+// The function method runs when it is a NativeMethod with a valid registry index, else nullptr.
+NativeFn functionOf(const Heap& heap, const WellKnown& wk, Oop method);
 }
 
 }  // namespace ao

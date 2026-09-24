@@ -392,6 +392,19 @@ app:
 - `asCharacter` はサロゲートを拒否する（03 Low）。
 - `to:do:` の終端が SmallInteger でないときは、汎用ループで回す（03 Low）。
 
+B8 の実施結果（計画からの逸脱と、実装時に決めたこと）:
+
+- 済みを確かめた項目: Magnitude の `<=` / `between:and:` の GC 安全性（B1）、int64 を超える整数リテラルと Float リテラルの丸め（B7）、`LargeInteger::box(ctx)` の allocateRetry（B1）、クラス側の生成の instSize（B6）。
+- Fraction にも値ベースの `hash` を足した。Fraction の `=` を足したので、`=` と `hash` の契約を保つために要る。
+- Magnitude に `max:` と `min:` を足した（Blue Book）。Kernel に無かったが、03 は Fraction の `max:` が動くことを求めている。
+- Integer、Float、Fraction に `> <= >=` のネイティブを置いた（計画は Float の `>=` と `<=` だけ）。Magnitude の既定は `<` の否定なので、Integer をレシーバとする NaN の比較も true になるからである。引数が数でなければ Magnitude の既定に任せ、利用者の Magnitude との比較は従来どおり動く。
+- 型をまたぐ `=` は false のまま（`1 = 1.0`、`(1/2) = 0.5`）。順序は値で決めるので、`1 <= 1.0` は true、`1 = 1.0` は false になる。Symbol の `=` も変えず（`#abc = 'abc'` は true）、`hash` を String と同じ関数にそろえた。
+- `//` `\\` `quo:` `rem:` とビット演算は Integer どうしのまま（Float と Fraction には無い）。SPEC に明記した。
+- Array と Point の `hash` の入れ子の上限は、`CallContext::hashNesting` で数える（4 段、Array は先頭 16 要素）。B10 でプロセスごとの状態に移すなら、この数も含める。
+- 03 の Rectangle の例は、Kernel に `@` と `Point>>corner:` が無いので、`Point x:y:` と `Rectangle origin:corner:` で書いた（`@` は 03 が SPEC の必須外として外した Number プロトコル）。
+- インライン展開しない `to:by:do:` は Kernel のネイティブに無く、`doesNotUnderstand:` のまま（SPEC §3.6 の必須外）。インライン展開した `to:do:` と `to:by:do:` は、`<=` と `+` が Float と Fraction を受けるようになったので、変更なしで同じ意味になった。
+- 残る懸念（B8 レビューで判明、後続で扱う）: `magDivMod` と `gcd` は 1 ビットずつ割るので、巨大な Fraction の生成が遅い（20 万ビットで 5.6 秒）。B8 では右シフトだけを桁とビットの移動に直した。
+
 ## B9 Kernel の意味論（コレクションとストリーム）
 
 - Dictionary と Set:
@@ -399,6 +412,7 @@ app:
   - `do:` は値を渡す。`associationsDo:`、`keysDo:`、`keysAndValuesDo:`、`at:ifAbsent:`、`removeKey:`、`removeKey:ifAbsent:` を足す（04 High）。
   - nil キーは拒否して失敗させる（04 Medium）。
   - `collection_do_test.cpp:111-126` の期待値を直す。
+  - `consumeHash`（`Dictionary.cpp` の `consumeHash`、`Collection.cpp` の `includes:`）は `hash` の答えを捨てる。このため、B8 で入った `hash` の失敗（Integer でない答え、空 OOP）が黙って成功になる。ハッシュ表化の際に、答えが Integer でなければ失敗として扱う（B8 レビューで判明）。
 - `select:` と `reject:` は 1 パスにする（04 Medium）。
 - Stream:
   - `contents` は `at:` で要素を取り出し、コレクションと同じ種類で作る（04 Medium）。

@@ -24,30 +24,83 @@ bool bothInts(const WellKnown& wk, Oop a, Oop b) {
   return LargeInteger::isInteger(wk, a) && LargeInteger::isInteger(wk, b);
 }
 
+// SPEC §3.6: to:do: whose receiver or limit is not a SmallInteger (a Float, Fraction or
+// LargeInteger limit, a LargeInteger receiver). As the inlined loop does (SPEC §3.5), it sends
+// `i <= limit` before each pass, treats a non-Boolean answer as a branch does (mustBeBoolean),
+// and steps the Integer i by 1. receiver and args are rooted slots; i lives in a Root.
+Oop toDoSendingLessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args) {
+  if (!LargeInteger::isInteger(ctx.wk, receiver)) {
+    return Oop{};
+  }
+  Root i(ctx.roots, receiver);
+  Root lessOrEqual(ctx.roots, ctx.wk.intern("<="));
+  Gc gc(ctx.heap, ctx.roots);
+  for (std::uint64_t pass = 1;; ++pass) {
+    const Oop more = send(ctx, i.slot, lessOrEqual.slot, &args[0], 1, nullptr);
+    if (unwinding(ctx)) {
+      return Oop{};
+    }
+    if (more.isEmpty()) {
+      // SPEC §3.3: the failing send is <=, as in the inlined loop.
+      return abortFailedSend(ctx, lessOrEqual.slot);
+    }
+    bool truth = false;
+    if (!truthOf(ctx, more, &truth)) {
+      return Oop{};
+    }
+    if (!truth) {
+      return receiver;
+    }
+    Oop ignored;
+    if (!callBlock(ctx, args[1], &i.slot, 1, &ignored)) {
+      return Oop{};
+    }
+    i.slot = LargeInteger::add(ctx, i.slot, Oop::fromSmallInteger(1));
+    if (i.slot.isEmpty()) {
+      return Oop{};
+    }
+    if ((pass & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
+  }
+}
+
 }  // namespace
 
 Oop ao_SmallInteger_add(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+  if (argc != 1) {
     return Oop{};
   }
-  return LargeInteger::add(ctx, receiver, args[0]);
+  if (bothInts(ctx.wk, receiver, args[0])) {
+    return LargeInteger::add(ctx, receiver, args[0]);
+  }
+  // SPEC §3.6: a Fraction or Float argument answers in its type.
+  return numberArith(ctx, receiver, args[0], NumberOp::Add);
 }
 
 Oop ao_Integer_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+  if (argc != 1) {
     return Oop{};
   }
-  return LargeInteger::sub(ctx, receiver, args[0]);
+  if (bothInts(ctx.wk, receiver, args[0])) {
+    return LargeInteger::sub(ctx, receiver, args[0]);
+  }
+  // SPEC §3.6: a Fraction or Float argument answers in its type.
+  return numberArith(ctx, receiver, args[0], NumberOp::Subtract);
 }
 
 Oop ao_Integer_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+  if (argc != 1) {
     return Oop{};
   }
-  return LargeInteger::mul(ctx, receiver, args[0]);
+  if (bothInts(ctx.wk, receiver, args[0])) {
+    return LargeInteger::mul(ctx, receiver, args[0]);
+  }
+  // SPEC §3.6: a Fraction or Float argument answers in its type.
+  return numberArith(ctx, receiver, args[0], NumberOp::Multiply);
 }
 
 Oop ao_Integer_intDivide(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -133,10 +186,51 @@ Oop ao_Integer_equals(CallContext& ctx, const Oop& receiver, const Oop* args, st
 
 Oop ao_Integer_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+  if (argc == 1 && bothInts(ctx.wk, receiver, args[0])) {
+    return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) < 0);
+  }
+  // SPEC §3.6: a Fraction or Float compares by exact value; anything else fails.
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Less, nullptr);
+}
+
+Oop ao_Integer_greaterThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
+  if (argc == 1 && bothInts(ctx.wk, receiver, args[0])) {
+    return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) > 0);
+  }
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Greater,
+                       ao_Magnitude_greaterThan);
+}
+
+Oop ao_Integer_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
+  if (argc == 1 && bothInts(ctx.wk, receiver, args[0])) {
+    return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) <= 0);
+  }
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::LessOrEqual,
+                       ao_Magnitude_lessOrEqual);
+}
+
+Oop ao_Integer_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
+  if (argc == 1 && bothInts(ctx.wk, receiver, args[0])) {
+    return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) >= 0);
+  }
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::GreaterOrEqual,
+                       ao_Magnitude_greaterOrEqual);
+}
+
+
+// SPEC §3.6: equal Integers hash equally. A SmallInteger is its own hash.
+Oop ao_Integer_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
     return Oop{};
   }
-  return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) < 0);
+  std::int64_t h = 0;
+  if (!LargeInteger::valueHash(ctx.heap, ctx.wk, receiver, &h)) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  return Oop::fromSmallInteger(h);
 }
 
 Oop ao_Integer_to_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -156,8 +250,11 @@ Oop ao_Integer_to_(CallContext& ctx, const Oop& receiver, const Oop* args, std::
 }
 
 Oop ao_Integer_to_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (argc != 2 || !receiver.isSmallInteger() || !args[0].isSmallInteger()) {
+  if (argc != 2) {
     return Oop{};
+  }
+  if (!receiver.isSmallInteger() || !args[0].isSmallInteger()) {
+    return toDoSendingLessOrEqual(ctx, receiver, args);
   }
   const auto start = receiver.smallIntegerValue();
   const auto stop = args[0].smallIntegerValue();
@@ -196,12 +293,13 @@ Oop ao_Integer_timesRepeat_(CallContext& ctx, const Oop& receiver, const Oop* ar
   return receiver;
 }
 
+// SPEC §3.6: Unicode scalar values only (SPEC §5.9): 0 to 0x10FFFF without the surrogates.
 Oop ao_Integer_asCharacter(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isSmallInteger()) {
     return Oop{};
   }
   const auto v = receiver.smallIntegerValue();
-  if (v < 0 || v > 0x10FFFF) {
+  if (v < 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) {
     return Oop{};
   }
   return Oop::fromCharacter(static_cast<char32_t>(v));
@@ -240,7 +338,11 @@ void installInteger(Heap& heap, WellKnown& wk) {
       {"bitXor:", 1, "ao_Integer_bitXor_", ao_Integer_bitXor_},
       {"bitShift:", 1, "ao_Integer_bitShift_", ao_Integer_bitShift_},
       {"=", 1, "ao_Integer_equals", ao_Integer_equals},
+      {"hash", 0, "ao_Integer_hash", ao_Integer_hash},
       {"<", 1, "ao_Integer_lessThan", ao_Integer_lessThan},
+      {">", 1, "ao_Integer_greaterThan", ao_Integer_greaterThan},
+      {"<=", 1, "ao_Integer_lessOrEqual", ao_Integer_lessOrEqual},
+      {">=", 1, "ao_Integer_greaterOrEqual", ao_Integer_greaterOrEqual},
       {"to:", 1, "ao_Integer_to_", ao_Integer_to_},
       {"to:do:", 2, "ao_Integer_to_do_", ao_Integer_to_do_},
       {"timesRepeat:", 1, "ao_Integer_timesRepeat_", ao_Integer_timesRepeat_},

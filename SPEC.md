@@ -345,6 +345,32 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 
 `Boolean`: `ifTrue:`, `ifFalse:`, `ifTrue:ifFalse:`, `ifFalse:ifTrue:`, `and:`, `or:`, `not`, `&`, `|`, `eqv:`, `xor:`
 
+Boolean の演算（Blue Book）:
+
+- `true & x` と `false | x` は `x` をそのまま答える。`x` は Boolean でなくてよい（`true & nil` は nil、`false | 3` は 3）。`false & x` は false、`true | x` は true。
+- `eqv:` と `xor:` は、引数が Boolean でなければ失敗する（§3.3。理由は `failed: #eqv:`、`failed: #xor:`）。`true xor: 3` は評価エラーである。
+
+`=` と `hash`:
+
+- `a = b` が true なら、`a hash = b hash` も true である。Kernel で `=` を値の比較に上書きするクラスは、`hash` も値から計算する。
+- `hash` は SmallInteger である。値から計算する `hash` は内容だけで決まり、アドレス、GC、イメージの保存と読み込みで変わらない。
+- 型をまたぐ `=` は false である（`1 = 1.0`、`(1/2) = 0.5`、`1.0 = 1` は false）。Integer と Fraction は正規化してあるので、等しい値は同じクラスになる。
+
+| レシーバ | `=` が true になる相手 | `hash` |
+|---|---|---|
+| SmallInteger, LargePositiveInteger, LargeNegativeInteger | 値の等しい Integer | SmallInteger に収まる値はその値。それ以外は符号と絶対値から |
+| Float | IEEE754 の `==` が成り立つ Float（`0.0 = -0.0` は true。NaN はどれとも等しくない。8 バイトに満たない Float（`Float new`）は 0.0 として読む） | `=` と同じに読んだ値のビット列から。`-0.0` と 8 バイトに満たない Float は `0.0` と同じ |
+| Fraction | 分子どうしと分母どうしが等しい Fraction | 分子と分母の `hash` から |
+| String, Symbol | 同じバイト列の String か Symbol（`#abc = 'abc'` は true） | バイト列から。String と Symbol は同じ関数 |
+| Array | 同じクラスで要素数が同じで、要素どうしが `=` | 要素数と、先頭 16 要素に `hash` を送った答えから |
+| Point | x どうしと y どうしが `=` の Point | x と y に `hash` を送った答えから |
+
+- Array と Point の `hash` は、要素に `hash` を送る（要素の `hash` は Smalltalk のメソッドでもよい）。答えが Integer でなければ失敗する（§3.3）。送った先で巻き戻しが始まったら、残りの要素に送らず直ちに空 OOP を返す（§3.4）。
+- 入れ子の上限: Array と Point の `hash` のネイティブは、Kernel の Array と Point の `hash` がじかに入れ子になった数が 4 以上なら、要素に送らない。Array は要素数だけから、Point は定数を答える。自分を要素に持つ Array や Point でも止まる。
+- `hash` は値だけで決まり、呼ばれた文脈によらない。要素で見つかる `hash` のメソッドが Kernel の Array か Point の `hash` のネイティブでなければ（利用者のメソッド、ほかのクラスのネイティブ）、入れ子の数を 0 にしてから送り、戻ったら（失敗や巻き戻しで戻ったときも）元の数に戻す。したがって、利用者の `hash` が中で送る `hash` は、どの深さから呼ばれても同じ答えになる。
+- 利用者のオブジェクトを経由する循環（利用者の `hash` が、自分を要素に持つ Array の `hash` を送る）は打ち切らない。再帰はスタックガード（§3.4）に当たり、評価は `stack overflow` で中断する。
+- Character は即値なので、同一性の `=` と `identityHash`（スカラー値）で足りる。`=` を上書きしない Kernel クラス（Interval、Association、Rectangle、OrderedCollection、Dictionary、Set、ByteArray など）は、同一性の `=` と `hash`（`identityHash`）のままである。
+
 #### Kernel-Classes
 
 - `Behavior`
@@ -465,11 +491,38 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 
 `SmallInteger` の `+ - * // \\ quo: rem: bitAnd: bitOr: bitXor: bitShift: = < > <= >=` はネイティブ。オーバーフローは `LargeInteger` へ透過。`Integer>>timesRepeat:` もネイティブ。
 
+数の演算:
+
+- Integer（SmallInteger と LargeInteger）、Fraction、Float の `+ - * /` は、どの組み合わせでも答える。答えは一般性の高いほう（Integer < Fraction < Float）の型である。Integer と Float、Fraction と Float は Float。Integer と Fraction は Fraction で、正規化し、分母が 1 なら Integer。Integer どうしの `/` は、割り切れれば Integer、でなければ Fraction。`1 + 1.5` は 2.5、`(1/2) + 0.5` は 1.0、`1 + (1/2)` は `3/2`。
+- Integer と Fraction を Float にするときは、IEEE754 binary64 の最近接偶数丸めで正しく丸める。LargeInteger の全域を扱い、範囲を超えれば ±inf である。
+- 0 で割ると: Integer と Fraction を 0（Integer）で割ると `division by zero` で中断する。Float が関わる割り算は IEEE754 に従う（`1 / 0.0` は inf、`0.0 / 0.0` は NaN）。
+- `//` `\\` `quo:` `rem:` `bitAnd:` `bitOr:` `bitXor:` `bitShift:` は Integer どうしの演算である。引数が Integer でなければ失敗する（§3.3）。Float と Fraction はこれらを持たない。
+- `bitShift:` のシフト量が -2^24 より小さい（-2^63 や負の LargeInteger を含む）なら、答えはレシーバが負なら -1、でなければ 0。シフト量が 2^24 より大きければ失敗する。`5 bitShift: (-1 bitShift: 63)` は 0、`-5 bitShift: (-1 bitShift: 63)` は -1。
+
+数の比較:
+
+- Integer、Fraction、Float の `< > <= >=` は、値を厳密に比べる。Float を Integer に、Integer を Float に丸めてから比べることはしない（`1152921504606846976.0 < 1152921504606846977` は true）。NaN との比較はどれも false（`(0.0/0.0) >= 1.0` も `1.0 >= (0.0/0.0)` も false）。+inf はどの有限の数より大きく、-inf は小さい。
+- `=` は型をまたぐと false のままである（Kernel-Objects の「`=` と `hash`」）。したがって `1 <= 1.0` は true だが、`1 = 1.0` は false である。
+- 引数が Integer、Fraction、Float のどれでもなければ、`<` は失敗する。`> <= >=` は Magnitude の既定（`>` は `引数 < レシーバ`、`<=` は `<` と `=`、`>=` は `<` の否定）で答える。
+- `Magnitude>>max:` は `self > 引数` が true ならレシーバ、false なら引数を答える。`min:` は `self < 引数` で同じように選ぶ（Blue Book）。比較の答えが Boolean でなければ失敗する。`between:and:` は `>=` と `<=` を送る。
+
+`to:do:`:
+
+- `Integer>>to:do:` のネイティブ（インライン展開しない送信。§3.5）は、レシーバと終端がともに SmallInteger なら数えて回す。そうでなければ（終端が Float、Fraction、LargeInteger など）、ループ変数に `<= 終端` を送って続けるかを決め、`+ 1` で進める。§3.5 のインライン展開と同じ意味である。`<=` の答えが Boolean でなければ、§3.5 の分岐と同じく `mustBeBoolean` を送る。`1 to: 2.5 do: aBlock` は 1 と 2 で aBlock を呼ぶ。
+
+Character:
+
+- `Integer>>asCharacter` は Unicode スカラー値（0 以上 0x10FFFF 以下で、サロゲート U+D800–U+DFFF を除く）だけを受け付ける。それ以外は失敗する（§3.3）。
+
 #### Graphics-min
 
 - `Point`, `Rectangle`
 
 描画プリミティブ（BitBlt, Form, Display）は v1 の対象外。座標計算だけホストツールが使う。
+
+- Point と Rectangle のネイティブは、それぞれのサブクラスのインスタンスも同じに扱う（クラスの一致ではなく `inheritsFrom:` と同じ判定）。
+- Point の算術（`+ - * //`）は成分ごとに送り、答えは Point である。成分の計算が失敗したら（`(Point x: 1 y: 2) + nil`）、Point を作らずに失敗する（§3.3）。
+- Rectangle の `containsPoint:` と `intersect:` は成分を `<=` と `<` で比べる。比べた答えが Boolean でなければ（失敗の空 OOP を含む）、false や成分の代わりにせず失敗する（§3.3）。比べた先で巻き戻しが始まったら、直ちに空 OOP を返す（§3.4）。
 
 #### Streams / System
 
@@ -916,6 +969,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `lookup_test`: 継承、super、doesNotUnderstand
 - `native_send_test`: `1 + 2`、`true ifTrue: []`、`#==`
 - `smallinteger_arith_test`: オーバーフローで LargeInteger へ
+- `kernel_numeric_test`: 数の混合演算と厳密な比較（NaN、±inf、LargeInteger）、Float への丸め、`bitShift:` の境界、Boolean の演算、Point と Rectangle のサブクラス、`asCharacter` の範囲、`to:do:` の終端、`=` と `hash` の契約
 - `collection_do_test`: Array/String/Dictionary の中核プロトコル
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`

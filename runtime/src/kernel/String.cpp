@@ -240,6 +240,20 @@ Oop ao_String_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std
              : Oop::false_();
 }
 
+
+// SPEC §3.6: a value hash of the bytes. Symbol inherits it: `#abc = 'abc'`, so both hash alike.
+Oop ao_String_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  if (!isBytes(ctx.heap, receiver)) {
+    return ao_Object_identityHash(ctx, receiver, args, argc);
+  }
+  const std::uint64_t h =
+      valueHashBytes(kValueHashSeed, bytePayload(ctx.heap, receiver), ctx.heap.size(receiver));
+  return Oop::fromSmallInteger(valueHashFold(h));
+}
+
 Oop ao_String_asSymbol(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !isBytes(ctx.heap, receiver)) {
     return Oop{};
@@ -311,6 +325,7 @@ void installString(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, str, "at:", 1, "ao_String_at_", ao_String_at_);
   putNative(heap, wk, str, "at:put:", 2, "ao_String_at_put_", ao_String_at_put_);
   putNative(heap, wk, str, "=", 1, "ao_String_equals", ao_String_equals);
+  putNative(heap, wk, str, "hash", 0, "ao_String_hash", ao_String_hash);
   putNative(heap, wk, str, "asSymbol", 0, "ao_String_asSymbol", ao_String_asSymbol);
   putNative(heap, wk, str, "printString", 0, "ao_String_printString", ao_String_printString);
   putNative(heap, wk, wk.symbolClass, "asString", 0, "ao_Symbol_asString", ao_Symbol_asString);
