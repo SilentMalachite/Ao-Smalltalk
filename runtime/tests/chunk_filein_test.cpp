@@ -186,3 +186,25 @@ TEST(ChunkFileIn, QuoteCharacterLiteralsKeepLaterChunks) {
   EXPECT_EQ(ao::Oop::fromSmallInteger(2), send0(b, inst.slot, "two"));
   EXPECT_EQ(ao::Oop::fromSmallInteger(3), send0(b, cls.slot, "three"));
 }
+
+// 05 Medium / SPEC §3.8 チャンク形式: 文字列の中でも `!!` は `!` 1 文字である。
+TEST(ChunkFileIn, DoubledBangInStringIsOneBang) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Bang\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Bang methodsFor: 'a'!\n"
+      "hello\n"
+      "  \"Say it!!\"\n"
+      "  ^'Hello!!'! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root inst(b.roots, send0(b, b.wk.named("B7Bang"), "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  const ao::Oop s = send0(b, inst.slot, "hello");
+  ASSERT_TRUE(s.isHeap());
+  EXPECT_EQ("Hello!", std::string(reinterpret_cast<const char*>(b.heap.bytes(s)), b.heap.size(s)));
+}

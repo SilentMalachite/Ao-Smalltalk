@@ -82,6 +82,26 @@ TEST(Chunk, QuoteCharacterLiteralsOpenNoStringOrComment) {
   EXPECT_EQ("three\n  ^3", acts[1].methods[0].source);
 }
 
+// SPEC §3.8 チャンク形式: `!!` is one `!` inside strings and comments too. A single `!` there does
+// not end the chunk.
+TEST(Chunk, DoubledBangInStringAndCommentIsOneBang) {
+  const char* src =
+      "!Foo methodsFor: 'a'!\n"
+      "hello\n"
+      "  \"Say it!!\"\n"
+      "  ^'Hello!!'!\n"
+      "single\n"
+      "  ^'a!\n"
+      "b'! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(2u, acts[0].methods.size());
+  EXPECT_EQ("hello\n  \"Say it!\"\n  ^'Hello!'", acts[0].methods[0].source);
+  EXPECT_EQ("single\n  ^'a!\nb'", acts[0].methods[1].source);
+}
+
 TEST(Chunk, SubclassSendInMethodStaysMethodsFor) {
   const char* src =
       "!Foo methodsFor: 't'!\n"

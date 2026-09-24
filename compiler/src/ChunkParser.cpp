@@ -136,6 +136,12 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         i++;
         continue;
       }
+      // `!!` is one `!` in strings and comments too. A single `!` there does not end the chunk.
+      if (!prose && (inStr || inCmt) && c == '!' && i + 1 < n && src[i + 1] == '!') {
+        text.push_back('!');
+        i += 2;
+        continue;
+      }
       // `$'` and `$"` are characters. They open no string or comment.
       if (!inStr && !inCmt && (c == '\'' || c == '"') && isCharacterLiteral(src, i)) {
         text.push_back(c);
