@@ -416,6 +416,45 @@ final class AcceptTests: XCTestCase {
     XCTAssertFalse(browser.model.categories.contains("B5-Defined"))
   }
 
+  // A comment before the definition that quotes another definition is not the definition: the
+  // Browser selects the class the runtime defined.
+  func testClassDefinitionAcceptAfterACommentQuotingSubclassSelectsTheDefinedClass() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectClass("Array", in: browser)
+    let def =
+      "\"Example: Object subclass: #Object\" Object subclass: #B5Commented\n"
+      + "  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'B5-Commented'\n"
+    browser.replaceSource(def)
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    assertShowsDefinition(of: "B5Commented", in: "B5-Commented", browser: browser)
+  }
+
+  // A string literal that holds subclass: (here in a method chunk before the definition) is not
+  // the definition either.
+  func testClassDefinitionAcceptAfterAStringHoldingSubclassSelectsTheDefinedClass() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectClass("Array", in: browser)
+    browser.replaceSource(
+      "Object subclass: #B5Host\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+        + "  poolDictionaries: ''\n  category: 'B5-Host'\n"
+    )
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    let source =
+      "B5Host methodsFor: 'notes'!\n"
+      + "note\n  ^'Object subclass: #Object'! !\n"
+      + "Object subclass: #B5AfterString\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'B5-AfterString'\n"
+    browser.replaceSource(source)
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    assertShowsDefinition(of: "B5AfterString", in: "B5-AfterString", browser: browser)
+  }
+
   func testClassSideAcceptUsesMeta() {
     let browser = BrowserWindow()
     defer { browser.window.close() }

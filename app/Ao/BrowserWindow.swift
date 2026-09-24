@@ -266,10 +266,19 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   // The argument of the first subclass: keyword (#Name, #'Name', 'Name' or Name), as the chunk
-  // parser takes it.
+  // parser takes it. A subclass: in a comment or a literal is not that keyword.
   private static func definedClassName(in source: String) -> String? {
-    let pattern = /(?:^|[^A-Za-z0-9_])subclass:\s*#?'?([A-Za-z_][A-Za-z0-9_]*)/
-    return source.firstMatch(of: pattern).map { String($0.1) }
+    var scanner = DefinitionScanner(source)
+    while let token = scanner.next() {
+      guard token == .keyword("subclass:") else {
+        continue
+      }
+      guard case .value(let name)? = scanner.next() else {
+        return nil
+      }
+      return name
+    }
+    return nil
   }
 
   func showHierarchy() {
@@ -585,6 +594,142 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       }
     }
     return (status, spanMessage(err))
+  }
+}
+
+// The tokens BrowserWindow.definedClassName needs, read as compiler/src/Scanner.cpp reads them: a
+// comment is skipped, and a string, symbol or character literal is one token, so a subclass:
+// inside one is not a keyword.
+private struct DefinitionScanner {
+  enum Token: Equatable {
+    case keyword(String)
+    // An identifier, a symbol or a string: the tokens whose text the chunk parser takes as a
+    // definition keyword's argument.
+    case value(String)
+    case other
+  }
+
+  private let chars: [Unicode.Scalar]
+  private var index = 0
+
+  init(_ source: String) {
+    chars = Array(source.unicodeScalars)
+  }
+
+  // nil at the end, and where the Scanner answers an error token and stops: a comment or string
+  // that does not end, or a lone # or $.
+  mutating func next() -> Token? {
+    guard skipTrivia(), let c = peek() else {
+      return nil
+    }
+    if isLetter(c) {
+      let word = readWord()
+      if peek() == ":" && peek(1) != "=" {
+        index += 1
+        return .keyword(word + ":")
+      }
+      return .value(word)
+    }
+    switch c {
+    case "'":
+      return readString().map(Token.value)
+    case "#":
+      index += 1
+      return readSymbol()
+    case "$":
+      // One character, whatever it is ($' and $" too).
+      guard index + 1 < chars.count else {
+        return nil
+      }
+      index += 2
+      return .other
+    default:
+      index += 1
+      return .other
+    }
+  }
+
+  private func peek(_ offset: Int = 0) -> Unicode.Scalar? {
+    index + offset < chars.count ? chars[index + offset] : nil
+  }
+
+  private func isLetter(_ c: Unicode.Scalar) -> Bool {
+    ("A"..."Z").contains(c) || ("a"..."z").contains(c)
+  }
+
+  private func isLetterOrDigit(_ c: Unicode.Scalar) -> Bool {
+    isLetter(c) || ("0"..."9").contains(c)
+  }
+
+  // False inside a comment that does not end.
+  private mutating func skipTrivia() -> Bool {
+    while let c = peek() {
+      if [" ", "\t", "\n", "\r", "\u{0C}", "\u{0B}"].contains(c) {
+        index += 1
+        continue
+      }
+      guard c == "\"" else {
+        return true
+      }
+      guard let end = chars[(index + 1)...].firstIndex(of: "\"") else {
+        return false
+      }
+      index = end + 1
+    }
+    return true
+  }
+
+  // At a letter.
+  private mutating func readWord() -> String {
+    var word = ""
+    while let c = peek(), isLetterOrDigit(c) {
+      word.unicodeScalars.append(c)
+      index += 1
+    }
+    return word
+  }
+
+  // At the opening quote. '' inside is one quote.
+  private mutating func readString() -> String? {
+    var text = ""
+    index += 1
+    while let c = peek() {
+      index += 1
+      guard c == "'" else {
+        text.unicodeScalars.append(c)
+        continue
+      }
+      guard peek() == "'" else {
+        return text
+      }
+      text.unicodeScalars.append(c)
+      index += 1
+    }
+    return nil
+  }
+
+  // After the #: #'text', #name or #key:words: is a value. #( #[ and a binary selector are not,
+  // and the token after the # is read on its own.
+  private mutating func readSymbol() -> Token? {
+    guard let c = peek() else {
+      return nil
+    }
+    if c == "'" {
+      return readString().map(Token.value)
+    }
+    guard isLetter(c) else {
+      return .other
+    }
+    var text = ""
+    while let part = peek(), isLetter(part) {
+      text += readWord()
+      guard peek() == ":" else {
+        break
+      }
+      text += ":"
+      index += 1
+    }
+    return .value(text)
   }
 }
 
