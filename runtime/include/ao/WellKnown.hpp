@@ -47,6 +47,10 @@ class WellKnown {
   // The names Bootstrap binds and nothing rebinds but file-in's vendor stubs: the catalog,
   // Smalltalk and Processor (SPEC §3.6).
   bool isFixedGlobal(std::string_view name) const;
+  // The pseudo-variables nil true false self super thisContext (SPEC §3.8). The compiler resolves
+  // them before globals, so Smalltalk binds none of them: define refuses them as it refuses a fixed
+  // global (SPEC §3.6).
+  static bool isPseudoVariableName(std::string_view name);
   bool rebind(std::string_view name, Oop cls);
   // Grows whenever define or rebind changes the global names, so caches of them can tell.
   std::uint64_t globalsVersion() const { return globalsVersion_; }

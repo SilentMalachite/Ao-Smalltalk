@@ -203,7 +203,8 @@ Oop WellKnown::global(Oop symbol) const {
 
 bool WellKnown::define(std::string_view name, Oop value) {
   // A fixed global keeps its value: a catalog name its well-known slot (save checks the two agree).
-  if (isFixedGlobal(name)) {
+  // A pseudo-variable is never a global (SPEC §3.6).
+  if (isFixedGlobal(name) || isPseudoVariableName(name)) {
     return false;
   }
   const Oop key = intern(name);
@@ -225,6 +226,11 @@ bool WellKnown::isCatalogName(std::string_view name) const {
 
 bool WellKnown::isFixedGlobal(std::string_view name) const {
   return name == "Smalltalk" || name == "Processor" || isCatalogName(name);
+}
+
+bool WellKnown::isPseudoVariableName(std::string_view name) {
+  return name == "nil" || name == "true" || name == "false" || name == "self" || name == "super" ||
+         name == "thisContext";
 }
 
 bool WellKnown::rebind(std::string_view name, Oop cls) {

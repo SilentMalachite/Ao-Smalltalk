@@ -526,6 +526,9 @@ Oop ao_SmalltalkImage_at_put_(CallContext& ctx, const Oop&, const Oop* args, std
   if (ctx.wk.isFixedGlobal(name)) {
     return abortEvaluation(ctx, std::string_view("cannot rebind Kernel global: " + name));
   }
+  if (WellKnown::isPseudoVariableName(name)) {
+    return abortEvaluation(ctx, std::string_view("cannot bind pseudo-variable: " + name));
+  }
   // define does not collect. It fails only at old's max, and flags out of memory for the send.
   if (!ctx.wk.define(name, args[1])) {
     return Oop{};

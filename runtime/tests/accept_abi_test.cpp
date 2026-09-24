@@ -2221,3 +2221,36 @@ TEST(AcceptAbi, SubclassRefusesRedeclaredInstanceVariables) {
   });
   ao_runtime_shutdown();
 }
+
+// B4 review (Claude L) / SPEC §3.6: 失敗シナリオ。Smalltalk at: #nil put: 3 が通り、Smalltalk at: #nil
+// が 3 を答えた。擬変数の名前は、固定のグローバルと同じく理由付きで拒み、辞書は変わらない。
+// subclass: も擬変数の名前では登録しない。
+TEST(AcceptAbi, SmalltalkRefusesPseudoVariableKeys) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  for (const char* name : {"nil", "true", "false", "self", "super", "thisContext"}) {
+    for (const char* quote : {"#", "'"}) {
+      std::string src = "Smalltalk at: ";
+      src += quote;
+      src += name;
+      src += quote[0] == '\'' ? "'" : "";
+      src += " put: 3";
+      char out[128];
+      AoSpan err{};
+      EXPECT_EQ(AO_ERR_EVAL, ao_eval(src.c_str(), static_cast<int>(src.size()), AO_EVAL_PRINTIT,
+                                     out, 128, &err))
+          << src;
+      EXPECT_EQ(std::string("cannot bind pseudo-variable: ") + name, err.message) << src;
+    }
+  }
+  expectPrints({
+      {"Smalltalk includesKey: #nil", "false"},
+      {"Smalltalk includesKey: #thisContext", "false"},
+      {"Smalltalk at: #self ifAbsent: [7]", "7"},
+      {"(Object subclass: #super instanceVariableNames: '' classVariableNames: '' "
+       "poolDictionaries: '' category: 'B4-Test') name == #super",
+       "true"},
+      {"Smalltalk includesKey: #super", "false"},
+      {"Smalltalk at: #B4NotPseudo put: 4", "4"},
+  });
+  ao_runtime_shutdown();
+}
