@@ -269,3 +269,27 @@ TEST(ChunkFileIn, SubclassPatternInSectionIsAMethod) {
             send1(b, inst.slot, "methodsFor:", ao::Oop::fromSmallInteger(4)));
   EXPECT_TRUE(b.wk.named("B7PatAfter").isHeap());
 }
+
+// B7 review / SPEC §3.8 チャンク形式: file-out は `$!` の `!` も二重にする（`^$!!`）。そのあとの
+// `! !` でセクションは閉じ、続く式を直前のクラスのメソッドにしない。
+TEST(ChunkFileIn, DoubledBangCharacterFromAFileOut) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Dollar\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Dollar methodsFor: 'a'!\n"
+      "bang\n"
+      "\t^$!!! !\n"
+      "\n"
+      "B7Dollar initialize!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B7Dollar");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("B7Dollar")).isNil());
+  ao::Root inst(b.roots, send0(b, cls, "new"));
+  EXPECT_EQ(ao::Oop::fromCharacter(U'!'), send0(b, inst.slot, "bang"));
+}

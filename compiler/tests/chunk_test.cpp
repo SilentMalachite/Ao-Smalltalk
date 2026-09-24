@@ -40,18 +40,24 @@ TEST(Chunk, ClassDefinitionShape) {
   EXPECT_EQ("a b", acts[0].instVars);
 }
 
+// SPEC §3.8 チャンク形式: a file-out doubles the bang of `$!` like any other, so `^$!` is written
+// `^$!!`. The `! !` after it still ends the section.
 TEST(Chunk, BangInCharacterDoesNotSplit) {
   const char* src =
       "!Foo methodsFor: 't'!\n"
       "bang\n"
-      "  ^$!\n";
+      "  ^$!!! !\n"
+      "\n"
+      "Foo initialize!\n";
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(src, errs);
   ASSERT_TRUE(errs.empty());
-  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(2u, acts.size());
   EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
   ASSERT_EQ(1u, acts[0].methods.size());
-  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("$!"));
+  EXPECT_EQ("bang\n  ^$!", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Foo initialize", acts[1].source);
 }
 
 // SPEC §3.8 チャンク形式: `$'` and `$"` are character literals. They open no string or comment,

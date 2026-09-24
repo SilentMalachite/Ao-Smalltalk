@@ -384,6 +384,35 @@ TEST(AcceptAbi, AcceptClassKeepsSubclassPatternAMethod) {
   ao_runtime_shutdown();
 }
 
+// B7 review / SPEC §3.8 チャンク形式: `$!` の `!` も二重にした `^$!!` を読む。そのあとの `! !` で
+// セクションは閉じるので、続く式は拒み、何も入れない。
+TEST(AcceptAbi, AcceptClassReadsDoubledBangCharacter) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7X\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class("!B7X methodsFor: 'a'!\nbang\n  ^$!!! !\n\nB7X initialize!\n", &e));
+  EXPECT_STREQ("not a class definition", e.message);
+  ASSERT_EQ(AO_OK, printIt("(B7X includesSelector: #B7X) | (B7X includesSelector: #bang)"))
+      << err.message;
+  EXPECT_STREQ("false", out);
+  ASSERT_EQ(AO_OK, ao_accept_class("!B7X methodsFor: 'a'!\nbang\n  ^$!!! !\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("B7X new bang")) << err.message;
+  EXPECT_STREQ("$!", out);
+  ao_runtime_shutdown();
+}
+
 // 指摘 8 / SPEC §3.10: クラス定義メッセージのあとに文が続けば、何も適用せずに拒む。
 TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());

@@ -118,11 +118,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     while (i < n) {
       const char c = src[i];
       if (!inStr && !inCmt && c == '!') {
-        if (!prose && isCharacterLiteral(src, i)) {
-          text.push_back(c);
-          i++;
-          continue;
-        }
+        // `$!` is written `$!!` like any other bang: no exemption for characters here.
         if (!prose && i + 1 < n && src[i + 1] == '!') {
           text.push_back('!');
           i += 2;
