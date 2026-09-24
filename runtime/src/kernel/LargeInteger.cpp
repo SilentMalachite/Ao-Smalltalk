@@ -551,6 +551,26 @@ double roundToDouble(const Digits& mag, std::int64_t exp2, bool sticky) {
   return std::ldexp(static_cast<double>(m), static_cast<int>(exp2 + drop));
 }
 
+Big bigOf(std::int64_t v) {
+  Big b;
+  b.neg = v < 0;
+  digitsFromU64(v >= 0 ? static_cast<std::uint64_t>(v) : 0u - static_cast<std::uint64_t>(v), b.d);
+  return b;
+}
+
+// Moves the sign of den into num, so that num / den keeps its value with den > 0. False when den
+// is 0.
+bool positiveDenominator(Big& num, Big& den) {
+  if (den.isZero()) {
+    return false;
+  }
+  if (den.neg) {
+    den.neg = false;
+    num.neg = !num.isZero() && !num.neg;
+  }
+  return true;
+}
+
 }  // namespace
 
 Oop fromInt64(Heap& heap, WellKnown& wk, std::int64_t value) {
@@ -898,6 +918,64 @@ bool ratioToDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double* out) {
     }
   }
   *out = negative ? -v : v;
+  return true;
+}
+
+
+bool compareRatioWithDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double d, int* out) {
+  if (std::isnan(d)) {
+    return false;
+  }
+  if (num.isSmallInteger() && den == Oop::fromSmallInteger(1)) {
+    // Rounding to double is monotonic and d is a double: when the rounded i differs from d, it
+    // is on the same side as i. When it equals d, d is an integer of at most 2^62 in magnitude,
+    // so it converts back exactly and decides.
+    const std::int64_t i = num.smallIntegerValue();
+    const auto di = static_cast<double>(i);
+    if (di != d) {
+      *out = di < d ? -1 : 1;
+      return true;
+    }
+    const auto t = static_cast<std::int64_t>(d);
+    *out = i < t ? -1 : (i > t ? 1 : 0);
+    return true;
+  }
+  Big n;
+  Big q;
+  if (!parse(heap, wk, num, n) || !parse(heap, wk, den, q) || !positiveDenominator(n, q)) {
+    return false;
+  }
+  if (std::isinf(d)) {
+    *out = d > 0 ? -1 : 1;
+    return true;
+  }
+  // d = m · 2^e exactly, with m an integer below 2^53 in magnitude. Compare n · 2^-e with m · q
+  // (e < 0), or n with m · q · 2^e.
+  int e = 0;
+  const double fraction = std::frexp(d, &e);
+  const auto m = static_cast<std::int64_t>(std::ldexp(fraction, 53));
+  e -= 53;
+  Big left = n;
+  Big right = mulBig(bigOf(m), q);
+  if (e < 0) {
+    magShl(left.d, static_cast<unsigned>(-e));
+  } else {
+    magShl(right.d, static_cast<unsigned>(e));
+  }
+  *out = cmpBig(left, right);
+  return true;
+}
+
+bool compareRatios(Heap& heap, WellKnown& wk, Oop n1, Oop d1, Oop n2, Oop d2, int* out) {
+  Big a;
+  Big b;
+  Big c;
+  Big d;
+  if (!parse(heap, wk, n1, a) || !parse(heap, wk, d1, b) || !parse(heap, wk, n2, c) ||
+      !parse(heap, wk, d2, d) || !positiveDenominator(a, b) || !positiveDenominator(c, d)) {
+    return false;
+  }
+  *out = cmpBig(mulBig(a, d), mulBig(c, b));
   return true;
 }
 

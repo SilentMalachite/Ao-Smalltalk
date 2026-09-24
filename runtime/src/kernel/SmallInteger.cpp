@@ -145,10 +145,38 @@ Oop ao_Integer_equals(CallContext& ctx, const Oop& receiver, const Oop* args, st
 
 Oop ao_Integer_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
-    return Oop{};
+  if (argc == 1 && bothInts(ctx.wk, receiver, args[0])) {
+    return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) < 0);
   }
-  return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) < 0);
+  // SPEC §3.6: a Fraction or Float compares by exact value; anything else fails.
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Less, nullptr);
+}
+
+Oop ao_Integer_greaterThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
+  if (argc == 1 && bothInts(ctx.wk, receiver, args[0])) {
+    return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) > 0);
+  }
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Greater,
+                       ao_Magnitude_greaterThan);
+}
+
+Oop ao_Integer_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                           std::uint32_t argc) {
+  if (argc == 1 && bothInts(ctx.wk, receiver, args[0])) {
+    return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) <= 0);
+  }
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::LessOrEqual,
+                       ao_Magnitude_lessOrEqual);
+}
+
+Oop ao_Integer_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
+  if (argc == 1 && bothInts(ctx.wk, receiver, args[0])) {
+    return asBool(LargeInteger::compare(ctx.heap, ctx.wk, receiver, args[0]) >= 0);
+  }
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::GreaterOrEqual,
+                       ao_Magnitude_greaterOrEqual);
 }
 
 Oop ao_Integer_to_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -253,6 +281,9 @@ void installInteger(Heap& heap, WellKnown& wk) {
       {"bitShift:", 1, "ao_Integer_bitShift_", ao_Integer_bitShift_},
       {"=", 1, "ao_Integer_equals", ao_Integer_equals},
       {"<", 1, "ao_Integer_lessThan", ao_Integer_lessThan},
+      {">", 1, "ao_Integer_greaterThan", ao_Integer_greaterThan},
+      {"<=", 1, "ao_Integer_lessOrEqual", ao_Integer_lessOrEqual},
+      {">=", 1, "ao_Integer_greaterOrEqual", ao_Integer_greaterOrEqual},
       {"to:", 1, "ao_Integer_to_", ao_Integer_to_},
       {"to:do:", 2, "ao_Integer_to_do_", ao_Integer_to_do_},
       {"timesRepeat:", 1, "ao_Integer_timesRepeat_", ao_Integer_timesRepeat_},

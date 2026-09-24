@@ -43,6 +43,13 @@ bool isZero(Heap& heap, WellKnown& wk, Oop o);
 // included), ±inf beyond the range. num / den is rounded once, not num and den apart. False when
 // num or den is not an Integer or den is 0. Does not allocate on the heap.
 bool ratioToDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double* out);
+// SPEC §3.6: the exact order of num / den and d, -1, 0 or 1 in *out; neither is rounded to the
+// other. +inf orders above every ratio and -inf below. False when d is NaN (unordered), or num or
+// den is not an Integer, or den is 0. Does not allocate on the heap.
+bool compareRatioWithDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double d, int* out);
+// The exact order of n1 / d1 and n2 / d2, -1, 0 or 1 in *out. False when one of them is not an
+// Integer or a denominator is 0. Does not allocate on the heap.
+bool compareRatios(Heap& heap, WellKnown& wk, Oop n1, Oop d1, Oop n2, Oop d2, int* out);
 
 }  // namespace LargeInteger
 }  // namespace ao

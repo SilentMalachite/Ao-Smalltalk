@@ -314,9 +314,9 @@ TEST(Interpreter, SendSpecialNonSmallIntegerFallsBack) {
   EXPECT_DOUBLE_EQ(7.5, floatValue(run("+", three, makeFloat(b, 4.5))));
   EXPECT_DOUBLE_EQ(-1.5, floatValue(run("-", three, makeFloat(b, 4.5))));
   EXPECT_DOUBLE_EQ(13.5, floatValue(run("*", three, makeFloat(b, 4.5))));
-  for (const char* sel : {"<", "<=", ">="}) {
-    EXPECT_TRUE(run(sel, three, makeFloat(b, 4.5)).isEmpty()) << sel;
-  }
+  EXPECT_TRUE(run("<", three, makeFloat(b, 4.5)).isTrue());
+  EXPECT_TRUE(run("<=", three, makeFloat(b, 4.5)).isTrue());
+  EXPECT_TRUE(run(">=", three, makeFloat(b, 4.5)).isFalse());
   EXPECT_TRUE(run(">", three, makeFloat(b, 4.5)).isFalse());
   EXPECT_TRUE(run("=", three, makeFloat(b, 4.5)).isFalse());
   EXPECT_TRUE(run("=", three, makeFloat(b, 3.0)).isFalse());

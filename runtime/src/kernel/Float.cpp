@@ -5,6 +5,7 @@
 #include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
@@ -192,6 +193,51 @@ NumKind kindOf(CallContext& ctx, Oop o) {
   return NumKind::None;
 }
 
+// SPEC §3.6: the exact order of a and b (-1, 0, 1). False when either is not an Integer, Fraction
+// or Float. *unordered is set when a NaN is involved; *order is then meaningless.
+bool numberOrder(CallContext& ctx, Oop a, Oop b, int* order, bool* unordered) {
+  *unordered = false;
+  const NumKind ka = kindOf(ctx, a);
+  const NumKind kb = kindOf(ctx, b);
+  if (ka == NumKind::None || kb == NumKind::None) {
+    return false;
+  }
+  if (ka == NumKind::Integer && kb == NumKind::Integer) {
+    *order = LargeInteger::compare(ctx.heap, ctx.wk, a, b);
+    return true;
+  }
+  if (ka == NumKind::Float && kb == NumKind::Float) {
+    const double x = asDouble(ctx.heap, a);
+    const double y = asDouble(ctx.heap, b);
+    *unordered = std::isnan(x) || std::isnan(y);
+    *order = x < y ? -1 : (x > y ? 1 : 0);
+    return true;
+  }
+  Oop num;
+  Oop den;
+  if (ka == NumKind::Float || kb == NumKind::Float) {
+    // One exact number and one Float: compare the Float as the exact value it is.
+    const bool floatFirst = ka == NumKind::Float;
+    const double x = asDouble(ctx.heap, floatFirst ? a : b);
+    if (std::isnan(x)) {
+      *unordered = true;
+      return true;
+    }
+    if (!asNumDen(ctx, floatFirst ? b : a, &num, &den) ||
+        !LargeInteger::compareRatioWithDouble(ctx.heap, ctx.wk, num, den, x, order)) {
+      return false;
+    }
+    if (floatFirst) {
+      *order = -*order;
+    }
+    return true;
+  }
+  Oop num2;
+  Oop den2;
+  return asNumDen(ctx, a, &num, &den) && asNumDen(ctx, b, &num2, &den2) &&
+         LargeInteger::compareRatios(ctx.heap, ctx.wk, num, den, num2, den2, order);
+}
+
 }  // namespace
 
 Oop numberArith(CallContext& ctx, const Oop& a, const Oop& b, NumberOp op) {
@@ -217,6 +263,38 @@ Oop numberArith(CallContext& ctx, const Oop& a, const Oop& b, NumberOp op) {
       break;
   }
   return Oop{};
+}
+
+
+Oop numberCompare(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+                  NumberRelation rel, NativeFn fallback) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  int order = 0;
+  bool unordered = false;
+  if (!numberOrder(ctx, receiver, args[0], &order, &unordered)) {
+    return fallback != nullptr ? fallback(ctx, receiver, args, argc) : Oop{};
+  }
+  if (unordered) {
+    return Oop::false_();
+  }
+  bool holds = false;
+  switch (rel) {
+    case NumberRelation::Less:
+      holds = order < 0;
+      break;
+    case NumberRelation::Greater:
+      holds = order > 0;
+      break;
+    case NumberRelation::LessOrEqual:
+      holds = order <= 0;
+      break;
+    case NumberRelation::GreaterOrEqual:
+      holds = order >= 0;
+      break;
+  }
+  return holds ? Oop::true_() : Oop::false_();
 }
 
 Oop ao_Integer_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -266,15 +344,25 @@ Oop ao_Float_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
 }
 
 Oop ao_Float_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (argc != 1) {
-    return Oop{};
-  }
-  double x = 0;
-  double y = 0;
-  if (!asFloat(ctx, receiver, &x) || !asFloat(ctx, args[0], &y)) {
-    return Oop{};
-  }
-  return x < y ? Oop::true_() : Oop::false_();
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Less, nullptr);
+}
+
+Oop ao_Float_greaterThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Greater,
+                       ao_Magnitude_greaterThan);
+}
+
+Oop ao_Float_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::LessOrEqual,
+                       ao_Magnitude_lessOrEqual);
+}
+
+Oop ao_Float_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::GreaterOrEqual,
+                       ao_Magnitude_greaterOrEqual);
 }
 
 Oop ao_Fraction_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -307,6 +395,56 @@ Oop ao_Fraction_divide(CallContext& ctx, const Oop& receiver, const Oop* args, s
   return numberArith(ctx, receiver, args[0], NumberOp::Divide);
 }
 
+
+// SPEC §3.6: two Fractions are equal when their numerators and their denominators are (both are
+// normalized, so equal values have equal parts). Anything else only equals itself.
+Oop ao_Fraction_equals(CallContext& ctx, const Oop& receiver, const Oop* args,
+                       std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  if (receiver == args[0]) {
+    return Oop::true_();
+  }
+  Oop n1;
+  Oop d1;
+  Oop n2;
+  Oop d2;
+  if (!isFrac(ctx.wk, receiver) || !isFrac(ctx.wk, args[0]) || !asNumDen(ctx, receiver, &n1, &d1) ||
+      !asNumDen(ctx, args[0], &n2, &d2) || !LargeInteger::isInteger(ctx.wk, n1) ||
+      !LargeInteger::isInteger(ctx.wk, d1) || !LargeInteger::isInteger(ctx.wk, n2) ||
+      !LargeInteger::isInteger(ctx.wk, d2)) {
+    return Oop::false_();
+  }
+  return LargeInteger::compare(ctx.heap, ctx.wk, n1, n2) == 0 &&
+                 LargeInteger::compare(ctx.heap, ctx.wk, d1, d2) == 0
+             ? Oop::true_()
+             : Oop::false_();
+}
+
+Oop ao_Fraction_lessThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                         std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Less, nullptr);
+}
+
+Oop ao_Fraction_greaterThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::Greater,
+                       ao_Magnitude_greaterThan);
+}
+
+Oop ao_Fraction_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::LessOrEqual,
+                       ao_Magnitude_lessOrEqual);
+}
+
+Oop ao_Fraction_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
+  return numberCompare(ctx, receiver, args, argc, NumberRelation::GreaterOrEqual,
+                       ao_Magnitude_greaterOrEqual);
+}
+
 Oop ao_Float_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
@@ -335,6 +473,9 @@ void installFloat(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.floatClass, "/", 1, "ao_Float_divide", ao_Float_divide);
   putNative(heap, wk, wk.floatClass, "=", 1, "ao_Float_equals", ao_Float_equals);
   putNative(heap, wk, wk.floatClass, "<", 1, "ao_Float_lessThan", ao_Float_lessThan);
+  putNative(heap, wk, wk.floatClass, ">", 1, "ao_Float_greaterThan", ao_Float_greaterThan);
+  putNative(heap, wk, wk.floatClass, "<=", 1, "ao_Float_lessOrEqual", ao_Float_lessOrEqual);
+  putNative(heap, wk, wk.floatClass, ">=", 1, "ao_Float_greaterOrEqual", ao_Float_greaterOrEqual);
   putNative(heap, wk, wk.floatClass, "printString", 0, "ao_Float_printString",
             ao_Float_printString);
 
@@ -342,6 +483,14 @@ void installFloat(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.fractionClass, "-", 1, "ao_Fraction_subtract", ao_Fraction_subtract);
   putNative(heap, wk, wk.fractionClass, "*", 1, "ao_Fraction_multiply", ao_Fraction_multiply);
   putNative(heap, wk, wk.fractionClass, "/", 1, "ao_Fraction_divide", ao_Fraction_divide);
+  putNative(heap, wk, wk.fractionClass, "=", 1, "ao_Fraction_equals", ao_Fraction_equals);
+  putNative(heap, wk, wk.fractionClass, "<", 1, "ao_Fraction_lessThan", ao_Fraction_lessThan);
+  putNative(heap, wk, wk.fractionClass, ">", 1, "ao_Fraction_greaterThan",
+            ao_Fraction_greaterThan);
+  putNative(heap, wk, wk.fractionClass, "<=", 1, "ao_Fraction_lessOrEqual",
+            ao_Fraction_lessOrEqual);
+  putNative(heap, wk, wk.fractionClass, ">=", 1, "ao_Fraction_greaterOrEqual",
+            ao_Fraction_greaterOrEqual);
 }
 
 }  // namespace kernel

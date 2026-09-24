@@ -159,3 +159,140 @@ TEST(KernelNumericConvert, FractionToFloatRoundsOnceIncludingSubnormals) {
   EXPECT_EQ(0.0, ratio(b, "1", pow2(2000)));
   EXPECT_EQ(std::numeric_limits<double>::infinity(), ratio(b, pow2(2000), "3"));
 }
+
+namespace {
+
+// Accepts `superclass subclass: #name instanceVariableNames: ivars ...` (SPEC §3.10).
+void acceptClass(const char* superclass, const char* name, const char* ivars) {
+  const std::string def = std::string(superclass) + " subclass: #" + name +
+                          "\n  instanceVariableNames: '" + ivars +
+                          "'\n  classVariableNames: ''\n  poolDictionaries: ''\n"
+                          "  category: 'B8-Test'\n";
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+}
+
+void acceptMethod(const char* className, const char* source) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method(className, 0, source, &err)) << err.message;
+}
+
+}  // namespace
+
+// 03 High: Integer と Float の比較は向きによらず答える。
+TEST_F(KernelNumeric, IntegerAndFloatCompareInBothDirections) {
+  EXPECT_EQ("true", printIt("1 < 1.5"));
+  EXPECT_EQ("true", printIt("1.5 > 1"));
+  EXPECT_EQ("true", printIt("2 >= 1.5"));
+  EXPECT_EQ("false", printIt("2 <= 1.5"));
+  EXPECT_EQ("false", printIt("1 > 1.5"));
+  EXPECT_EQ("true", printIt("0.5 < 1"));
+  EXPECT_EQ("true", printIt("-0.5 > -1"));
+  EXPECT_EQ("true", printIt("1.0 < (1 bitShift: 70)"));
+  EXPECT_EQ("true", printIt("(1 bitShift: 70) > 1.0"));
+  // 順序は数の値で決め、= は型をまたぐと false のまま。
+  EXPECT_EQ("true", printIt("1 <= 1.0"));
+  EXPECT_EQ("true", printIt("1 >= 1.0"));
+  EXPECT_EQ("false", printIt("1 = 1.0"));
+  EXPECT_EQ("false", printIt("1.0 = 1"));
+  EXPECT_EQ("true", printIt("(Rectangle origin: (Point x: 0 y: 0) corner: (Point x: 10 y: 10)) "
+                            "containsPoint: (Point x: 0.5 y: 0.5)"));
+}
+
+// 03 High: 整数と double は、どちらも丸めずに比べる。
+TEST_F(KernelNumeric, IntegerAndFloatCompareWithoutRounding) {
+  EXPECT_EQ("true", printIt("1152921504606846976.0 < 1152921504606846977"));
+  EXPECT_EQ("true", printIt("1152921504606846977 > 1152921504606846976.0"));
+  EXPECT_EQ("false", printIt("1152921504606846977 <= 1152921504606846976.0"));
+  EXPECT_EQ("true", printIt("9007199254740993 > 9007199254740992.0"));
+  // SmallInteger の最大値 2^62 - 1 は、double にすると 2^62 になる。
+  EXPECT_EQ("true", printIt("4611686018427387903 < 4611686018427387904.0"));
+  EXPECT_EQ("true", printIt("4611686018427387904.0 > 4611686018427387903"));
+  EXPECT_EQ("true", printIt("((1 bitShift: 70) + 1) > 1180591620717411303424.0"));
+  EXPECT_EQ("true", printIt("((1 bitShift: 70) - 1) < 1180591620717411303424.0"));
+  EXPECT_EQ("true", printIt("(1 bitShift: 70) <= 1180591620717411303424.0"));
+  EXPECT_EQ("true", printIt("(1 bitShift: 70) >= 1180591620717411303424.0"));
+  EXPECT_EQ("true", printIt("(1 bitShift: 2000) > 1.0e308"));
+  EXPECT_EQ("true", printIt("(0 - (1 bitShift: 2000)) < -1.0e308"));
+}
+
+// SPEC §3.6: NaN との比較はどれも false。+inf はどの有限の数より大きく、-inf は小さい。
+TEST_F(KernelNumeric, NaNComparesFalseAndInfinityOrdersOutside) {
+  const std::string nan = "(0.0 / 0.0)";
+  for (const std::string sel : {"<", ">", "<=", ">="}) {
+    for (const std::string other : {"1.0", "1", "(1 bitShift: 70)", "(1/2)"}) {
+      EXPECT_EQ("false", printIt(nan + " " + sel + " " + other)) << sel << " " << other;
+      EXPECT_EQ("false", printIt(other + " " + sel + " " + nan)) << other << " " << sel;
+    }
+  }
+  EXPECT_EQ("false", printIt(nan + " = " + nan));
+  EXPECT_EQ("false", printIt(nan + " between: 0 and: 1"));
+  EXPECT_EQ("false", printIt("1 between: " + nan + " and: 2"));
+  EXPECT_EQ("false", printIt("1.0 between: 0 and: " + nan));
+  const std::string inf = "(1.0 / 0.0)";
+  EXPECT_EQ("true", printIt("(1 bitShift: 5000) < " + inf));
+  EXPECT_EQ("true", printIt(inf + " > (1 bitShift: 5000)"));
+  EXPECT_EQ("true", printIt("(0 - (1 bitShift: 5000)) > (0.0 - " + inf + ")"));
+  EXPECT_EQ("true", printIt(inf + " >= (1/3)"));
+  EXPECT_EQ("false", printIt(inf + " <= 4611686018427387903"));
+  EXPECT_EQ("true", printIt(inf + " = " + inf));
+}
+
+// 03 Medium: Fraction の = は正規化した分子と分母で、< は交差乗算で比べる。
+TEST_F(KernelNumeric, FractionEqualsAndOrders) {
+  EXPECT_EQ("true", printIt("(1/2) = (1/2)"));
+  EXPECT_EQ("true", printIt("(1/2) = (2/4)"));
+  EXPECT_EQ("false", printIt("(1/2) = (1/3)"));
+  EXPECT_EQ("false", printIt("(1/2) = 0.5"));
+  EXPECT_EQ("false", printIt("0.5 = (1/2)"));
+  EXPECT_EQ("false", printIt("(1/2) = 1"));
+  EXPECT_EQ("true", printIt("(1/2) < (2/3)"));
+  EXPECT_EQ("false", printIt("(2/3) < (1/2)"));
+  EXPECT_EQ("true", printIt("(2/3) > (1/2)"));
+  EXPECT_EQ("true", printIt("(1/2) <= (2/4)"));
+  EXPECT_EQ("false", printIt("(1/2) >= (2/3)"));
+  EXPECT_EQ("true", printIt("(-1/2) < (1/3)"));
+  EXPECT_EQ("true", printIt("(1/2) < 1"));
+  EXPECT_EQ("true", printIt("1 > (1/2)"));
+  EXPECT_EQ("true", printIt("(3/2) > 1"));
+  EXPECT_EQ("true", printIt("((1 bitShift: 70) / 3) < (((1 bitShift: 70) + 1) / 3)"));
+  EXPECT_EQ("true", printIt("(1 / (1 bitShift: 70)) < (1 / ((1 bitShift: 70) - 1))"));
+  EXPECT_EQ("true", printIt("(1 bitShift: 70) > ((1 bitShift: 71) - 1 / 2)"));
+  // Float とも丸めずに比べる。0.3333333333333333 は 1/3 より小さい。
+  EXPECT_EQ("true", printIt("(1/3) > 0.3333333333333333"));
+  EXPECT_EQ("true", printIt("0.3333333333333333 < (1/3)"));
+  EXPECT_EQ("true", printIt("(1/2) <= 0.5"));
+  EXPECT_EQ("true", printIt("(1/2) >= 0.5"));
+}
+
+// 03 Medium: Fraction を Magnitude として使う max: min: between:and: が動く。
+TEST_F(KernelNumeric, MagnitudeProtocolWorksForFractionsAndMixedNumbers) {
+  EXPECT_EQ("true", printIt("((1/2) max: (2/3)) = (2/3)"));
+  EXPECT_EQ("true", printIt("((1/2) min: (2/3)) = (1/2)"));
+  EXPECT_EQ("true", printIt("(1/2) between: 0 and: 1"));
+  EXPECT_EQ("false", printIt("(3/2) between: 0 and: 1"));
+  EXPECT_EQ("true", printIt("1.5 between: 1 and: (3/2)"));
+  EXPECT_EQ("4", printIt("3 max: 4"));
+  EXPECT_EQ("3", printIt("3 min: 4"));
+  EXPECT_EQ("1.5", printIt("1 max: 1.5"));
+  EXPECT_EQ("$b", printIt("$a max: $b"));
+  EXPECT_EQ("$a", printIt("$a min: $b"));
+  EXPECT_EQ("<eval error: doesNotUnderstand: #<>", printIt("3 max: nil"));
+}
+
+// SPEC §3.6: 引数が数でなければ < は失敗し、> <= >= は Magnitude の既定で答える。
+TEST_F(KernelNumeric, NonNumberArgumentFailsLessThanAndFallsBackForTheOthers) {
+  EXPECT_EQ("<eval error: failed: #<>", printIt("1 < nil"));
+  EXPECT_EQ("<eval error: failed: #<>", printIt("1.5 < 'a'"));
+  EXPECT_EQ("<eval error: failed: #<>", printIt("(1/2) < nil"));
+  EXPECT_EQ("<eval error: doesNotUnderstand: #<>", printIt("1 > nil"));
+  EXPECT_EQ("<eval error: doesNotUnderstand: #<>", printIt("(1/2) > nil"));
+  EXPECT_EQ("<eval error: failed: #<=>", printIt("1 <= nil"));
+  EXPECT_EQ("<eval error: failed: #>=>", printIt("1.5 >= nil"));
+  // 利用者の Magnitude は、既定の > が送る < で答える。
+  acceptClass("Magnitude", "B8Money", "amount");
+  acceptMethod("B8Money", "amount: aNumber\n  amount := aNumber\n");
+  acceptMethod("B8Money", "< aNumber\n  ^amount < aNumber\n");
+  EXPECT_EQ("true", printIt("3 > (B8Money new amount: 2)"));
+  EXPECT_EQ("false", printIt("1.5 > (B8Money new amount: 2)"));
+}

@@ -87,6 +87,21 @@ Oop ao_Integer_divide(CallContext& ctx, const Oop& receiver, const Oop* args, st
 enum class NumberOp { Add, Subtract, Multiply, Divide };
 Oop numberArith(CallContext& ctx, const Oop& a, const Oop& b, NumberOp op);
 
+// SPEC §3.6 数の比較: receiver rel args[0] by exact value for any mix of Integer, Fraction and
+// Float; a NaN answers false. When either is none of them, answers what fallback answers for the
+// same receiver and arguments (nullptr: the empty Oop, a failure). Does not allocate.
+enum class NumberRelation { Less, Greater, LessOrEqual, GreaterOrEqual };
+Oop numberCompare(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+                  NumberRelation rel, NativeFn fallback);
+
+// Magnitude's defaults (SPEC §3.6): > sends <, <= sends < and =, >= answers the negation of <.
+Oop ao_Magnitude_greaterThan(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc);
+Oop ao_Magnitude_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc);
+Oop ao_Magnitude_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                std::uint32_t argc);
+
 Oop ao_Character_printString(CallContext& ctx, const Oop& receiver, const Oop* args,
                              std::uint32_t argc);
 Oop ao_String_printString(CallContext& ctx, const Oop& receiver, const Oop* args,

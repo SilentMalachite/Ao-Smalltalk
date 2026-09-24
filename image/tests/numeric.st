@@ -12,3 +12,19 @@ self assert: 3 / (1/2) equals: 6.
 self assert: 1 / 2.0 equals: 0.5.
 self assert: ((1 bitShift: 53) + 1) + 0.0 equals: 9007199254740992.0.
 self assert: (Rectangle origin: (Point x: 0.5 y: 0) corner: (Point x: 2 y: 2)) width equals: 1.5.
+"SPEC §3.6 数の比較: 値を厳密に比べる。NaN との比較は false"
+self assert: 1 < 1.5 equals: true.
+self assert: 1.5 > 1 equals: true.
+self assert: 2 >= 1.5 equals: true.
+self assert: 1 <= 1.0 equals: true.
+self assert: 1 = 1.0 equals: false.
+self assert: 1152921504606846976.0 < 1152921504606846977 equals: true.
+self assert: 1.0 < (1 bitShift: 70) equals: true.
+self assert: (0.0 / 0.0) >= 1.0 equals: false.
+self assert: 1.0 >= (0.0 / 0.0) equals: false.
+self assert: (1/2) = (2/4) equals: true.
+self assert: (1/2) < (2/3) equals: true.
+self assert: (1/3) > 0.3333333333333333 equals: true.
+self assert: ((1/2) max: (2/3)) equals: 2/3.
+self assert: ((1/2) between: 0 and: 1) equals: true.
+self assert: ((Rectangle origin: (Point x: 0 y: 0) corner: (Point x: 10 y: 10)) containsPoint: (Point x: 0.5 y: 0.5)) equals: true.
