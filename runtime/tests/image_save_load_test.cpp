@@ -1057,3 +1057,236 @@ TEST(ImageSave, HeapBeyondOldLimitFailsAndKeepsOldImage) {
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
 }
+
+namespace {
+
+// A saved image's bytes, for tests that damage one field and load the result. Offsets are heap
+// offsets (what the image writes for a pointer); the heap section starts after the 48-byte header.
+struct ImageSurgery {
+  static constexpr std::size_t kHeap = ao::ImageFormat::kImageHeaderBytes;
+  std::vector<char> bytes;
+  ao::ImageFormat::ImageHeader header;
+
+  explicit ImageSurgery(const std::filesystem::path& path) : bytes(readAll(path)) {
+    const bool ok = ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                                bytes.size(), &header);
+    EXPECT_TRUE(ok);
+  }
+  std::uint64_t word(std::size_t pos) const {
+    std::uint64_t w = 0;
+    std::memcpy(&w, bytes.data() + pos, sizeof w);
+    return w;
+  }
+  void setWord(std::size_t pos, std::uint64_t w) { std::memcpy(bytes.data() + pos, &w, sizeof w); }
+  ao::ObjectHeader object(std::uint64_t off) const {
+    ao::ObjectHeader h{};
+    std::memcpy(&h, bytes.data() + kHeap + off, sizeof h);
+    return h;
+  }
+  void setObject(std::uint64_t off, const ao::ObjectHeader& h) {
+    std::memcpy(bytes.data() + kHeap + off, &h, sizeof h);
+  }
+  std::size_t slotPos(std::uint64_t off, std::uint32_t i) const {
+    return kHeap + static_cast<std::size_t>(off) + sizeof(ao::ObjectHeader) + std::size_t{i} * 8u;
+  }
+  // The file position of the bits of well-known record name; 0 when there is none.
+  std::size_t recordPos(std::string_view name) const {
+    std::size_t end = 0;
+    return wellKnownBitsAt(bytes, name, &end);
+  }
+  std::uint64_t record(std::string_view name) const { return word(recordPos(name)); }
+  // Heap offsets of the objects after the filler, in file order.
+  std::vector<std::uint64_t> objects() const {
+    ao::Heap sizer(4096, 4096);
+    std::vector<std::uint64_t> out;
+    std::uint64_t off = ao::ImageFormat::kImageFillerBytes;
+    while (off < header.heapBytes) {
+      const ao::ObjectHeader h = object(off);
+      out.push_back(off);
+      off += sizer.objectBytes(&h);
+    }
+    return out;
+  }
+  // The first object whose klass is the well-known class className.
+  std::uint64_t firstInstanceOf(std::string_view className) const {
+    const std::uint64_t cls = record(className);
+    for (std::uint64_t off : objects()) {
+      if (object(off).klass.bits() == cls) return off;
+    }
+    return 0;
+  }
+  bool write(const std::filesystem::path& path) const { return writeAll(path, bytes); }
+};
+
+// Saves a fresh Boot to path and checks it loads; the tests then damage a copy of it.
+void saveFreshImage(const std::filesystem::path& path) {
+  Boot b;
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  Loaded plain;
+  ASSERT_TRUE(ao::Image::load(plain.heap, plain.roots, plain.wk, path.string()));
+}
+
+// Loads path into a fresh heap and expects the refusal reason, with nothing adopted.
+void expectRefused(const std::filesystem::path& path, const std::string& why) {
+  Loaded image;
+  std::string reason;
+  EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string(), &reason));
+  EXPECT_EQ(why, reason);
+  EXPECT_EQ(0u, image.heap.oldUsed());
+}
+
+}  // namespace
+
+// B6 review (06 Medium) / SPEC §3.11: 失敗シナリオ。ロードはファイル上の flags をそのまま採用していた。
+// ポインタのオブジェクトに Marked（0x10）を立てたイメージはロードも評価も通り、そのあとの collectOld が
+// その子を回収して SIGSEGV になった。Bytes と Weak のほかの flags は拒否する。詰め物も同じ。
+TEST(ImageLoadChecks, RefusesFlagsOtherThanBytesAndWeak) {
+  const auto good = std::filesystem::path(testing::TempDir()) / "b6-flags-good.aoimage";
+  const auto bad = std::filesystem::path(testing::TempDir()) / "b6-flags-bad.aoimage";
+  saveFreshImage(good);
+  const ImageSurgery image(good);
+  const std::uint64_t smalltalk = image.record("Smalltalk");
+  ASSERT_NE(0u, smalltalk);
+  ASSERT_EQ(0, image.object(smalltalk).flags & ao::kFlagBytes);
+  for (std::uint16_t flag : {ao::kFlagOld, ao::kFlagImmovable, ao::kFlagMarked, ao::kFlagForwarded,
+                             std::uint16_t{1u << 6}, std::uint16_t{1u << 15}}) {
+    ImageSurgery damaged = image;
+    ao::ObjectHeader h = damaged.object(smalltalk);
+    h.flags = static_cast<std::uint16_t>(h.flags | flag);
+    damaged.setObject(smalltalk, h);
+    ASSERT_TRUE(damaged.write(bad));
+    expectRefused(bad, "damaged image");
+  }
+  ImageSurgery filler = image;
+  ao::ObjectHeader f = filler.object(0);
+  f.flags = static_cast<std::uint16_t>(f.flags | ao::kFlagMarked);
+  filler.setObject(0, f);
+  ASSERT_TRUE(filler.write(bad));
+  expectRefused(bad, "damaged image");
+  std::filesystem::remove(good);
+  std::filesystem::remove(bad);
+}
+
+// B6 review (06 Medium) / SPEC §3.11: 失敗シナリオ。klass は参照先がオブジェクトの先頭かどうかしか見て
+// いなかった。Processor の klass を Symbol にしたイメージはロードが通り、Processor printString で落ちた。
+// klass は nil か、クラスの形（ポインタ形で kClassSlotCount 以上のスロット）のオブジェクトに限る。
+TEST(ImageLoadChecks, RefusesKlassThatIsNotAClass) {
+  const auto good = std::filesystem::path(testing::TempDir()) / "b6-klass-good.aoimage";
+  const auto bad = std::filesystem::path(testing::TempDir()) / "b6-klass-bad.aoimage";
+  saveFreshImage(good);
+  const ImageSurgery image(good);
+  const std::uint64_t processor = image.record("Processor");
+  const std::uint64_t symbol = image.record("value");
+  ASSERT_NE(0u, processor);
+  ASSERT_NE(0u, symbol);
+  ASSERT_NE(0, image.object(symbol).flags & ao::kFlagBytes);
+  const std::uint64_t smallInteger = ao::Oop::fromSmallInteger(3).bits();
+  const std::uint64_t character = ao::Oop::fromCharacter(U'a').bits();
+  for (std::uint64_t klass : {smallInteger, character, ao::Oop::true_().bits(), symbol}) {
+    ImageSurgery damaged = image;
+    ao::ObjectHeader h = damaged.object(processor);
+    h.klass = ao::Oop::fromBits(klass);
+    damaged.setObject(processor, h);
+    ASSERT_TRUE(damaged.write(bad));
+    expectRefused(bad, "damaged image");
+  }
+  std::filesystem::remove(good);
+  std::filesystem::remove(bad);
+}
+
+// B6 review (06 Medium) / SPEC §3.11: 失敗シナリオ。well-known のクラスとメソッド辞書の形を見ていなかった。
+// SmallInteger の methodDict を Symbol にしたイメージは、ロードの中の lookup が Symbol を辞書として読んで
+// abort した。well-known のクラスがバイト列、セレクタが Symbol でない、MethodDictionary や
+// CompiledMethod の形が足りない、のどれも拒否する。
+TEST(ImageLoadChecks, RefusesMisshapenClassesAndMethods) {
+  const auto good = std::filesystem::path(testing::TempDir()) / "b6-shape-good.aoimage";
+  const auto bad = std::filesystem::path(testing::TempDir()) / "b6-shape-bad.aoimage";
+  saveFreshImage(good);
+  const ImageSurgery image(good);
+  const std::uint64_t symbol = image.record("value");
+  const std::uint64_t smallIntegerClass = image.record("SmallInteger");
+  const std::uint64_t processor = image.record("Processor");
+  ASSERT_NE(0u, symbol);
+  ASSERT_NE(0u, smallIntegerClass);
+  auto refused = [&](const char* what, auto&& damage) {
+    SCOPED_TRACE(what);
+    ImageSurgery damaged = image;
+    damage(damaged);
+    ASSERT_TRUE(damaged.write(bad));
+    expectRefused(bad, "damaged image");
+  };
+  refused("methodDict is a Symbol", [&](ImageSurgery& d) {
+    d.setWord(d.slotPos(smallIntegerClass, ao::kClassSlotMethodDict), symbol);
+  });
+  refused("methodDict is a SmallInteger", [&](ImageSurgery& d) {
+    d.setWord(d.slotPos(smallIntegerClass, ao::kClassSlotMethodDict),
+              ao::Oop::fromSmallInteger(1).bits());
+  });
+  refused("well-known class is a Symbol",
+          [&](ImageSurgery& d) { d.setWord(d.recordPos("SmallInteger"), symbol); });
+  refused("well-known metaclass is a SmallInteger", [&](ImageSurgery& d) {
+    d.setWord(d.recordPos("SmallInteger class"), ao::Oop::fromSmallInteger(7).bits());
+  });
+  refused("well-known selector is not a Symbol", [&](ImageSurgery& d) {
+    d.setWord(d.recordPos("value"), ao::Oop::fromSmallInteger(7).bits());
+  });
+  refused("MethodDictionary holds a byte array", [&](ImageSurgery& d) {
+    const std::uint64_t dict = d.word(d.slotPos(smallIntegerClass, ao::kClassSlotMethodDict));
+    d.setWord(d.slotPos(dict, ao::kDictSlotArray), symbol);
+  });
+  refused("CompiledMethod with two slots", [&](ImageSurgery& d) {
+    ao::ObjectHeader h = d.object(processor);
+    ASSERT_LT(h.size, ao::kCmSlotCount);
+    h.klass = ao::Oop::fromBits(d.record("CompiledMethod"));
+    d.setObject(processor, h);
+  });
+  refused("CompiledMethod that is bytes", [&](ImageSurgery& d) {
+    ao::ObjectHeader h = d.object(symbol);
+    h.klass = ao::Oop::fromBits(d.record("CompiledMethod"));
+    d.setObject(symbol, h);
+  });
+  std::filesystem::remove(good);
+  std::filesystem::remove(bad);
+}
+
+// B6 review (06 Low) / SPEC §3.11: ロードはファイル全体を読んでからヘッダを照合していた。ロードはまずヘッダの
+// 48 バイトだけを読み、heapBytes が old の上限を超えるなら本体を読まずにその理由で拒否する。ファイルの
+// 大きさがヘッダとレコードの取りうる範囲に無ければ、本体を読まずに壊れたイメージとして拒否する。
+TEST(ImageLoadChecks, RefusesHugeHeapBytesFromTheHeader) {
+  const auto good = std::filesystem::path(testing::TempDir()) / "b6-huge-good.aoimage";
+  const auto bad = std::filesystem::path(testing::TempDir()) / "b6-huge-bad.aoimage";
+  saveFreshImage(good);
+  const ImageSurgery image(good);
+  {
+    // The header claims almost 4 GiB, the file holds 64 bytes.
+    ImageSurgery damaged = image;
+    ao::ImageFormat::ImageHeader h = damaged.header;
+    h.heapBytes = 0xFFFFFFF8u;
+    ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(damaged.bytes.data()), h);
+    damaged.bytes.resize(ao::ImageFormat::kImageHeaderBytes + 16);
+    ASSERT_TRUE(damaged.write(bad));
+    expectRefused(bad, "image heap exceeds the old space limit");
+  }
+  {
+    // Past a smaller old limit, the reason is the limit too, not the short file.
+    ImageSurgery damaged = image;
+    ao::ImageFormat::ImageHeader h = damaged.header;
+    h.heapBytes = 2u << 20;
+    ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(damaged.bytes.data()), h);
+    ASSERT_TRUE(damaged.write(bad));
+    Loaded small(64u << 10, 1u << 20);
+    std::string reason;
+    EXPECT_FALSE(ao::Image::load(small.heap, small.roots, small.wk, bad.string(), &reason));
+    EXPECT_EQ("image heap exceeds the old space limit", reason);
+    EXPECT_EQ(0u, small.heap.oldUsed());
+  }
+  {
+    // A file longer than its records can be is damaged.
+    ImageSurgery damaged = image;
+    damaged.bytes.resize(damaged.bytes.size() + (64u << 10), '\0');
+    ASSERT_TRUE(damaged.write(bad));
+    expectRefused(bad, "damaged image");
+  }
+  std::filesystem::remove(good);
+  std::filesystem::remove(bad);
+}

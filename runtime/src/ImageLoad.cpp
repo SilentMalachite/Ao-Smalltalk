@@ -1,10 +1,14 @@
 #include "ao/Image.hpp"
 
+#include "ao/Bootstrap.hpp"
+#include "ao/CompiledMethod.hpp"
 #include "ao/Globals.hpp"
 #include "ao/ImageFormat.hpp"
+#include "ao/MethodDictionary.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/kernel/Install.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -22,29 +26,23 @@ namespace {
 static_assert(std::endian::native == std::endian::little);
 
 constexpr std::uint32_t kImageWellKnownCount = 127;
+// The flags an object in an image may have (the ones Image::save writes).
+constexpr std::uint16_t kImageFlags = static_cast<std::uint16_t>(kFlagBytes | kFlagWeak);
+// SPEC §3.11: a record is a u32 name length, 1 to 256 name bytes padded to 4, and the u64 bits.
+constexpr std::uint64_t kMinRecordBytes = 4 + 4 + 8;
+constexpr std::uint64_t kMaxRecordBytes = 4 + 256 + 8;
 
 struct ImageRecord {
   std::string name;
   std::uint64_t bits = 0;
 };
 
-bool readFile(std::string_view path, std::vector<std::byte>* out) {
-  std::ifstream in{std::string(path), std::ios::binary};
-  if (!in) {
-    return false;
-  }
-  in.seekg(0, std::ios::end);
-  const auto end = in.tellg();
-  if (end < 0) {
-    return false;
-  }
-  in.seekg(0, std::ios::beg);
-  out->resize(static_cast<std::size_t>(end));
-  if (out->empty()) {
+bool readExactly(std::ifstream& in, std::byte* dst, std::size_t n) {
+  if (n == 0) {
     return true;
   }
-  in.read(reinterpret_cast<char*>(out->data()), static_cast<std::streamsize>(out->size()));
-  return static_cast<std::size_t>(in.gcount()) == out->size();
+  in.read(reinterpret_cast<char*>(dst), static_cast<std::streamsize>(n));
+  return static_cast<std::size_t>(in.gcount()) == n;
 }
 
 template <typename T>
@@ -168,9 +166,12 @@ bool walkObjects(Heap& heap, const std::byte* section, std::size_t heapBytes,
   if (heapBytes < ImageFormat::kImageFillerBytes || section == nullptr) {
     return false;
   }
+  // SPEC §3.11: the filler is what writeFiller writes, and an object has no flags but Bytes and
+  // Weak (the save writes only those; a Marked or Forwarded one would break the GC).
   ObjectHeader filler{};
   std::memcpy(&filler, section, sizeof filler);
-  if (heap.objectBytes(&filler) != ImageFormat::kImageFillerBytes) {
+  if (heap.objectBytes(&filler) != ImageFormat::kImageFillerBytes ||
+      filler.klass.bits() != Oop::nil().bits() || filler.size != 0 || filler.flags != kFlagBytes) {
     return false;
   }
   std::size_t off = ImageFormat::kImageFillerBytes;
@@ -180,6 +181,9 @@ bool walkObjects(Heap& heap, const std::byte* section, std::size_t heapBytes,
     }
     ObjectHeader hdr{};
     std::memcpy(&hdr, section + off, sizeof hdr);
+    if ((hdr.flags & ~kImageFlags) != 0) {
+      return false;
+    }
     const std::size_t n = heap.objectBytes(&hdr);
     if (n < sizeof(ObjectHeader) || n > heapBytes - off) {
       return false;
@@ -272,6 +276,119 @@ bool precheck(const std::byte* section, std::size_t heapBytes,
       if (!NativeRegistry::findName(name, &idx)) {
         return false;
       }
+    }
+  }
+  return true;
+}
+
+ObjectHeader headerAt(const std::byte* section, std::uint64_t off) {
+  ObjectHeader h{};
+  std::memcpy(&h, section + static_cast<std::size_t>(off), sizeof h);
+  return h;
+}
+
+// Slot i of the pointer object at off; walkObjects has checked that its slots lie in the section.
+std::uint64_t slotBits(const std::byte* section, std::uint64_t off, std::uint32_t i) {
+  return readU64(section + static_cast<std::size_t>(off) + sizeof(ObjectHeader) +
+                 static_cast<std::size_t>(i) * 8u);
+}
+
+bool pointerObject(const ObjectHeader& h) { return (h.flags & kFlagBytes) == 0; }
+
+// Lookup's isClassShaped on the file: an object of the image, of pointers, with every class slot.
+bool classShaped(const std::byte* section, const std::unordered_set<std::uint64_t>& starts,
+                 std::uint64_t bits) {
+  if (!heapShaped(bits) || starts.find(bits) == starts.end()) {
+    return false;
+  }
+  const ObjectHeader h = headerAt(section, bits);
+  return pointerObject(h) && h.size >= kClassSlotCount;
+}
+
+enum class RecordKind { Class, Selector, Other };
+
+// wellKnownNamesOk has checked that every name binds a slot: a class or metaclass of the catalog,
+// Smalltalk, Processor, transcript, or else a selector.
+RecordKind recordKind(const WellKnown& wk, std::string_view name) {
+  if (name == "Smalltalk" || name == "Processor" || name == "transcript") {
+    return RecordKind::Other;
+  }
+  constexpr std::string_view kMeta = " class";
+  if (wk.isCatalogName(name) ||
+      (name.ends_with(kMeta) && wk.isCatalogName(name.substr(0, name.size() - kMeta.size())))) {
+    return RecordKind::Class;
+  }
+  return RecordKind::Selector;
+}
+
+// SPEC §3.11: the shapes the runtime reads without checking. Every klass is nil (an internal object:
+// a method dictionary's array, a NativeMethod's name) or a class. The well-known classes and
+// metaclasses are classes, its selectors Symbols. Each class met as a klass or a well-known record,
+// and each class-shaped superclass up from them, has a nil or MethodDictionary methodDict. A
+// MethodDictionary has its array slot, nil or of pointers; a CompiledMethod has all of its slots.
+// Runs after precheck, which has checked that every heap-shaped slot and record is an object start.
+bool shapesOk(const std::byte* section, const std::unordered_set<std::uint64_t>& starts,
+              const std::vector<std::uint64_t>& offsets, const std::vector<ImageRecord>& wellKnown,
+              const WellKnown& wk) {
+  const ImageRecord* symbolRec = findRecord(wellKnown, "Symbol");
+  const ImageRecord* dictRec = findRecord(wellKnown, "MethodDictionary");
+  const ImageRecord* methodRec = findRecord(wellKnown, "CompiledMethod");
+  if (symbolRec == nullptr || dictRec == nullptr || methodRec == nullptr) {
+    return false;
+  }
+  const std::uint64_t nilBits = Oop::nil().bits();
+  std::unordered_set<std::uint64_t> classes;
+  std::vector<std::uint64_t> work;
+  auto addClass = [&](std::uint64_t bits) {
+    if (!classShaped(section, starts, bits)) {
+      return false;
+    }
+    if (classes.insert(bits).second) {
+      work.push_back(bits);
+    }
+    return true;
+  };
+  for (std::uint64_t off : offsets) {
+    const ObjectHeader h = headerAt(section, off);
+    const std::uint64_t klass = h.klass.bits();
+    if (klass != nilBits && !addClass(klass)) {
+      return false;
+    }
+    if (klass == dictRec->bits) {
+      if (!pointerObject(h) || h.size <= kDictSlotArray) {
+        return false;
+      }
+      const std::uint64_t array = slotBits(section, off, kDictSlotArray);
+      if (array != nilBits && (!heapShaped(array) || !pointerObject(headerAt(section, array)))) {
+        return false;
+      }
+    }
+    if (klass == methodRec->bits && (!pointerObject(h) || h.size < kCmSlotCount)) {
+      return false;
+    }
+  }
+  for (const ImageRecord& rec : wellKnown) {
+    const RecordKind kind = recordKind(wk, rec.name);
+    if (kind == RecordKind::Class && !addClass(rec.bits)) {
+      return false;
+    }
+    if (kind == RecordKind::Selector &&
+        (!heapShaped(rec.bits) || headerAt(section, rec.bits).klass.bits() != symbolRec->bits)) {
+      return false;
+    }
+  }
+  while (!work.empty()) {
+    const std::uint64_t cls = work.back();
+    work.pop_back();
+    // A superclass of another shape ends the chain (SPEC §3.3); lookup does not read it.
+    const std::uint64_t superclass = slotBits(section, cls, kClassSlotSuperclass);
+    if (classShaped(section, starts, superclass)) {
+      addClass(superclass);
+    }
+    const std::uint64_t dict = slotBits(section, cls, kClassSlotMethodDict);
+    if (dict != nilBits &&
+        (!heapShaped(dict) || headerAt(section, dict).klass.bits() != dictRec->bits)) {
+      return false;
     }
   }
   return true;
@@ -401,12 +518,27 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
     return refuse("image load failed");
   }
 
-  std::vector<std::byte> file;
-  if (!readFile(path, &file)) {
+  // SPEC §3.11: the 48-byte header first. The body is read only when the header's heapBytes is
+  // within the old space limit and the file is as long as the header and the records can make it.
+  std::ifstream in{std::string(path), std::ios::binary};
+  if (!in) {
+    return refuse("cannot read image file");
+  }
+  in.seekg(0, std::ios::end);
+  const auto end = in.tellg();
+  if (end < 0) {
+    return refuse("cannot read image file");
+  }
+  const auto fileSize = static_cast<std::uint64_t>(end);
+  in.seekg(0, std::ios::beg);
+  std::byte head[ImageFormat::kImageHeaderBytes]{};
+  const auto headBytes =
+      static_cast<std::size_t>(std::min<std::uint64_t>(fileSize, ImageFormat::kImageHeaderBytes));
+  if (!readExactly(in, head, headBytes)) {
     return refuse("cannot read image file");
   }
   ImageFormat::ImageHeader header;
-  if (!ImageFormat::readHeader(file.data(), file.size(), &header, reason)) {
+  if (!ImageFormat::readHeader(head, headBytes, &header, reason)) {
     return false;
   }
   // SPEC §3.11: a global lives in the dictionary in the heap. Extra records are no part of this
@@ -415,8 +547,19 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
       header.extraCount != 0) {
     return refuse(damaged);
   }
-  if (header.heapBytes > file.size() - ImageFormat::kImageHeaderBytes) {
+  if (header.heapBytes > heap.oldMaxBytes()) {
+    return refuse("image heap exceeds the old space limit");
+  }
+  const std::uint64_t records = std::uint64_t{header.wellKnownCount} + header.globalCount;
+  const std::uint64_t beforeRecords = ImageFormat::kImageHeaderBytes + std::uint64_t{header.heapBytes};
+  if (fileSize < beforeRecords + records * kMinRecordBytes ||
+      fileSize > beforeRecords + records * kMaxRecordBytes) {
     return refuse(damaged);
+  }
+  std::vector<std::byte> file(static_cast<std::size_t>(fileSize));
+  std::memcpy(file.data(), head, sizeof head);
+  if (!readExactly(in, file.data() + sizeof head, file.size() - sizeof head)) {
+    return refuse("cannot read image file");
   }
   const std::size_t heapBytes = header.heapBytes;
   const std::byte* section = file.data() + ImageFormat::kImageHeaderBytes;
@@ -437,11 +580,9 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   std::vector<std::uint64_t> offsets;
   std::unordered_set<std::uint64_t> starts;
   if (!walkObjects(heap, section, heapBytes, &offsets, &starts) ||
-      !precheck(section, heapBytes, starts, offsets, wellKnown, globals)) {
+      !precheck(section, heapBytes, starts, offsets, wellKnown, globals) ||
+      !shapesOk(section, starts, offsets, wellKnown, wk)) {
     return refuse(damaged);
-  }
-  if (heapBytes > heap.oldMaxBytes()) {
-    return refuse("image heap exceeds the old space limit");
   }
   if (heap.oldUsed() != 0 || !heap.adoptOldBytes(section, heapBytes, header.nextHash)) {
     return refuse("image load failed");
