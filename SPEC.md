@@ -233,7 +233,7 @@ lookup(receiver, selector)
 - `error:` の理由: 引数が String（Symbol など String のサブクラスを含む）なら、その内容（UTF-8 のバイト列）。それ以外は、引数に `printString` を送った答えの内容。`printString` が評価を中断したら、その理由のままにする。`printString` が String を答えなければ、理由は `error:` とする。
 - 空 OOP はネイティブの中だけで使う失敗の印であり、値ではない。インタプリタはそれをオペランドスタックに積まない。ヒープのスロットにもコレクションにも残らない。`classOf` が空 OOP にクラスでない値（nil）を返す経路は、送信の入口で止める。
 - 例外オブジェクトと `on:do:` による捕捉は、v1 では扱わない。vendor の `Exception` / `Error` / `Notification` は file-in するが、ランタイムはハンドラを探さない。`on:do:` は Kernel に無いので、送ると `doesNotUnderstand: #on:do:` で中断する。
-- 理由は、それを最外で読むまで GC をまたいで保つ。すでに abort の最中なら、最初の理由を保つ。
+- 理由は、それを最外で読むまで GC をまたいで保つ。すでに abort の最中なら、最初の理由を保つ。abort の途中で走る `ensure:` の後始末が abort しても同じである（§3.4）。
 
 ### 3.4 コンテキストとプロセス
 
@@ -255,12 +255,21 @@ v1 の実行モデル:
 
 - ブロック内の `^` は、ホームのメソッドから返る（非局所リターン）。途中のフレームはネイティブも含めてすべて巻き戻す。ブロックを呼んだネイティブも、メッセージを送ったネイティブ（キーに `hash` や `=` を送る Dictionary など）も、呼んだ先から戻ったときに巻き戻しの最中なら、直ちに空 OOP を返す。残りの反復も、続く送信も、副作用も行わない。
 - ホームが死んでいれば、ブロックのアクティベーションに `cannotReturn: 値` を送る。ホームを探してスタックを巻き戻すことはしない。`cannotReturn:` が答えを返せば、それをブロックの値として呼び出し元に返す。`BlockContext>>cannotReturn:` の既定は `self error: 'cannot return'` と同じで、評価を `cannot return` で中断する（§3.3）。
-- `ensure: aBlock` は、レシーバのブロックを評価したあと、正常に終わっても巻き戻しの途中でも `aBlock` を評価する。後始末の間は巻き戻しを止め、終わったら続ける。後始末が自分で巻き戻しを始めたら、そちらを優先する。`ifCurtailed: aBlock` は、レシーバのブロックが巻き戻ったときだけ `aBlock` を評価する。
-- abort は評価の中断である。ホームの無い非局所リターンとして扱い、どのフレームでも止まらずに最外（`ao_eval` の 1 回、`ao --test` の 1 ファイル）まで戻る。途中の `ensure:` は実行する。abort を始めるのは `abortEvaluation` だけである。
+- `ensure: aBlock` は、レシーバのブロックを評価したあと、正常に終わっても巻き戻しの途中でも `aBlock` を評価する。後始末の間は巻き戻しを止め、終わったら続ける。`ifCurtailed: aBlock` は、レシーバのブロックが巻き戻ったときだけ `aBlock` を評価する。後始末が自分で巻き戻し（非局所リターンか abort）を始めたときは、止めていた巻き戻しの種類で決める。`ensure:` と `ifCurtailed:` で同じである。
+  - 止めていたのが非局所リターンなら（`ensure:` のレシーバが正常に終わったときも）、後始末が始めた巻き戻しを優先する。
+  - 止めていたのが abort なら、abort を優先する。後始末が始めた非局所リターン（後始末の `^`）は捨てる。後始末が abort したときは、その理由を捨てて最初の理由を保つ（§3.3）。
+- abort は評価の中断である。ホームの無い非局所リターンとして扱い、どのフレームでも止まらずに最外（下記）まで戻る。途中の `ensure:` は実行する。abort を始めるのは `abortEvaluation` だけである。
 - abort は理由の文字列を持つ。理由には 2 種類ある。割り当てなしで入れる固定の文言（`stack overflow`、`NonBoolean receiver`、`out of memory` など）と、実行時に組み立てた文字列（ヒープの String）である。後者は、最外で読んで消すまで GC のルートに置く。後者を割り当てられなければ、理由は `out of memory` にする。`ensure:` の後始末の間も、退避した理由を保つ。
 - abort の状態は最外で読んで消す。前の評価の abort を次の評価に持ち越さない。
+- 最外は、C++ から Smalltalk へ送る入口の 1 回である。次のものが最外である。
+  - `ao_eval` の 1 回
+  - `ao --test` の 1 ファイルと、テストクラス（`AoTest`）の作成
+  - file-in と `ao_accept_class` の、クラス定義チャンク 1 つ（C++ から `subclass:…category:` を送るところ）
+  - ワークスペースの作成（起動、`ao_workspace_reset`、`ao_image_load`）
+  - `ao_image_load` のロード後の探針（§3.10）
+- 最外は、入る前に前の abort と非局所リターンを消して、スタックの範囲を取り直す。出るときに abort の理由を読んで消す。最外での abort は、その入口の失敗である。`ao_eval` は `AO_ERR_EVAL` と理由を返す（§3.3）。クラス定義チャンクの abort は、そのチャンクの file-in エラー `subclass failed: <クラス名>: <理由>` にする（§3.12）。ワークスペースの作成と探針の abort は、その ABI の失敗（`AO_ERR`）にする。テストクラスの作成の abort は `ao --test` の失敗（exit 1）にする。
 - スタックガード: メソッド（ネイティブを含む）を適用する前に、C スタックの残りが予約分（`min(512 KiB, スタックの大きさの 1/4)`）を下回っていれば、「stack overflow」で abort する。無限再帰でプロセスは落ちない。
-  - スタックの範囲は、最外の入口（`ao_eval`、`ao --test` の 1 ファイル、最外の `Interpreter::run`）で必ず取り直す。前のスレッドの範囲を使い続けない。
+  - スタックの範囲は、最外（上記）の入口と、最外の `Interpreter::run` で必ず取り直す。前のスレッドの範囲を使い続けない。
   - `ensure:` / `ifCurtailed:` の後始末の間は、予約分の半分まで使ってよい。stack overflow の abort の途中でも、限界近くの後始末が走る。
 
 ### 3.5 バイトコード（ユーザーメソッド）
@@ -580,6 +589,9 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 `ao_accept_class` が受け付けるのは、クラス定義メッセージ（`Super subclass: #Name instanceVariableNames: … category: …`）と、チャンク形式のクラス定義・`methodsFor:` のチャンクだけである。それ以外のチャンク（式、メソッドの本体だけのテキストなど）が 1 つでもあれば、何も適用せずに `AO_ERR_COMPILE` を返す。メッセージは `not a class definition` である。
 
+- `methodsFor:` のグループは `! !` で終わる。そのあとのヘッダでないチャンクは、グループのメソッドではなく式として拒む。例えば、ヘッダ `!Foo methodsFor: 'x'!`、メソッド `foo ^1! !`、式 `3 + 4!` の 3 チャンクは、`Foo>>foo` も入れずに拒む。
+- クラス定義メッセージのチャンクは、そのメッセージ 1 つだけからなる。メッセージは、クラス名に送るキーワードメッセージである。キーワードは `subclass:` で始まり、`instanceVariableNames:`、`classVariableNames:`、`poolDictionaries:`、`category:` をこの順に続ける（途中を省いてよい）。引数はどれも 1 つの字句（Symbol、String、名前）である。メッセージのあとに置いてよいのは `.` だけである。文が続けば（`… category: 'X'. Smalltalk at: #Y put: 1`）、それも拒む。
+
 #### ソースはイメージに書かない
 
 メソッドソースはセッションのルート表（`(Oop method, Oop string)` を `Roots` に登録したベクタ）だけが持つ。`.aoimage` には書かない。上書きした古い対はルートから外す。`ao_runtime_boot` と `ao_image_load` は表を空にする。
@@ -664,10 +676,12 @@ LargeInteger とそれ以外はクラス名のまま。
 
 file-in のエラー:
 
-- file-in のエラーは、クラス定義の失敗、メソッドのコンパイルエラー、ネイティブ上書きの拒否、Kernel クラスへの `methodsFor:` の拒否である。メソッド単位のエラーは残りのチャンクの file-in を止めないが、エラーが 1 件でもあれば file-in は失敗である。成功扱いにしない。
-- 意図して載せないメソッドは、LOAD_ORDER と同じディレクトリの `DEFERRED.md` に、1 行に 1 つ `Class>>selector: 理由` の形式で列挙する（クラス側は `Class class>>selector: 理由`）。この形式でない行は注記として読み飛ばす。LOAD_ORDER による file-in（`fileInLoadOrder`）では、列挙したメソッドのエラーを失敗に数えず、報告もしない（そのメソッドは入らない）。単一ファイルの file-in には除外が無い。
+- file-in のエラーは、チャンク単位のエラーとメソッド単位のエラーである。エラーが 1 件でもあれば file-in は失敗である。成功扱いにしない。
+- チャンク単位のエラーは、クラス定義の失敗（Kernel クラスの再定義の拒否、スーパークラスが無い、`subclass:` の失敗など）、存在しないクラスへの `methodsFor:`、Kernel クラスへの `methodsFor:` の拒否である。チャンク単位のエラーは、そのファイルの残りのチャンクを止める。`fileInLoadOrder` では、LOAD_ORDER の残りのファイルも読まない。それまでに適用したチャンクは戻さない。チャンク単位のエラーは `DEFERRED.md` で除外できない。位置は、そのチャンク（クラス定義のチャンク、`methodsFor:` のヘッダのチャンク）のバイト範囲である（区切りの `!` を含まない）。
+- メソッド単位のエラーは、メソッドのコンパイルエラーとネイティブ上書きの拒否（とメソッドを登録できないこと）である。残りのチャンクの file-in を止めない。位置は、コンパイルエラーならファイル本文での箇所、それ以外はそのメソッドのチャンクのバイト範囲である。
+- 意図して載せないメソッドは、LOAD_ORDER と同じディレクトリの `DEFERRED.md` に、1 行に 1 つ `Class>>selector: 理由` の形式で、行頭から列挙する（クラス側は `Class class>>selector: 理由`）。セレクタは、`>>` のあと最初の `: `（コロンと空白）の手前までである。キーワードセレクタは、末尾の `:` のあとに `: 理由` を続ける（`Bag>>sum:ifEmpty:: 理由`）。理由の無い行（`: ` とそのあとの文字が無い行）と、この形式でない行は、注記として読み飛ばす。LOAD_ORDER による file-in（`fileInLoadOrder`）では、列挙したメソッドのエラーを失敗に数えず、報告もしない（そのメソッドは入らない）。単一ファイルの file-in には除外が無い。
 - `fileInLoadOrder` は、LOAD_ORDER かそこに書いたファイルが読めないとき、または数えるエラーが 1 件でもあるときに失敗を返す。エラーには、それが起きたファイルの名前を付ける。
-- `ao filein <file.st>` と `ao filein --load-order <LOAD_ORDER>` は、数えるエラーを 1 行に 1 件、`<ファイル名>:<start>-<end>: <メッセージ>` の形式で stderr に出す。失敗なら exit 1、成功なら exit 0。
+- `ao filein <file.st>` と `ao filein --load-order <LOAD_ORDER>` は、数えるエラーを 1 行に 1 件、`<ファイル名>:<start>-<end>: <メッセージ>` の形式で stderr に出す。位置の無いエラー（ファイルが読めない）は `0-0` である。失敗なら exit 1、成功なら exit 0。
 - `ao image save --load-order <LOAD_ORDER> <path>` は、file-in が失敗したら、同じ形式でエラーを stderr に出し、イメージを書かずに exit 1 で終わる。
 - `ao_filein_load_order` は、file-in が失敗したら `AO_ERR` を返す（§3.10）。
 - `vendor_filein_test` は、`image/vendor/LOAD_ORDER` の file-in で起きるメソッド単位のエラーの集合（`Class>>selector`）が、`DEFERRED.md` に列挙した集合と一致することを確かめる。列挙したのに成功するメソッドも、列挙していないのに失敗するメソッドも、テストの失敗である。
