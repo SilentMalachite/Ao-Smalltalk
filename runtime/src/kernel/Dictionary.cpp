@@ -880,30 +880,94 @@ Oop ao_Interval_from_to_by_(CallContext& ctx, const Oop& receiver, const Oop* ar
   return iv;
 }
 
-static Oop intervalSizeSmi(std::int64_t start, std::int64_t stop, std::int64_t step) {
-  if (step == 0) {
+namespace {
+
+// SPEC §3.6 Interval: the number of elements when start, stop and step are SmallIntegers. It may
+// pass SmallInteger (2^63 at most) and is then a LargeInteger, which may GC.
+Oop intervalSizeSmi(CallContext& ctx, std::int64_t start, std::int64_t stop, std::int64_t step) {
+  if (step == 0 || (step > 0 && start > stop) || (step < 0 && start < stop)) {
     return Oop::fromSmallInteger(0);
   }
-  __int128 diff;
-  __int128 st = step;
-  if (step > 0) {
-    if (start > stop) {
-      return Oop::fromSmallInteger(0);
-    }
-    diff = static_cast<__int128>(stop) - start;
-  } else {
-    if (start < stop) {
-      return Oop::fromSmallInteger(0);
-    }
-    diff = static_cast<__int128>(start) - stop;
-    st = -st;
+  const __int128 diff = step > 0 ? static_cast<__int128>(stop) - start
+                                 : static_cast<__int128>(start) - stop;
+  const __int128 n = diff / (step > 0 ? static_cast<__int128>(step) : -static_cast<__int128>(step));
+  // n is at most 2^63 - 1, so n + 1 elements fit once n is boxed.
+  if (n < kSmiMax) {
+    return Oop::fromSmallInteger(static_cast<std::int64_t>(n + 1));
   }
-  const __int128 n = diff / st + 1;
-  if (n >= kSmiMin && n <= kSmiMax) {
-    return Oop::fromSmallInteger(static_cast<std::int64_t>(n));
-  }
-  return Oop{};
+  const Oop boxed = LargeInteger::fromInt64(ctx, static_cast<std::int64_t>(n));
+  return boxed.isEmpty() ? boxed : LargeInteger::add(ctx, boxed, Oop::fromSmallInteger(1));
 }
+
+// SPEC §3.6 Interval: the direction of a step, 1 forward, -1 backward, 0 none. A SmallInteger
+// step goes by its sign; any other gets `step < 0`, then `step > 0`. False when the frames unwind
+// or an answer is no Boolean.
+bool intervalDirection(CallContext& ctx, Root& step, int* out) {
+  if (step.slot.isSmallInteger()) {
+    const auto s = step.slot.smallIntegerValue();
+    *out = s > 0 ? 1 : (s < 0 ? -1 : 0);
+    return true;
+  }
+  Oop zero = Oop::fromSmallInteger(0);
+  const Oop negative = send(ctx, step.slot, ctx.wk.intern("<"), &zero, 1, nullptr);
+  if (unwinding(ctx) || !isBoolean(negative)) {
+    return false;
+  }
+  if (negative.isTrue()) {
+    *out = -1;
+    return true;
+  }
+  const Oop positive = send(ctx, step.slot, ctx.wk.intern(">"), &zero, 1, nullptr);
+  if (unwinding(ctx) || !isBoolean(positive)) {
+    return false;
+  }
+  *out = positive.isTrue() ? 1 : 0;
+  return true;
+}
+
+// SPEC §3.6 Interval: calls visit with each element (a rooted slot) of iv, which is not all
+// SmallIntegers: `element > stop` (forward) or `element < stop` (backward) ends it, and
+// `element + step` is the next. No cap on the count: a safepoint every 64K elements, and the
+// block's abort or unwind stops it. False when a comparison answers no Boolean, a step fails, the
+// frames unwind, or visit answers false.
+template <typename Visit>
+bool intervalWalk(CallContext& ctx, Root& iv, Visit visit) {
+  Root cur(ctx.roots, ctx.heap.slotAt(iv.slot, kIvStart));
+  Root stop(ctx.roots, ctx.heap.slotAt(iv.slot, kIvStop));
+  Root step(ctx.roots, ctx.heap.slotAt(iv.slot, kIvStep));
+  int direction = 0;
+  if (!intervalDirection(ctx, step, &direction)) {
+    return false;
+  }
+  if (direction == 0) {
+    return true;
+  }
+  // Selectors are used across sends; a full GC's compaction moves Symbols too, so they are rooted.
+  Root past(ctx.roots, ctx.wk.intern(direction > 0 ? ">" : "<"));
+  Root add(ctx.roots, ctx.wk.intern("+"));
+  Gc gc(ctx.heap, ctx.roots);
+  for (std::uint64_t n = 1;; ++n) {
+    const Oop over = send(ctx, cur.slot, past.slot, &stop.slot, 1, nullptr);
+    if (unwinding(ctx) || !isBoolean(over)) {
+      return false;
+    }
+    if (over.isTrue()) {
+      return true;
+    }
+    if (!visit(cur)) {
+      return false;
+    }
+    cur.slot = send(ctx, cur.slot, add.slot, &step.slot, 1, nullptr);
+    if (unwinding(ctx) || cur.slot.isEmpty()) {
+      return false;
+    }
+    if ((n & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
+  }
+}
+
+}  // namespace
 
 Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) {
@@ -913,42 +977,13 @@ Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uin
   const Oop stop = ctx.heap.slotAt(receiver, kIvStop);
   const Oop step = ctx.heap.slotAt(receiver, kIvStep);
   if (start.isSmallInteger() && stop.isSmallInteger() && step.isSmallInteger()) {
-    const Oop n = intervalSizeSmi(start.smallIntegerValue(), stop.smallIntegerValue(),
-                                  step.smallIntegerValue());
-    if (!n.isEmpty()) {
-      return n;
-    }
+    return intervalSizeSmi(ctx, start.smallIntegerValue(), stop.smallIntegerValue(),
+                           step.smallIntegerValue());
   }
-  Root rcvr(ctx.roots, receiver);
-  Root cur(ctx.roots, start);
-  Root blkStop(ctx.roots, stop);
-  Root blkStep(ctx.roots, step);
-  if (step.isSmallInteger() && step.smallIntegerValue() == 0) {
-    return Oop::fromSmallInteger(0);
-  }
+  Root iv(ctx.roots, receiver);
   std::int64_t count = 0;
-  const bool forward = !step.isSmallInteger() || step.smallIntegerValue() > 0;
-  // セレクタは send をまたいで使う。full GC の圧縮で Symbol も動くので、ルートに載せる。
-  Root cmpSel(ctx.roots, ctx.wk.intern(forward ? ">" : "<"));
-  Root add(ctx.roots, ctx.wk.intern("+"));
-  for (;;) {
-    const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
-    if (unwinding(ctx)) {
-      return Oop{};
-    }
-    if (past.isTrue()) {
-      break;
-    }
-    ++count;
-    cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
-    if (unwinding(ctx)) {
-      return Oop{};
-    }
-    if (count > (std::int64_t{1} << 20)) {
-      break;
-    }
-  }
-  return Oop::fromSmallInteger(count);
+  const bool done = intervalWalk(ctx, iv, [&](Root&) { return ++count < kSmiMax; });
+  return done ? Oop::fromSmallInteger(count) : Oop{};
 }
 
 Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -962,63 +997,31 @@ Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   const Oop step = ctx.heap.slotAt(iv.slot, kIvStep);
   if (start.isSmallInteger() && stop.isSmallInteger() && step.isSmallInteger()) {
     const auto st = step.smallIntegerValue();
+    const auto last = stop.smallIntegerValue();
     if (st == 0) {
       return iv.slot;
     }
     Root elt(ctx.roots);
-    if (st > 0) {
-      for (__int128 i = start.smallIntegerValue(); i <= stop.smallIntegerValue(); i += st) {
-        if (i < kSmiMin || i > kSmiMax) {
-          break;
-        }
-        elt.slot = Oop::fromSmallInteger(static_cast<std::int64_t>(i));
-        Oop ignored;
-        if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
-          return Oop{};
-        }
+    Gc gc(ctx.heap, ctx.roots);
+    std::uint64_t n = 0;
+    // start and stop are SmallIntegers, so every element up to stop is one too.
+    for (__int128 i = start.smallIntegerValue(); st > 0 ? i <= last : i >= last; i += st) {
+      elt.slot = Oop::fromSmallInteger(static_cast<std::int64_t>(i));
+      Oop ignored;
+      if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
+        return Oop{};
       }
-    } else {
-      for (__int128 i = start.smallIntegerValue(); i >= stop.smallIntegerValue(); i += st) {
-        if (i < kSmiMin || i > kSmiMax) {
-          break;
-        }
-        elt.slot = Oop::fromSmallInteger(static_cast<std::int64_t>(i));
-        Oop ignored;
-        if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
-          return Oop{};
-        }
+      if ((++n & 0xFFFF) == 0) {
+        gc.safepoint();
       }
     }
     return iv.slot;
   }
-  if (step.isSmallInteger() && step.smallIntegerValue() == 0) {
-    return iv.slot;
-  }
-  Root cur(ctx.roots, start);
-  Root blkStop(ctx.roots, stop);
-  Root blkStep(ctx.roots, step);
-  const bool forward = !step.isSmallInteger() || step.smallIntegerValue() > 0;
-  // セレクタは send をまたいで使う。full GC の圧縮で Symbol も動くので、ルートに載せる。
-  Root cmpSel(ctx.roots, ctx.wk.intern(forward ? ">" : "<"));
-  Root add(ctx.roots, ctx.wk.intern("+"));
-  for (std::int64_t n = 0; n <= (std::int64_t{1} << 20); ++n) {
-    const Oop past = send(ctx, cur.slot, cmpSel.slot, &blkStop.slot, 1, nullptr);
-    if (unwinding(ctx)) {
-      return Oop{};
-    }
-    if (past.isTrue()) {
-      break;
-    }
+  const bool done = intervalWalk(ctx, iv, [&](Root& element) {
     Oop ignored;
-    if (!callBlock(ctx, blk.slot, &cur.slot, 1, &ignored)) {
-      return Oop{};
-    }
-    cur.slot = send(ctx, cur.slot, add.slot, &blkStep.slot, 1, nullptr);
-    if (unwinding(ctx)) {
-      return Oop{};
-    }
-  }
-  return iv.slot;
+    return callBlock(ctx, blk.slot, &element.slot, 1, &ignored);
+  });
+  return done ? iv.slot : Oop{};
 }
 
 Oop ao_Bag_do_(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {

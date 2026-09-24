@@ -575,6 +575,58 @@ TEST_F(HashedCollection, ClassVariablesThroughTheHashedPool) {
   EXPECT_EQ("5", printIt("B9Pool new zeta"));
 }
 
+// 04 Medium: SmallInteger でない刻みの向きは step < 0 で決める。以前は負の Float の刻みを前向きと
+// して扱い、size が 0 になった。
+TEST_F(HashedCollection, IntervalStepDirectionIsSent) {
+  EXPECT_EQ("3", printIt("(Interval from: 2.0 to: 1.0 by: -0.5) size"));
+  EXPECT_EQ("#(2 1.5 1)", printIt("(Interval from: 2.0 to: 1.0 by: -0.5) collect: [:x | x]"));
+  EXPECT_EQ("true", printIt("| s | s := OrderedCollection new. (Interval from: 1 to: 2 by: 0.5) "
+                            "do: [:x | s add: x]. (s size = 3) & ((s at: 1) = 1) & "
+                            "((s at: 2) = 1.5) & ((s at: 3) = 2.0)"));
+  EXPECT_EQ("3", printIt("(Interval from: 1 to: 2 by: 0.5) size"));
+  EXPECT_EQ("3", printIt("(Interval from: 0 to: 1 by: 1/2) size"));
+  EXPECT_EQ("3", printIt("(Interval from: 1 to: 0 by: -1/2) size"));
+  EXPECT_EQ("true", printIt("((Interval from: 1 to: 0 by: -1/2) collect: [:x | x]) = "
+                            "((Array new: 3) at: 1 put: 1; at: 2 put: 1/2; at: 3 put: 0; yourself)"));
+  EXPECT_EQ("0", printIt("(Interval from: 1 to: 5 by: 0.0) size"));
+  EXPECT_EQ("0", printIt("| n | n := 0. (Interval from: 1 to: 5 by: 0.0) do: [:x | n := n + 1]. n"));
+  EXPECT_EQ("0", printIt("(Interval from: 1 to: 5 by: -1.0) size"));
+  EXPECT_EQ("2", printIt("(Interval from: 1 to: 2.5 by: 1) size"));
+}
+
+// 04 Medium: 刻みの向きと終端の比較の答えが Boolean でなければ失敗する（以前は 2^20 回まで回った）。
+TEST_F(HashedCollection, IntervalComparisonsMustAnswerBooleans) {
+  acceptClass("Object", "B9Step", "");
+  acceptMethod("B9Step", "< x\n  ^3\n");
+  acceptClass("Object", "B9Step2", "");
+  acceptMethod("B9Step2", "< x\n  ^false\n");
+  acceptMethod("B9Step2", "> x\n  ^nil\n");
+  acceptClass("Object", "B9Mag", "");
+  acceptMethod("B9Mag", "> x\n  ^3\n");
+  acceptMethod("B9Mag", "+ x\n  ^self\n");
+  EXPECT_EQ("<eval error: failed: #size>", printIt("(Interval from: 1 to: 5 by: B9Step new) size"));
+  EXPECT_EQ("<eval error: failed: #do:>",
+            printIt("(Interval from: 1 to: 5 by: B9Step new) do: [:x | x]"));
+  EXPECT_EQ("<eval error: failed: #size>", printIt("(Interval from: 1 to: 5 by: B9Step2 new) size"));
+  EXPECT_EQ("<eval error: failed: #size>", printIt("(Interval from: B9Mag new to: 5 by: 1) size"));
+  EXPECT_EQ("<eval error: failed: #do:>",
+            printIt("| n | n := 0. (Interval from: B9Mag new to: 5 by: 1) do: [:x | n := n + 1]"));
+  EXPECT_EQ("<eval error: doesNotUnderstand: #<>",
+            printIt("(Interval from: 1 to: (1 bitShift: 70) by: nil) size"));
+}
+
+// 04 Medium: 2^20+1 要素で黙って打ち切る上限は無い。ブロックの abort でループは止まる。
+TEST_F(HashedCollection, IntervalHasNoElementCap) {
+  EXPECT_EQ("1048600", printIt("(Interval from: 1 to: 1048600.0 by: 1) size"));
+  EXPECT_EQ("<eval error: doesNotUnderstand: #foo>",
+            printIt("| n | n := 0. (Interval from: 1 to: (1 bitShift: 200) by: 1) do: [:i | "
+                    "n := n + 1. n = 3 ifTrue: [nil foo]]"));
+  EXPECT_EQ("true", printIt("| lo hi | lo := 0 - (1 bitShift: 62). hi := (1 bitShift: 62) - 1. "
+                            "(lo class == SmallInteger) & (hi class == SmallInteger) & "
+                            "((Interval from: lo to: hi by: 1) size = (1 bitShift: 63)) & "
+                            "((Interval from: lo to: hi by: 2) size = (1 bitShift: 62))"));
+}
+
 namespace {
 
 // GC を走らせずに nursery を使い切る（残りは 16 B 未満）。
