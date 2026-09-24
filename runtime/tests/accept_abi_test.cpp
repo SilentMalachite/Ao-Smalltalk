@@ -888,3 +888,61 @@ TEST(AcceptAbi, ShapeChangeKeepsMethodsThatDoNotReadRemovedVariables) {
   EXPECT_STREQ("9", out);
   ao_runtime_shutdown();
 }
+
+// B5 review L1 / SPEC §3.9: superclass が、名前が今指しているクラスそのもの（Foo subclass: #Foo）
+// か、そのサブクラスなら、何も変えずに AO_ERR_COMPILE。別名で指していても同じ。受け付けると、
+// Browser が表示した定義を Accept し直すたびに継承が 1 段深くなった。
+TEST(AcceptAbi, AcceptClassRefusesClassAsItsOwnSuperclass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  for (const std::string& def : {b5Definition("Object", "B5Self", "a", "B5-Test"),
+                                 b5Definition("Object", "B5Mid", "a", "B5-Test"),
+                                 b5Definition("B5Mid", "B5MidSub", "", "B5-Test")}) {
+    ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+  }
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Self", 0, "a\n  ^a\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldSelf := B5Self. oldMid := B5Mid. "
+                           "Smalltalk at: #B5SelfAlias put: B5Self. B5Self instSize"))
+      << err.message;
+  EXPECT_STREQ("1", out);
+
+  struct Case {
+    const char* superName;
+    const char* name;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"B5Self", "B5Self", "superclass refused: B5Self is B5Self or its subclass"},
+      {"B5SelfAlias", "B5SelfAlias",
+       "superclass refused: B5SelfAlias is B5SelfAlias or its subclass"},
+      {"B5MidSub", "B5Mid", "superclass refused: B5MidSub is B5Mid or its subclass"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.superName);
+    AoSpan e{};
+    const std::string def = b5Definition(c.superName, c.name, "b", "B5-Test");
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(def.c_str(), &e));
+    EXPECT_STREQ(c.expected, e.message);
+    ASSERT_EQ(AO_OK, printIt("oldSelf == B5Self and: [B5SelfAlias == B5Self]")) << err.message;
+    EXPECT_STREQ("true", out);
+    ASSERT_EQ(AO_OK, printIt("B5Self superclass == Object and: [B5Self instSize = 1]"))
+        << err.message;
+    EXPECT_STREQ("true", out);
+    ASSERT_EQ(AO_OK, printIt("oldMid == B5Mid and: [B5MidSub superclass == B5Mid]")) << err.message;
+    EXPECT_STREQ("true", out);
+  }
+
+  // Browser が表示した定義は Object の下のままで、そのまま Accept し直しても形は変わらない。
+  const std::string shown = b5ClassDefinition("B5Self");
+  EXPECT_EQ(0u, shown.find("Object subclass: #B5Self")) << shown;
+  ASSERT_EQ(AO_OK, ao_accept_class(shown.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldSelf == B5Self and: [B5Self instSize = 1]")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("(B5Self new instVarAt: 1 put: 4; yourself) a")) << err.message;
+  EXPECT_STREQ("4", out);
+  ao_runtime_shutdown();
+}

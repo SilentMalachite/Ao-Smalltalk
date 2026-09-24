@@ -576,8 +576,9 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
 // SPEC §3.9「クラス定義の再 Accept」: a class definition through ao_accept_class. When the name
 // already names its own class (not a Kernel class), the same shape (the superclass the name
 // resolves to, the same instance variable names in the same order) keeps that class and changes
-// its category, and a new shape is reshapeClass's. Any other definition (a new name, a Kernel
-// name, an alias, a superclass that is not a class) is applyClassDef's, as for file-in.
+// its category, and a new shape is reshapeClass's. A superclass that is the class the name names,
+// or a class below it, is refused. Any other definition (a new name, a Kernel name, an alias, a
+// superclass that is not a class) is applyClassDef's, as for file-in.
 bool acceptClassDef(CallContext& ctx, const compiler::ChunkAction& action,
                     std::vector<FileInError>& errors) {
   if (isKernelClassName(ctx.wk, action.className) || !namesBehavior(ctx, action.className) ||
@@ -585,6 +586,13 @@ bool acceptClassDef(CallContext& ctx, const compiler::ChunkAction& action,
     return applyClassDef(ctx, action, errors);
   }
   Root old(ctx.roots, ctx.wk.named(action.className));
+  // SPEC §3.9: a superclass that is the class the name names now (an alias too), or below it,
+  // would put the new class under the old one, one level deeper on every re-accept.
+  if (chainIncludes(ctx.heap, ctx.wk.named(action.superName), old.slot)) {
+    addError(errors, {action.span, "superclass refused: " + action.superName + " is " +
+                                       action.className + " or its subclass"});
+    return false;
+  }
   if (isKernelClass(ctx.wk, old.slot) || ownClassName(ctx, old.slot) != action.className) {
     return applyClassDef(ctx, action, errors);
   }
