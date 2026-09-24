@@ -814,6 +814,21 @@ void rememberMethodSource(Oop method, Oop text, Oop replaced) {
   s->methodSources.push_back(std::move(pair));
 }
 
+bool moveMethodSource(Oop from, Oop to) {
+  Session* s = session();
+  if (s == nullptr || !from.isHeap() || !to.isHeap()) {
+    return false;
+  }
+  for (auto& pair : s->methodSources) {
+    if (pair->method == from) {
+      // The slot itself is the root, so the new method is rooted as soon as it is stored.
+      pair->method = to;
+      return true;
+    }
+  }
+  return false;
+}
+
 bool methodSource(Oop method, std::string& utf8) {
   Session* s = session();
   if (s == nullptr || !method.isHeap()) {

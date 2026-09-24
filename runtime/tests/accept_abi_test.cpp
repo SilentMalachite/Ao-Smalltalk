@@ -390,3 +390,324 @@ TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   EXPECT_EQ(AO_OK, ao_browser_class_definition("B3Pq", buf, 256));
   ao_runtime_shutdown();
 }
+
+namespace {
+
+// A class definition message for ao_accept_class.
+std::string b5Definition(const char* superName, const char* name, const char* instVars,
+                         const char* category) {
+  std::string def = superName;
+  def += " subclass: #";
+  def += name;
+  def += "\n  instanceVariableNames: '";
+  def += instVars;
+  def += "'\n  classVariableNames: ''\n  poolDictionaries: ''\n  category: '";
+  def += category;
+  def += "'\n";
+  return def;
+}
+
+// The class list's category heading of className, or "<missing>".
+std::string b5Category(const char* className) {
+  const int n = ao_browser_class_count();
+  for (int i = 0; i < n; ++i) {
+    char name[128];
+    char category[128];
+    if (ao_browser_class_at(i, name, 128, category, 128) == AO_OK &&
+        std::string(name) == className) {
+      return category;
+    }
+  }
+  return "<missing>";
+}
+
+std::string b5ClassDefinition(const char* className) {
+  char defn[512];
+  if (ao_browser_class_definition(className, defn, 512) != AO_OK) {
+    return "<missing>";
+  }
+  return defn;
+}
+
+}  // namespace
+
+// 00 Critical / SPEC §3.9「クラス定義の再 Accept」: 失敗シナリオ。Foo2>>m を Accept したあと、同じ
+// 定義文を ao_accept_class で受け付け直しても AO_OK で、Foo2 new m は 42 のまま。形が同じなので、
+// クラスオブジェクト、既存インスタンス、ソースもそのまま。
+TEST(AcceptAbi, ReacceptSameClassDefinitionKeepsClassAndMethods) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  const std::string def = b5Definition("Object", "Foo2", "", "B5-Test");
+  ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+  const char* m = "m\n  ^42\n";
+  ASSERT_EQ(AO_OK, ao_accept_method("Foo2", 0, m, &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("Foo2 new m")) << err.message;
+  EXPECT_STREQ("42", out);
+  ASSERT_EQ(AO_OK, printIt("oldFoo2 := Foo2. oldInst := Foo2 new. oldInst m")) << err.message;
+  EXPECT_STREQ("42", out);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("Foo2 new m")) << err.message;
+  EXPECT_STREQ("42", out);
+  ASSERT_EQ(AO_OK, printIt("oldFoo2 == Foo2")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("oldInst class == Foo2")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("oldInst m")) << err.message;
+  EXPECT_STREQ("42", out);
+  char source[256];
+  ASSERT_EQ(AO_OK, ao_browser_source("Foo2", 0, "m", source, 256));
+  EXPECT_STREQ(m, source);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.9: 形が同じなら category だけが変わる（instanceVariableNames は空白の違いを問わない）。
+// インスタンス側とクラス側のメソッド、ソースの無いメソッドも、そのまま残る。
+TEST(AcceptAbi, ReacceptWithNewCategoryKeepsClassAndMethods) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  const std::string def = b5Definition("Object", "B5Cat", "a b", "B5-Old");
+  const std::string chunks = def + "!\n!B5Cat methodsFor: 'b5'!\neight\n  ^8! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(chunks.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Cat", 0, "a: v\n  a := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Cat", 0, "a\n  ^a\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Cat", 1, "make\n  ^self new a: 5\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldCat := B5Cat. inst := B5Cat make. inst a")) << err.message;
+  EXPECT_STREQ("5", out);
+  EXPECT_EQ("B5-Old", b5Category("B5Cat"));
+
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B5Cat instanceVariableNames: ' a  b ' "
+                                   "classVariableNames: '' poolDictionaries: '' "
+                                   "category: 'B5-New'",
+                                   &err))
+      << err.message;
+  EXPECT_EQ("B5-New", b5Category("B5Cat"));
+  const std::string defn = b5ClassDefinition("B5Cat");
+  EXPECT_NE(defn.find("instanceVariableNames: 'a b'"), std::string::npos) << defn;
+  EXPECT_NE(defn.find("category: 'B5-New'"), std::string::npos) << defn;
+  ASSERT_EQ(AO_OK, printIt("oldCat == B5Cat")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("inst class == B5Cat")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("inst a")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("B5Cat make a")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("B5Cat new eight")) << err.message;
+  EXPECT_STREQ("8", out);
+  char source[256];
+  EXPECT_EQ(AO_ERR_NOSOURCE, ao_browser_source("B5Cat", 0, "eight", source, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source("B5Cat", 1, "make", source, 256));
+  EXPECT_STREQ("make\n  ^self new a: 5\n", source);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.9: 形が変わるときは新しいクラスを作り、ソース表にあるメソッドを（インスタンス側も
+// クラス側も）新しい形でコンパイルし直して移す。w を x の前に足すので、x を読み書きするメソッドは
+// コンパイルし直したものでなければ 2 番目のスロットに届かない。旧クラスと既存インスタンスは、
+// 旧クラスのメソッドで動く。
+TEST(AcceptAbi, ReacceptWithNewInstanceVariableRecompilesMethods) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "B5Shape", "x", "B5-Test").c_str(), &err))
+      << err.message;
+  const char* getX = "x\n  ^x\n";
+  const char* setX = "x: v\n  x := v\n";
+  const char* withX = "withX: v\n  ^self new x: v\n";
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Shape", 0, getX, &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Shape", 0, setX, &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Shape", 1, withX, &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldShape := B5Shape. oldInst := B5Shape withX: 7. oldInst x"))
+      << err.message;
+  EXPECT_STREQ("7", out);
+
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B5Shape", "w x", "B5-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Shape", 0, "w: v\n  w := v\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("(B5Shape withX: 5) x")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("(B5Shape withX: 5) w: 9; x")) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, printIt("(B5Shape withX: 5) class == B5Shape")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("oldShape == B5Shape")) << err.message;
+  EXPECT_STREQ("false", out);
+  ASSERT_EQ(AO_OK, printIt("oldInst class == oldShape")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("oldInst x")) << err.message;
+  EXPECT_STREQ("7", out);
+  ASSERT_EQ(AO_OK, printIt("(oldInst x: 8) x")) << err.message;
+  EXPECT_STREQ("8", out);
+
+  // Browser ABI から見ても、メソッド、プロトコル、ソースが新しいクラスにある。
+  EXPECT_NE(b5ClassDefinition("B5Shape").find("instanceVariableNames: 'w x'"), std::string::npos);
+  EXPECT_EQ("B5-Test", b5Category("B5Shape"));
+  ASSERT_EQ(1, ao_browser_protocol_count("B5Shape", 0));
+  char buf[256];
+  ASSERT_EQ(AO_OK, ao_browser_protocol_at("B5Shape", 0, 0, buf, 256));
+  EXPECT_STREQ("user", buf);
+  ASSERT_EQ(3, ao_browser_selector_count("B5Shape", 0, "user"));
+  const char* selectors[] = {"w:", "x", "x:"};
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_EQ(AO_OK, ao_browser_selector_at("B5Shape", 0, "user", i, buf, 256));
+    EXPECT_STREQ(selectors[i], buf);
+  }
+  ASSERT_EQ(AO_OK, ao_browser_source("B5Shape", 0, "x", buf, 256));
+  EXPECT_STREQ(getX, buf);
+  ASSERT_EQ(AO_OK, ao_browser_source("B5Shape", 0, "x:", buf, 256));
+  EXPECT_STREQ(setX, buf);
+  ASSERT_EQ(1, ao_browser_selector_count("B5Shape", 1, "user"));
+  ASSERT_EQ(AO_OK, ao_browser_source("B5Shape", 1, "withX:", buf, 256));
+  EXPECT_STREQ(withX, buf);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.9: 形が変わるとき、ソース表にソースの無いメソッド（ao_accept_class の methodsFor: の
+// チャンクで入れたもの）が 1 つでもあれば、何も変えずに AO_ERR_COMPILE。メッセージは当たった
+// セレクタを含む。名前は旧クラスを指したままで、メソッドも動く。形が同じなら受け付ける。
+TEST(AcceptAbi, ShapeChangeRefusesSourcelessMethodAndKeepsOldClass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  const std::string instSide = b5Definition("Object", "B5NoSrc", "a", "B5-Test") +
+                               "!\n!B5NoSrc methodsFor: 'b5'!\neight\n  ^8! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(instSide.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5NoSrc", 0, "a\n  ^a\n", &err)) << err.message;
+  const std::string classSide = b5Definition("Object", "B5NoSrcMeta", "a", "B5-Test") +
+                                "!\n!B5NoSrcMeta class methodsFor: 'b5'!\nmake\n  ^self new! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(classSide.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5NoSrcMeta", 0, "a\n  ^a\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldNoSrc := B5NoSrc. oldNoSrcMeta := B5NoSrcMeta")) << err.message;
+
+  struct Refused {
+    const char* name;
+    const char* method;
+  };
+  const Refused refused[] = {{"B5NoSrc", "B5NoSrc>>eight"}, {"B5NoSrcMeta", "B5NoSrcMeta class>>make"}};
+  for (const Refused& r : refused) {
+    SCOPED_TRACE(r.name);
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE,
+              ao_accept_class(b5Definition("Object", r.name, "a b", "B5-Test").c_str(), &e));
+    EXPECT_STRNE("", e.message);
+    EXPECT_NE(std::string(e.message).find(r.method), std::string::npos) << e.message;
+    EXPECT_NE(b5ClassDefinition(r.name).find("instanceVariableNames: 'a'\n"), std::string::npos);
+  }
+  ASSERT_EQ(AO_OK, printIt("oldNoSrc == B5NoSrc")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("oldNoSrcMeta == B5NoSrcMeta")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("B5NoSrc new eight")) << err.message;
+  EXPECT_STREQ("8", out);
+  ASSERT_EQ(AO_OK, printIt("B5NoSrcMeta make class == B5NoSrcMeta")) << err.message;
+  EXPECT_STREQ("true", out);
+  char source[256];
+  ASSERT_EQ(AO_OK, ao_browser_source("B5NoSrc", 0, "a", source, 256));
+  EXPECT_STREQ("a\n  ^a\n", source);
+
+  // 形が同じなら、ソースの無いメソッドがあっても受け付ける。
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B5NoSrc", "a", "B5-Kept").c_str(), &err))
+      << err.message;
+  EXPECT_EQ("B5-Kept", b5Category("B5NoSrc"));
+  ASSERT_EQ(AO_OK, printIt("oldNoSrc == B5NoSrc")) << err.message;
+  EXPECT_STREQ("true", out);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.9: 形が変わるとき、コンパイルし直しが 1 つでも失敗すれば（消したインスタンス変数 y に
+// 代入するメソッド）、何も変えずに AO_ERR_COMPILE。メッセージは当たったセレクタを含む。
+TEST(AcceptAbi, ShapeChangeRefusesMethodThatDoesNotRecompile) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B5Drop", "x y", "B5-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Drop", 0, "x\n  ^x\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Drop", 0, "y\n  ^y\n", &err)) << err.message;
+  const char* setY = "y: v\n  y := v\n";
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Drop", 0, setY, &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldDrop := B5Drop. (B5Drop new y: 3) y")) << err.message;
+  EXPECT_STREQ("3", out);
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("Object", "B5Drop", "x", "B5-Test").c_str(), &e));
+  EXPECT_STRNE("", e.message);
+  EXPECT_NE(std::string(e.message).find("B5Drop>>y:"), std::string::npos) << e.message;
+  ASSERT_EQ(AO_OK, printIt("oldDrop == B5Drop")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("(B5Drop new y: 4) y")) << err.message;
+  EXPECT_STREQ("4", out);
+  EXPECT_NE(b5ClassDefinition("B5Drop").find("instanceVariableNames: 'x y'"), std::string::npos);
+  char source[256];
+  ASSERT_EQ(AO_OK, ao_browser_source("B5Drop", 0, "y:", source, 256));
+  EXPECT_STREQ(setY, source);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.9: サブクラスのあるクラスの形は変えない（サブクラスの付け替えは v1 でしない）。
+// AO_ERR_COMPILE で、メッセージはサブクラスがあることを言う。形が同じなら受け付け、サブクラスも
+// 同じクラスを指したまま。サブクラスの無いクラスの形は変えられる。
+TEST(AcceptAbi, ShapeChangeRefusesClassWithSubclasses) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B5Base", "a", "B5-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("B5Base", "B5Sub", "", "B5-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B5Base", 0, "a\n  ^a\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldBase := B5Base. B5Sub superclass == B5Base")) << err.message;
+  EXPECT_STREQ("true", out);
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("Object", "B5Base", "a b", "B5-Test").c_str(), &e));
+  EXPECT_NE(std::string(e.message).find("B5Base has subclasses"), std::string::npos) << e.message;
+  ASSERT_EQ(AO_OK, printIt("oldBase == B5Base")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("B5Sub superclass == B5Base")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("B5Sub new a")) << err.message;
+  EXPECT_STREQ("nil", out);
+  EXPECT_NE(b5ClassDefinition("B5Base").find("instanceVariableNames: 'a'\n"), std::string::npos);
+
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B5Base", "a", "B5-Moved").c_str(), &err))
+      << err.message;
+  EXPECT_EQ("B5-Moved", b5Category("B5Base"));
+  ASSERT_EQ(AO_OK, printIt("oldBase == B5Base and: [B5Sub superclass == B5Base]")) << err.message;
+  EXPECT_STREQ("true", out);
+
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("B5Base", "B5Sub", "c", "B5-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("B5Sub superclass == B5Base")) << err.message;
+  EXPECT_STREQ("true", out);
+  EXPECT_NE(b5ClassDefinition("B5Sub").find("instanceVariableNames: 'c'"), std::string::npos);
+  ao_runtime_shutdown();
+}

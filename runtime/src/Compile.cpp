@@ -301,14 +301,254 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
   return true;
 }
 
+// SPEC §3.9: the instance variable names a definition gives, split as subclass: splits them.
+std::vector<std::string> definedInstVarNames(std::string_view spec) {
+  const auto blank = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; };
+  std::vector<std::string> names;
+  std::size_t i = 0;
+  while (i < spec.size()) {
+    while (i < spec.size() && blank(spec[i])) {
+      ++i;
+    }
+    const std::size_t start = i;
+    while (i < spec.size() && !blank(spec[i])) {
+      ++i;
+    }
+    if (start < i) {
+      names.emplace_back(spec.substr(start, i - start));
+    }
+  }
+  return names;
+}
+
+// The names in cls's own instVarNames slot, in order. cls is class-shaped.
+std::vector<std::string> ownInstVarNames(CallContext& ctx, Oop cls) {
+  std::vector<std::string> names;
+  const Oop arr = ctx.heap.slotAt(cls, kClassSlotInstVarNames);
+  if (!arr.isHeap() || (ctx.heap.flags(arr) & kFlagBytes) != 0) {
+    return names;
+  }
+  const auto n = ctx.heap.size(arr);
+  for (std::uint32_t i = 0; i < n; ++i) {
+    const Oop name = ctx.heap.slotAt(arr, i);
+    if (name.isHeap()) {
+      names.push_back(Str::toUtf8(ctx.heap, name));
+    }
+  }
+  return names;
+}
+
+// The name cls carries itself. cls is class-shaped.
+std::string ownClassName(CallContext& ctx, Oop cls) {
+  const Oop name = ctx.heap.slotAt(cls, kClassSlotName);
+  if (!name.isHeap() || (ctx.heap.flags(name) & kFlagBytes) == 0) {
+    return {};
+  }
+  return Str::toUtf8(ctx.heap, name);
+}
+
+// Whether a named class has cls as its superclass. Does not collect.
+bool hasSubclass(CallContext& ctx, Oop cls) {
+  struct Probe {
+    const Heap& heap;
+    Oop cls;
+    bool found;
+  } probe{ctx.heap, cls, false};
+  ctx.wk.eachClass(
+      [](void* baton, Oop each) {
+        auto* p = static_cast<Probe*>(baton);
+        p->found = p->found || superclassOf(p->heap, each) == p->cls;
+      },
+      &probe);
+  return probe.found;
+}
+
+// Binds name to cls again, the way subclass: and applyClassDef bound it (a vendor stub through its
+// well-known slot), and drops the method cache (SPEC §3.3).
+void rebindClassName(CallContext& ctx, const std::string& name, Oop cls) {
+  if (isVendorStub(name)) {
+    ctx.wk.rebind(name, cls);
+  } else {
+    ctx.wk.define(name, cls);
+  }
+  invalidateMethodCache(ctx.cache, Oop{});
+}
+
+// A method a shape change carries over to the new class (SPEC §3.9): its side, its selector, its
+// source from the source table and that source compiled for the new shape.
+struct CarriedMethod {
+  bool meta = false;
+  std::string selector;
+  std::string source;
+  compiler::MethodImage image;
+};
+
+// `Name>>selector` or `Name class>>selector`, the way a refusal names the method.
+std::string carriedMethodName(const std::string& className, const CarriedMethod& m) {
+  std::string key = className;
+  if (m.meta) {
+    key += " class";
+  }
+  key += ">>";
+  key += m.selector;
+  return key;
+}
+
+// SPEC §3.9: the same shape keeps the class object, its method dictionaries, its metaclass and
+// its instances. Only the category changes: the runtime keeps no classVariableNames yet.
+bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction& action,
+                       std::vector<FileInError>& errors) {
+  Root cat(ctx.roots, boxUtf8(ctx, action.category));
+  if (!cat.slot.isHeap()) {
+    addError(errors, {action.span, "class definition allocation failed: " + action.className});
+    return false;
+  }
+  // subclass: puts the category on the class and on its metaclass.
+  ctx.heap.slotAtPut(cls.slot, kClassSlotCategory, cat.slot);
+  const Oop meta = ctx.heap.klass(cls.slot);
+  if (isClassShaped(ctx.heap, meta)) {
+    ctx.heap.slotAtPut(meta, kClassSlotCategory, cat.slot);
+  }
+  return true;
+}
+
+// SPEC §3.9: a new shape. Every check runs before anything changes: the class has no subclass,
+// each method on either side has its source in the source table, and each source compiles for
+// the new shape. Then applyClassDef makes the new class and binds the name to it, the methods go
+// in, and their sources move over. When an install fails (old at its max), the name goes back to
+// the old class, whose methods were never touched.
+bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
+                  const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
+  const std::string refused = "shape change refused: ";
+  if (hasSubclass(ctx, old.slot)) {
+    addError(errors, {action.span, refused + action.className + " has subclasses"});
+    return false;
+  }
+  // Gathered without collecting, then rooted before anything allocates.
+  std::vector<CarriedMethod> carried;
+  std::vector<Oop> found;
+  for (const bool meta : {false, true}) {
+    const Oop side = meta ? ctx.heap.klass(old.slot) : old.slot;
+    const Oop dict = isClassShaped(ctx.heap, side) ? ctx.heap.slotAt(side, kClassSlotMethodDict)
+                                                   : Oop::nil();
+    if (!dict.isHeap() || (ctx.heap.flags(dict) & kFlagBytes) != 0 ||
+        ctx.heap.size(dict) <= kDictSlotArray) {
+      continue;
+    }
+    const Oop inner = ctx.heap.slotAt(dict, kDictSlotArray);
+    if (!inner.isHeap() || (ctx.heap.flags(inner) & kFlagBytes) != 0) {
+      continue;
+    }
+    const auto n = ctx.heap.size(inner);
+    for (std::uint32_t i = 0; i + 1 < n; i += 2) {
+      const Oop key = ctx.heap.slotAt(inner, i);
+      const Oop method = ctx.heap.slotAt(inner, i + 1);
+      if (!key.isHeap() || !method.isHeap()) {
+        continue;
+      }
+      CarriedMethod m;
+      m.meta = meta;
+      m.selector = Str::toUtf8(ctx.heap, key);
+      // A NativeMethod has no source either.
+      if (ctx.heap.klass(method) == ctx.wk.nativeMethodClass || !methodSource(method, m.source)) {
+        addError(errors,
+                 {action.span, refused + carriedMethodName(action.className, m) + " has no source"});
+        return false;
+      }
+      carried.push_back(std::move(m));
+      found.push_back(method);
+    }
+  }
+  const auto count = static_cast<std::uint32_t>(carried.size());
+  RootedArray oldMethods(ctx.roots, count);
+  for (std::uint32_t i = 0; i < count; ++i) {
+    oldMethods[i] = found[i];
+  }
+  found.clear();
+
+  // The new class's variables are its superclass chain's and then its own; its metaclass adds
+  // none to the superclass's metaclass chain (see subclass:).
+  compiler::CompileEnv instanceEnv;
+  compiler::CompileEnv classEnv;
+  {
+    const Oop super = ctx.wk.named(action.superName);
+    fillInstVars(ctx, super, instanceEnv);
+    instanceEnv.instVarNames.insert(instanceEnv.instVarNames.end(), instVars.begin(),
+                                    instVars.end());
+    fillInstVars(ctx, ctx.heap.klass(super), classEnv);
+  }
+  for (CarriedMethod& m : carried) {
+    compiler::CompileResult cr = compiler::compileMethod(m.source, m.meta ? classEnv : instanceEnv);
+    if (!cr.ok) {
+      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
+                                         " does not compile: " + cr.error.message});
+      return false;
+    }
+    m.image = std::move(cr.image);
+  }
+
+  if (!applyClassDef(ctx, action, errors)) {
+    return false;
+  }
+  Root fresh(ctx.roots, ctx.wk.named(action.className));
+  if (!isClassShaped(ctx.heap, fresh.slot) || fresh.slot == old.slot) {
+    rebindClassName(ctx, action.className, old.slot);
+    addError(errors, {action.span, "subclass failed: " + action.className});
+    return false;
+  }
+  RootedArray installed(ctx.roots, count);
+  for (std::uint32_t i = 0; i < count; ++i) {
+    const Oop side = carried[i].meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
+    const Oop method = installMethod(ctx, side, carried[i].image);
+    if (!method.isHeap()) {
+      rebindClassName(ctx, action.className, old.slot);
+      addError(errors, {action.span, "shape change failed: " +
+                                         carriedMethodName(action.className, carried[i]) +
+                                         " install failed"});
+      return false;
+    }
+    installed[i] = method;
+  }
+  for (std::uint32_t i = 0; i < count; ++i) {
+    moveMethodSource(oldMethods[i], installed[i]);
+  }
+  // SPEC §3.3: the class was replaced. installMethod dropped each selector already.
+  invalidateMethodCache(ctx.cache, Oop{});
+  return true;
+}
+
+// SPEC §3.9「クラス定義の再 Accept」: a class definition through ao_accept_class. When the name
+// already names its own class (not a Kernel class), the same shape (the superclass the name
+// resolves to, the same instance variable names in the same order) keeps that class and changes
+// its category, and a new shape is reshapeClass's. Any other definition (a new name, a Kernel
+// name, an alias, a superclass that is not a class) is applyClassDef's, as for file-in.
+bool acceptClassDef(CallContext& ctx, const compiler::ChunkAction& action,
+                    std::vector<FileInError>& errors) {
+  if (isKernelClassName(ctx.wk, action.className) || !namesBehavior(ctx, action.className) ||
+      !namesBehavior(ctx, action.superName)) {
+    return applyClassDef(ctx, action, errors);
+  }
+  Root old(ctx.roots, ctx.wk.named(action.className));
+  if (isKernelClass(ctx.wk, old.slot) || ownClassName(ctx, old.slot) != action.className) {
+    return applyClassDef(ctx, action, errors);
+  }
+  const std::vector<std::string> instVars = definedInstVarNames(action.instVars);
+  if (ctx.heap.slotAt(old.slot, kClassSlotSuperclass) == ctx.wk.named(action.superName) &&
+      ownInstVarNames(ctx, old.slot) == instVars) {
+    return recategorizeClass(ctx, old, action, errors);
+  }
+  return reshapeClass(ctx, old, instVars, action, errors);
+}
+
 // False when a chunk stopped the file-in (a class definition failed, a methodsFor: was refused
 // or named no class). Errors that do not stop it are only added to errors.
 bool applyChunkActions(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
-                       std::vector<FileInError>& errors) {
+                       std::vector<FileInError>& errors, bool accept = false) {
   for (const auto& action : actions) {
     switch (action.kind) {
       case compiler::ChunkKind::ClassDef:
-        if (!applyClassDef(ctx, action, errors)) {
+        // SPEC §3.9: only ao_accept_class keeps or reshapes an existing class; file-in does not.
+        if (!(accept ? acceptClassDef(ctx, action, errors) : applyClassDef(ctx, action, errors))) {
           return false;
         }
         break;
@@ -658,8 +898,13 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
     assignError(error, "not a class definition");
     return false;
   }
-  const bool ok = applyChunks(ctx, actions, errors);
-  if (ok && errors.empty()) {
+  // SPEC §3.9: a definition of an existing class keeps it or reshapes it (acceptClassDef).
+  std::vector<FileInError> found;
+  const bool completed = applyChunkActions(ctx, actions, found, /*accept=*/true);
+  for (auto& e : found) {
+    errors.push_back(std::move(e.error));
+  }
+  if (completed && errors.empty()) {
     return true;
   }
   if (error != nullptr) {
