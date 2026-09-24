@@ -13,9 +13,6 @@ enum class ChunkKind { MethodsFor, ClassDef, DoIt };
 struct ChunkMethod {
   std::string source;
   SourceSpan span;
-  // The chunk came after the `! !` that ended its methodsFor: section. File-in still installs it;
-  // ao_accept_class refuses it as an expression (SPEC §3.10).
-  bool afterSectionEnd = false;
 };
 
 struct ChunkAction {

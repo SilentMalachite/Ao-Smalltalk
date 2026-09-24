@@ -1416,7 +1416,7 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
   // SPEC §3.10: only class definitions and methodsFor: chunks. Every chunk is checked before any
   // is applied, so a stray expression or method body leaves the image as it was. A definition
   // chunk is its message alone, and a chunk after the `! !` that ended a methodsFor: section is an
-  // expression, not one of its methods.
+  // expression (a DoIt, SPEC §3.8), not one of its methods.
   const bool definitionsOnly =
       !actions.empty() &&
       std::all_of(actions.begin(), actions.end(), [](const compiler::ChunkAction& action) {
@@ -1424,8 +1424,7 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
           case compiler::ChunkKind::ClassDef:
             return action.soleDefinition;
           case compiler::ChunkKind::MethodsFor:
-            return std::none_of(action.methods.begin(), action.methods.end(),
-                                [](const compiler::ChunkMethod& m) { return m.afterSectionEnd; });
+            return true;
           case compiler::ChunkKind::DoIt:
             return false;
         }

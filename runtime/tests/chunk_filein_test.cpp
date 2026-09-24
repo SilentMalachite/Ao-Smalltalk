@@ -208,3 +208,33 @@ TEST(ChunkFileIn, DoubledBangInStringIsOneBang) {
   ASSERT_TRUE(s.isHeap());
   EXPECT_EQ("Hello!", std::string(reinterpret_cast<const char*>(b.heap.bytes(s)), b.heap.size(s)));
 }
+
+// 05 Medium / SPEC §3.8 チャンク形式: `! !` で methodsFor: のセクションは閉じる。そのあとのヘッダで
+// ないチャンクは式で、直前のクラスのメソッドにしない。file-in は式を評価しない（DoIt と同じ）。
+TEST(ChunkFileIn, ChunksAfterSectionEndAreExpressions) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Sect\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Sect methodsFor: 'a'!\n"
+      "two\n"
+      "  ^2! !\n"
+      "\n"
+      "B7Sect initialize!\n"
+      "Smalltalk at: #B7Bar put: 3!\n"
+      "!B7Sect methodsFor: 'b'!\n"
+      "three\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B7Sect");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("two")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("three")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("B7Sect")).isNil());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("Smalltalk")).isNil());
+  EXPECT_TRUE(b.wk.named("B7Bar").isNil());
+}

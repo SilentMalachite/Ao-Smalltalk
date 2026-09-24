@@ -336,9 +336,9 @@ ChunkAction parseClassDef(std::string_view text) {
 std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileError>&) {
   std::vector<ChunkAction> acts;
   ChunkAction pending;
+  // True while a methodsFor: section is open: from its header to the `! !` (or empty chunk) that
+  // ends it.
   bool collecting = false;
-  // False once `! !` (or an empty chunk) has ended the methodsFor: section being collected.
-  bool sectionOpen = false;
   auto flush = [&] {
     if (collecting) {
       acts.push_back(std::move(pending));
@@ -353,29 +353,27 @@ std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileEr
       pending = parseMethodsFor(raw.text);
       pending.span = raw.span;
       collecting = true;
-      sectionOpen = !raw.endsSection;
-      continue;
-    }
-    if (hk == HeadKind::ClassDef) {
+    } else if (hk == HeadKind::ClassDef) {
       flush();
       acts.push_back(parseClassDef(raw.text));
       acts.back().span = raw.span;
-      continue;
-    }
-    if (collecting) {
+    } else if (collecting) {
       ChunkMethod m;
       m.source = std::string(raw.text);
       m.span = raw.span;
-      m.afterSectionEnd = !sectionOpen;
-      sectionOpen = sectionOpen && !raw.endsSection;
       pending.methods.push_back(std::move(m));
-      continue;
+    } else {
+      // SPEC §3.8: outside a section, also right after the `! !` that ended one, a chunk that is
+      // not a header or a class definition is an expression.
+      ChunkAction doit;
+      doit.kind = ChunkKind::DoIt;
+      doit.source = std::string(raw.text);
+      doit.span = raw.span;
+      acts.push_back(std::move(doit));
     }
-    ChunkAction doit;
-    doit.kind = ChunkKind::DoIt;
-    doit.source = std::string(raw.text);
-    doit.span = raw.span;
-    acts.push_back(std::move(doit));
+    if (raw.endsSection) {
+      flush();
+    }
   }
   flush();
   return acts;

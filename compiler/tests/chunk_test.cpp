@@ -134,7 +134,9 @@ TEST(Chunk, LineEndBangAfterBinaryStillTerminates) {
   EXPECT_NE(std::string::npos, acts[0].methods[1].source.find("other"));
 }
 
-TEST(Chunk, BangSpaceBangEndsMethodButDoubleBangStaysLiteral) {
+// SPEC §3.8 チャンク形式: `! !` ends the method and its methodsFor: section. A chunk after it
+// without a header is an expression, not a method of the section.
+TEST(Chunk, BangSpaceBangEndsSectionButDoubleBangStaysLiteral) {
   const char* spaced =
       "!Foo methodsFor: 'accessing'!\n"
       "nextLink\n"
@@ -144,12 +146,11 @@ TEST(Chunk, BangSpaceBangEndsMethodButDoubleBangStaysLiteral) {
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(spaced, errs);
   ASSERT_TRUE(errs.empty());
-  ASSERT_EQ(1u, acts.size());
-  ASSERT_EQ(2u, acts[0].methods.size());
-  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("^nextLink"));
-  EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("nextLink:"));
-  EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("!"));
-  EXPECT_NE(std::string::npos, acts[0].methods[1].source.find("nextLink:"));
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("nextLink\n  ^nextLink", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("nextLink: aLink\n  ^nextLink := aLink", acts[1].source);
 
   const char* glued =
       "!Foo methodsFor: 't'!\n"
@@ -211,15 +212,16 @@ TEST(Chunk, CommentStampApostropheDoesNotSwallowClassDef) {
   EXPECT_EQ(1, classDefs);
 }
 
-// SPEC §3.10: `! !` ends a methodsFor: section. What follows without a header is flagged, so
-// ao_accept_class can refuse it. File-in still reads it as before.
-TEST(Chunk, ChunksAfterSectionEndAreFlagged) {
+// SPEC §3.8 チャンク形式: `! !` or an empty chunk ends a methodsFor: section. A chunk after it
+// without a header is an expression, which ao_accept_class refuses (SPEC §3.10).
+TEST(Chunk, ChunksAfterSectionEndAreExpressions) {
   const char* src =
       "!Px methodsFor: 'x'!\n"
       "foo\n"
       "  ^1! !\n"
-      "3 + 4!\n"
-      "Smalltalk halt!\n"
+      "\n"
+      "Px initialize!\n"
+      "Smalltalk at: #Bar put: 3!\n"
       "!Px methodsFor: 'y'!\n"
       "bar\n"
       "  ^2!\n"
@@ -227,34 +229,35 @@ TEST(Chunk, ChunksAfterSectionEndAreFlagged) {
       "  ^3! !\n";
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(src, errs);
-  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(4u, acts.size());
   ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
-  ASSERT_FALSE(acts[0].methods.empty());
-  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("^1"));
-  EXPECT_FALSE(acts[0].methods[0].afterSectionEnd);
-  for (std::size_t i = 1; i < acts[0].methods.size(); ++i) {
-    SCOPED_TRACE(acts[0].methods[i].source);
-    EXPECT_TRUE(acts[0].methods[i].afterSectionEnd);
-  }
-  EXPECT_EQ(3u, acts[0].methods.size());
-  ASSERT_EQ(2u, acts[1].methods.size());
-  EXPECT_FALSE(acts[1].methods[0].afterSectionEnd);
-  EXPECT_FALSE(acts[1].methods[1].afterSectionEnd);
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("foo\n  ^1", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Px initialize", acts[1].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[2].kind);
+  EXPECT_EQ("Smalltalk at: #Bar put: 3", acts[2].source);
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[3].kind);
+  EXPECT_EQ("y", acts[3].protocol);
+  EXPECT_EQ(2u, acts[3].methods.size());
 
   // A header that ends with `! !` has an empty section.
   const char* empty = "!Px methodsFor: 'x'! !\nfoo\n  ^1!\n";
   acts = ao::compiler::parseChunks(empty, errs);
-  ASSERT_EQ(1u, acts.size());
-  ASSERT_EQ(1u, acts[0].methods.size());
-  EXPECT_TRUE(acts[0].methods[0].afterSectionEnd);
+  ASSERT_EQ(2u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
+  EXPECT_TRUE(acts[0].methods.empty());
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("foo\n  ^1", acts[1].source);
 
   // `! !` on a line of its own is an empty chunk, which ends the section too.
   const char* ownLine = "!Px methodsFor: 'x'!\nfoo\n  ^1!\n! !\n3 + 4!\n";
   acts = ao::compiler::parseChunks(ownLine, errs);
-  ASSERT_EQ(1u, acts.size());
-  ASSERT_EQ(2u, acts[0].methods.size());
-  EXPECT_FALSE(acts[0].methods[0].afterSectionEnd);
-  EXPECT_TRUE(acts[0].methods[1].afterSectionEnd);
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("foo\n  ^1", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("3 + 4", acts[1].source);
 }
 
 // SPEC §3.10: a class definition chunk is the definition message alone.
@@ -304,10 +307,11 @@ TEST(Chunk, ActionsCarryTheirChunkSpan) {
       "Foo initialize!\n";
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(src, errs);
-  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(3u, acts.size());
   auto text = [&](const ao::compiler::SourceSpan& s) {
     return src.substr(s.start, s.end - s.start);
   };
   EXPECT_EQ("Object subclass: #Foo\n  category: 'T'", text(acts[0].span));
   EXPECT_EQ("Foo methodsFor: 'x'", text(acts[1].span));
+  EXPECT_EQ("Foo initialize", text(acts[2].span));
 }
