@@ -1003,3 +1003,57 @@ TEST(ImageSave, UnresolvableNativeNameFailsAndKeepsOldImage) {
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
 }
+
+// B6 review (06 High #3) / SPEC §3.11: 失敗シナリオ。生存データは nursery と old の両方にあり、ロードはそれを
+// 1 つの old に並べる。old の上限（ここでは 4 MiB）の中で動いていたセッションでも、合わせると上限を超える
+// ことがあり、保存は成功するのに、そのイメージは同じ上限の old にロードできなかった。保存は heapBytes が
+// 保存するヒープの old の上限を超えるなら失敗し、旧イメージは残る。
+TEST(ImageSave, HeapBeyondOldLimitFailsAndKeepsOldImage) {
+  constexpr std::size_t kMax = std::size_t{4} << 20;
+  const auto dir = freshDir("b6-capacity");
+  const auto path = dir / "cap.aoimage";
+  Boot b(std::size_t{4} << 20, kMax, kMax);
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> before = readAll(path);
+  {
+    Loaded fits(64u << 10, kMax);
+    ASSERT_TRUE(ao::Image::load(fits.heap, fits.roots, fits.wk, path.string()));
+  }
+
+  constexpr std::uint32_t kSlots = 256;
+  ao::Root keep(b.roots, b.heap.allocate(b.wk.arrayClass, kSlots, 0));
+  ASSERT_TRUE(keep.slot.isHeap());
+  std::uint32_t used = 0;
+  std::size_t kept = 0;
+  // old: 128 KiB（大きなオブジェクトは old に直接置く）を、old が上限に達するまで。
+  constexpr std::uint32_t kOldBlob = 128u << 10;
+  ASSERT_GE(kOldBlob, b.heap.largeObjectBytes());
+  while (used < kSlots) {
+    const ao::Oop blob = b.heap.allocate(b.wk.byteArrayClass, kOldBlob, ao::kFlagBytes);
+    if (!blob.isHeap()) break;
+    b.heap.slotAtPut(keep.slot, used++, blob);
+    kept += kOldBlob;
+  }
+  ASSERT_GT(b.heap.oldUsed(), kMax - 2 * std::size_t{kOldBlob});
+  // nursery: 16 KiB を、合わせて old の上限を 512 KiB 超えるまで。
+  constexpr std::uint32_t kYoungBlob = 16u << 10;
+  ASSERT_LT(kYoungBlob, b.heap.largeObjectBytes());
+  while (kept <= kMax + (512u << 10) && used < kSlots) {
+    const ao::Oop blob = b.heap.allocate(b.wk.byteArrayClass, kYoungBlob, ao::kFlagBytes);
+    ASSERT_TRUE(blob.isHeap());
+    b.heap.slotAtPut(keep.slot, used++, blob);
+    kept += kYoungBlob;
+  }
+  ASSERT_GT(kept, kMax);
+  EXPECT_LE(b.heap.oldUsed(), kMax);
+
+  EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> after = readAll(path);
+  EXPECT_TRUE(before == after);
+  EXPECT_EQ(std::vector<std::string>{"cap.aoimage"}, fileNames(dir));
+  // セッションはそのまま動く。
+  auto three = send1(b, ao::Oop::fromSmallInteger(1), "+", ao::Oop::fromSmallInteger(2));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(3), three);
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}

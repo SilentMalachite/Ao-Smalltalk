@@ -348,8 +348,10 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
     globals.push_back(NamedOop{std::string(name), value});
   }
 
-  // 既定の上限（kOldMaxBytes）を超えるヒープは保存しない。保存できてもロードできない。
-  if (tr.end > kOldMaxBytes) {
+  // SPEC §3.11: the load lays the live objects of nursery and old out in one old space, so a heap
+  // bigger than the old space limit (a session's: kOldMaxBytes, 4 GiB − 1 MiB) is not saved. It
+  // could be saved but not loaded back.
+  if (tr.end > std::min(kOldMaxBytes, heap.oldMaxBytes())) {
     return false;
   }
   std::vector<std::byte> heapBuf(static_cast<std::size_t>(tr.end), std::byte{0});
