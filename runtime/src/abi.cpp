@@ -24,27 +24,24 @@ int guarded(int failed, Body&& body) noexcept {
   }
 }
 
-// ABI entries running now (a refused call does not count). Atomic: a second thread's call while
-// one runs is refused like a hook's.
-std::atomic<int> g_entries{0};
-
-// SPEC §3.10: the one test for a call that re-enters the runtime while it runs, from a host hook
-// (an ABI entry is running) or from under the interpreter. B10 adds "a process is running".
-bool runtimeBusy() { return g_entries.load() > 0 || ao::interpreterRunning(); }
+// 1 while an ABI entry runs, else 0. A refused call does not touch it.
+std::atomic<int> g_entered{0};
 
 // Marks the ABI entries that run Smalltalk, call a hook or replace the session: boot, shutdown,
-// save, load, filein, workspace reset, eval, accept. When the runtime is busy, entered() is false
-// and the call answers AO_ERR without touching the session.
+// save, load, filein, workspace reset, eval, accept. SPEC §3.10: the runtime is busy while one of
+// them runs (a host hook calls back) or the interpreter runs (a native calls back); then
+// entered() is false and the call answers AO_ERR without touching the session. The test and the
+// taking are one compare_exchange (0 to 1), so of two threads that enter at once only one gets
+// in. This constructor is the one place for the test: B10 adds "a process is running" here.
 class AbiEntry {
  public:
-  AbiEntry() : entered_(!runtimeBusy()) {
-    if (entered_) {
-      ++g_entries;
-    }
+  AbiEntry() {
+    int idle = 0;
+    entered_ = !ao::interpreterRunning() && g_entered.compare_exchange_strong(idle, 1);
   }
   ~AbiEntry() {
     if (entered_) {
-      --g_entries;
+      g_entered.store(0);
     }
   }
   AbiEntry(const AbiEntry&) = delete;

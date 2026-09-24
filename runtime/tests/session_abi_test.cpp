@@ -6,9 +6,11 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -681,4 +683,48 @@ TEST_F(SessionAbi, TranscriptHookReachesEverySession) {
   ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'five'"));
   EXPECT_EQ((std::vector<std::string>{"one", "two", "three"}), seen);
   std::filesystem::remove(path);
+}
+
+// B6 review (Claude Low) / SPEC §3.10: the busy test and the taking of the entry are one atomic
+// step, so a call from another thread while an evaluation runs is refused like a hook's, and the
+// evaluation goes on.
+TEST_F(SessionAbi, CallFromAnotherThreadWhileEvaluatingIsRefused) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  struct Gate {
+    std::promise<void> inHook;
+    std::promise<void> release;
+    bool first = true;
+  } gate;
+  std::future<void> released = gate.release.get_future();
+  struct Hook {
+    Gate* gate;
+    std::future<void>* released;
+  } hook{&gate, &released};
+  ao_set_transcript_hook(
+      [](const char*, int, int, void* user) {
+        auto* h = static_cast<Hook*>(user);
+        if (!h->gate->first) return;
+        h->gate->first = false;
+        h->gate->inHook.set_value();
+        h->released->wait();
+      },
+      &hook);
+  int rc = -1;
+  char out[64];
+  std::thread evaluator([&] {
+    AoSpan err{};
+    const char* src = "Transcript show: 'x'. 6 * 7";
+    rc = ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  });
+  gate.inHook.get_future().wait();
+  char other[16];
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR, ao_eval("1", 1, AO_EVAL_PRINTIT, other, 16, &err));
+  EXPECT_EQ(AO_ERR, ao_runtime_shutdown());
+  gate.release.set_value();
+  evaluator.join();
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_STREQ("42", out);
+  ASSERT_EQ(AO_OK, ao_eval("1", 1, AO_EVAL_PRINTIT, other, 16, &err)) << err.message;
+  EXPECT_STREQ("1", other);
 }
