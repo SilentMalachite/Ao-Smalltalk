@@ -148,7 +148,9 @@ bit 2:0 = 000      → ヒープオブジェクト。8 バイト整列ポイン�
 | class OOP | 64 | クラスへの tagged/heap OOP |
 | size | 32 | スロット数、またはバイト数 |
 | flags | 16 | ポインタオブジェクトか、弱参照か、旧世代か、不動か |
-| hash | 16 | identity hash の短縮形。不足時はサイドテーブル |
+| hash | 16 | identity hash。作るたびに 1 から順に振り、65535 の次は 1 に戻る。衝突は許容し、サイドテーブルは持たない |
+
+identity hash は 16 bit なので、65535 個を超えるオブジェクトでは必ず衝突する。`IdentityDictionary` や `IdentitySet`（§3.6）は衝突しても正しく引けるが、衝突が多いと探索は遅くなる。
 
 可変長オブジェクト（Array, String, ByteArray, CompiledMethod）はヘッダ直後にペイロードを置く。
 
@@ -437,8 +439,10 @@ Boolean の演算（Blue Book）:
 
 クラス変数:
 
-- `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` は、classVariableNames を空白で区切った名前ごとにクラス変数を作り、作ったクラスの classPool（`kClassSlotClassPool`）に置く。classPool は Kernel の `Dictionary` で、名前（intern した Symbol）から束縛への辞書である。束縛は `Association` で、キーは同じ Symbol、値はクラス変数の値（最初は nil）である。名前は書いた順に並ぶ。同じ名前を 2 度書いても束縛は 1 つである。クラス変数が無くても、classPool は空の `Dictionary` である。
-- `Class>>classPool` はその辞書の写しを答える。写しは新しい `Dictionary` で、classPool と同じ名前を同じ順に、同じ束縛（Association そのもの）に結ぶ。`Foo classPool at: #Count` は束縛で、その `value` がクラス変数の値である。`(Foo classPool at: #Count) value: 5` はクラス変数の値を変える。写しへの `at:put:` はクラスの classPool も束縛も変えない。メソッドのリテラルは classPool の束縛そのもので、再 Accept の検査（§3.9）もそれを前提にするので、束縛を別の値に差し替えさせないためである。送るたびに新しい写しを答える。classPool の枠が辞書でなければ（Kernel クラスの nil など）、枠の値をそのまま答える。
+- `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` は、classVariableNames を空白で区切った名前ごとにクラス変数を作り、作ったクラスの classPool（`kClassSlotClassPool`）に置く。classPool は Kernel の `Dictionary` で、名前（intern した Symbol）から束縛への辞書である。束縛は `Association` で、キーは同じ Symbol、値はクラス変数の値（最初は nil）である。同じ名前を 2 度書いても束縛は 1 つである。クラス変数が無くても、classPool は空の `Dictionary` である。
+- classPool は、ほかの `Dictionary` と同じハッシュ表の配置（Collections の「Dictionary と Set」）を持つ。ランタイムが classPool を作るときは、キーに `hash` を送らず、同じ値（`#名前 hash`。String と Symbol の値ベースの hash）を C++ で求めて入れる。したがって `Foo classPool at: #Count` も `Foo classPool at: 'Count'` も同じ束縛を引く。
+- classPool の名前を並べるとき（Browser の定義テキスト、§3.10）は、名前のバイト列の昇順に並べる。ハッシュ表は書いた順を保たないからである。
+- `Class>>classPool` はその辞書の写しを答える。写しは新しい `Dictionary` で、classPool の `tally` と配列の中身をそのまま写すので、同じ名前を同じ束縛（Association そのもの）に結ぶ。`Foo classPool at: #Count` は束縛で、その `value` がクラス変数の値である。`(Foo classPool at: #Count) value: 5` はクラス変数の値を変える。写しへの `at:put:` はクラスの classPool も束縛も変えない。メソッドのリテラルは classPool の束縛そのもので、再 Accept の検査（§3.9）もそれを前提にするので、束縛を別の値に差し替えさせないためである。送るたびに新しい写しを答える。classPool の枠が辞書でなければ（Kernel クラスの nil など）、枠の値をそのまま答える。
 - classPool のある名前の値が束縛（`Association`）でないとき（クラス側のメソッドがインスタンス変数 `classPool` を読んで `at:put:` した、`instVarAt:` で classPool そのものを取り出して書き換えた、など）、その名前をクラス変数として読むか代入するメソッドは入れない。Accept と file-in では、コンパイルエラーで、理由は `class variable <名前> is not bound to an Association` である。形の変更での移し替え（§3.9）では、送信のあとの検査と同じく、どのクラスも変えずに名前を旧クラスに戻して `AO_ERR_COMPILE` を返す。理由は同じ文の前に `shape change refused: <Class>>><selector>: ` を付けたものである。
 - Kernel クラスはクラス変数を持たない（classPool は nil）。メタクラスの classPool の枠も nil である。
 - メソッドから見えるクラス変数は、そのクラス（クラス側のメソッドなら、メタクラスの thisClass）とそのスーパークラス鎖のクラスの classPool にある名前である。近いクラスの名前が、遠いクラスの同じ名前を隠す。サブクラスのメソッドも、クラス側のメソッドも、同じ束縛を読み書きする。コンパイラの名前の解決順は §3.8 に書く。
@@ -479,6 +483,62 @@ Boolean の演算（Blue Book）:
 - `Association`
 
 `Bag`, `LinkedList`, `MappedCollection` は P4 ではスタブ可。P9 までに `Collection` プロトコルの中核（`do:`, `collect:`, `select:`, `reject:`, `detect:ifNone:`, `inject:into:`, `includes:`, `size`, `isEmpty`）をネイティブまたは確実な転送で実装する。
+
+Dictionary と Set:
+
+- `Dictionary`、`IdentityDictionary`、`Set`、`IdentitySet` は、開番地法（線形プローブ）のハッシュ表である。スロットは `tally array`（Kernel-Classes の表）で、`tally` は要素の数、`array` はエントリを並べた Array である。
+- エントリの幅は、Dictionary と IdentityDictionary が 3 スロット（`key value hash`）、Set と IdentitySet が 2 スロット（`element hash`）である。`hash` は、キー（Set では要素）のハッシュ値を保存した SmallInteger である。キー（要素）が nil のエントリは空きである。
+- 容量（エントリの数）は 8 以上の 2 のべき乗で、`array` の大きさは容量×幅である。`new` は容量 8 の空の表を作る。
+- ハッシュ値:
+  - Dictionary と Set は、1 回の操作でキーに `hash` を 1 回だけ送る。送り方（入れ子の数の扱い）は、Array の `hash` が要素に送るときと同じである（Kernel-Objects の「`=` と `hash`」）。答えが Integer でなければ失敗する（§3.3）。答えが LargeInteger なら、その `hash` の値を保存する。送った先で巻き戻しが始まったら、表に触れずに直ちに空 OOP を返す（§3.4）。
+  - IdentityDictionary と IdentitySet は送信しない。`identityHash` と同じ値を使う。
+- 探索: 容量を c とすると、`hash bitAnd: c - 1` のエントリから始めて 1 つずつ後ろへ見る（最後の次は先頭）。空きに当たれば、キーは無い。保存した hash がキーの hash と等しいエントリだけを比べる。
+  - Dictionary と Set は、エントリのキーがキーと同一（`==`）なら一致とし、そうでなければキーに `=` を送る（`キー = エントリのキー`）。答えが Boolean でなければ失敗する（§3.3）。
+  - IdentityDictionary と IdentitySet は `==` だけで比べる。
+- 挿入: キーが無ければ、入れたあとの要素の数が容量の 3/4 を超えるとき、先に容量を 2 倍にする（拡張）。そのあと、キーの hash の位置から探した最初の空きに入れる。
+- 拡張は新しい配列を作り、各エントリを保存した hash で入れ直し、`tally` を入れ直した数にしてから `array` を差し替える。削除は後方シフトで行い、空きの印を残さない。空いた場所を i として、その後ろのエントリを空きに当たるまで順に見る。エントリの本来の位置（保存した hash から決まる位置）が、巡回した順で i より後ろ、そのエントリ以前にあれば動かさない。そうでなければ、そのエントリを i へ移し、移したもとの場所を新しい i とする。拡張も削除も `hash` と `=` を送らない。利用者のコードが走らないので、途中で失敗も巻き戻しも起きない。
+- 再入: `hash` と `=` は利用者のメソッドでもよく、その中で同じ表を書き換えうる（`at:put:`、`removeKey:`、拡張による `array` の差し替え、`instVarAt:put:`）。ネイティブは送信から戻るたびに、レシーバから表を読み直す。`array` が差し替わったか、`tally` か比べていたエントリのキーが変わっていれば、求めた hash のまま初めから探し直す（`hash` は送り直さない）。どの書き換えのあとも、配列の範囲外は読み書きしない。
+- 壊れた表:
+  - `array` が nil なら空の表として扱う（`Dictionary basicNew` など）。`size` は 0 で、最初の挿入で容量 8 の配列を作り、`tally` を 0 から数える。
+  - `array` がポインタのオブジェクトでないか、大きさが「8 以上の 2 のべき乗×幅」でないか、`tally` が 0 以上容量以下の SmallInteger でなければ（`instVarAt:put:` で壊したときなど）、Dictionary と Set のネイティブはどれも失敗する。理由は `damaged hashed collection` である。
+  - `tally` が実際の数と違うだけなら失敗しない。挿入で空きが見つからなければ拡張し、拡張は `tally` を数え直す。削除は `tally` を 1 減らす（0 より小さくしない）。保存した hash が SmallInteger でないエントリは、どのキーとも一致せず、拡張と削除では hash を 0 として扱う。
+- 列挙（`do:`、`keysDo:`、`associationsDo:`、`keysAndValuesDo:`、`collect:`、値の `includes:`）は、`array` を先頭から順に見る。順序は規定しない。ブロック（`includes:` では `=`）が表を書き換えても、ネイティブはエントリごとに表を読み直し、そのときの `array` の大きさの範囲で続ける。そのとき要素を飛ばしたり 2 度渡したりすることがあるが、どうなるかは規定しない。列挙のループも 64K 回ごとに safepoint を通る。
+
+Dictionary のプロトコル（Blue Book）。IdentityDictionary は、キーを探すセレクタ（`at:`、`at:put:`、`at:ifAbsent:`、`includesKey:`、`removeKey:`、`removeKey:ifAbsent:`）を同一性版で持ち、ほかは Dictionary のものを使う。
+
+| セレクタ | 動作 |
+|---|---|
+| `at: key` | key の値。無ければ nil |
+| `at: key put: value` | key を value に結び、value を答える。key が nil なら失敗し、理由は `key must not be nil` |
+| `at: key ifAbsent: aBlock` | key の値。無ければ `aBlock value` の答え |
+| `includesKey: key` | key があれば true |
+| `removeKey: key` | key のエントリを消し、その値を答える。無ければ失敗し、理由は `key not found` |
+| `removeKey: key ifAbsent: aBlock` | key のエントリを消し、その値を答える。無ければ `aBlock value` の答え |
+| `includes: anObject` | 値のどれかについて `anObject = 値` が true なら true（同一なら送らない）。`hash` は送らない。`=` の答えが Boolean でなければ失敗する |
+| `do: aBlock` | 値ごとに `aBlock value: 値`。Association は渡さない |
+| `keysDo: aBlock` | キーごとに `aBlock value: キー` |
+| `associationsDo: aBlock` | エントリごとに、キーと値を持つ新しい Association を作って渡す。それを書き換えても表は変わらない |
+| `keysAndValuesDo: aBlock` | エントリごとに `aBlock value: キー value: 値` |
+| `collect: aBlock` | 値ごとの `aBlock value: 値` の答えを並べた Array。大きさは送ったときの `tally` である。ブロックが表を書き換えたときの答えは規定しない（失敗することもある） |
+| `size` | `tally` |
+
+Set と IdentitySet のプロトコルは `add:`、`includes:`、`do:`（要素ごと）、`size` である。`add: anObject` は、anObject が無ければ入れ、anObject を答える。anObject が nil なら失敗し、理由は `element must not be nil` である。
+
+- nil はキーにも要素にもならない。nil には `hash` を送らない。`at: nil` は nil、`includesKey: nil` と Set の `includes: nil` は false、`at: nil ifAbsent:` と `removeKey: nil ifAbsent:` はブロックの答えである。`removeKey: nil` は `key not found` で失敗する。
+- Dictionary の `do:` は値を渡すので、`do:` を通る Collection のネイティブ（`select:`、`reject:`、`detect:ifNone:`、`inject:into:`）も値を受ける。
+
+Interval:
+
+- `Interval from: start to: stop by: step` の要素は、start、start + step、start + step + step と続き、終端を越えたところで終わる。`do:` はこの順に要素を渡し、`size` は要素の数を答える。
+- start、stop、step がどれも SmallInteger なら、送信せずに数える。`size` が SmallInteger に収まらなければ LargeInteger を答える。
+- そうでなければ、まず刻みの向きを決める。step が SmallInteger ならその符号で決める。そうでなければ `step < 0` を送り、true なら後ろ向きである。false なら `step > 0` を送り、true なら前向き、false なら要素は無い（刻み 0 と同じ）。どちらも答えが Boolean でなければ失敗する（§3.3）。
+- 前向きは `要素 > stop`、後ろ向きは `要素 < stop` を送り、true になったところで終わる。答えが Boolean でなければ失敗する。次の要素は `要素 + step` を送って求める。それが失敗すれば失敗する。
+- 要素の数に上限は無い。ループはネイティブのループの規則（Kernel-Methods。64K 回ごとに safepoint）に従い、ブロックの abort や巻き戻しで止まる。
+- `(Interval from: 2.0 to: 1.0 by: -0.5) size` は 3 で、`collect:` は 3 要素の Array を答える。`(Interval from: 1 to: 2 by: 0.5) do: aBlock` は 1、1.5、2 で aBlock を呼ぶ。Fraction の刻みも同じである（`(Interval from: 0 to: 1 by: 1/2) size` は 3）。
+
+OrderedCollection:
+
+- `at: index` は、index が 1 以上 `size` 以下の SmallInteger でなければ失敗する（§3.3）。理由は String の `at:` と同じ `at: index out of range` である。
 
 #### Magnitude
 
@@ -791,7 +851,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 #### プロトコルとカテゴリ
 
-プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列を文字列リテラルにしたもの。定義テキストはチャンクとして Accept し直すので、`'` を `''` に、`!` を `!!` に二重にする（§3.8 チャンク形式）。表示した定義を Accept し直しても、カテゴリは変わらない。定義テキストの classVariableNames は、そのクラスの classPool の名前（§3.6。スーパークラスのものは含めない）を並んだ順に空白 1 つで区切ったもの。poolDictionaries は常に空文字 `''`。表示した定義を Accept し直しても、クラス変数は変わらない（§3.9）。
+プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列を文字列リテラルにしたもの。定義テキストはチャンクとして Accept し直すので、`'` を `''` に、`!` を `!!` に二重にする（§3.8 チャンク形式）。表示した定義を Accept し直しても、カテゴリは変わらない。定義テキストの classVariableNames は、そのクラスの classPool の名前（§3.6。スーパークラスのものは含めない）を、名前のバイト列の昇順に空白 1 つで区切ったもの。poolDictionaries は常に空文字 `''`。表示した定義を Accept し直しても、クラス変数は変わらない（§3.9）。
 
 #### Transcript のクラス側転送
 
@@ -828,7 +888,7 @@ LargeInteger とそれ以外はクラス名のまま。
 
 ### 3.11 イメージ形式 `.aoimage`
 
-- マジック `AOIM`、バージョン（2）、ポインタサイズ、エンディアン
+- マジック `AOIM`、バージョン（3）、ポインタサイズ、エンディアン
 - well-known 表
 - ヒープダンプ（直接ポインタはファイル内オフセットに再配置）
 - グローバル辞書（`Smalltalk` の中身としてヒープダンプに入る）
@@ -839,7 +899,7 @@ LargeInteger とそれ以外はクラス名のまま。
 
 ネイティブのブロック（`makeNativeBlock` が作る thunk。`nextPutAll:` や `collect:` などのネイティブが、内部で `do:` に渡す BlockContext）も、NativeMethod を 1 つ持つ。その名前は、thunk の関数を Kernel のインストールで登録した名前（例: `ao_Stream_nextPutAll_each`、`ao_Collection_collect_fill`）である。thunk が捕捉する状態（ストリーム、数え上げ、結果の配列など）はすべてブロックのスロットにあり、関数はランタイムの静的な関数なので、ヒープに逃げた thunk（利用者の `do:` がブロックを保持した場合）は、ロードで名前から結び直せば保存したときと同じに動く。名前を登録していない関数の thunk（テストの関数など）の名前は `ao_NativeBlock_thunk` で、これは結び直せない。
 
-形式の版は 2 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。ロードは版 1 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 2 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
+形式の版は 3 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。版 2 は、Dictionary と Set がハッシュ表（§3.6 Collections）になる前の形式で、`array` にキーと値（Set では要素）を先頭から詰めていた。新しいネイティブはその配置を引けない。ロードは版 1 と版 2 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1`、`unsupported image version 2` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 3 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
 
 ロードが拒否するときの理由は次のとおりである。`ao_image_load`（§3.10）と CLI の `ao image load` はこれを出す。
 
@@ -847,12 +907,12 @@ LargeInteger とそれ以外はクラス名のまま。
 |---|---|
 | ファイルが読めない | `cannot read image file` |
 | ヘッダより短い、マジックが `AOIM` でない | `not an Ao image` |
-| 版が 2 でない | `unsupported image version <版>` |
+| 版が 3 でない | `unsupported image version <版>` |
 | ポインタサイズ、エンディアン、ヘッダ長が違う | `unsupported image format` |
 | heapBytes が old の上限を超える | `image heap exceeds the old space limit` |
 | それ以外（予約欄、レコード、ヒープ、グローバルの照合などが合わない） | `damaged image` |
 
-グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。辞書より前に保存した旧イメージ（`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つもの）は版 1 なので、ヘッダの段階で拒否する。版 2 で `Smalltalk` がグローバル辞書でないイメージと、extra のレコードを持つイメージは、壊れたイメージとして拒否する。
+グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。辞書より前に保存した旧イメージ（`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つもの）は版 1 なので、ヘッダの段階で拒否する。版 3 で `Smalltalk` がグローバル辞書でないイメージと、extra のレコードを持つイメージは、壊れたイメージとして拒否する。
 
 ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
 
@@ -971,6 +1031,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `smallinteger_arith_test`: オーバーフローで LargeInteger へ
 - `kernel_numeric_test`: 数の混合演算と厳密な比較（NaN、±inf、LargeInteger）、Float への丸め、`bitShift:` の境界、Boolean の演算、Point と Rectangle のサブクラス、`asCharacter` の範囲、`to:do:` の終端、`=` と `hash` の契約
 - `collection_do_test`: Array/String/Dictionary の中核プロトコル
+- `hashed_collection_test`: Dictionary と Set のハッシュ表（`=` と `hash` の送り方と失敗、nil、削除と拡張、再入、壊れた表、GC 圧下、性能）、classPool の配置と名前の並び、Interval の刻みと終端の比較、OrderedCollection の `at:` の範囲
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
