@@ -627,6 +627,23 @@ TEST_F(HashedCollection, IntervalHasNoElementCap) {
                             "((Interval from: lo to: hi by: 2) size = (1 bitShift: 62))"));
 }
 
+// 04 Low: OrderedCollection>>at: は範囲外と整数でない添字で失敗する（以前は nil と空 OOP）。
+TEST_F(HashedCollection, OrderedCollectionAtOutOfRangeFails) {
+  ASSERT_EQ("1", printIt("oc9 := OrderedCollection new. oc9 add: 5. oc9 size"));
+  EXPECT_EQ("5", printIt("oc9 at: 1"));
+  for (const char* index : {"0", "2", "-1", "1.0", "nil", "(1 bitShift: 70)"}) {
+    SCOPED_TRACE(index);
+    EXPECT_EQ("<eval error: at: index out of range>", printIt(std::string("oc9 at: ") + index));
+  }
+  // lastIndex を配列の外へ書き換えても、配列の外は読まない。
+  EXPECT_EQ("<eval error: at: index out of range>",
+            printIt("| oc | oc := OrderedCollection new. oc add: 1. oc instVarAt: 3 put: 100. "
+                    "oc at: 50"));
+  EXPECT_EQ("<eval error: at: index out of range>",
+            printIt("| oc | oc := OrderedCollection new. oc add: 1. oc instVarAt: 1 put: nil. "
+                    "oc at: 1"));
+}
+
 namespace {
 
 // GC を走らせずに nursery を使い切る（残りは 16 B 未満）。

@@ -771,19 +771,27 @@ Oop ao_OrderedCollection_add_(CallContext& ctx, const Oop& receiver, const Oop* 
   return value.slot;
 }
 
+// SPEC §3.6: fails with "at: index out of range" unless index is a SmallInteger in [1, size].
+// firstIndex, lastIndex and array can be written from Smalltalk, so the slot is checked against
+// the array too.
 Oop ao_OrderedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
                              std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap() || !args[0].isSmallInteger()) {
+  if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
-  const auto index = args[0].smallIntegerValue();
-  const auto n = ocSize(ctx.heap, receiver);
-  if (index < 1 || index > n) {
-    return Oop::nil();
-  }
-  const auto first = ctx.heap.slotAt(receiver, kOcFirst).smallIntegerValue();
   const Oop arr = ctx.heap.slotAt(receiver, kOcArray);
-  return ctx.heap.slotAt(arr, static_cast<std::uint32_t>(first + index - 2));
+  const Oop first = ctx.heap.slotAt(receiver, kOcFirst);
+  if (args[0].isSmallInteger() && first.isSmallInteger() && arr.isHeap() &&
+      (ctx.heap.flags(arr) & kFlagBytes) == 0) {
+    const auto index = args[0].smallIntegerValue();
+    if (index >= 1 && index <= ocSize(ctx.heap, receiver)) {
+      const __int128 slot = static_cast<__int128>(first.smallIntegerValue()) + index - 2;
+      if (slot >= 0 && slot < ctx.heap.size(arr)) {
+        return ctx.heap.slotAt(arr, static_cast<std::uint32_t>(slot));
+      }
+    }
+  }
+  return fail(ctx, receiver, "at: index out of range");
 }
 
 Oop ao_OrderedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* args,
