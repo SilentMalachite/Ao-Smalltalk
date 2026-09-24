@@ -358,7 +358,7 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 
 `Class`: `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:`, `name`, `category`, `classPool`
 
-`Metaclass`: `thisClass`, クラス側 `new` の禁止または制御
+`Metaclass`: `thisClass`, `name`, クラス側 `new` の禁止または制御
 
 メタクラス循環は Blue Book ルール 6–10 を満たすこと。
 
@@ -367,6 +367,41 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 - すべてのメタクラスは `Class` を継承（`Object class` のスーパークラスが `Class`）
 - すべてのメタクラスは `Metaclass` のインスタンス
 - `Metaclass class` も `Metaclass` のインスタンス
+
+クラスの名前:
+
+- クラスの `name` は intern した Symbol である。Kernel クラスも `subclass:` で作ったクラスも同じで、`Object name == #Object` と `3 class name == #SmallInteger` は true である。
+- メタクラスの `name` は、`thisClass` の名前のあとに ` class` を続けた String である（`Object class name` は `'Object class'`）。Kernel クラスのメタクラスもユーザークラスのメタクラスも、`thisClass` から計算する。メタクラスの名前の枠にも同じ文字列の String を置く（Browser と `printString` が読む）。
+
+インスタンス変数の名前:
+
+- 名前付きのスロットを足す Kernel クラスは、足したスロットの名前を instVarNames（Symbol の Array）に持つ。名前はネイティブが使うスロットの意味に合わせる。足すスロットと名前は次の表のとおりで、表に無い Kernel クラスはスロットを足さない（`ClassDescription`、`Class`、`Metaclass` は `Behavior` と同じ枠を持つ）。
+
+| クラス | 足すスロットの名前（先頭から順） |
+|---|---|
+| `Behavior` | `superclass methodDict format name thisClass category classPool instVarNames` |
+| `Fraction` | `numerator denominator` |
+| `Interval` | `start stop step` |
+| `Dictionary`, `Set` | `tally array` |
+| `OrderedCollection` | `array firstIndex lastIndex` |
+| `Association` | `key value` |
+| `CompiledMethod` | `header literals bytecodes nativeCode selector methodClass` |
+| `NativeMethod` | `selector argc primitive name methodClass registryIndex` |
+| `Message` | `selector args` |
+| `MethodDictionary` | `tally array` |
+| `MethodContext` | `sender pc stackp method receiver argc` |
+| `BlockContext` | `home copied` |
+| `Process` | `nextLink suspendedContext priority myList` |
+| `ProcessorScheduler` | `quiescentProcesses activeProcess` |
+| `Semaphore` | `excessSignals linkedList` |
+| `SharedQueue` | `contents readSynch writeSynch` |
+| `Point` | `x y` |
+| `Rectangle` | `origin corner` |
+| `PositionableStream` | `collection position readLimit` |
+| `WriteStream` | `writeLimit` |
+
+- インスタンス変数の名前と添字は、スーパークラス鎖を根から順にたどって決める。鎖の各クラスは、自分の instSize が 1 つ前のクラスの instSize より増えた分のスロットに、自分の instVarNames を先頭から順に当てる。名前が足りなければ、残りのスロットは名前を持たず、ソースから参照できない（コンパイラは識別子にならない仮の名前で埋める）。増えた分より多い名前は使わない。コンパイラ（§3.8）と `instVarNamed:` はこの規則に従う。これで、Kernel クラスのサブクラスが足す変数は、親のスロットと重ならない。
+- `subclass:instanceVariableNames:…` は、スーパークラスがバイト列のクラス（`isBytes`）で、instanceVariableNames が 1 つ以上あれば、クラスを作らずに評価を中断する（§3.3）。理由は `bytes class cannot have instance variables` である。バイト列のオブジェクトには名前付きのスロットが無いからである。インスタンス変数の無いサブクラスは今までどおり作れる。
 
 #### Kernel-Methods
 
@@ -435,10 +470,11 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 2. `nil` / `true` / `false` の即値または専用オブジェクトを登録する。
 3. クラスオブジェクトの骨格を未初期化で割り当て、well-known 表に載せる。
 4. 各クラスの `superclass` / `methodDict` / `format` / メタクラスリンクを結ぶ。
-5. `NativeMethod` を関数ポインタから生成し、各メソッド辞書へ `Symbol` キーで入れる。
-6. グローバル `Smalltalk` にクラス名 → クラスを登録する。
-7. スナップショット可能にする。
-8. 以降の非 Kernel クラスは `image/vendor/` の file-in で追加する。自作しない。
+5. 循環を結んだあと（`Symbol`、`String`、`Array` のクラスが結ばれてから）、クラスの名前の枠に intern した Symbol を、メタクラスの名前の枠に `<クラス名> class` の String を、名前付きのスロットを足す Kernel クラスの instVarNames に §3.6 の表の名前（Symbol の Array）を入れる。
+6. `NativeMethod` を関数ポインタから生成し、各メソッド辞書へ `Symbol` キーで入れる。
+7. グローバル `Smalltalk` にクラス名 → クラスを登録する。
+8. スナップショット可能にする。
+9. 以降の非 Kernel クラスは `image/vendor/` の file-in で追加する。自作しない。
 
 well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名前で参照する。
 
@@ -669,7 +705,7 @@ LargeInteger とそれ以外はクラス名のまま。
 - グローバル辞書
 - 起動時に再配置し、NativeMethod の関数ポインタは **ロード時にシンボル名で結び直す**（ポインタをファイルに書かない）
 
-`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。古いイメージのコンパイル済みブロックは、再 Accept するまでコピーの意味論のまま動く。
+`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。古いイメージのコンパイル済みブロックは、再 Accept するまでコピーの意味論のまま動く。クラスの名前とインスタンス変数名（§3.6）もロードで直さない。古いイメージの Kernel クラスは、名前がクラスを持たないバイト列で、instVarNames を持たないことがある。そのスロットは名前を持たないものとして扱うので、あとからコンパイルするサブクラスの変数は親のスロットと重ならない。
 
 ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
 
