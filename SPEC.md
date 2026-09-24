@@ -654,6 +654,8 @@ Object の `printString` はクラス名のまま。次だけネイティブで�
 
 LargeInteger とそれ以外はクラス名のまま。
 
+`Object>>printOn: aStream` は、レシーバに `printString` を送り、その答えを `aStream` に `nextPutAll:` で書く。上の表のネイティブも、ユーザーが上書きした `printString` も、そのまま出る。`storeOn:` も同じである。`printString` が評価を中断したら、`nextPutAll:` を送らずにその理由のまま中断する（§3.3）。
+
 ### 3.11 イメージ形式 `.aoimage`
 
 - マジック `AOIM`、バージョン、ポインタサイズ、エンディアン
