@@ -27,6 +27,8 @@ namespace ao {
 namespace {
 
 std::unique_ptr<Session> g_session;
+// SPEC §3.10: the transcript hook the ABI set. Every session boot and load make gets it.
+HostOopHook g_transcriptHook = nullptr;
 
 Oop workspaceBinding(CallContext& ctx, std::string_view name);
 
@@ -125,6 +127,7 @@ int sessionBoot() {
     return 1;
   }
   g_session = std::make_unique<Session>(true);
+  g_session->ctx->transcriptHook = g_transcriptHook;
   if (!installEmptyWorkspace(*g_session)) {
     g_session.reset();
     return 1;
@@ -136,6 +139,13 @@ int sessionBoot() {
 int sessionShutdown() {
   g_session.reset();
   return 0;
+}
+
+void setSessionTranscriptHook(HostOopHook hook) {
+  g_transcriptHook = hook;
+  if (g_session != nullptr && g_session->ctx != nullptr) {
+    g_session->ctx->transcriptHook = hook;
+  }
 }
 
 int sessionImageSave(const char* path) {
@@ -192,13 +202,11 @@ int sessionImageLoad(const char* path, std::string* reason) {
   if (!Image::load(next->heap, next->roots, next->wk, path, reason)) {
     return fail("image load failed");
   }
-  HostOopHook transcript = nullptr;
   HostOopHook inspect = nullptr;
   if (g_session->ctx != nullptr) {
-    transcript = g_session->ctx->transcriptHook;
     inspect = g_session->ctx->inspectHook;
   }
-  installEmptyCache(*next, transcript, inspect);
+  installEmptyCache(*next, g_transcriptHook, inspect);
   if (!installEmptyWorkspace(*next)) {
     return fail("image load failed");
   }

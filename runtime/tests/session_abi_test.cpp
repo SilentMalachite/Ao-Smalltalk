@@ -15,7 +15,12 @@
 
 class SessionAbi : public ::testing::Test {
  protected:
-  void TearDown() override { ao_runtime_shutdown(); }
+  // SPEC §3.10: the hooks outlive the session, so a test's hook must not reach the next test.
+  void TearDown() override {
+    ao_runtime_shutdown();
+    ao_set_transcript_hook(nullptr, nullptr);
+    ao_set_inspect_hook(nullptr, nullptr);
+  }
 };
 
 TEST_F(SessionAbi, BootThenImageRoundTripKeepsOnePlusTwo) {
@@ -629,4 +634,51 @@ TEST_F(SessionAbi, ReentrantCallsFromInspectHookAreRefused) {
   ao_set_inspect_hook(nullptr, nullptr);
   expectAllRefused(r);
   expectSessionUntouched();
+}
+
+namespace {
+
+void collectTranscript(const char* utf8, int len, int is_clear, void* user) {
+  auto* chunks = static_cast<std::vector<std::string>*>(user);
+  if (is_clear == 0 && utf8 != nullptr && len >= 0) {
+    chunks->emplace_back(utf8, static_cast<std::size_t>(len));
+  }
+}
+
+int evalDoIt(const char* src) {
+  char out[64];
+  AoSpan err{};
+  return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DOIT, out, 64, &err);
+}
+
+}  // namespace
+
+// B6 review (06 Low) / SPEC §3.10: 失敗シナリオ。ao_set_transcript_hook を boot の前に呼ぶと、そのあとの
+// Transcript show: は何も届けなかった。shutdown→boot のあとも同じだった（新しいセッションの ctx にフックを
+// 戻していなかった）。フックは ABI 側が持ち、boot とロードが作るセッションに配線する。NULL で外れる。
+TEST_F(SessionAbi, TranscriptHookReachesEverySession) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectTranscript, &seen);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'one'"));
+  EXPECT_EQ(std::vector<std::string>{"one"}, seen);
+
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'two'"));
+  EXPECT_EQ((std::vector<std::string>{"one", "two"}), seen);
+
+  const auto path = std::filesystem::temp_directory_path() / "ao-b6-hook.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), nullptr));
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'three'"));
+  EXPECT_EQ((std::vector<std::string>{"one", "two", "three"}), seen);
+
+  ao_set_transcript_hook(nullptr, nullptr);
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'four'"));
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("Transcript show: 'five'"));
+  EXPECT_EQ((std::vector<std::string>{"one", "two", "three"}), seen);
+  std::filesystem::remove(path);
 }

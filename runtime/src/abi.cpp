@@ -299,17 +299,8 @@ extern "C" int ao_image_load(const char* path, AoSpan* err) {
 extern "C" void ao_set_transcript_hook(AoTranscriptFn fn, void* user) {
   g_transcriptFn = fn;
   g_transcriptUser = user;
-  ao::Session* s = ao::session();
-  if (s == nullptr || s->ctx == nullptr) {
-    return;
-  }
-  if (fn == nullptr) {
-    s->ctx->transcriptHook = nullptr;
-    return;
-  }
-  s->ctx->transcriptHook = [](ao::CallContext& ctx, ao::Oop value) {
-    deliverTranscript(ctx, value);
-  };
+  // SPEC §3.10: the session side wires it into this session and every later one (boot, load).
+  ao::setSessionTranscriptHook(fn == nullptr ? nullptr : deliverTranscript);
 }
 
 extern "C" int ao_browser_class_count(void) {

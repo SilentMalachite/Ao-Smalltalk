@@ -13,7 +13,7 @@ final class LaunchSet {
 
   static func make() -> LaunchSet {
     _ = NSApplication.shared
-    // Hook installs only when a session already exists. Boot first.
+    // SPEC §3.10: the transcript hook reaches this session and every later one (boot, load).
     _ = ao_runtime_boot()
     let transcript = TranscriptWindow()
     let workspace = WorkspaceWindow()

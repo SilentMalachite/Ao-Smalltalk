@@ -54,6 +54,8 @@ int ao_filein_load_order(const char* path);
 typedef void (*AoTranscriptFn)(const char* utf8, int len, int is_clear, void* user);
 typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, void* user);
 
+/* The hook stays set across ao_runtime_shutdown, ao_runtime_boot and ao_image_load, and may be
+   set before the first boot. NULL removes it. */
 void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
 void ao_set_inspect_hook(AoInspectFn fn, void* user);
 

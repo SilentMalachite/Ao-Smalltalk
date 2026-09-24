@@ -41,6 +41,9 @@ struct Session {
 Session* session();
 int sessionBoot();
 int sessionShutdown();
+// SPEC §3.10: the transcript hook the ABI holds. It goes into the current session's ctx now and
+// into every session sessionBoot and sessionImageLoad make afterwards. Null removes it.
+void setSessionTranscriptHook(HostOopHook hook);
 int sessionImageSave(const char* path);
 // SPEC §3.10: nonzero when the load or its probes fail; *reason (when given) then says why.
 int sessionImageLoad(const char* path, std::string* reason = nullptr);
