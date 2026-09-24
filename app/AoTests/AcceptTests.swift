@@ -418,6 +418,37 @@ final class AcceptTests: XCTestCase {
 
   // `expecting` is the selection after the click when it differs from the clicked row
   // (a cancelled change keeps the old one).
+  // 00 High: a failed Save or Open Image shows an alert; a successful one does not.
+  func testSaveAndOpenImageFailuresShowAnAlert() {
+    let app = AoApp()
+    var alerts: [NSAlert] = []
+    app.presentAlert = { alerts.append($0) }
+    let folder = FileManager.default.temporaryDirectory
+    let good = folder.appendingPathComponent("ao-alert-\(UUID().uuidString).aoimage")
+    let garbage = folder.appendingPathComponent("ao-alert-\(UUID().uuidString).aoimage")
+    defer {
+      try? FileManager.default.removeItem(at: good)
+      try? FileManager.default.removeItem(at: garbage)
+    }
+    XCTAssertTrue(app.saveImage(to: good))
+    XCTAssertTrue(app.openImage(from: good))
+    XCTAssertEqual(alerts.count, 0)
+
+    let missing = folder
+      .appendingPathComponent("ao-no-such-folder-\(UUID().uuidString)")
+      .appendingPathComponent("x.aoimage")
+    XCTAssertFalse(app.saveImage(to: missing))
+    XCTAssertEqual(alerts.count, 1)
+    XCTAssertEqual(alerts.last?.messageText, "Could not save the image")
+    XCTAssertTrue(alerts.last?.informativeText.contains(missing.path) ?? false)
+
+    XCTAssertNoThrow(try Data("not an image".utf8).write(to: garbage))
+    XCTAssertFalse(app.openImage(from: garbage))
+    XCTAssertEqual(alerts.count, 2)
+    XCTAssertEqual(alerts.last?.messageText, "Could not open the image")
+    XCTAssertTrue(alerts.last?.informativeText.contains(garbage.path) ?? false)
+  }
+
   private func selectClass(_ name: String, in browser: BrowserWindow, expecting: String? = nil) {
     guard let table = classTable(in: browser),
           let row = browser.model.classes.firstIndex(of: name) else {
