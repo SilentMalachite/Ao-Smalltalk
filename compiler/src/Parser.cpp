@@ -374,6 +374,14 @@ class Parser {
     return s;
   }
 
+  // A binary message's argument list. Not `{std::move(arg)}`: the elements of an initializer list
+  // are const, so that would copy arg's whole subtree.
+  static std::vector<Ast> single(Ast arg) {
+    std::vector<Ast> args;
+    args.push_back(std::move(arg));
+    return args;
+  }
+
   Ast parseKeyword(Ast recv) { return parseCascade(parseKeywordMessage(std::move(recv))); }
 
   // The unary → binary → keyword chain on recv.
@@ -431,7 +439,7 @@ class Parser {
       advance();
       Ast arg = parseUnary(parsePrimaryFromStart());
       const SourceSpan end = arg.span;
-      return makeBareSend(sel.text, {std::move(arg)}, join(sel.span, end));
+      return makeBareSend(sel.text, single(std::move(arg)), join(sel.span, end));
     }
     if (check(Tok::Keyword)) {
       std::string selector;
@@ -457,7 +465,8 @@ class Parser {
       Token sel = cur_;
       advance();
       Ast arg = parseUnary(parsePrimaryFromStart());
-      recv = makeSend(std::move(recv), sel.text, {std::move(arg)}, sel.span, arg.span);
+      const SourceSpan end = arg.span;
+      recv = makeSend(std::move(recv), sel.text, single(std::move(arg)), sel.span, end);
     }
     return recv;
   }
