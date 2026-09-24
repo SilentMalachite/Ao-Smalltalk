@@ -600,3 +600,84 @@ TEST(KernelInstanceVariable, LeadingSlotsAreReadOnly) {
   EXPECT_EQ(2, countOp(ok.image, Op::PushInstVar)) << disassemble(ok.image);
   EXPECT_EQ(1, countOp(ok.image, Op::PopStoreInstVar)) << disassemble(ok.image);
 }
+
+// SPEC §3.8: an Int literal outside int64 carries its digits in text. Two such literals are two
+// literals (they used to share intValue 0), and 0 is not pushed with PushZero for one.
+TEST(Codegen, IntegerBeyondInt64KeepsItsDigits) {
+  auto r = compileMethod("foo\n  ^100000000000000000000 = -200000000000000000000");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  ASSERT_EQ(2u, r.image.literals.size());
+  EXPECT_EQ(LitKind::Int, r.image.literals[0].kind);
+  EXPECT_EQ("100000000000000000000", r.image.literals[0].text);
+  EXPECT_EQ(LitKind::Int, r.image.literals[1].kind);
+  EXPECT_EQ("-200000000000000000000", r.image.literals[1].text);
+  const std::string d = disassemble(r.image);
+  EXPECT_NE(std::string::npos, d.find("literals: 100000000000000000000 -200000000000000000000\n"))
+      << d;
+  EXPECT_EQ(std::string::npos, d.find("PushZero")) << d;
+  auto small = compileMethod("foo\n  ^1000");
+  ASSERT_TRUE(small.ok) << small.error.message;
+  ASSERT_EQ(1u, small.image.literals.size());
+  EXPECT_TRUE(small.image.literals[0].text.empty());
+  EXPECT_EQ(1000, small.image.literals[0].intValue);
+}
+
+// SPEC §3.8: the first message of a cascade part goes to the cascade receiver and the next ones
+// to its result; with the receiver super, the first message of every part is a super send.
+TEST(Codegen, CascadePartsAreMessageChains) {
+  auto r = compileMethod("foo: x\n  ^x add: 3; yourself negated");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  EXPECT_EQ(
+      "method foo: args=1 temps=1 prim=0\n"
+      "literals: 3 add: yourself negated\n"
+      "  PushTemp 0\n"
+      "  Dup\n"
+      "  PushLiteral 0\n"
+      "  Send 1 1\n"
+      "  Pop\n"
+      "  Send 2 0\n"
+      "  Send 3 0\n"
+      "  ReturnTop\n",
+      disassemble(r.image));
+  auto s = compileMethod("who\n  ^super who; who; yourself who");
+  ASSERT_TRUE(s.ok) << s.error.message;
+  EXPECT_EQ(
+      "method who args=0 temps=0 prim=0\n"
+      "literals: who yourself\n"
+      "  PushReceiver\n"
+      "  Dup\n"
+      "  SendSuper 0 0\n"
+      "  Pop\n"
+      "  Dup\n"
+      "  SendSuper 0 0\n"
+      "  Pop\n"
+      "  SendSuper 1 0\n"
+      "  Send 0 0\n"
+      "  ReturnTop\n",
+      disassemble(s.image));
+}
+
+// SPEC §3.8: the deepest tree the parser allows compiles: 128 blocks and 128 parentheses on the
+// costliest path (the 256-level limit), then assignments up to the 1024-level tree limit, and a
+// 1025-message chain. The analysis and the code generator recurse over it within the stack.
+TEST(Codegen, DeepestAllowedTreeCompiles) {
+  std::string src = "foo\n  | a |\n  ^";
+  for (int i = 0; i < 128; ++i) {
+    src += "[:x | ^x a; k: 1 + (";
+  }
+  for (int i = 0; i < 768; ++i) {
+    src += "a := ";
+  }
+  src += "1";
+  for (int i = 0; i < 128; ++i) {
+    src += ") foo]";
+  }
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  std::string chain = "foo\n  ^0";
+  for (int i = 0; i < 1025; ++i) {
+    chain += " + 1";
+  }
+  auto c = compileMethod(chain);
+  ASSERT_TRUE(c.ok) << c.error.message;
+}

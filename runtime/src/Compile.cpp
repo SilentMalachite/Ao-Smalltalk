@@ -80,6 +80,10 @@ Oop boxLiteral(CallContext& ctx, const compiler::Literal& lit, Oop methodClass) 
     case compiler::LitKind::False:
       return Oop::false_();
     case compiler::LitKind::Int:
+      if (!lit.text.empty()) {
+        // SPEC §3.8: outside int64, the compiler keeps the digits.
+        return LargeInteger::fromText(ctx, lit.text);
+      }
       if (lit.intValue >= kSmiMin && lit.intValue <= kSmiMax) {
         return Oop::fromSmallInteger(lit.intValue);
       }
@@ -337,8 +341,7 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
     compiler::CompileResult cr = compiler::compileMethod(m.source, env);
     if (!cr.ok) {
       compiler::CompileError e = std::move(cr.error);
-      e.span.start += m.span.start;
-      e.span.end += m.span.start;
+      e.span = compiler::fileSpan(m, e.span);
       // The pattern parses even when the body does not, so the partial method has its selector.
       addError(errors, std::move(e),
                methodKey(action, compiler::parseMethod(m.source).method.name));
@@ -1412,7 +1415,7 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
   // SPEC §3.10: only class definitions and methodsFor: chunks. Every chunk is checked before any
   // is applied, so a stray expression or method body leaves the image as it was. A definition
   // chunk is its message alone, and a chunk after the `! !` that ended a methodsFor: section is an
-  // expression, not one of its methods.
+  // expression (a DoIt, SPEC §3.8), not one of its methods.
   const bool definitionsOnly =
       !actions.empty() &&
       std::all_of(actions.begin(), actions.end(), [](const compiler::ChunkAction& action) {
@@ -1420,8 +1423,7 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
           case compiler::ChunkKind::ClassDef:
             return action.soleDefinition;
           case compiler::ChunkKind::MethodsFor:
-            return std::none_of(action.methods.begin(), action.methods.end(),
-                                [](const compiler::ChunkMethod& m) { return m.afterSectionEnd; });
+            return true;
           case compiler::ChunkKind::DoIt:
             return false;
         }

@@ -205,3 +205,61 @@ TEST(VendorExtract, PatchesHostWordInMethodBody) {
   EXPECT_EQ(std::string::npos, r.files[0].chunkText.find("StandardFileStream"));
   EXPECT_NE(std::string::npos, r.files[0].chunkText.find("<primitive: 94>"));
 }
+
+// B7 review / SPEC §3.8 チャンク形式: the reader turns `!!` into `!` in strings, comments and `$!!`,
+// so render doubles every `!` again. Reading the rendered chunk gives the same method source.
+TEST(VendorExtract, RenderDoublesBangs) {
+  const char* src =
+      "!Object subclass: #Link\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Kernel-Support'!\n"
+      "!Link methodsFor: 'bangs!!'!\n"
+      "shout\n"
+      "  \"Loud!!\"\n"
+      "  ^'Hi!!!!' , $!! printString! !\n";
+  auto r = ao::extractVendor(src, {"Link"});
+  ASSERT_EQ(1u, r.files.size());
+  std::vector<ao::compiler::CompileError> errs;
+  const auto acts = ao::compiler::parseChunks(r.files[0].chunkText, errs);
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[1].kind);
+  EXPECT_EQ("bangs!", acts[1].protocol);
+  ASSERT_EQ(1u, acts[1].methods.size());
+  EXPECT_EQ("shout\n  \"Loud!\"\n  ^'Hi!!' , $! printString", acts[1].methods[0].source);
+}
+
+// Extracting the committed vendor files (in LOAD_ORDER, with the ALLOWLIST) writes them again byte
+// for byte: extract, render and the chunk reader agree, `!!` in comments included.
+TEST(VendorExtract, CommittedFilesRoundTrip) {
+  const std::string dir = std::string(AO_SOURCE_DIR) + "/image/vendor/";
+  auto readFile = [](const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    std::stringstream buf;
+    buf << in.rdbuf();
+    return buf.str();
+  };
+  auto lines = [](const std::string& text) {
+    std::vector<std::string> out;
+    std::stringstream in(text);
+    std::string line;
+    while (std::getline(in, line)) {
+      if (!line.empty()) {
+        out.push_back(line);
+      }
+    }
+    return out;
+  };
+  std::string all;
+  for (const std::string& file : lines(readFile(dir + "LOAD_ORDER"))) {
+    all += readFile(dir + file);
+  }
+  ASSERT_FALSE(all.empty());
+  const auto r = ao::extractVendor(all, lines(readFile(dir + "ALLOWLIST")));
+  ASSERT_EQ(lines(readFile(dir + "LOAD_ORDER")).size(), r.files.size());
+  for (const ao::VendorClassFile& file : r.files) {
+    SCOPED_TRACE(file.className);
+    EXPECT_EQ(readFile(dir + "cuis/" + file.className + ".st"), file.chunkText);
+  }
+}

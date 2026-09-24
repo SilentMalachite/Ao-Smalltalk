@@ -31,6 +31,11 @@ struct Ast {
   double floatValue = 0;
   std::string text;
   bool isFloat = false;
+  // A number Literal outside int64: Token::largeInt with its sign, [-][<radix>r]<digits>.
+  std::string largeInt;
+  // SPEC §3.8: how deep this node's tree is (the parser refuses more than 1024 levels), so the
+  // passes that recurse over the tree stay within a bounded depth.
+  std::uint16_t nesting = 0;
   std::vector<Ast> kids;
   std::vector<std::string> params;
   std::vector<std::string> temps;

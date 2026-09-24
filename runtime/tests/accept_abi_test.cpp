@@ -356,6 +356,101 @@ TEST(AcceptAbi, AcceptClassRefusesChunksAfterSectionEnd) {
   ao_runtime_shutdown();
 }
 
+// 05 Low / SPEC §3.8 チャンク形式: セクションの中では、パターンが `subclass: x` のチャンクもメソッド
+// である。クラス定義と読んで「not a class definition」で拒まない。前に `!` が無いヘッダも、
+// セクションの外ならヘッダである。
+TEST(AcceptAbi, AcceptClassKeepsSubclassPatternAMethod) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const char* src =
+      "Object subclass: #B7AccPat\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7AccPat methodsFor: 'a'!\n"
+      "subclass: x\n"
+      "  ^x + 1! !\n"
+      "B7AccPat methodsFor: 'b'!\n"
+      "methodsFor: y\n"
+      "  ^y + 2! !\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(src, &err)) << err.message;
+  char out[64];
+  const char* expr = "(B7AccPat new subclass: 4) + (B7AccPat new methodsFor: 4)";
+  ASSERT_EQ(AO_OK, ao_eval(expr, static_cast<int>(std::strlen(expr)), AO_EVAL_PRINTIT, out, 64,
+                           &err))
+      << err.message;
+  EXPECT_STREQ("11", out);
+  ao_runtime_shutdown();
+}
+
+// B7 review / SPEC §3.8 チャンク形式: `$!` の `!` も二重にした `^$!!` を読む。そのあとの `! !` で
+// セクションは閉じるので、続く式は拒み、何も入れない。
+TEST(AcceptAbi, AcceptClassReadsDoubledBangCharacter) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7X\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class("!B7X methodsFor: 'a'!\nbang\n  ^$!!! !\n\nB7X initialize!\n", &e));
+  EXPECT_STREQ("not a class definition", e.message);
+  ASSERT_EQ(AO_OK, printIt("(B7X includesSelector: #B7X) | (B7X includesSelector: #bang)"))
+      << err.message;
+  EXPECT_STREQ("false", out);
+  ASSERT_EQ(AO_OK, ao_accept_class("!B7X methodsFor: 'a'!\nbang\n  ^$!!! !\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, printIt("B7X new bang")) << err.message;
+  EXPECT_STREQ("$!", out);
+  ao_runtime_shutdown();
+}
+
+// B7 review / SPEC §3.8 チャンク形式: 行の途中の単独の `!` もチャンクを終える。1 行の 2 つの
+// クラス定義を、両方とも受け付ける。
+TEST(AcceptAbi, AcceptClassSplitsChunksAtMidLineBang) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7MidC! Object subclass: #B7MidD!\n"
+                                   "!B7MidD methodsFor: 'a'!\nfoo ^1! bar ^2! !\n",
+                                   &err))
+      << err.message;
+  char out[64];
+  const char* expr = "(Smalltalk includesKey: #B7MidC) & ((B7MidD new foo) + (B7MidD new bar) = 3)";
+  ASSERT_EQ(AO_OK, ao_eval(expr, static_cast<int>(std::strlen(expr)), AO_EVAL_PRINTIT, out, 64,
+                           &err))
+      << err.message;
+  EXPECT_STREQ("true", out);
+  ao_runtime_shutdown();
+}
+
+// B7 review / SPEC §3.12: accept のコンパイルエラーの位置も、渡したソースでの箇所である。文字列の
+// `!!` を `!` に戻しても、位置はずれない。
+TEST(AcceptAbi, AcceptClassErrorSpanCountsUndoubledBangs) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Span\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  const char* src = "!B7Span methodsFor: 'a'!\nfoo\n  ^'Hi!!!!!!' zork: ]! !\n";
+  const int bracket = static_cast<int>(std::strchr(src, ']') - src);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_class(src, &err));
+  EXPECT_EQ(bracket, err.start) << err.message;
+  EXPECT_EQ(bracket + 1, err.end) << err.message;
+  ao_runtime_shutdown();
+}
+
 // 指摘 8 / SPEC §3.10: クラス定義メッセージのあとに文が続けば、何も適用せずに拒む。
 TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
@@ -520,6 +615,24 @@ TEST(AcceptAbi, ReacceptWithNewCategoryKeepsClassAndMethods) {
   EXPECT_EQ(AO_ERR_NOSOURCE, ao_browser_source("B5Cat", 0, "eight", source, 256));
   ASSERT_EQ(AO_OK, ao_browser_source("B5Cat", 1, "make", source, 256));
   EXPECT_STREQ("make\n  ^self new a: 5\n", source);
+  ao_runtime_shutdown();
+}
+
+// Codex review of PR #7 / SPEC §3.10: 定義テキストの category は、`'` と `!` を二重にした文字列
+// リテラル。表示した定義を Accept し直しても、`!!` を含むカテゴリが `!` 1 つに縮まず、`'` を
+// 含むカテゴリも構文エラーにならない。
+TEST(AcceptAbi, ReacceptShownDefinitionKeepsCategoryWithBangsAndQuotes) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  // The literal 'B7!!!! it''s' in a chunk is the category `B7!! it's`.
+  const std::string def = b5Definition("Object", "B7Cat", "", "B7!!!! it''s");
+  ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+  ASSERT_EQ("B7!! it's", b5Category("B7Cat"));
+  const std::string defn = b5ClassDefinition("B7Cat");
+  EXPECT_NE(defn.find("category: 'B7!!!! it''s'"), std::string::npos) << defn;
+  ASSERT_EQ(AO_OK, ao_accept_class(defn.c_str(), &err)) << err.message << "\n" << defn;
+  EXPECT_EQ("B7!! it's", b5Category("B7Cat"));
+  EXPECT_EQ(defn, b5ClassDefinition("B7Cat"));
   ao_runtime_shutdown();
 }
 
@@ -2251,6 +2364,357 @@ TEST(AcceptAbi, SmalltalkRefusesPseudoVariableKeys) {
        "true"},
       {"Smalltalk includesKey: #super", "false"},
       {"Smalltalk at: #B4NotPseudo put: 4", "4"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/05 High) / SPEC §3.8: `,` is a binary selector character. `'a' , 'b'`
+// was "invalid token"; now it compiles, and a method with the pattern `, other` runs.
+TEST(AcceptAbi, CommaIsABinarySelector) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Comma\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  acceptMethods("B7Comma", 0, {", other\n  ^other + 1\n"});
+  expectPrints({
+      {"B7Comma new , 2", "3"},
+      {"B7Comma new,4", "5"},
+      {"(B7Comma new perform: #, with: 6)", "7"},
+      {"#, size", "1"},
+      {"(#(#, 1) at: 1) == #,", "true"},
+  });
+  char out[128];
+  const char* concat = "'a' , 'b'";
+  EXPECT_NE(AO_ERR_COMPILE, ao_eval(concat, static_cast<int>(std::strlen(concat)),
+                                    AO_EVAL_PRINTIT, out, 128, &err))
+      << err.message;
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/05 Medium) / SPEC §3.8: `2*-1` was the selector `*-` (doesNotUnderstand:).
+// A `-` after the first binary character, followed by a digit, starts a negative literal.
+TEST(AcceptAbi, MinusAfterBinaryCharacterStartsNegativeLiteral) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Minus\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  acceptMethods("B7Minus", 0, {"foo: n\n  ^n\n", "@ n\n  ^n\n", "sub: x from: y\n  ^y-x\n"});
+  expectPrints({
+      {"2*-1", "-2"},
+      {"B7Minus new@-2", "-2"},
+      {"3>-1", "true"},
+      {"3--1", "4"},
+      {"3-1", "2"},
+      {"3 - 1", "2"},
+      {"3 -1", "2"},
+      {"B7Minus new foo: -1", "-1"},
+      {"B7Minus new foo:-1", "-1"},
+      {"B7Minus new sub: 1 from: 5", "4"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/05 High, 03 High) / SPEC §3.8: an integer literal outside int64 became 0
+// (`100000000000000000000 printString` was '0'). It is a LargeInteger now, and a value that fits
+// SmallInteger stays one.
+TEST(AcceptAbi, IntegerLiteralsBeyondInt64AreLargeIntegers) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Big\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  acceptMethods("B7Big", 0, {"big\n  ^100000000000000000000\n"});
+  expectPrints({
+      {"100000000000000000000 = (10000000000 * 10000000000)", "true"},
+      {"100000000000000000000 class == LargePositiveInteger", "true"},
+      {"100000000000000000000 = 200000000000000000000", "false"},
+      {"-100000000000000000000 = (0 - (10000000000 * 10000000000))", "true"},
+      {"-100000000000000000000 class == LargeNegativeInteger", "true"},
+      {"-9223372036854775808 = (0 - (1 bitShift: 63))", "true"},
+      {"9223372036854775808 = (1 bitShift: 63)", "true"},
+      {"18446744073709551616 = (1 bitShift: 64)", "true"},
+      {"16r1FFFFFFFFFFFFFFFFFFFF = ((1 bitShift: 81) - 1)", "true"},
+      {"-2r10000000000000000000000000000000000000000000000000000000000000000000000 = "
+       "(0 - (1 bitShift: 70))",
+       "true"},
+      {"(#(100000000000000000000 -100000000000000000000) at: 1) = (10000000000 * 10000000000)",
+       "true"},
+      {"(#(100000000000000000000 -100000000000000000000) at: 2) class == LargeNegativeInteger",
+       "true"},
+      {"B7Big new big = (10000000000 * 10000000000)", "true"},
+      {"4611686018427387903 class == SmallInteger", "true"},
+      {"-4611686018427387904 class == SmallInteger", "true"},
+      {"4611686018427387904 class == LargePositiveInteger", "true"},
+      {"0000000000000000000000000001 class == SmallInteger", "true"},
+      {"| s | s := 0. 1 to: 3 by: 100000000000000000000 do: [:k | s := s + k]. s", "1"},
+      {"| s | s := 0. 3 to: 1 by: -100000000000000000000 do: [:k | s := s + k]. s", "3"},
+  });
+  char out[128];
+  const char* bytes = "#[1 99999999999999999999 3]";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_eval(bytes, static_cast<int>(std::strlen(bytes)), AO_EVAL_PRINTIT,
+                                    out, 128, &err));
+  EXPECT_STREQ("expected byte 0-255", err.message);
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/03 Medium) / SPEC §3.8: a Float literal is the correctly rounded value of
+// the whole token. `0.3 = (0.1 + 0.2)` was true and `0.7 = (7 / 10.0)` false.
+TEST(AcceptAbi, FloatLiteralsAreCorrectlyRounded) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  expectPrints({
+      {"0.7 = (7 / 10.0)", "true"},
+      {"0.3 = (0.1 + 0.2)", "false"},
+      {"((0.3 - 0.1) - 0.2) < 0.0", "true"},
+      {"-0.7 = (0.0 - (7 / 10.0))", "true"},
+      {"1.5e2 = 150.0", "true"},
+      {"1.0e400 printString", "'inf'"},
+      {"0.0e500 = 0.0", "true"},
+      {"16r1.8 = 1.5", "true"},
+      {"2r1.1e2 = 6.0", "true"},
+      {"(#(0.7 -0.7) at: 1) = (7 / 10.0)", "true"},
+      {"(#(0.7 -0.7) at: 2) = (0.0 - (7 / 10.0))", "true"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/05 Low) / SPEC §3.8: an integer mantissa with an exponent of 0 or more
+// is an Integer (`1e3` was 1000.0, `2r1e4` 10000.0, `0e500` inf); a negative exponent or a
+// fraction makes a correctly rounded Float.
+TEST(AcceptAbi, IntegerMantissaWithExponentIsInteger) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  expectPrints({
+      {"1e3 = 1000", "true"},
+      {"1e3 class == SmallInteger", "true"},
+      {"2r1e4 = 16", "true"},
+      {"0e500 = 0", "true"},
+      {"-1e3 = (0 - 1000)", "true"},
+      {"1e30 = (1000000000000000 * 1000000000000000)", "true"},
+      {"1e30 class == LargePositiveInteger", "true"},
+      {"-1e30 = (0 - (1000000000000000 * 1000000000000000))", "true"},
+      {"(#(1e3 2r1e4) at: 2) = 16", "true"},
+      {"1e-3 = (1 / 1000.0)", "true"},
+      {"1e-3 class == Float", "true"},
+      {"2r1e-2 = 0.25", "true"},
+      {"1.5e2 = 150.0", "true"},
+  });
+  char out[128];
+  AoSpan err{};
+  const char* huge = "1e65537";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_eval(huge, static_cast<int>(std::strlen(huge)), AO_EVAL_PRINTIT,
+                                    out, 128, &err));
+  EXPECT_STREQ("number too large", err.message);
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/05 High) / SPEC §3.8: a block with arguments and temps was "expected
+// ']'", and `[:a :b | a | b]` read `a` as a temp and answered false. After the arguments the `|`
+// is required; `||` is the separator and the opening of the temps.
+TEST(AcceptAbi, BlockArgumentsThenTemps) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  expectPrints({
+      {"[:x | | t | t := x. t] value: 3", "3"},
+      {"[:x || t | t := x. t] value: 3", "3"},
+      {"[:a :b | a | b] value: true value: false", "true"},
+      {"[:a | a | false] value: true", "true"},
+      {"[:a | ] value: 1", "nil"},
+      {"[ | t | t ] value", "nil"},
+      {"([:x || t | t := x. [t + 1]] value: 4) value", "5"},
+  });
+  char out[128];
+  AoSpan err{};
+  const char* missing = "[:a] value: 1";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_eval(missing, static_cast<int>(std::strlen(missing)),
+                                    AO_EVAL_PRINTIT, out, 128, &err));
+  EXPECT_STREQ("expected '|'", err.message);
+  EXPECT_EQ(3u, err.start);
+  EXPECT_EQ(4u, err.end);
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/05 Low) / SPEC §3.8: a cascade part took one message only (`x add: 3;
+// yourself size` was "unexpected token"), and `^super who; who` sent the second who to self.
+TEST(AcceptAbi, CascadePartsAreMessageChains) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  for (const char* def : {"Object subclass: #B7CascA\n  instanceVariableNames: ''\n"
+                          "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                          "  category: 'B7-Test'\n",
+                          "B7CascA subclass: #B7CascB\n  instanceVariableNames: ''\n"
+                          "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                          "  category: 'B7-Test'\n"}) {
+    ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  }
+  acceptMethods("B7CascA", 0, {"who\n  ^1\n"});
+  acceptMethods("B7CascB", 0,
+                {"who\n  ^2\n", "superWho\n  ^super who; who\n",
+                 "superChain\n  ^super who; yourself; who + 10\n"});
+  expectPrints({
+      {"OrderedCollection new add: 3; add: 4; yourself size", "2"},
+      {"3 + 4; * 10 + 1", "31"},
+      {"12 + 4; printString size * 2", "4"},
+      {"B7CascB new superWho", "1"},
+      {"B7CascB new superChain", "11"},
+      {"B7CascB new who", "2"},
+  });
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/05 Medium) / SPEC §3.8: 10 000 nested parentheses crashed ao_eval with
+// SIGSEGV (the parser and the code generator recurse per level), and so did a chain of 100 000
+// messages or assignments. Parentheses, blocks and literal arrays nest 256 levels, and the whole
+// tree, message chains and assignments included, is 1024 levels deep; chains of 300 and 1000
+// links evaluate as before B7. Past either limit is the compile error "nesting too deep" at the
+// construct that goes past it.
+TEST(AcceptAbi, NestingTooDeepIsACompileError) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan defErr{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Chain\n"
+                                   "  instanceVariableNames: 'n'\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &defErr))
+      << defErr.message;
+  acceptMethods("B7Chain", 0, {"start\n  n := 0\n", ", x\n  n := n + x\n", "count\n  ^n\n"});
+  const auto repeated = [](const std::string& s, int n) {
+    std::string out;
+    for (int i = 0; i < n; ++i) {
+      out += s;
+    }
+    return out;
+  };
+  // 128 times a block and a parenthesis on the costliest path, then assignments.
+  const std::string open = repeated("[:x | ^x a; k: 1 + (", 128);
+  const auto mixed = [&](int assignments) {
+    return "| a | " + open + repeated("a := ", assignments) + "7" + repeated(") foo]", 128);
+  };
+  struct Deep {
+    std::string source;
+    const char* printed;
+  };
+  const std::vector<Deep> evaluated{
+      {repeated("(", 256) + "7" + repeated(")", 256), "7"},
+      {repeated("[", 256) + "7" + repeated("] value", 256), "7"},
+      {"#" + repeated("(", 256) + "7" + repeated(")", 256) + " size", "1"},
+      {"7" + repeated(" yourself", 300), "7"},
+      {"7" + repeated(" yourself", 1000), "7"},
+      {"7" + repeated(" yourself", 1025), "7"},
+      {"0" + repeated(" + 1", 300), "300"},
+      {"0" + repeated(" + 1", 1000), "1000"},
+      {"0" + repeated(" + 1", 1025), "1025"},
+      {"(B7Chain new start" + repeated(" , 1", 300) + ") count", "300"},
+      {"(B7Chain new start" + repeated(" , 1", 1000) + ") count", "1000"},
+      {"| a | " + repeated("a := ", 1024) + "7", "7"},
+      {mixed(768) + " == nil", "false"},
+  };
+  for (const Deep& d : evaluated) {
+    char out[128];
+    AoSpan err{};
+    ASSERT_EQ(AO_OK, ao_eval(d.source.c_str(), static_cast<int>(d.source.size()),
+                             AO_EVAL_PRINTIT, out, 128, &err))
+        << d.source.substr(0, 40) << ": " << err.message;
+    EXPECT_STREQ(d.printed, out) << d.source.substr(0, 40);
+  }
+  struct TooDeep {
+    std::string source;
+    unsigned start;
+    unsigned end;
+  };
+  const std::vector<TooDeep> refused{
+      {repeated("(", 10000) + "7" + repeated(")", 10000), 256, 257},
+      {repeated("[", 10000) + "7" + repeated("]", 10000), 256, 257},
+      {"#" + repeated("(", 10000) + "7" + repeated(")", 10000), 257, 258},
+      {"7" + repeated(" yourself", 1026), 9 * 1026 - 7, 9 * 1026 + 1},
+      {"7" + repeated(" yourself", 100000), 9 * 1026 - 7, 9 * 1026 + 1},
+      {"0" + repeated(" + 1", 1026), 4 * 1026 - 2, 4 * 1026 - 1},
+      {"0" + repeated(" + 1", 100000), 4 * 1026 - 2, 4 * 1026 - 1},
+      {"B7Chain new start" + repeated(" , 1", 1100), 4 * 1024 + 14, 4 * 1024 + 15},
+      {"| a | " + repeated("a := ", 1025) + "7", 6 + 5 * 1024, 7 + 5 * 1024},
+      {"| a | " + repeated("a := ", 100000) + "7", 6 + 5 * 1024, 7 + 5 * 1024},
+      // Chains inside parentheses inside chains: the parenthesis of level 171 of 200 goes past.
+      {repeated("(", 200) + "7" + repeated(repeated(" yourself", 5) + ")", 200), 29, 30},
+      {mixed(769), static_cast<unsigned>(6 + open.size() + 5 * 768),
+       static_cast<unsigned>(7 + open.size() + 5 * 768)},
+      {mixed(100000), static_cast<unsigned>(6 + open.size() + 5 * 768),
+       static_cast<unsigned>(7 + open.size() + 5 * 768)},
+  };
+  for (const TooDeep& d : refused) {
+    char out[128];
+    AoSpan err{};
+    EXPECT_EQ(AO_ERR_COMPILE, ao_eval(d.source.c_str(), static_cast<int>(d.source.size()),
+                                      AO_EVAL_PRINTIT, out, 128, &err))
+        << d.source.substr(0, 40);
+    EXPECT_STREQ("nesting too deep", err.message) << d.source.substr(0, 40);
+    EXPECT_EQ(d.start, err.start) << d.source.substr(0, 40);
+    EXPECT_EQ(d.end, err.end) << d.source.substr(0, 40);
+  }
+  ao_runtime_shutdown();
+}
+
+// B7 (docs/claude-review/05 Low) / SPEC §3.8: `dup: x dup: x`, `| t t |`, `nilArg: nil` and
+// `[:a :a | a]` were accepted, and `| self | self := 3. ^self` answered the receiver instead of 3.
+// A name declared twice in one scope and a declared pseudo-variable are compile errors now.
+TEST(AcceptAbi, DeclarationsAreCheckedPerScope) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Decl\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  struct Refused {
+    const char* source;
+    const char* message;
+    unsigned start;
+    unsigned end;
+  };
+  const std::vector<Refused> methods{
+      {"dup: x dup: x\n  ^x\n", "duplicate name: x", 12, 13},
+      {"foo\n  | t t |\n  ^t\n", "duplicate name: t", 10, 11},
+      {"nilArg: nil\n  ^nil\n", "cannot declare pseudo-variable: nil", 8, 11},
+      {"foo\n  ^[:a :a | a]\n", "duplicate name: a", 12, 13},
+      {"foo\n  ^[:a | | a | a]\n", "duplicate name: a", 15, 16},
+  };
+  for (const Refused& r : methods) {
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B7Decl", 0, r.source, &err)) << r.source;
+    EXPECT_STREQ(r.message, err.message) << r.source;
+    EXPECT_EQ(r.start, err.start) << r.source;
+    EXPECT_EQ(r.end, err.end) << r.source;
+  }
+  const std::vector<Refused> doIts{
+      {"| self | self := 3. ^self", "cannot declare pseudo-variable: self", 2, 6},
+      {"| a a | a := 1", "duplicate name: a", 4, 5},
+      {"[:x :x | x] value: 1 value: 2", "duplicate name: x", 5, 6},
+  };
+  for (const Refused& r : doIts) {
+    char out[128];
+    EXPECT_EQ(AO_ERR_COMPILE, ao_eval(r.source, static_cast<int>(std::strlen(r.source)),
+                                      AO_EVAL_PRINTIT, out, 128, &err))
+        << r.source;
+    EXPECT_STREQ(r.message, err.message) << r.source;
+    EXPECT_EQ(r.start, err.start) << r.source;
+    EXPECT_EQ(r.end, err.end) << r.source;
+  }
+  acceptMethods("B7Decl", 0, {"shadow: x\n  ^[:x | x + 1] value: x\n"});
+  expectPrints({
+      {"B7Decl new shadow: 4", "5"},
+      {"| t | t := 3. [ | t | t := 4. t] value + t", "7"},
   });
   ao_runtime_shutdown();
 }

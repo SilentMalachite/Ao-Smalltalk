@@ -40,18 +40,101 @@ TEST(Chunk, ClassDefinitionShape) {
   EXPECT_EQ("a b", acts[0].instVars);
 }
 
+// SPEC §3.8 チャンク形式: a file-out doubles the bang of `$!` like any other, so `^$!` is written
+// `^$!!`. The `! !` after it still ends the section.
 TEST(Chunk, BangInCharacterDoesNotSplit) {
   const char* src =
       "!Foo methodsFor: 't'!\n"
       "bang\n"
-      "  ^$!\n";
+      "  ^$!!! !\n"
+      "\n"
+      "Foo initialize!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(2u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("bang\n  ^$!", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Foo initialize", acts[1].source);
+}
+
+// SPEC §3.8 チャンク形式: a single `!` outside strings and comments ends a chunk wherever it is,
+// not only at line end.
+TEST(Chunk, MidLineBangEndsChunk) {
+  const char* methods = "!Q4 methodsFor: 'a'!\nfoo ^1! bar ^2! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(methods, errs);
+  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(2u, acts[0].methods.size());
+  EXPECT_EQ("foo ^1", acts[0].methods[0].source);
+  EXPECT_EQ("bar ^2", acts[0].methods[1].source);
+
+  const char* defs = "Object subclass: #A! Object subclass: #B!\n";
+  acts = ao::compiler::parseChunks(defs, errs);
+  ASSERT_EQ(2u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::ClassDef, acts[0].kind);
+  EXPECT_EQ("A", acts[0].className);
+  EXPECT_TRUE(acts[0].soleDefinition);
+  EXPECT_EQ(ao::compiler::ChunkKind::ClassDef, acts[1].kind);
+  EXPECT_EQ("B", acts[1].className);
+
+  const char* trailing = "!Foo methodsFor: 'a'!\nfoo\n  ^1! ! \"end\"\nFoo initialize!\n";
+  acts = ao::compiler::parseChunks(trailing, errs);
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("foo\n  ^1", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("\"end\"\nFoo initialize", acts[1].source);
+}
+
+// SPEC §3.8 チャンク形式: `$'` and `$"` are character literals. They open no string or comment,
+// so the bang after them still ends the chunk.
+TEST(Chunk, QuoteCharacterLiteralsOpenNoStringOrComment) {
+  const char* src =
+      "!Foo methodsFor: 'a'!\n"
+      "quote\n"
+      "  ^$'!\n"
+      "isDq: c\n"
+      "  ^c = $\"!\n"
+      "two\n"
+      "  ^2! !\n"
+      "!Foo class methodsFor: 'b'!\n"
+      "three\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(errs.empty());
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(3u, acts[0].methods.size());
+  EXPECT_EQ("quote\n  ^$'", acts[0].methods[0].source);
+  EXPECT_EQ("isDq: c\n  ^c = $\"", acts[0].methods[1].source);
+  EXPECT_EQ("two\n  ^2", acts[0].methods[2].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[1].kind);
+  EXPECT_TRUE(acts[1].meta);
+  ASSERT_EQ(1u, acts[1].methods.size());
+  EXPECT_EQ("three\n  ^3", acts[1].methods[0].source);
+}
+
+// SPEC §3.8 チャンク形式: `!!` is one `!` inside strings and comments too. A single `!` there does
+// not end the chunk.
+TEST(Chunk, DoubledBangInStringAndCommentIsOneBang) {
+  const char* src =
+      "!Foo methodsFor: 'a'!\n"
+      "hello\n"
+      "  \"Say it!!\"\n"
+      "  ^'Hello!!'!\n"
+      "single\n"
+      "  ^'a!\n"
+      "b'! !\n";
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(src, errs);
   ASSERT_TRUE(errs.empty());
   ASSERT_EQ(1u, acts.size());
-  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
-  ASSERT_EQ(1u, acts[0].methods.size());
-  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("$!"));
+  ASSERT_EQ(2u, acts[0].methods.size());
+  EXPECT_EQ("hello\n  \"Say it!\"\n  ^'Hello!'", acts[0].methods[0].source);
+  EXPECT_EQ("single\n  ^'a!\nb'", acts[0].methods[1].source);
 }
 
 TEST(Chunk, SubclassSendInMethodStaysMethodsFor) {
@@ -86,7 +169,9 @@ TEST(Chunk, LineEndBangAfterBinaryStillTerminates) {
   EXPECT_NE(std::string::npos, acts[0].methods[1].source.find("other"));
 }
 
-TEST(Chunk, BangSpaceBangEndsMethodButDoubleBangStaysLiteral) {
+// SPEC §3.8 チャンク形式: `! !` ends the method and its methodsFor: section. A chunk after it
+// without a header is an expression, not a method of the section.
+TEST(Chunk, BangSpaceBangEndsSectionButDoubleBangStaysLiteral) {
   const char* spaced =
       "!Foo methodsFor: 'accessing'!\n"
       "nextLink\n"
@@ -96,12 +181,11 @@ TEST(Chunk, BangSpaceBangEndsMethodButDoubleBangStaysLiteral) {
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(spaced, errs);
   ASSERT_TRUE(errs.empty());
-  ASSERT_EQ(1u, acts.size());
-  ASSERT_EQ(2u, acts[0].methods.size());
-  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("^nextLink"));
-  EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("nextLink:"));
-  EXPECT_EQ(std::string::npos, acts[0].methods[0].source.find("!"));
-  EXPECT_NE(std::string::npos, acts[0].methods[1].source.find("nextLink:"));
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("nextLink\n  ^nextLink", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("nextLink: aLink\n  ^nextLink := aLink", acts[1].source);
 
   const char* glued =
       "!Foo methodsFor: 't'!\n"
@@ -163,15 +247,16 @@ TEST(Chunk, CommentStampApostropheDoesNotSwallowClassDef) {
   EXPECT_EQ(1, classDefs);
 }
 
-// SPEC §3.10: `! !` ends a methodsFor: section. What follows without a header is flagged, so
-// ao_accept_class can refuse it. File-in still reads it as before.
-TEST(Chunk, ChunksAfterSectionEndAreFlagged) {
+// SPEC §3.8 チャンク形式: `! !` or an empty chunk ends a methodsFor: section. A chunk after it
+// without a header is an expression, which ao_accept_class refuses (SPEC §3.10).
+TEST(Chunk, ChunksAfterSectionEndAreExpressions) {
   const char* src =
       "!Px methodsFor: 'x'!\n"
       "foo\n"
       "  ^1! !\n"
-      "3 + 4!\n"
-      "Smalltalk halt!\n"
+      "\n"
+      "Px initialize!\n"
+      "Smalltalk at: #Bar put: 3!\n"
       "!Px methodsFor: 'y'!\n"
       "bar\n"
       "  ^2!\n"
@@ -179,34 +264,146 @@ TEST(Chunk, ChunksAfterSectionEndAreFlagged) {
       "  ^3! !\n";
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(src, errs);
-  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(4u, acts.size());
   ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
-  ASSERT_FALSE(acts[0].methods.empty());
-  EXPECT_NE(std::string::npos, acts[0].methods[0].source.find("^1"));
-  EXPECT_FALSE(acts[0].methods[0].afterSectionEnd);
-  for (std::size_t i = 1; i < acts[0].methods.size(); ++i) {
-    SCOPED_TRACE(acts[0].methods[i].source);
-    EXPECT_TRUE(acts[0].methods[i].afterSectionEnd);
-  }
-  EXPECT_EQ(3u, acts[0].methods.size());
-  ASSERT_EQ(2u, acts[1].methods.size());
-  EXPECT_FALSE(acts[1].methods[0].afterSectionEnd);
-  EXPECT_FALSE(acts[1].methods[1].afterSectionEnd);
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("foo\n  ^1", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Px initialize", acts[1].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[2].kind);
+  EXPECT_EQ("Smalltalk at: #Bar put: 3", acts[2].source);
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[3].kind);
+  EXPECT_EQ("y", acts[3].protocol);
+  EXPECT_EQ(2u, acts[3].methods.size());
 
   // A header that ends with `! !` has an empty section.
   const char* empty = "!Px methodsFor: 'x'! !\nfoo\n  ^1!\n";
   acts = ao::compiler::parseChunks(empty, errs);
-  ASSERT_EQ(1u, acts.size());
-  ASSERT_EQ(1u, acts[0].methods.size());
-  EXPECT_TRUE(acts[0].methods[0].afterSectionEnd);
+  ASSERT_EQ(2u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
+  EXPECT_TRUE(acts[0].methods.empty());
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("foo\n  ^1", acts[1].source);
 
   // `! !` on a line of its own is an empty chunk, which ends the section too.
   const char* ownLine = "!Px methodsFor: 'x'!\nfoo\n  ^1!\n! !\n3 + 4!\n";
   acts = ao::compiler::parseChunks(ownLine, errs);
-  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  EXPECT_EQ("foo\n  ^1", acts[0].methods[0].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("3 + 4", acts[1].source);
+}
+
+// SPEC §3.8 チャンク形式: inside a section every chunk that is not a `!` header is a method, also
+// one whose pattern is `subclass: x` or `methodsFor: x`. A chunk led by `!` ends the section. A
+// header without the `!` is a header outside a section only.
+TEST(Chunk, SectionChunksAreMethodsUntilABangLedChunk) {
+  const char* src =
+      "!Foo methodsFor: 'a'!\n"
+      "subclass: x\n"
+      "  ^x!\n"
+      "methodsFor: y\n"
+      "  ^y!\n"
+      "!Transcript show: 'x'!\n"
+      "two\n"
+      "  ^2!\n"
+      "!Object subclass: #Bar\n"
+      "  category: 'T'!\n"
+      "Bar methodsFor: 'b'!\n"
+      "three\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(5u, acts.size());
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[0].kind);
+  EXPECT_EQ("Foo", acts[0].className);
   ASSERT_EQ(2u, acts[0].methods.size());
-  EXPECT_FALSE(acts[0].methods[0].afterSectionEnd);
-  EXPECT_TRUE(acts[0].methods[1].afterSectionEnd);
+  EXPECT_EQ("subclass: x\n  ^x", acts[0].methods[0].source);
+  EXPECT_EQ("methodsFor: y\n  ^y", acts[0].methods[1].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Transcript show: 'x'", acts[1].source);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[2].kind);
+  EXPECT_EQ("two\n  ^2", acts[2].source);
+  ASSERT_EQ(ao::compiler::ChunkKind::ClassDef, acts[3].kind);
+  EXPECT_EQ("Bar", acts[3].className);
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[4].kind);
+  EXPECT_EQ("Bar", acts[4].className);
+  ASSERT_EQ(1u, acts[4].methods.size());
+  EXPECT_EQ("three\n  ^3", acts[4].methods[0].source);
+}
+
+// SPEC §3.8 チャンク形式: outside a section a chunk is a class definition only when it is a
+// `subclass:` message sent to a name, and a header only when it is a `methodsFor:` message sent to
+// a name or `Name class`. The same keyword further in (inside parentheses, after another keyword)
+// makes an expression.
+TEST(Chunk, ClassificationNeedsTheMessageShape) {
+  const char* src =
+      "Object subclass: #Q1\n  category: 'T'!\n"
+      "Smalltalk at: #K put: (Q1 subclass: #Z1 instanceVariableNames: '' classVariableNames: '' "
+      "poolDictionaries: '' category: 'B7')!\n"
+      "Smalltalk at: #Pq put: (Object subclass: #Pq)!\n"
+      "Transcript show: (Q1 methodsFor: 'x') printString!\n"
+      "Q1 class methodsFor: 'c'!\n"
+      "one\n"
+      "  ^1! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(5u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::ClassDef, acts[0].kind);
+  EXPECT_EQ("Q1", acts[0].className);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[2].kind);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[3].kind);
+  ASSERT_EQ(ao::compiler::ChunkKind::MethodsFor, acts[4].kind);
+  EXPECT_EQ("Q1", acts[4].className);
+  EXPECT_TRUE(acts[4].meta);
+  EXPECT_EQ(1u, acts[4].methods.size());
+}
+
+// SPEC §3.8 チャンク形式: `!!` is one `!` in class-comment prose too, so a doubled bang at line end
+// does not split the prose, and its next line is not read as a class definition.
+TEST(Chunk, CommentProseUndoublesBangs) {
+  const char* src =
+      "!Foo commentStamp: 'x' prior: 0!\n"
+      "Warning!!\n"
+      "I am a subclass: of Object.!\n"
+      "!Object subclass: #Foo\n"
+      "  category: 'T'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(3u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[0].kind);
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Warning!\nI am a subclass: of Object.", acts[1].source);
+  ASSERT_EQ(ao::compiler::ChunkKind::ClassDef, acts[2].kind);
+  EXPECT_EQ("Foo", acts[2].className);
+}
+
+// SPEC §3.12: a span in a method's source maps back into the file, also after the `!!` that the
+// chunk reader read as `!` in a comment or a string.
+TEST(Chunk, FileSpanCountsUndoubledBangs) {
+  const std::string src =
+      "!Foo methodsFor: 'a'!\n"
+      "foo\n"
+      "  \"Don't!!\"\n"
+      "  ^'Hi!!!!!!' zork: ]! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(1u, acts[0].methods.size());
+  const ao::compiler::ChunkMethod& m = acts[0].methods[0];
+  ASSERT_EQ("foo\n  \"Don't!\"\n  ^'Hi!!!' zork: ]", m.source);
+  auto inFile = [&](std::string_view part) {
+    const auto k = static_cast<std::uint32_t>(m.source.find(part));
+    const ao::compiler::SourceSpan s =
+        ao::compiler::fileSpan(m, {k, k + static_cast<std::uint32_t>(part.size())});
+    return src.substr(s.start, s.end - s.start);
+  };
+  EXPECT_EQ("foo", inFile("foo"));
+  EXPECT_EQ("Don't!!", inFile("Don't!"));
+  EXPECT_EQ("'Hi!!!!!!'", inFile("'Hi!!!'"));
+  EXPECT_EQ("zork: ]", inFile("zork: ]"));
 }
 
 // SPEC §3.10: a class definition chunk is the definition message alone.
@@ -232,7 +429,6 @@ TEST(Chunk, SoleDefinitionIsTheMessageAlone) {
       {"Object subclass: #Pq category: 'P' instanceVariableNames: ''", false},
       {"Object subclass: #Pq category: 'P'. .", false},
       {"Object subclass: #Pq category: 'P' , 'Q'", false},
-      {"Smalltalk at: #Pq put: (Object subclass: #Pq)", false},
       {"Object subclass: #Pq; yourself", false},
   };
   for (const Case& c : cases) {
@@ -245,7 +441,8 @@ TEST(Chunk, SoleDefinitionIsTheMessageAlone) {
   }
 }
 
-// SPEC §3.12: each action carries its own chunk's bytes, without the `!` delimiters.
+// SPEC §3.12: each action carries its own chunk's bytes, without the `!` delimiters, also when
+// the chunk ends with `! !`.
 TEST(Chunk, ActionsCarryTheirChunkSpan) {
   const std::string src =
       "!Object subclass: #Foo\n  category: 'T'!\n"
@@ -253,13 +450,18 @@ TEST(Chunk, ActionsCarryTheirChunkSpan) {
       "!Foo methodsFor: 'x'!\n"
       "one\n"
       "  ^1! !\n"
-      "Foo initialize!\n";
+      "Foo initialize!\n"
+      "!Foo methodsFor: 'y'! !\n";
   std::vector<ao::compiler::CompileError> errs;
   auto acts = ao::compiler::parseChunks(src, errs);
-  ASSERT_EQ(2u, acts.size());
+  ASSERT_EQ(4u, acts.size());
   auto text = [&](const ao::compiler::SourceSpan& s) {
     return src.substr(s.start, s.end - s.start);
   };
   EXPECT_EQ("Object subclass: #Foo\n  category: 'T'", text(acts[0].span));
   EXPECT_EQ("Foo methodsFor: 'x'", text(acts[1].span));
+  ASSERT_EQ(1u, acts[1].methods.size());
+  EXPECT_EQ("one\n  ^1", text(acts[1].methods[0].span));
+  EXPECT_EQ("Foo initialize", text(acts[2].span));
+  EXPECT_EQ("Foo methodsFor: 'y'", text(acts[3].span));
 }

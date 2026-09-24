@@ -34,6 +34,7 @@ struct Literal {
   LitKind kind = LitKind::Nil;
   std::int64_t intValue = 0;
   double floatValue = 0;
+  // Int: empty, or the value outside int64 as [-][<radix>r]<digits> (intValue is 0 then).
   std::string text;
   std::vector<std::uint8_t> bytes;
   std::vector<Literal> elements;

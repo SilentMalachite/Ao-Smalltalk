@@ -2,6 +2,7 @@
 
 #include "ao/Scanner.hpp"
 
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,38 +26,14 @@ bool isBlank(std::string_view s) {
 struct RawChunk {
   std::string text;
   SourceSpan span;
-  // Ended by "! !", which closes a methodsFor: section.
+  // Followed by an empty chunk, which closes a methodsFor: section.
   bool endsSection = false;
+  // See ChunkMethod::undoubled.
+  std::vector<std::uint32_t> undoubled;
 };
 
-bool atLineEnd(std::string_view src, std::uint32_t p) {
-  while (p < src.size() && (src[p] == ' ' || src[p] == '\t')) {
-    p++;
-  }
-  return p >= src.size() || src[p] == '\n' || src[p] == '\r';
-}
-
-// Cuis ends a chunk with "! !" (bang, spaces or tabs, bang) at line end.
-// That first bang is the terminator. "!!" with no space stays a literal bang.
-bool bangSpaceBangAt(std::string_view src, std::uint32_t i, std::uint32_t& second) {
-  std::uint32_t p = i + 1;
-  if (p >= src.size() || (src[p] != ' ' && src[p] != '\t')) {
-    return false;
-  }
-  while (p < src.size() && (src[p] == ' ' || src[p] == '\t')) {
-    ++p;
-  }
-  if (p >= src.size() || src[p] != '!') {
-    return false;
-  }
-  if (!atLineEnd(src, p + 1)) {
-    return false;
-  }
-  second = p;
-  return true;
-}
-
-bool isCharacterBang(std::string_view src, std::uint32_t i) {
+// The character at i is the value of a `$x` literal: an odd run of `$` comes right before it.
+bool isCharacterLiteral(std::string_view src, std::uint32_t i) {
   std::uint32_t dollars = 0;
   while (i > 0 && src[i - 1] == '$') {
     dollars++;
@@ -85,6 +62,9 @@ bool firstLineHas(std::string_view text, std::string_view needle) {
   return text.substr(0, n).find(needle) != std::string_view::npos;
 }
 
+// SPEC §3.8 チャンク形式: a chunk ends at a single `!` outside strings and comments, wherever it
+// is, and `!!` is one `!` everywhere. An empty chunk ends the methodsFor: section of the chunk
+// before it: the second bang of `! !`, or a bang that leads a chunk (`!Foo methodsFor: 'x'!`).
 // The chunk after a `commentStamp:` header is class-comment prose. A `"` in
 // that prose must not open a code comment, or the next class definition is
 // swallowed.
@@ -100,37 +80,32 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     if (i >= n) {
       break;
     }
-    if (src[i] == '!') {
-      i++;
-    }
     const bool prose = proseNext;
     const std::uint32_t start = i;
     std::string text;
+    std::vector<std::uint32_t> undoubled;
     bool inStr = false;
     bool inCmt = false;
-    bool endsSection = false;
     while (i < n) {
       const char c = src[i];
-      if (!inStr && !inCmt && c == '!') {
-        if (!prose && isCharacterBang(src, i)) {
-          text.push_back(c);
-          i++;
-          continue;
-        }
-        if (!prose && i + 1 < n && src[i + 1] == '!') {
+      if (c == '!') {
+        // `$!` is written `$!!` like any other bang: no exemption for characters here.
+        if (i + 1 < n && src[i + 1] == '!') {
           text.push_back('!');
+          undoubled.push_back(static_cast<std::uint32_t>(text.size()));
           i += 2;
           continue;
         }
-        std::uint32_t secondBang = 0;
-        if (bangSpaceBangAt(src, i, secondBang)) {
-          i = secondBang;
-          endsSection = true;
+        if (!inStr && !inCmt) {
           break;
         }
-        if (atLineEnd(src, i + 1)) {
-          break;
-        }
+        // A single `!` in a string or comment does not end the chunk.
+        text.push_back(c);
+        i++;
+        continue;
+      }
+      // `$'` and `$"` are characters. They open no string or comment.
+      if (!inStr && !inCmt && (c == '\'' || c == '"') && isCharacterLiteral(src, i)) {
         text.push_back(c);
         i++;
         continue;
@@ -161,12 +136,13 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
       text.push_back(c);
       i++;
     }
+    // The chunk's bytes end at its terminating `!`, or at the end of src.
     const std::uint32_t end = i;
-    if (i < n && src[i] == '!') {
+    if (i < n) {
       i++;
     }
     if (isBlank(text)) {
-      // An empty chunk ends a methodsFor: section too (`! !` on a line of its own).
+      // An empty chunk ends the methodsFor: section of the chunk before it.
       if (!out.empty()) {
         out.back().endsSection = true;
       }
@@ -177,7 +153,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
     raw.text = std::move(text);
     raw.span.start = start;
     raw.span.end = end;
-    raw.endsSection = endsSection;
+    raw.undoubled = std::move(undoubled);
     out.push_back(std::move(raw));
   }
   return out;
@@ -185,28 +161,24 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
 
 enum class HeadKind { MethodsFor, ClassDef, Other };
 
-std::string_view firstLine(std::string_view text) {
-  std::size_t n = 0;
-  while (n < text.size() && text[n] != '\n' && text[n] != '\r') {
-    n++;
-  }
-  return text.substr(0, n);
-}
-
+// SPEC §3.8: a class definition is a `subclass:` message sent to a name, and a header a
+// `methodsFor:` message sent to a name or to `Name class`: the message's first keyword.
 HeadKind classify(std::string_view text) {
-  Scanner s(firstLine(text));
-  for (;;) {
-    const Token t = s.next();
-    if (t.kind == Tok::Eof || t.kind == Tok::Error) {
-      return HeadKind::Other;
-    }
-    if (t.kind == Tok::Keyword && t.text == "methodsFor:") {
-      return HeadKind::MethodsFor;
-    }
-    if (t.kind == Tok::Keyword && t.text == "subclass:") {
-      return HeadKind::ClassDef;
-    }
+  Scanner s(text);
+  if (s.next().kind != Tok::Ident) {
+    return HeadKind::Other;
   }
+  Token t = s.next();
+  if (t.kind == Tok::Keyword && t.text == "subclass:") {
+    return HeadKind::ClassDef;
+  }
+  if (t.kind == Tok::Ident && t.text == "class") {
+    t = s.next();
+  }
+  if (t.kind == Tok::Keyword && t.text == "methodsFor:") {
+    return HeadKind::MethodsFor;
+  }
+  return HeadKind::Other;
 }
 
 std::string tokenValue(const Token& t) {
@@ -320,12 +292,23 @@ ChunkAction parseClassDef(std::string_view text) {
 
 }  // namespace
 
+SourceSpan fileSpan(const ChunkMethod& method, SourceSpan inSource) {
+  // Each undoubled `!` at or before an offset moves it one byte further into the file.
+  const auto at = [&](std::uint32_t offset) {
+    const auto dropped =
+        std::upper_bound(method.undoubled.begin(), method.undoubled.end(), offset) -
+        method.undoubled.begin();
+    return method.span.start + offset + static_cast<std::uint32_t>(dropped);
+  };
+  return {at(inSource.start), at(inSource.end)};
+}
+
 std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileError>&) {
   std::vector<ChunkAction> acts;
   ChunkAction pending;
+  // True while a methodsFor: section is open: from its header to the `! !` (or empty chunk) that
+  // ends it.
   bool collecting = false;
-  // False once `! !` (or an empty chunk) has ended the methodsFor: section being collected.
-  bool sectionOpen = false;
   auto flush = [&] {
     if (collecting) {
       acts.push_back(std::move(pending));
@@ -334,35 +317,35 @@ std::vector<ChunkAction> parseChunks(std::string_view src, std::vector<CompileEr
     }
   };
   for (const RawChunk& raw : splitChunks(src)) {
-    const HeadKind hk = classify(raw.text);
-    if (hk == HeadKind::MethodsFor) {
-      flush();
-      pending = parseMethodsFor(raw.text);
-      pending.span = raw.span;
-      collecting = true;
-      sectionOpen = !raw.endsSection;
-      continue;
-    }
-    if (hk == HeadKind::ClassDef) {
-      flush();
-      acts.push_back(parseClassDef(raw.text));
-      acts.back().span = raw.span;
-      continue;
-    }
     if (collecting) {
+      // Inside a section every chunk is a method, also one whose pattern is `subclass: x`.
       ChunkMethod m;
       m.source = std::string(raw.text);
       m.span = raw.span;
-      m.afterSectionEnd = !sectionOpen;
-      sectionOpen = sectionOpen && !raw.endsSection;
+      m.undoubled = raw.undoubled;
       pending.methods.push_back(std::move(m));
-      continue;
+    } else {
+      const HeadKind hk = classify(raw.text);
+      if (hk == HeadKind::MethodsFor) {
+        pending = parseMethodsFor(raw.text);
+        pending.span = raw.span;
+        collecting = true;
+      } else if (hk == HeadKind::ClassDef) {
+        acts.push_back(parseClassDef(raw.text));
+        acts.back().span = raw.span;
+      } else {
+        // Outside a section, also right after the `! !` that ended one, a chunk that is not a
+        // header or a class definition is an expression.
+        ChunkAction doit;
+        doit.kind = ChunkKind::DoIt;
+        doit.source = std::string(raw.text);
+        doit.span = raw.span;
+        acts.push_back(std::move(doit));
+      }
     }
-    ChunkAction doit;
-    doit.kind = ChunkKind::DoIt;
-    doit.source = std::string(raw.text);
-    doit.span = raw.span;
-    acts.push_back(std::move(doit));
+    if (raw.endsSection) {
+      flush();
+    }
   }
   flush();
   return acts;

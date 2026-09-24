@@ -2,6 +2,7 @@
 #include "ao/Chunk.hpp"
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/Lookup.hpp"
 #include <cstring>
 #include <gtest/gtest.h>
@@ -153,4 +154,234 @@ TEST(ChunkFileIn, ChunkLevelErrorsCarryTheChunkSpan) {
     EXPECT_EQ(chunk, src.substr(errs[0].span.start, errs[0].span.end - errs[0].span.start));
     EXPECT_FALSE(b.wk.named("B3After").isHeap());
   }
+}
+
+// 05 High / SPEC §3.8 チャンク形式: `$'` と `$"` は文字リテラルで、文字列もコメントも開かない。
+// そのあとのメソッドとクラス側のセクションも読み込む。
+TEST(ChunkFileIn, QuoteCharacterLiteralsKeepLaterChunks) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Quote\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Quote methodsFor: 'a'!\n"
+      "quote\n"
+      "  ^$'!\n"
+      "isDq: c\n"
+      "  ^c = $\"!\n"
+      "two\n"
+      "  ^2! !\n"
+      "!B7Quote class methodsFor: 'b'!\n"
+      "three\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root cls(b.roots, b.wk.named("B7Quote"));
+  ASSERT_TRUE(cls.slot.isHeap());
+  ao::Root inst(b.roots, send0(b, cls.slot, "new"));
+  EXPECT_EQ(ao::Oop::fromCharacter(U'\''), send0(b, inst.slot, "quote"));
+  EXPECT_EQ(ao::Oop::true_(), send1(b, inst.slot, "isDq:", ao::Oop::fromCharacter(U'"')));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(2), send0(b, inst.slot, "two"));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(3), send0(b, cls.slot, "three"));
+}
+
+// 05 Medium / SPEC §3.8 チャンク形式: 文字列の中でも `!!` は `!` 1 文字である。
+TEST(ChunkFileIn, DoubledBangInStringIsOneBang) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Bang\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Bang methodsFor: 'a'!\n"
+      "hello\n"
+      "  \"Say it!!\"\n"
+      "  ^'Hello!!'! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root inst(b.roots, send0(b, b.wk.named("B7Bang"), "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  const ao::Oop s = send0(b, inst.slot, "hello");
+  ASSERT_TRUE(s.isHeap());
+  EXPECT_EQ("Hello!", std::string(reinterpret_cast<const char*>(b.heap.bytes(s)), b.heap.size(s)));
+}
+
+// 05 Medium / SPEC §3.8 チャンク形式: `! !` で methodsFor: のセクションは閉じる。そのあとのヘッダで
+// ないチャンクは式で、直前のクラスのメソッドにしない。file-in は式を評価しない（DoIt と同じ）。
+TEST(ChunkFileIn, ChunksAfterSectionEndAreExpressions) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Sect\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Sect methodsFor: 'a'!\n"
+      "two\n"
+      "  ^2! !\n"
+      "\n"
+      "B7Sect initialize!\n"
+      "Smalltalk at: #B7Bar put: 3!\n"
+      "!B7Sect methodsFor: 'b'!\n"
+      "three\n"
+      "  ^3! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B7Sect");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("two")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("three")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("B7Sect")).isNil());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("Smalltalk")).isNil());
+  EXPECT_TRUE(b.wk.named("B7Bar").isNil());
+}
+
+// 05 Low / SPEC §3.8 チャンク形式: セクションの中では、パターンが `subclass: x` や `methodsFor: y`
+// のチャンクもメソッドである。クラス定義と読んでファイルの残りを止めない。
+TEST(ChunkFileIn, SubclassPatternInSectionIsAMethod) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Pat\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Pat methodsFor: 'a'!\n"
+      "subclass: x\n"
+      "  ^x + 1!\n"
+      "methodsFor: y\n"
+      "  ^y + 2! !\n"
+      "!Object subclass: #B7PatAfter\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  ao::Root inst(b.roots, send0(b, b.wk.named("B7Pat"), "new"));
+  ASSERT_TRUE(inst.slot.isHeap());
+  EXPECT_EQ(ao::Oop::fromSmallInteger(5),
+            send1(b, inst.slot, "subclass:", ao::Oop::fromSmallInteger(4)));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(6),
+            send1(b, inst.slot, "methodsFor:", ao::Oop::fromSmallInteger(4)));
+  EXPECT_TRUE(b.wk.named("B7PatAfter").isHeap());
+}
+
+// B7 review / SPEC §3.8 チャンク形式: file-out は `$!` の `!` も二重にする（`^$!!`）。そのあとの
+// `! !` でセクションは閉じ、続く式を直前のクラスのメソッドにしない。
+TEST(ChunkFileIn, DoubledBangCharacterFromAFileOut) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Dollar\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Dollar methodsFor: 'a'!\n"
+      "bang\n"
+      "\t^$!!! !\n"
+      "\n"
+      "B7Dollar initialize!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B7Dollar");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("B7Dollar")).isNil());
+  ao::Root inst(b.roots, send0(b, cls, "new"));
+  EXPECT_EQ(ao::Oop::fromCharacter(U'!'), send0(b, inst.slot, "bang"));
+}
+
+// B7 review / SPEC §3.8 チャンク形式: 式の中の `subclass:` はクラス定義ではない。式は評価せずに
+// 読み飛ばし、ファイルの残りを止めない。
+TEST(ChunkFileIn, SubclassSendInsideAnExpressionIsNotADefinition) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Q1\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "Smalltalk at: #B7K put: (B7Q1 subclass: #B7Z1 instanceVariableNames: '' "
+      "classVariableNames: '' poolDictionaries: '' category: 'B7')!\n"
+      "!B7Q1 methodsFor: 'a'!\n"
+      "foo\n"
+      "  ^1! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B7Q1");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("foo")).isHeap());
+  EXPECT_TRUE(b.wk.named("B7Z1").isNil());
+}
+
+// B7 review / SPEC §3.8 チャンク形式: クラスコメントの文章でも `!!` は `!` である。行末の `!!` で
+// 文章を切らず、次の行をクラス定義と読まない。
+TEST(ChunkFileIn, CommentProseUndoublesBangs) {
+  Boot b;
+  const char* src =
+      "!Object subclass: #B7Prose\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Prose commentStamp: 'x' prior: 0!\n"
+      "Warning!!\n"
+      "I am a subclass: of Object.!\n"
+      "!B7Prose methodsFor: 'a'!\n"
+      "foo\n"
+      "  ^1! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop cls = b.wk.named("B7Prose");
+  ASSERT_TRUE(cls.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls, b.wk.intern("foo")).isHeap());
+}
+
+// B7 review / SPEC §3.8 チャンク形式: 文字列とコメントの外の単独の `!` は、行の途中でもチャンクを
+// 終える。1 行の 2 つのクラス定義も 2 つのメソッドも別のチャンクで、`! !` のあとの式はメソッドに
+// しない。
+TEST(ChunkFileIn, MidLineBangEndsChunk) {
+  Boot b;
+  const char* src =
+      "Object subclass: #B7MidA! Object subclass: #B7MidB!\n"
+      "!B7MidA methodsFor: 'a'!\n"
+      "foo ^1! bar ^2! !\n"
+      "!B7MidB methodsFor: 'b'!\n"
+      "baz\n"
+      "  ^3! ! \"end\"\n"
+      "B7MidB initialize!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop a = b.wk.named("B7MidA");
+  const ao::Oop bb = b.wk.named("B7MidB");
+  ASSERT_TRUE(a.isHeap());
+  ASSERT_TRUE(bb.isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, a, b.wk.intern("foo")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, a, b.wk.intern("bar")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, bb, b.wk.intern("baz")).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, bb, b.wk.intern("B7MidB")).isNil());
+}
+
+// B7 review / SPEC §3.12: コンパイルエラーの位置はファイル本文での箇所である。コメントや文字列の
+// `!!` を `!` に戻しても、位置はずれない。
+TEST(ChunkFileIn, ErrorSpanCountsUndoubledBangs) {
+  Boot b;
+  const std::string src =
+      "!Object subclass: #B7Drift\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'B7-Test'!\n"
+      "!B7Drift methodsFor: 'a'!\n"
+      "foo\n"
+      "  \"Don't!!\"\n"
+      "  ^'Hi!!!!!!' zork: ]! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  EXPECT_FALSE(ao::fileInString(b.ctx, src, errs));
+  ASSERT_EQ(1u, errs.size());
+  EXPECT_EQ(src.find(']'), errs[0].span.start) << errs[0].message;
+  EXPECT_EQ(src.find(']') + 1, errs[0].span.end) << errs[0].message;
 }
