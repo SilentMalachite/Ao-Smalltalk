@@ -18,7 +18,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private var categoryName = "Kernel"
   private var selectedClass = "Object"
   private var meta = false
-  private var protocolName = "native"
+  // nil protocol: the pane is the class definition. A protocol with no selector: a new method.
+  private var protocolName: String? = "native"
   private var selectorName: String? = "printString"
   private var applying = false
   private var showingHierarchy = false
@@ -170,19 +171,21 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     guard !applying, let table = notification.object as? NSTableView else {
       return
     }
+    // A new category, class or side shows the class definition: no protocol, no selector.
     if table === categoryTable {
       if let name = value(at: table.selectedRow, in: model.categories) {
         categoryName = name
+        protocolName = nil
+        selectorName = nil
       }
     } else if table === classTable {
       if let name = value(at: table.selectedRow, in: model.classes) {
         selectedClass = name
       }
+      protocolName = nil
       selectorName = nil
     } else if table === protocolTable {
-      if let name = value(at: table.selectedRow, in: model.protocols) {
-        protocolName = name
-      }
+      protocolName = value(at: table.selectedRow, in: model.protocols)
       selectorName = nil
     } else if table === selectorTable {
       selectorName = value(at: table.selectedRow, in: model.selectors)
@@ -201,12 +204,23 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   func accept() {
-    let outcome = submit(sourceView.string)
+    let source = sourceView.string
+    let method = acceptsMethod
+    let outcome = submit(source, method: method)
     guard outcome.status == Int32(AO_OK) else {
       errorField.stringValue = failureText(status: outcome.status, message: outcome.message)
       return
     }
     errorField.stringValue = ""
+    guard method else {
+      publish()
+      return
+    }
+    // The accepted method is a CompiledMethod: show it in its protocol with its own source.
+    protocolName = BrowserModel.newMethodProtocol
+    selectorName = nil
+    publish()
+    selectorName = model.selector(withSource: source)
     publish()
   }
 
@@ -234,6 +248,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       return
     }
     meta = sender.selectedSegment == 1
+    protocolName = nil
     selectorName = nil
     publish()
   }
@@ -266,9 +281,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       model.applyHierarchyList(hierarchyNames, selecting: keepClass)
     }
     selectedClass = model.selectedClass ?? ""
-    if let kept = model.selectedProtocol {
-      protocolName = kept
-    }
+    protocolName = model.selectedProtocol
     selectorName = model.selectedSelector
     reloadLists()
   }
@@ -281,7 +294,11 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     selectorTable.reloadData()
     select(categoryName, in: categoryTable, values: model.categories)
     select(selectedClass, in: classTable, values: model.classes)
-    select(protocolName, in: protocolTable, values: model.protocols)
+    if let protocolName {
+      select(protocolName, in: protocolTable, values: model.protocols)
+    } else {
+      protocolTable.deselectAll(nil)
+    }
     if let selectorName {
       select(selectorName, in: selectorTable, values: model.selectors)
     } else {
@@ -412,11 +429,17 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     return field
   }
 
+  // A selected protocol or selector sends a method; only the class with neither sends a class
+  // definition.
+  private var acceptsMethod: Bool {
+    protocolName != nil || selectorName != nil
+  }
+
   // Failure leaves sourceView.string alone. refresh runs only after AO_OK.
-  private func submit(_ source: String) -> (status: Int32, message: String) {
+  private func submit(_ source: String, method: Bool) -> (status: Int32, message: String) {
     var err = AoSpan()
     let status: Int32
-    if selectorName == nil {
+    if !method {
       status = source.withCString { src in
         withUnsafeMutablePointer(to: &err) { errPtr in
           ao_accept_class(src, errPtr)

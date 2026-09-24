@@ -58,10 +58,79 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(String(workspace.text.dropFirst(expr.count)), "'Object'")
   }
 
+  // 00 Critical, app side: a class and a protocol with no selector is a new method, never a
+  // class definition.
+  func testProtocolWithoutSelectorAcceptsANewMethod() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectClass("Array", in: browser)
+    selectClass("Object", in: browser)
+    selectProtocol("native", in: browser)
+    XCTAssertNil(browser.model.selectedSelector)
+    XCTAssertEqual(browser.sourceText, "")
+    let source = "zork\n  ^42\n"
+    browser.replaceSource(source)
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("Object new zork"), "42")
+  }
+
+  func testAcceptSelectsTheAcceptedSelectorInUserAndShowsItsSource() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    XCTAssertNil(browser.model.selectedSelector)
+    XCTAssertEqual(browser.sourceText, "")
+    let source = "zork: a with: b\n  ^a + b\n"
+    browser.replaceSource(source)
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+    XCTAssertEqual(browser.model.selectedProtocol, "user")
+    XCTAssertEqual(browser.model.selectedSelector, "zork:with:")
+    XCTAssertEqual(browser.sourceText, source)
+    XCTAssertEqual(selectedName(in: protocolTable(in: browser), values: browser.model.protocols), "user")
+    XCTAssertEqual(
+      selectedName(in: selectorTable(in: browser), values: browser.model.selectors),
+      "zork:with:"
+    )
+
+    let replaced = "zork: a with: b\n  ^a - b\n"
+    browser.replaceSource(replaced)
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(browser.model.selectedSelector, "zork:with:")
+    XCTAssertEqual(browser.sourceText, replaced)
+    XCTAssertEqual(printIt("Object new zork: 5 with: 2"), "3")
+  }
+
+  func testNewClassTakesItsFirstMethodThroughTheUserProtocol() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectClass("Array", in: browser)
+    browser.replaceSource(
+      "Object subclass: #B5First\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+        + "  poolDictionaries: ''\n  category: 'B5-Test'\n"
+    )
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    selectCategory("B5-Test", in: browser)
+    XCTAssertEqual(browser.model.selectedClass, "B5First")
+    XCTAssertEqual(browser.model.protocols, ["user"])
+    selectProtocol("user", in: browser)
+    browser.replaceSource("answer\n  ^7\n")
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(browser.model.selectedSelector, "answer")
+    XCTAssertEqual(printIt("B5First new answer"), "7")
+  }
+
   func testClassDefinitionPaneAcceptsClassSource() {
     let browser = BrowserWindow()
     selectClass("Array", in: browser)
     XCTAssertNil(browser.model.selectedSelector)
+    XCTAssertNil(browser.model.selectedProtocol)
+    XCTAssertTrue(browser.sourceText.contains("subclass: #Array"))
     let def =
       "Object subclass: #P9BrowserFoo\n"
       + "  instanceVariableNames: ''\n"
@@ -83,18 +152,16 @@ final class AcceptTests: XCTestCase {
     }
     side.selectedSegment = 1
     XCTAssertTrue(side.sendAction(side.action, to: side.target))
-    guard let row = browser.model.selectors.firstIndex(of: "show:") else {
-      XCTFail("missing class-side show:")
-      return
-    }
-    guard let selectors = selectorTable(in: browser) else {
-      XCTFail("missing selector table")
-      return
-    }
-    selectors.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    selectProtocol("native", in: browser)
+    XCTAssertTrue(browser.model.selectors.contains("show:"))
+    selectProtocol("user", in: browser)
     browser.replaceSource("extra\n  ^7\n")
     browser.accept()
     XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(browser.model.selectedClass, "Transcript")
+    XCTAssertEqual(side.selectedSegment, 1)
+    XCTAssertEqual(browser.model.selectedProtocol, "user")
+    XCTAssertEqual(browser.model.selectedSelector, "extra")
 
     let workspace = WorkspaceWindow()
     let expr = "Transcript extra"
@@ -212,6 +279,71 @@ final class AcceptTests: XCTestCase {
     }
     table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     XCTAssertEqual(browser.model.selectedClass, name)
+  }
+
+  private func selectCategory(_ name: String, in browser: BrowserWindow) {
+    guard let table = categoryTable(in: browser),
+          let row = browser.model.categories.firstIndex(of: name) else {
+      XCTFail("missing category \(name)")
+      return
+    }
+    table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+  }
+
+  private func selectProtocol(_ name: String, in browser: BrowserWindow) {
+    guard let table = protocolTable(in: browser),
+          let row = browser.model.protocols.firstIndex(of: name) else {
+      XCTFail("missing protocol \(name)")
+      return
+    }
+    table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    XCTAssertEqual(browser.model.selectedProtocol, name)
+  }
+
+  private func selectedName(in table: NSTableView?, values: [String]) -> String? {
+    guard let row = table?.selectedRow, row >= 0, row < values.count else {
+      return nil
+    }
+    return values[row]
+  }
+
+  // Print it through the ABI; nil when it fails.
+  private func printIt(_ source: String) -> String? {
+    var out = [CChar](repeating: 0, count: 256)
+    var err = AoSpan()
+    let status: Int32 = source.withCString { src in
+      out.withUnsafeMutableBufferPointer { buffer in
+        guard let base = buffer.baseAddress else {
+          return Int32(AO_ERR)
+        }
+        return withUnsafeMutablePointer(to: &err) { errPtr in
+          ao_eval(src, Int32(source.utf8.count), Int32(AO_EVAL_PRINTIT), base, Int32(buffer.count), errPtr)
+        }
+      }
+    }
+    guard status == Int32(AO_OK) else {
+      return nil
+    }
+    return out.withUnsafeBufferPointer { buffer in
+      buffer.baseAddress.map { String(cString: $0) }
+    }
+  }
+
+  private func categoryTable(in browser: BrowserWindow) -> NSTableView? {
+    guard let outer = browser.window.contentView as? NSSplitView,
+          let top = outer.arrangedSubviews.first as? NSSplitView else {
+      return nil
+    }
+    return tableViews(in: top).first
+  }
+
+  private func protocolTable(in browser: BrowserWindow) -> NSTableView? {
+    guard let outer = browser.window.contentView as? NSSplitView,
+          outer.arrangedSubviews.count >= 2,
+          let middle = outer.arrangedSubviews[1] as? NSSplitView else {
+      return nil
+    }
+    return tableViews(in: middle).first
   }
 
   private func classTable(in browser: BrowserWindow) -> NSTableView? {
