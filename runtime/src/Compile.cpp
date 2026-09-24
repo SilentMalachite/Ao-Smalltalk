@@ -423,34 +423,6 @@ std::string carriedMethodName(const std::string& className, const CarriedMethod&
   return key;
 }
 
-// SPEC §3.9: the first of `removed` that image, or a block inside it, reads by name, or "". A name
-// that is no local, no instance variable and no class variable compiles to PushGlobal of its
-// Symbol; the compiler has no other global access outside the workspace (an assignment does not
-// compile).
-std::string readRemovedName(const compiler::MethodImage& image,
-                            const std::vector<std::string>& removed) {
-  for (std::size_t pc = 0; pc < image.bytes.size();) {
-    const auto op = static_cast<compiler::Op>(image.bytes[pc]);
-    if (op == compiler::Op::PushGlobal && pc + 1 < image.bytes.size()) {
-      const std::uint8_t li = image.bytes[pc + 1];
-      if (li < image.literals.size() &&
-          std::find(removed.begin(), removed.end(), image.literals[li].text) != removed.end()) {
-        return image.literals[li].text;
-      }
-    }
-    pc += 1 + compiler::operandBytes(op);
-  }
-  for (const compiler::Literal& lit : image.literals) {
-    if (lit.kind == compiler::LitKind::Method && lit.method) {
-      std::string found = readRemovedName(*lit.method, removed);
-      if (!found.empty()) {
-        return found;
-      }
-    }
-  }
-  return {};
-}
-
 // Calls visit(m) for method, a CompiledMethod, then for each CompiledMethod among its literals (its
 // blocks) and among theirs, at any depth, each once, until visit answers true. Whether one did.
 // Does not collect.
@@ -480,6 +452,69 @@ bool anyMethodIn(CallContext& ctx, Oop method, Visit&& visit) {
     }
   }
   return false;
+}
+
+// SPEC §3.9: the first variable that method, a CompiledMethod, or a block inside it at any depth
+// reads or writes as it was compiled and that the change removes, or "". An instance variable is
+// used by its slot (PushInstVar, StoreInstVar, PopStoreInstVar), which slotNames names; a class
+// variable through its binding (PushLitVar, StoreLitVar, PopStoreLitVar), whose key names it. The
+// compiled code tells what a name meant, so a name the new shape resolves to a variable of the
+// other kind still counts, and sends, Symbols, locals and globals never do. Does not collect.
+std::string usedRemovedVariable(CallContext& ctx, Oop method,
+                                const std::vector<std::string>& slotNames,
+                                const std::vector<std::string>& removedInstVars,
+                                const std::vector<std::string>& removedClassVars) {
+  auto removes = [](const std::vector<std::string>& removed, const std::string& name) {
+    return std::find(removed.begin(), removed.end(), name) != removed.end();
+  };
+  std::string used;
+  anyMethodIn(ctx, method, [&](Oop m) {
+    const Oop code = ctx.heap.size(m) > kCmSlotBytes ? ctx.heap.slotAt(m, kCmSlotBytes) : Oop{};
+    if (!code.isHeap() || (ctx.heap.flags(code) & kFlagBytes) == 0) {
+      return false;
+    }
+    const Oop lits = ctx.heap.slotAt(m, kCmSlotLiterals);
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(ctx.heap.bytes(code));
+    const std::uint32_t n = ctx.heap.size(code);
+    constexpr auto kLastOpByte = static_cast<std::uint8_t>(compiler::kLastOp);
+    for (std::uint32_t pc = 0; pc < n && bytes[pc] <= kLastOpByte;) {
+      const auto op = static_cast<compiler::Op>(bytes[pc]);
+      const std::uint32_t width = compiler::operandBytes(op);
+      if (pc + width >= n) {
+        break;
+      }
+      const std::uint8_t operand = width == 0 ? 0 : bytes[pc + 1];
+      pc += 1 + width;
+      if (op == compiler::Op::PushInstVar || op == compiler::Op::StoreInstVar ||
+          op == compiler::Op::PopStoreInstVar) {
+        if (operand < slotNames.size() && removes(removedInstVars, slotNames[operand])) {
+          used = slotNames[operand];
+          return true;
+        }
+      } else if (op == compiler::Op::PushLitVar || op == compiler::Op::StoreLitVar ||
+                 op == compiler::Op::PopStoreLitVar) {
+        if (!lits.isHeap() || (ctx.heap.flags(lits) & kFlagBytes) != 0 ||
+            operand >= ctx.heap.size(lits)) {
+          continue;
+        }
+        const Oop binding = ctx.heap.slotAt(lits, operand);
+        if (!binding.isHeap() || (ctx.heap.flags(binding) & kFlagBytes) != 0 ||
+            ctx.heap.size(binding) <= kAssocKey) {
+          continue;
+        }
+        const Oop key = ctx.heap.slotAt(binding, kAssocKey);
+        if (key.isHeap() && (ctx.heap.flags(key) & kFlagBytes) != 0) {
+          std::string name = Str::toUtf8(ctx.heap, key);
+          if (removes(removedClassVars, name)) {
+            used = std::move(name);
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  });
+  return used;
 }
 
 // Whether method, a CompiledMethod, or a block inside it at any depth holds one of bindings as a
@@ -622,12 +657,14 @@ bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction&
 }
 
 // SPEC §3.9: compiles each carried method in the given shape (instance side, class side) and
-// refuses one that does not compile, an instance-side one that reads a variable the old class has
-// (inherited ones too) and the shape lacks, or one on either side that reads a class variable the
+// refuses one that does not compile, an instance-side one whose old method (oldMethods, in the
+// order of carried) reads or writes an instance variable the old class has (inherited ones too)
+// and the shape lacks, or one on either side whose old method reads or writes a class variable the
 // old class sees and the shape does not. It allocates nothing.
-bool compileCarried(CallContext& ctx, const Root& old, const compiler::CompileEnv& instanceEnv,
-                    const compiler::CompileEnv& classEnv, std::vector<CarriedMethod>& carried,
-                    const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
+bool compileCarried(CallContext& ctx, const Root& old, const RootedArray& oldMethods,
+                    const compiler::CompileEnv& instanceEnv, const compiler::CompileEnv& classEnv,
+                    std::vector<CarriedMethod>& carried, const compiler::ChunkAction& action,
+                    std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
   for (CarriedMethod& m : carried) {
     compiler::CompileResult cr = compiler::compileMethod(m.source, m.meta ? classEnv : instanceEnv);
@@ -638,24 +675,24 @@ bool compileCarried(CallContext& ctx, const Root& old, const compiler::CompileEn
     }
     m.image = std::move(cr.image);
   }
-  // A removed variable compiles to a global read in the new shape, so the method would change
-  // meaning silently.
+  // A removed variable compiles to a global, or to the other kind of variable of that name, in the
+  // new shape, so the method would change meaning silently. The old method, as it was compiled,
+  // tells which variables it uses.
+  compiler::CompileEnv oldEnv;
+  fillInstVars(ctx, old.slot, oldEnv);
   std::vector<std::string> removed;
-  {
-    compiler::CompileEnv oldEnv;
-    fillInstVars(ctx, old.slot, oldEnv);
+  for (const std::string& name : oldEnv.instVarNames) {
     const std::vector<std::string>& kept = instanceEnv.instVarNames;
-    for (std::string& name : oldEnv.instVarNames) {
-      if (std::find(kept.begin(), kept.end(), name) == kept.end()) {
-        removed.push_back(std::move(name));
-      }
+    if (std::find(kept.begin(), kept.end(), name) == kept.end()) {
+      removed.push_back(name);
     }
   }
-  for (const CarriedMethod& m : carried) {
-    const std::string var = (m.meta || removed.empty()) ? std::string{}
-                                                        : readRemovedName(m.image, removed);
+  for (std::uint32_t i = 0; i < carried.size() && !removed.empty(); ++i) {
+    const std::string var =
+        carried[i].meta ? std::string{}
+                        : usedRemovedVariable(ctx, oldMethods[i], oldEnv.instVarNames, removed, {});
     if (!var.empty()) {
-      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
+      addError(errors, {action.span, refused + carriedMethodName(action.className, carried[i]) +
                                          " refers to removed instance variable " + var});
       return false;
     }
@@ -668,11 +705,10 @@ bool compileCarried(CallContext& ctx, const Root& old, const compiler::CompileEn
       removedClassVars.push_back(std::move(name));
     }
   }
-  for (const CarriedMethod& m : carried) {
-    const std::string var =
-        removedClassVars.empty() ? std::string{} : readRemovedName(m.image, removedClassVars);
+  for (std::uint32_t i = 0; i < carried.size() && !removedClassVars.empty(); ++i) {
+    const std::string var = usedRemovedVariable(ctx, oldMethods[i], {}, {}, removedClassVars);
     if (!var.empty()) {
-      addError(errors, {action.span, refused + carriedMethodName(action.className, m) +
+      addError(errors, {action.span, refused + carriedMethodName(action.className, carried[i]) +
                                          " refers to removed class variable " + var});
       return false;
     }
@@ -682,12 +718,13 @@ bool compileCarried(CallContext& ctx, const Root& old, const compiler::CompileEn
 
 // SPEC §3.9: a new shape. Every check runs before anything changes: the class has no subclass,
 // each method on either side has its source in the source table, each source compiles for the
-// new shape, no instance-side method reads an instance variable the new shape drops, and no method
-// reads a class variable it drops. Then applyClassDef makes the new class and binds the name to
-// it, the new classPool takes the old bindings of the names it keeps, the methods go in (compiled
-// again when the class the send answered has another layout or other class variables), and their
-// sources move over. When the subclass: send, that compile or an install fails (old at its max),
-// the name goes back to the old class, whose methods were never touched.
+// new shape, and no old method reads or writes, as it was compiled, an instance variable the new
+// shape drops (instance side) or a class variable it drops (either side). Then applyClassDef makes
+// the new class and binds the name to it, the new classPool takes the old bindings of the names it
+// keeps, the methods go in (compiled again when the class the send answered has another layout or
+// other class variables), and their sources move over. When the subclass: send, that compile or an
+// install fails (old at its max), the name goes back to the old class, whose methods were never
+// touched.
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
@@ -757,7 +794,7 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     }
     classEnv.classVarNames = instanceEnv.classVarNames;
   }
-  if (!compileCarried(ctx, old, instanceEnv, classEnv, carried, action, errors)) {
+  if (!compileCarried(ctx, old, oldMethods, instanceEnv, classEnv, carried, action, errors)) {
     return false;
   }
 
@@ -793,7 +830,8 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
          freshClassEnv.instVarNames != classEnv.instVarNames ||
          freshInstanceEnv.classVarNames != instanceEnv.classVarNames ||
          freshClassEnv.classVarNames != classEnv.classVarNames) &&
-        !compileCarried(ctx, old, freshInstanceEnv, freshClassEnv, carried, action, errors)) {
+        !compileCarried(ctx, old, oldMethods, freshInstanceEnv, freshClassEnv, carried, action,
+                        errors)) {
       rebindClassName(ctx, action.className, old.slot);
       return false;
     }

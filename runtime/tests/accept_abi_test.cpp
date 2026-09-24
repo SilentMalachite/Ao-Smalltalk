@@ -1774,6 +1774,58 @@ TEST(AcceptAbi, ShapeChangeRefusesMethodReadingRemovedClassVariable) {
   ao_runtime_shutdown();
 }
 
+// B4 review (Codex P2) / SPEC §3.9: 失敗シナリオ。インスタンス変数 x を同じ名前のクラス変数に
+// 付け替える（ivar y、classvar x）と、x を読み書きしていたメソッドは、黙ってクラス変数を読み書き
+// するようになっていた。逆向き（classvar x を ivar x に）も同じ。変更前にコンパイルされたメソッドが
+// 何を読み書きしていたかで数えるので、読みも代入も拒否する。名前は旧クラスを指したまま。
+TEST(AcceptAbi, ShapeChangeRefusesMovingAVariableToTheOtherKind) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  struct Case {
+    const char* name;
+    const char* oldIvars;
+    const char* oldCvars;
+    const char* newIvars;
+    const char* newCvars;
+    const char* source;
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"B4KindIvRead", "x", "", "y", "x", "read\n  ^x\n",
+       "shape change refused: B4KindIvRead>>read refers to removed instance variable x"},
+      {"B4KindIvWrite", "x", "", "y", "x", "set: v\n  x := v\n",
+       "shape change refused: B4KindIvWrite>>set: refers to removed instance variable x"},
+      {"B4KindCvRead", "", "x", "x", "", "read\n  ^x\n",
+       "shape change refused: B4KindCvRead>>read refers to removed class variable x"},
+      {"B4KindCvWrite", "", "x", "x", "", "set: v\n  x := v\n",
+       "shape change refused: B4KindCvWrite>>set: refers to removed class variable x"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    ASSERT_EQ(AO_OK,
+              ao_accept_class(b4Definition("Object", c.name, c.oldIvars, c.oldCvars).c_str(), &err))
+        << err.message;
+    ASSERT_EQ(AO_OK, ao_accept_method(c.name, 0, c.source, &err)) << err.message;
+    const std::string keep = std::string("oldKind := ") + c.name + ". oldKind == " + c.name;
+    expectPrints({{keep.c_str(), "true"}});
+    AoSpan e{};
+    EXPECT_EQ(AO_ERR_COMPILE,
+              ao_accept_class(b4Definition("Object", c.name, c.newIvars, c.newCvars).c_str(), &e));
+    EXPECT_STREQ(c.expected, e.message);
+    const std::string same = std::string("oldKind == ") + c.name;
+    expectPrints({{same.c_str(), "true"}});
+  }
+  // 旧クラスのメソッドは、今までどおり元の変数を読み書きする。
+  acceptMethods("B4KindIvRead", 0, {"set: v\n  x := v\n"});
+  acceptMethods("B4KindCvRead", 0, {"set: v\n  x := v\n"});
+  expectPrints({
+      {"(B4KindIvRead new set: 7; yourself) read", "7"},
+      {"B4KindIvRead new read", "nil"},
+      {"B4KindCvRead new set: 8. B4KindCvRead new read", "8"},
+  });
+  ao_runtime_shutdown();
+}
+
 // B4 review (Claude L1) / SPEC §3.9: 失敗シナリオ。65 段に入れ子にしたブロックの中で使うクラス変数を
 // 消せていた（64 段で探索を打ち切り、未使用とみなしていた）。深さによらず数える。形が変わるときの
 // 消える変数の検査も同じ。
