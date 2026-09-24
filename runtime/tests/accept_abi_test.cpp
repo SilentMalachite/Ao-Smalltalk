@@ -2357,3 +2357,23 @@ TEST(AcceptAbi, IntegerLiteralsBeyondInt64AreLargeIntegers) {
   EXPECT_STREQ("expected byte 0-255", err.message);
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/03 Medium) / SPEC §3.8: a Float literal is the correctly rounded value of
+// the whole token. `0.3 = (0.1 + 0.2)` was true and `0.7 = (7 / 10.0)` false.
+TEST(AcceptAbi, FloatLiteralsAreCorrectlyRounded) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  expectPrints({
+      {"0.7 = (7 / 10.0)", "true"},
+      {"0.3 = (0.1 + 0.2)", "false"},
+      {"((0.3 - 0.1) - 0.2) < 0.0", "true"},
+      {"-0.7 = (0.0 - (7 / 10.0))", "true"},
+      {"1.5e2 = 150.0", "true"},
+      {"1.0e400 printString", "'inf'"},
+      {"0.0e500 = 0.0", "true"},
+      {"16r1.8 = 1.5", "true"},
+      {"2r1.1e2 = 6.0", "true"},
+      {"(#(0.7 -0.7) at: 1) = (7 / 10.0)", "true"},
+      {"(#(0.7 -0.7) at: 2) = (0.0 - (7 / 10.0))", "true"},
+  });
+  ao_runtime_shutdown();
+}

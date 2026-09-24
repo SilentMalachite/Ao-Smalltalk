@@ -1,6 +1,8 @@
 #include "ao/Scanner.hpp"
+#include <cmath>
 #include <cstdint>
 #include <gtest/gtest.h>
+#include <limits>
 #include <string>
 
 using ao::compiler::Scanner;
@@ -136,4 +138,51 @@ TEST(Scanner, IntegerBeyondInt64KeepsItsDigits) {
   auto padded = scan("0000000000000000000000000001");
   EXPECT_TRUE(padded.largeInt.empty());
   EXPECT_EQ(1, padded.intValue);
+}
+
+// SPEC §3.8: a Float is the correctly rounded value of mantissa × radix^exponent. It used to add
+// the fraction digit by digit (0.7 was 0.7000000000000001) and to scale a radix by 10^exponent.
+TEST(Scanner, FloatIsCorrectlyRounded) {
+  auto value = [](const char* src) {
+    Scanner s(src);
+    auto t = s.next();
+    EXPECT_EQ(Tok::Number, t.kind) << src;
+    EXPECT_TRUE(t.isFloat) << src;
+    EXPECT_EQ(Tok::Eof, s.next().kind) << src;
+    return t.number;
+  };
+  EXPECT_EQ(0.7, value("0.7"));
+  EXPECT_EQ(0.1, value("0.1"));
+  EXPECT_EQ(0.3, value("0.3"));
+  EXPECT_EQ(2.675, value("2.675"));
+  EXPECT_EQ(123456789.123456789, value("123456789.123456789"));
+  EXPECT_EQ(0.7, value("10r0.7"));
+  EXPECT_EQ(150.0, value("1.5e2"));
+  EXPECT_EQ(150.0, value("1.5d2"));
+  EXPECT_EQ(0.0015, value("1.5e-3"));
+  EXPECT_EQ(std::numeric_limits<double>::max(), value("1.7976931348623157e308"));
+  EXPECT_EQ(std::numeric_limits<double>::min(), value("2.2250738585072014e-308"));
+  EXPECT_EQ(std::numeric_limits<double>::denorm_min(), value("4.9406564584124654e-324"));
+  EXPECT_EQ(std::numeric_limits<double>::infinity(), value("1.0e400"));
+  EXPECT_EQ(std::numeric_limits<double>::infinity(), value("1.0e99999999999999999999"));
+  EXPECT_EQ(0.0, value("1.0e-400"));
+  EXPECT_EQ(0.0, value("0.0e500"));
+  EXPECT_EQ(1.5, value("16r1.8"));
+  EXPECT_EQ(0.5, value("2r0.1"));
+  EXPECT_EQ(1.0 / 3.0, value("3r0.1"));
+  EXPECT_EQ(0.5, value("36r0.I"));
+  EXPECT_EQ(0.5, value("3r0.1111111111111111111111111111111111111111"));
+  EXPECT_EQ(6.0, value("2r1.1e2"));
+  EXPECT_EQ(0.25, value("2r1.0e-2"));
+  EXPECT_EQ(1.0, value("2r1.00000000000000000000000000000000000000000000000000001"));
+  EXPECT_EQ(1.0 + 0x1p-52,
+            value("2r1.000000000000000000000000000000000000000000000000000011"));
+  EXPECT_EQ(std::numeric_limits<double>::denorm_min(), value("2r1.0e-1074"));
+  EXPECT_EQ(std::numeric_limits<double>::denorm_min(), value("2r1.1e-1075"));
+  EXPECT_EQ(0.0, value("2r1.0e-1075"));
+  EXPECT_EQ(std::numeric_limits<double>::infinity(), value("2r1.0e1024"));
+  EXPECT_EQ(std::numeric_limits<double>::max(),
+            value("2r1.1111111111111111111111111111111111111111111111111111e1023"));
+  EXPECT_EQ(std::numeric_limits<double>::infinity(), value("2r1.0e99999999999999999999"));
+  EXPECT_EQ(0.0, value("2r1.0e-99999999999999999999"));
 }

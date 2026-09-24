@@ -1,9 +1,12 @@
 #include "ao/Scanner.hpp"
 
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace ao::compiler {
 namespace {
@@ -90,6 +93,128 @@ std::string largeIntText(std::string_view digits, int radix) {
   return text;
 }
 
+// A magnitude in base 2^32, least significant limb first, no zero limb on top.
+using Mag = std::vector<std::uint32_t>;
+
+void magMulAdd(Mag& m, std::uint32_t mul, std::uint32_t add) {
+  std::uint64_t carry = add;
+  for (std::uint32_t& limb : m) {
+    const std::uint64_t t = static_cast<std::uint64_t>(limb) * mul + carry;
+    limb = static_cast<std::uint32_t>(t);
+    carry = t >> 32;
+  }
+  if (carry != 0) {
+    m.push_back(static_cast<std::uint32_t>(carry));
+  }
+}
+
+int magBits(const Mag& m) {
+  return m.empty() ? 0 : static_cast<int>((m.size() - 1) * 32) + std::bit_width(m.back());
+}
+
+Mag magShl(const Mag& m, int k) {
+  Mag r(static_cast<std::size_t>(k / 32), 0);
+  const int s = k % 32;
+  std::uint32_t carry = 0;
+  for (const std::uint32_t limb : m) {
+    r.push_back(s == 0 ? limb : (limb << s) | carry);
+    carry = s == 0 ? 0 : limb >> (32 - s);
+  }
+  if (carry != 0) {
+    r.push_back(carry);
+  }
+  return r;
+}
+
+int magCmp(const Mag& a, const Mag& b) {
+  if (a.size() != b.size()) {
+    return a.size() < b.size() ? -1 : 1;
+  }
+  for (std::size_t k = a.size(); k-- > 0;) {
+    if (a[k] != b[k]) {
+      return a[k] < b[k] ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+// a -= b, where a >= b.
+void magSub(Mag& a, const Mag& b) {
+  std::int64_t borrow = 0;
+  for (std::size_t k = 0; k < a.size(); ++k) {
+    const std::int64_t d = static_cast<std::int64_t>(a[k]) - borrow -
+                           static_cast<std::int64_t>(k < b.size() ? b[k] : 0);
+    borrow = d < 0 ? 1 : 0;
+    a[k] = static_cast<std::uint32_t>(d + (borrow << 32));
+  }
+  while (!a.empty() && a.back() == 0) {
+    a.pop_back();
+  }
+}
+
+// The double nearest num / den (ties to even). Neither is zero.
+double nearestDouble(const Mag& num, const Mag& den) {
+  // q = floor(num × 2^shift / den) has 54 or 55 bits; rem is what the division leaves.
+  const int shift = 54 - (magBits(num) - magBits(den));
+  Mag rem = shift > 0 ? magShl(num, shift) : num;
+  const Mag d = shift < 0 ? magShl(den, -shift) : den;
+  std::uint64_t q = 0;
+  for (int bit = 55; bit >= 0; --bit) {
+    const Mag part = magShl(d, bit);
+    if (magCmp(rem, part) >= 0) {
+      magSub(rem, part);
+      q |= std::uint64_t{1} << bit;
+    }
+  }
+  // Keep 53 bits, or fewer where the result is subnormal (its last bit is worth 2^-1074).
+  int drop = std::bit_width(q) - 53;
+  if (drop - shift < -1074) {
+    drop = shift - 1074;
+  }
+  if (drop > 55) {
+    return 0.0;  // below half the smallest subnormal
+  }
+  std::uint64_t kept = q >> drop;
+  const std::uint64_t dropped = q & ((std::uint64_t{1} << drop) - 1);
+  const std::uint64_t half = std::uint64_t{1} << (drop - 1);
+  if (dropped > half || (dropped == half && (!rem.empty() || (kept & 1) != 0))) {
+    kept++;
+  }
+  return std::ldexp(static_cast<double>(kept), drop - shift);
+}
+
+// SPEC §3.8: the Float nearest digits.fraction × radix^exp, computed exactly. (std::from_chars
+// for double is not available before macOS 26, and it only reads radix 10 and 16.)
+double nearestFloat(std::string_view digits, std::string_view fraction, int radix,
+                    std::int64_t exp) {
+  const auto r = static_cast<std::uint32_t>(radix);
+  Mag num;
+  for (const char c : digits) {
+    magMulAdd(num, r, static_cast<std::uint32_t>(digitValue(c, radix)));
+  }
+  for (const char c : fraction) {
+    magMulAdd(num, r, static_cast<std::uint32_t>(digitValue(c, radix)));
+  }
+  if (num.empty()) {
+    return 0.0;
+  }
+  // num × radix^scale. Far outside the double range it is infinity or zero without computing.
+  const std::int64_t scale = exp - static_cast<std::int64_t>(fraction.size());
+  const double log2 = magBits(num) + static_cast<double>(scale) * std::log2(radix);
+  if (log2 > 1100) {
+    return std::numeric_limits<double>::infinity();
+  }
+  if (log2 < -1100) {
+    return 0.0;
+  }
+  Mag den{1};
+  Mag& scaled = scale >= 0 ? num : den;
+  for (std::int64_t k = 0; k < (scale >= 0 ? scale : -scale); ++k) {
+    magMulAdd(scaled, r, 0);
+  }
+  return nearestDouble(num, den);
+}
+
 }  // namespace
 
 Scanner::Scanner(std::string_view src) : src_(src) {}
@@ -143,14 +268,11 @@ Token Scanner::lexNumber(std::uint32_t start) {
   };
 
   std::int64_t intAcc = 0;
-  double dblAcc = 0;
   bool overflow = false;
   while (isDigit(at(0))) {
-    const int d = at(0) - '0';
-    if (!overflow && !addDigit(intAcc, 10, d)) {
+    if (!overflow && !addDigit(intAcc, 10, at(0) - '0')) {
       overflow = true;
     }
-    dblAcc = dblAcc * 10.0 + static_cast<double>(d);
     i_++;
   }
 
@@ -162,80 +284,62 @@ Token Scanner::lexNumber(std::uint32_t start) {
     i_++;
     digitsStart = i_;
     intAcc = 0;
-    dblAcc = 0;
     overflow = false;
     int dv = 0;
     while ((dv = digitValue(at(0), radix)) >= 0) {
       if (!overflow && !addDigit(intAcc, radix, dv)) {
         overflow = true;
       }
-      dblAcc = dblAcc * static_cast<double>(radix) + static_cast<double>(dv);
       i_++;
     }
   }
-
   const std::string_view digits = src_.substr(digitsStart, i_ - digitsStart);
-  bool isFloat = false;
-  double value = overflow ? dblAcc : static_cast<double>(intAcc);
+
+  std::string_view fraction;
   if (at(0) == '.' && digitValue(at(1), radix) >= 0) {
-    isFloat = true;
     i_++;
-    double place = 1.0 / static_cast<double>(radix);
-    int dv = 0;
-    while ((dv = digitValue(at(0), radix)) >= 0) {
-      value += static_cast<double>(dv) * place;
-      place /= static_cast<double>(radix);
+    const std::uint32_t from = i_;
+    while (digitValue(at(0), radix) >= 0) {
       i_++;
     }
+    fraction = src_.substr(from, i_ - from);
   }
 
+  // The exponent stops growing far beyond any exponent a value can use.
+  constexpr std::int64_t kExpSaturation = std::int64_t{1} << 56;
+  bool expNeg = false;
+  std::int64_t exp = 0;
+  bool hasExp = false;
   const char expMark = at(0);
   if (expMark == 'e' || expMark == 'E' || expMark == 'd' || expMark == 'D') {
-    std::uint32_t digitsOff = 1;
-    if (at(1) == '+' || at(1) == '-') {
-      digitsOff = 2;
-    }
+    const std::uint32_t digitsOff = at(1) == '+' || at(1) == '-' ? 2 : 1;
     if (isDigit(at(digitsOff))) {
-      isFloat = true;
-      i_++;
-      int expSign = 1;
-      if (at(0) == '+') {
-        i_++;
-      } else if (at(0) == '-') {
-        expSign = -1;
-        i_++;
-      }
-      std::int64_t exp = 0;
-      bool expOverflow = false;
+      hasExp = true;
+      expNeg = at(1) == '-';
+      i_ += digitsOff;
       while (isDigit(at(0))) {
-        const int d = at(0) - '0';
-        if (!expOverflow) {
-          if (exp > (std::numeric_limits<std::int64_t>::max() - d) / 10) {
-            expOverflow = true;
-            exp = std::numeric_limits<std::int64_t>::max();
-          } else {
-            exp = exp * 10 + d;
-          }
+        if (exp < kExpSaturation) {
+          exp = exp * 10 + (at(0) - '0');
         }
         i_++;
-      }
-      if (expOverflow || exp > 400) {
-        value = expSign < 0 ? 0.0 : std::numeric_limits<double>::infinity();
-      } else {
-        value *= std::pow(10.0, static_cast<double>(expSign) * static_cast<double>(exp));
       }
     }
   }
 
   Token t = make(Tok::Number, start, std::string(src_.substr(start, i_ - start)));
-  t.number = value;
-  t.isFloat = isFloat;
-  if (!isFloat && !overflow) {
-    t.intValue = intAcc;
-  } else if (!isFloat) {
-    // SPEC §3.8: no digit limit. The runtime makes the LargeInteger from the digits.
-    t.largeInt = largeIntText(digits, radix);
+  if (fraction.empty() && !hasExp) {
+    if (overflow) {
+      // SPEC §3.8: no digit limit. The runtime makes the LargeInteger from the digits.
+      t.largeInt = largeIntText(digits, radix);
+    } else {
+      t.intValue = intAcc;
+      t.number = static_cast<double>(intAcc);
+    }
+    return t;
   }
+  // SPEC §3.8: the Float nearest mantissa × radix^exponent.
+  t.isFloat = true;
+  t.number = nearestFloat(digits, fraction, radix, expNeg ? -exp : exp);
   return t;
 }
 
