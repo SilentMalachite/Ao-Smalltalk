@@ -350,3 +350,36 @@ TEST(Bootstrap, KernelInstVarNamesFillTheSlotsEachClassAdds) {
   EXPECT_TRUE(ownInstVarNames(heap, wk, wk.classClass).empty());
   EXPECT_TRUE(ownInstVarNames(heap, wk, wk.identitySetClass).empty());
 }
+
+// B4 (docs/claude-review/01 High) / SPEC §3.6 / §3.7 step 5: each Kernel class's name slot holds
+// the interned Symbol of its name, and its metaclass's the String "<name> class".
+TEST(Bootstrap, KernelClassNamesAreInternedSymbols) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  for (const char* n : {"Object", "SmallInteger", "Metaclass", "OrderedCollection", "Time"}) {
+    const ao::Oop cls = wk.named(n);
+    ASSERT_TRUE(cls.isHeap()) << n;
+    EXPECT_EQ(wk.intern(n), heap.slotAt(cls, ao::kClassSlotName)) << n;
+    const ao::Oop metaName = heap.slotAt(heap.klass(cls), ao::kClassSlotName);
+    ASSERT_TRUE(metaName.isHeap()) << n;
+    EXPECT_EQ(wk.stringClass, heap.klass(metaName)) << n;
+    EXPECT_EQ(std::string(n) + " class",
+              std::string(reinterpret_cast<const char*>(heap.bytes(metaName)), heap.size(metaName)));
+  }
+  struct Bag {
+    ao::Heap* heap;
+    ao::WellKnown* wk;
+  } bag{&heap, &wk};
+  wk.eachClass(
+      [](void* p, ao::Oop cls) {
+        auto* b = static_cast<Bag*>(p);
+        const ao::Oop name = b->heap->slotAt(cls, ao::kClassSlotName);
+        ASSERT_TRUE(name.isHeap());
+        EXPECT_EQ(b->wk->symbolClass, b->heap->klass(name));
+        EXPECT_EQ(b->wk->stringClass,
+                  b->heap->klass(b->heap->slotAt(b->heap->klass(cls), ao::kClassSlotName)));
+      },
+      &bag);
+}

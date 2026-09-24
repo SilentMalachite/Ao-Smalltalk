@@ -10,8 +10,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include <algorithm>
-#include <cstdio>
-#include <cstring>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -182,22 +181,11 @@ constexpr SlotNames kSlotNames[] = {
 
 static Oop allocClass(Heap& heap) { return heap.allocate(Oop::nil(), kClassSlotCount, 0); }
 
-static Oop makeName(Heap& heap, const char* s) {
-  const auto n = static_cast<std::uint32_t>(std::strlen(s));
-  auto bytes = heap.allocate(Oop::nil(), n, kFlagBytes);
-  if (bytes.isHeap()) {
-    std::memcpy(heap.bytes(bytes), s, n);
-  }
-  return bytes;
-}
-
-static void wireClass(Heap& heap, Oop cls, Oop meta, Oop superCls, Oop thisClass, Oop format,
-                      const char* name) {
+static void wireClass(Heap& heap, Oop cls, Oop meta, Oop superCls, Oop thisClass, Oop format) {
   heap.header(cls)->klass = meta;
   heap.slotAtPut(cls, kClassSlotSuperclass, superCls);
   heap.slotAtPut(cls, kClassSlotMethodDict, Oop::nil());
   heap.slotAtPut(cls, kClassSlotFormat, format);
-  heap.slotAtPut(cls, kClassSlotName, makeName(heap, name));
   heap.slotAtPut(cls, kClassSlotThisClass, thisClass);
 }
 
@@ -246,8 +234,16 @@ static Oop makeSlotNames(Heap& heap, WellKnown& wk, std::string_view names) {
   return arr;
 }
 
-// SPEC §3.7 step 5: after the cycle is wired, so Array and Symbol are classes.
-static void nameKernelSlots(Heap& heap, WellKnown& wk) {
+// SPEC §3.7 step 5: after the cycle is wired, so Symbol, String and Array are classes. A class's
+// name is its interned Symbol and its metaclass's the String "<name> class", as subclass: makes
+// them (SPEC §3.6); the Kernel classes that add named slots get their names. Does not GC.
+static void nameClasses(Heap& heap, WellKnown& wk) {
+  for (const auto& d : kDefs) {
+    const Oop name = wk.intern(d.name);
+    heap.slotAtPut(wk.*(d.cls), kClassSlotName, name.isHeap() ? name : Oop::nil());
+    const Oop metaName = Str::fromUtf8(heap, wk, std::string(d.name) + " class");
+    heap.slotAtPut(wk.*(d.meta), kClassSlotName, metaName.isHeap() ? metaName : Oop::nil());
+  }
   for (const auto& s : kSlotNames) {
     heap.slotAtPut(wk.*(s.cls), kClassSlotInstVarNames, makeSlotNames(heap, wk, s.names));
   }
@@ -280,17 +276,14 @@ void wireCycle(Heap& heap, WellKnown& wk) {
     const Oop cls = wk.*(d.cls);
     const Oop meta = wk.*(d.meta);
     const Oop super = superOf(wk, d.superCls);
-    wireClass(heap, cls, meta, super, Oop::nil(), Format::make(d.instSize, d.indexable, d.bytes),
-              d.name);
+    wireClass(heap, cls, meta, super, Oop::nil(), Format::make(d.instSize, d.indexable, d.bytes));
   }
   for (const auto& d : kDefs) {
     const Oop cls = wk.*(d.cls);
     const Oop meta = wk.*(d.meta);
     const Oop super = superOf(wk, d.superCls);
     const Oop metaSuper = super.isNil() ? wk.classClass : heap.klass(super);
-    char metaName[128];
-    std::snprintf(metaName, sizeof(metaName), "%s class", d.name);
-    wireClass(heap, meta, wk.metaclassClass, metaSuper, cls, classFmt, metaName);
+    wireClass(heap, meta, wk.metaclassClass, metaSuper, cls, classFmt);
   }
 }
 
@@ -330,7 +323,7 @@ void installNatives(Heap& heap, Roots& roots, WellKnown& wk) {
 void run(Heap& heap, Roots& roots, WellKnown& wk) {
   allocateSkeletons(heap, roots, wk);
   wireCycle(heap, wk);
-  nameKernelSlots(heap, wk);
+  nameClasses(heap, wk);
   installNatives(heap, roots, wk);
   Globals::install(heap, roots, wk);
   wk.checkSmallIntegerFastPath();

@@ -1303,3 +1303,48 @@ TEST(AcceptAbi, BytesSuperclassRefusesInstanceVariables) {
   EXPECT_STREQ("2", out);
   ao_runtime_shutdown();
 }
+
+// B4 (docs/claude-review/01 High) / SPEC §3.6: 失敗シナリオ。Kernel クラスの名前は intern した Symbol
+// で、メッセージが届く。メタクラスの name は thisClass の名前に ' class' を続けた String で、Kernel
+// クラスもユーザークラスも同じ規則。保存して読み直したイメージでも同じ。
+TEST(AcceptAbi, ClassNamesAreSymbolsAndMetaclassNamesFollowThem) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[128];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 128, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "B4Named", "", "B4-Test").c_str(), &err))
+      << err.message;
+  const struct {
+    const char* source;
+    const char* printed;
+  } checks[] = {
+      {"Object name == #Object", "true"},
+      {"Object name size", "6"},
+      {"3 class name == #SmallInteger", "true"},
+      {"Metaclass name == #Metaclass", "true"},
+      {"B4Named name == #B4Named", "true"},
+      {"Object class name", "'Object class'"},
+      {"Object class name class == String", "true"},
+      {"B4Named class name", "'B4Named class'"},
+      {"B4Named class name class == String", "true"},
+      {"Metaclass class name", "'Metaclass class'"},
+      {"Object class class name == #Metaclass", "true"},
+  };
+  auto expectChecks = [&](const char* when) {
+    for (const auto& c : checks) {
+      ASSERT_EQ(AO_OK, printIt(c.source)) << when << ": " << c.source << ": " << err.message;
+      EXPECT_STREQ(c.printed, out) << when << ": " << c.source;
+    }
+  };
+  expectChecks("booted");
+  const char* path = "b4-class-names.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path));
+  std::remove(path);
+  expectChecks("loaded");
+  ao_runtime_shutdown();
+}

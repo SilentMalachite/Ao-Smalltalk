@@ -281,6 +281,20 @@ Oop ao_Metaclass_thisClass(CallContext& ctx, const Oop& receiver, const Oop*, st
   return ctx.heap.slotAt(receiver, kClassSlotThisClass);
 }
 
+// SPEC §3.6: a metaclass's name is its class's name followed by " class", a String computed from
+// thisClass, for a Kernel metaclass and a user one alike.
+Oop ao_Metaclass_name(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
+  const Oop cls = ctx.heap.slotAt(receiver, kClassSlotThisClass);
+  const Oop name = isClassShaped(ctx.heap, cls) ? ctx.heap.slotAt(cls, kClassSlotName) : Oop{};
+  if (!name.isHeap() || (ctx.heap.flags(name) & kFlagBytes) == 0) {
+    return Oop{};
+  }
+  // The text is copied before the allocation, which may collect.
+  const std::string text = Str::toUtf8(ctx.heap, name) + " class";
+  return Str::fromUtf8(ctx, text);
+}
+
 // SPEC §3.3: a metaclass makes no instances; new aborts like shouldNotImplement.
 Oop ao_Metaclass_newForbidden(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
@@ -319,6 +333,7 @@ void installBehavior(Heap& heap, WellKnown& wk) {
 
   const Oop meta = wk.metaclassClass;
   putNative(heap, wk, meta, "thisClass", 0, "ao_Metaclass_thisClass", ao_Metaclass_thisClass);
+  putNative(heap, wk, meta, "name", 0, "ao_Metaclass_name", ao_Metaclass_name);
   putNative(heap, wk, meta, "new", 0, "ao_Metaclass_newForbidden", ao_Metaclass_newForbidden);
   putNative(heap, wk, wk.metaclassMetaclass, "new", 0, "ao_Metaclass_newForbidden",
             ao_Metaclass_newForbidden);
