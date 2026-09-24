@@ -9,7 +9,8 @@ enum {
   AO_ERR = 1,
   AO_ERR_COMPILE = 2,
   AO_ERR_EVAL = 3,
-  AO_ERR_RANGE = 4
+  AO_ERR_RANGE = 4,
+  AO_ERR_NOSOURCE = 5
 };
 
 enum {
@@ -25,7 +26,7 @@ typedef struct AoSpan {
 } AoSpan;
 
 /* SPEC §3.10. String buffers end in NUL when their length is > 0; an answer that does not fit
-   is AO_ERR_RANGE. */
+   is AO_ERR_RANGE (ao_browser_source's AO_ERR_NOSOURCE wins over it). */
 
 /* AO_ERR_RANGE when cut (buf still ends in NUL). AO_ERR when buf is NULL or buf_len < 1. */
 int ao_version(char* buf, int buf_len);
@@ -52,6 +53,13 @@ int ao_browser_protocol_at(const char* class_name, int meta, int index, char* bu
 int ao_browser_selector_count(const char* class_name, int meta, const char* protocol);
 int ao_browser_selector_at(const char* class_name, int meta, const char* protocol, int index,
                            char* buf, int len);
+/* AO_OK with the source when the source table has it. A method without source (a native, a
+   method after an image load, a vendor, file-in or methodsFor: chunk method) is AO_ERR_NOSOURCE
+   with a one-line comment placeholder that does not compile when accepted:
+   "<Class>>><selector> source not available" or "<Class>>><selector> native <symbol>", where
+   <Class> is "<Name> class" on the class side. AO_ERR_NOSOURCE also when the placeholder is cut
+   (buf still ends in NUL). AO_ERR when buf is NULL, len < 1, or the class or selector is not
+   found. */
 int ao_browser_source(const char* class_name, int meta, const char* selector, char* buf, int len);
 int ao_browser_class_definition(const char* class_name, char* buf, int len);
 int ao_browser_superclass(const char* class_name, int meta, char* buf, int len);

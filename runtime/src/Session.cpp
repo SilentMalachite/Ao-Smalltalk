@@ -451,22 +451,27 @@ std::vector<ListedMethod> selectorsFor(const std::vector<ListedMethod>& methods,
   return out;
 }
 
-std::string sourceOf(Session& s, const ListedMethod& method) {
+// SPEC §3.10: true with the source-table text, or false with the placeholder for a method without
+// source: one comment on one line, without a selector pattern, so accepting it fails to compile.
+// className is "<Name> class" on the class side.
+bool sourceOf(Session& s, const std::string& className, const ListedMethod& method,
+              std::string& text) {
+  if (!method.native && methodSource(method.method, text)) {
+    return true;
+  }
+  text = "\"";
+  text += className;
+  text += ">>";
+  text += method.selector;
   if (method.native) {
     const std::string_view sym = NativeMethod::nameBytes(s.heap, method.method);
-    std::string text = method.selector;
-    text += "\n  \"NativeMethod ";
+    text += " native ";
     text.append(sym.data(), sym.size());
-    text += "\"\n";
-    return text;
+  } else {
+    text += " source not available";
   }
-  std::string stored;
-  if (methodSource(method.method, stored)) {
-    return stored;
-  }
-  std::string text = method.selector;
-  text += "\n  \"CompiledMethod\"\n";
-  return text;
+  text += "\"";
+  return false;
 }
 
 std::string superclassName(Session& s, Oop cls, int meta) {
@@ -933,10 +938,16 @@ int browserSource(const char* className, int meta, const char* selector, char* b
   if (row == nullptr) {
     return AO_ERR;
   }
+  const std::string shownName = meta == 1 ? row->name + " class" : row->name;
   const auto methods = methodsOf(*s, sideOf(*s, row->cls, meta));
   for (const auto& method : methods) {
     if (method.selector == selector) {
-      return writeBuf(sourceOf(*s, method), buf, len);
+      std::string text;
+      if (sourceOf(*s, shownName, method, text)) {
+        return writeBuf(text, buf, len);
+      }
+      // SPEC §3.10: AO_ERR_NOSOURCE wins over AO_ERR_RANGE; writeBuf still cuts and ends in NUL.
+      return writeBuf(text, buf, len) == AO_ERR ? AO_ERR : AO_ERR_NOSOURCE;
     }
   }
   return AO_ERR;

@@ -239,7 +239,14 @@ final class BrowserModel {
       if rc == Int32(AO_OK) {
         return decode(buffer)
       }
-      if rc != Int32(AO_ERR_RANGE) {
+      // SPEC §3.10: a method without source answers its placeholder with AO_ERR_NOSOURCE, also
+      // when cut, so a full buffer asks for a larger one.
+      if rc == Int32(AO_ERR_NOSOURCE) {
+        let text = decode(buffer)
+        if text.utf8.count < capacity - 1 {
+          return text
+        }
+      } else if rc != Int32(AO_ERR_RANGE) {
         return nil
       }
       capacity *= 2
