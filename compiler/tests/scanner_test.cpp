@@ -186,3 +186,52 @@ TEST(Scanner, FloatIsCorrectlyRounded) {
   EXPECT_EQ(std::numeric_limits<double>::infinity(), value("2r1.0e99999999999999999999"));
   EXPECT_EQ(0.0, value("2r1.0e-99999999999999999999"));
 }
+
+// SPEC §3.8: an integer mantissa with an exponent of 0 or more is the Integer
+// mantissa × radix^exponent (`1e3` was the Float 1000.0, `2r1e4` 10000.0, `0e500` infinity).
+// Above 65536 the exponent is the compile error "number too large" unless the mantissa is 0.
+TEST(Scanner, IntegerMantissaWithExponentIsInteger) {
+  auto scan = [](const char* src) {
+    Scanner s(src);
+    auto t = s.next();
+    EXPECT_EQ(Tok::Eof, s.next().kind) << src;
+    return t;
+  };
+  auto intValue = [&](const char* src) {
+    auto t = scan(src);
+    EXPECT_EQ(Tok::Number, t.kind) << src;
+    EXPECT_FALSE(t.isFloat) << src;
+    EXPECT_TRUE(t.largeInt.empty()) << src;
+    return t.intValue;
+  };
+  EXPECT_EQ(1000, intValue("1e3"));
+  EXPECT_EQ(1000, intValue("1e+3"));
+  EXPECT_EQ(16, intValue("2r1e4"));
+  EXPECT_EQ(0, intValue("0e500"));
+  EXPECT_EQ(0, intValue("0e99999999999999999999"));
+  EXPECT_EQ(7, intValue("7e0"));
+  EXPECT_EQ(INT64_MAX, intValue("9223372036854775807e0"));
+  auto large = [&](const char* src) {
+    auto t = scan(src);
+    EXPECT_EQ(Tok::Number, t.kind) << src;
+    EXPECT_FALSE(t.isFloat) << src;
+    return t.largeInt;
+  };
+  EXPECT_EQ("1" + std::string(30, '0'), large("1e30"));
+  EXPECT_EQ("9223372036854775810", large("922337203685477581e1"));
+  EXPECT_EQ("2r1" + std::string(70, '0'), large("2r1e70"));
+  EXPECT_EQ("1" + std::string(22, '0'), large("100000000000000000000e2"));
+  EXPECT_EQ(65537u, large("1e65536").size());
+  for (const char* src : {"1e65537", "1e99999999999999999999", "100000000000000000000e70000"}) {
+    auto t = scan(src);
+    EXPECT_EQ(Tok::Error, t.kind) << src;
+    EXPECT_EQ("number too large", t.text) << src;
+    EXPECT_EQ(std::string(src).size(), t.span.end) << src;
+  }
+  auto fl = scan("1e-3");
+  EXPECT_TRUE(fl.isFloat);
+  EXPECT_EQ(0.001, fl.number);
+  auto radixFl = scan("2r1e-2");
+  EXPECT_TRUE(radixFl.isFloat);
+  EXPECT_EQ(0.25, radixFl.number);
+}

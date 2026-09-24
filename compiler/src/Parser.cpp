@@ -53,7 +53,7 @@ class Parser {
       cur_ = scanner_.next();
     }
     if (cur_.kind == Tok::Error) {
-      fail("invalid token");
+      fail(cur_.text.empty() ? "invalid token" : cur_.text.c_str());
     }
   }
 

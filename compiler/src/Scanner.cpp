@@ -82,6 +82,9 @@ std::uint32_t utf8Len(unsigned char lead) {
   return 1;
 }
 
+// SPEC §3.8: the largest exponent an integer mantissa other than 0 may have.
+constexpr std::int64_t kMaxIntegerExponent = 65536;
+
 // Token::largeInt for integer digits outside int64: [<radix>r]<digits>, upper case, no leading
 // zeros. The digits are not all zeros.
 std::string largeIntText(std::string_view digits, int radix) {
@@ -309,12 +312,10 @@ Token Scanner::lexNumber(std::uint32_t start) {
   constexpr std::int64_t kExpSaturation = std::int64_t{1} << 56;
   bool expNeg = false;
   std::int64_t exp = 0;
-  bool hasExp = false;
   const char expMark = at(0);
   if (expMark == 'e' || expMark == 'E' || expMark == 'd' || expMark == 'D') {
     const std::uint32_t digitsOff = at(1) == '+' || at(1) == '-' ? 2 : 1;
     if (isDigit(at(digitsOff))) {
-      hasExp = true;
       expNeg = at(1) == '-';
       i_ += digitsOff;
       while (isDigit(at(0))) {
@@ -327,14 +328,24 @@ Token Scanner::lexNumber(std::uint32_t start) {
   }
 
   Token t = make(Tok::Number, start, std::string(src_.substr(start, i_ - start)));
-  if (fraction.empty() && !hasExp) {
-    if (overflow) {
-      // SPEC §3.8: no digit limit. The runtime makes the LargeInteger from the digits.
-      t.largeInt = largeIntText(digits, radix);
-    } else {
+  if (fraction.empty() && !(expNeg && exp != 0)) {
+    // SPEC §3.8: an integer mantissa and an exponent of 0 or more make the Integer
+    // mantissa × radix^exponent.
+    const bool zero = digits.find_first_not_of('0') == std::string_view::npos;
+    for (std::int64_t k = 0; !zero && !overflow && k < exp; ++k) {
+      overflow = !addDigit(intAcc, radix, 0);
+    }
+    if (!overflow) {
       t.intValue = intAcc;
       t.number = static_cast<double>(intAcc);
+      return t;
     }
+    if (exp > kMaxIntegerExponent) {
+      return make(Tok::Error, start, "number too large");
+    }
+    // No digit limit. The runtime makes the LargeInteger from the digits.
+    t.largeInt = largeIntText(digits, radix);
+    t.largeInt.append(static_cast<std::size_t>(exp), '0');
     return t;
   }
   // SPEC §3.8: the Float nearest mantissa × radix^exponent.

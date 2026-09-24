@@ -157,3 +157,15 @@ TEST(Parser, IntegerBeyondInt64) {
   EXPECT_FALSE(prim.ok);
   EXPECT_EQ("expected primitive number", prim.error.message);
 }
+
+// SPEC §3.8: an exponent that would make the Integer too large is a compile error at the number.
+TEST(Parser, IntegerExponentTooLarge) {
+  auto r = parseMethod("foo\n  ^1e65537");
+  EXPECT_FALSE(r.ok);
+  EXPECT_EQ("number too large", r.error.message);
+  EXPECT_EQ(7u, r.error.span.start);
+  EXPECT_EQ(14u, r.error.span.end);
+  auto bad = parseMethod("foo\n  ^'abc");
+  EXPECT_FALSE(bad.ok);
+  EXPECT_EQ("invalid token", bad.error.message);
+}

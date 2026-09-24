@@ -2377,3 +2377,32 @@ TEST(AcceptAbi, FloatLiteralsAreCorrectlyRounded) {
   });
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/05 Low) / SPEC §3.8: an integer mantissa with an exponent of 0 or more
+// is an Integer (`1e3` was 1000.0, `2r1e4` 10000.0, `0e500` inf); a negative exponent or a
+// fraction makes a correctly rounded Float.
+TEST(AcceptAbi, IntegerMantissaWithExponentIsInteger) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  expectPrints({
+      {"1e3 = 1000", "true"},
+      {"1e3 class == SmallInteger", "true"},
+      {"2r1e4 = 16", "true"},
+      {"0e500 = 0", "true"},
+      {"-1e3 = (0 - 1000)", "true"},
+      {"1e30 = (1000000000000000 * 1000000000000000)", "true"},
+      {"1e30 class == LargePositiveInteger", "true"},
+      {"-1e30 = (0 - (1000000000000000 * 1000000000000000))", "true"},
+      {"(#(1e3 2r1e4) at: 2) = 16", "true"},
+      {"1e-3 = (1 / 1000.0)", "true"},
+      {"1e-3 class == Float", "true"},
+      {"2r1e-2 = 0.25", "true"},
+      {"1.5e2 = 150.0", "true"},
+  });
+  char out[128];
+  AoSpan err{};
+  const char* huge = "1e65537";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_eval(huge, static_cast<int>(std::strlen(huge)), AO_EVAL_PRINTIT,
+                                    out, 128, &err));
+  EXPECT_STREQ("number too large", err.message);
+  ao_runtime_shutdown();
+}

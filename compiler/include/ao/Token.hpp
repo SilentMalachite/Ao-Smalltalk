@@ -35,6 +35,7 @@ enum class Tok {
 struct Token {
   Tok kind = Tok::Eof;
   SourceSpan span;
+  // For Tok::Error, the reason when it is not empty (the parser says "invalid token" otherwise).
   std::string text;
   double number = 0;
   std::int64_t intValue = 0;
