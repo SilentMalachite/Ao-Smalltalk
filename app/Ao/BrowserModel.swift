@@ -10,6 +10,8 @@ final class BrowserModel {
   private(set) var protocols: [String] = []
   private(set) var selectors: [String] = []
   private(set) var source: String = ""
+  // The selected method has no source (AO_ERR_NOSOURCE): `source` is the runtime's placeholder.
+  private(set) var sourceIsPlaceholder = false
 
   private var didBoot = false
   private var selectedCategory: String?
@@ -48,7 +50,7 @@ final class BrowserModel {
     if let current = selectedSelector, !selectors.contains(current) {
       selectedSelector = nil
     }
-    source = loadSource()
+    (source, sourceIsPlaceholder) = loadSource()
   }
 
   func select(
@@ -101,7 +103,7 @@ final class BrowserModel {
     if let current = selectedSelector, !selectors.contains(current) {
       selectedSelector = nil
     }
-    source = loadSource()
+    (source, sourceIsPlaceholder) = loadSource()
   }
 
   private struct ListedClass {
@@ -197,23 +199,26 @@ final class BrowserModel {
     )
   }
 
-  private func loadSource() -> String {
+  // `placeholder` is true when the selected method answered AO_ERR_NOSOURCE.
+  private func loadSource() -> (text: String, placeholder: Bool) {
     guard let selectedClass else {
-      return ""
+      return ("", false)
     }
     let meta = metaFlag
     if let selectedSelector {
-      return copyText { buffer, length in
+      let copied = copyReportingNoSource { buffer, length in
         ao_browser_source(selectedClass, meta, selectedSelector, buffer, length)
-      } ?? ""
+      }
+      return (copied?.text ?? "", copied?.noSource ?? false)
     }
     // A protocol with no selector is a new method; no protocol is the class definition.
     if selectedProtocol != nil {
-      return ""
+      return ("", false)
     }
-    return copyText { buffer, length in
+    let definition = copyText { buffer, length in
       ao_browser_class_definition(selectedClass, buffer, length)
-    } ?? ""
+    }
+    return (definition ?? "", false)
   }
 
   private var metaFlag: Int32 {
@@ -256,6 +261,12 @@ final class BrowserModel {
   }
 
   private func copyText(_ read: (UnsafeMutablePointer<CChar>, Int32) -> Int32) -> String? {
+    copyReportingNoSource(read)?.text
+  }
+
+  private func copyReportingNoSource(
+    _ read: (UnsafeMutablePointer<CChar>, Int32) -> Int32
+  ) -> (text: String, noSource: Bool)? {
     var capacity = 256
     while capacity <= 1_048_576 {
       var buffer = [CChar](repeating: 0, count: capacity)
@@ -266,14 +277,14 @@ final class BrowserModel {
         return read(base, Int32(capacity))
       }
       if rc == Int32(AO_OK) {
-        return decode(buffer)
+        return (decode(buffer), false)
       }
       // SPEC §3.10: a method without source answers its placeholder with AO_ERR_NOSOURCE, also
       // when cut, so a full buffer asks for a larger one.
       if rc == Int32(AO_ERR_NOSOURCE) {
         let text = decode(buffer)
         if text.utf8.count < capacity - 1 {
-          return text
+          return (text, true)
         }
       } else if rc != Int32(AO_ERR_RANGE) {
         return nil

@@ -204,6 +204,12 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   func accept() {
+    // SPEC §3.10: a method without source shows a placeholder; accepting it would replace the
+    // method, so the read-only pane never goes to the runtime.
+    guard !model.sourceIsPlaceholder else {
+      errorField.stringValue = "source not available"
+      return
+    }
     let source = sourceView.string
     let method = acceptsMethod
     let outcome = submit(source, method: method)
@@ -305,6 +311,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       selectorTable.deselectAll(nil)
     }
     sourceView.string = model.source
+    sourceView.isEditable = !model.sourceIsPlaceholder
     sideControl.selectedSegment = meta ? 1 : 0
     applying = false
   }

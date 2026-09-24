@@ -17,6 +17,7 @@ final class AcceptTests: XCTestCase {
 
   func testAcceptFooThenPrintItInsertsOneAndFailedAcceptKeepsText() {
     let browser = BrowserWindow()
+    selectProtocol("user", in: browser)
     let foo = "foo\n  ^1\n"
     browser.replaceSource(foo)
     browser.accept()
@@ -43,6 +44,8 @@ final class AcceptTests: XCTestCase {
 
   func testPrintStringOverwriteKeepsTextAndNativeResult() {
     let browser = BrowserWindow()
+    // A new method named printString: the runtime refuses to replace the native.
+    selectProtocol("user", in: browser)
     let source = "printString\n  ^1\n"
     browser.replaceSource(source)
     browser.accept()
@@ -125,6 +128,58 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(printIt("B5First new answer"), "7")
   }
 
+  // SPEC §3.10 AO_ERR_NOSOURCE: the placeholder pane is read only and Accept leaves the method
+  // alone; a method with source, a new method and a class definition are editable.
+  func testNoSourceMethodIsReadOnlyAndAcceptLeavesItAlone() {
+    var err = AoSpan()
+    let chunks =
+      "Object subclass: #B5NoSrc\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'B5-NoSrc'!\n"
+      + "!B5NoSrc methodsFor: 'b5'!\neight\n  ^8! !\n"
+    let defined = chunks.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+    XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
+    let seven = "seven\n  ^7\n"
+    let added = seven.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_method("B5NoSrc", 0, src, $0) }
+    }
+    XCTAssertEqual(added, Int32(AO_OK), spanMessage(err))
+
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    guard let pane = sourceView(in: browser) else {
+      XCTFail("missing source view")
+      return
+    }
+    // The first selection, Object>>printString, is a native.
+    XCTAssertTrue(browser.sourceText.contains("native ao_Object_printString"))
+    XCTAssertFalse(pane.isEditable)
+
+    selectCategory("B5-NoSrc", in: browser)
+    XCTAssertTrue(pane.isEditable)
+    selectProtocol("user", in: browser)
+    selectSelector("eight", in: browser)
+    XCTAssertEqual(browser.sourceText, "\"B5NoSrc>>eight source not available\"")
+    XCTAssertFalse(pane.isEditable)
+    browser.replaceSource("eight\n  ^9\n")
+    browser.accept()
+    XCTAssertFalse(browser.errorText.isEmpty)
+    XCTAssertEqual(printIt("B5NoSrc new eight"), "8")
+
+    selectSelector("seven", in: browser)
+    XCTAssertEqual(browser.sourceText, seven)
+    XCTAssertTrue(pane.isEditable)
+    selectSelector("eight", in: browser)
+    XCTAssertFalse(pane.isEditable)
+    selectProtocol(nil, in: browser)
+    XCTAssertTrue(browser.sourceText.contains("subclass: #B5NoSrc"))
+    XCTAssertTrue(pane.isEditable)
+    selectProtocol("user", in: browser)
+    XCTAssertEqual(browser.sourceText, "")
+    XCTAssertTrue(pane.isEditable)
+  }
+
   func testClassDefinitionPaneAcceptsClassSource() {
     let browser = BrowserWindow()
     selectClass("Array", in: browser)
@@ -173,6 +228,7 @@ final class AcceptTests: XCTestCase {
 
   func testAcceptRunsOnlyWhenBrowserIsKey() {
     let browser = BrowserWindow()
+    selectProtocol("user", in: browser)
     browser.replaceSource("foo\n  ^1\n")
     let workspace = WorkspaceWindow()
     sendToKeyBrowser(browser, keyWindow: workspace.window) { $0.accept() }
@@ -290,14 +346,37 @@ final class AcceptTests: XCTestCase {
     table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
   }
 
-  private func selectProtocol(_ name: String, in browser: BrowserWindow) {
-    guard let table = protocolTable(in: browser),
-          let row = browser.model.protocols.firstIndex(of: name) else {
+  // nil deselects the protocol row.
+  private func selectProtocol(_ name: String?, in browser: BrowserWindow) {
+    guard let table = protocolTable(in: browser) else {
+      XCTFail("missing protocol table")
+      return
+    }
+    guard let name else {
+      table.deselectAll(nil)
+      XCTAssertNil(browser.model.selectedProtocol)
+      return
+    }
+    guard let row = browser.model.protocols.firstIndex(of: name) else {
       XCTFail("missing protocol \(name)")
       return
     }
     table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     XCTAssertEqual(browser.model.selectedProtocol, name)
+  }
+
+  private func selectSelector(_ name: String, in browser: BrowserWindow) {
+    guard let table = selectorTable(in: browser),
+          let row = browser.model.selectors.firstIndex(of: name) else {
+      XCTFail("missing selector \(name)")
+      return
+    }
+    table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    XCTAssertEqual(browser.model.selectedSelector, name)
+  }
+
+  private func sourceView(in browser: BrowserWindow) -> NSTextView? {
+    views(in: browser.window.contentView, of: NSTextView.self).first
   }
 
   private func selectedName(in table: NSTableView?, values: [String]) -> String? {
