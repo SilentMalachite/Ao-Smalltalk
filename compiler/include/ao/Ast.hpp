@@ -33,6 +33,9 @@ struct Ast {
   bool isFloat = false;
   // A number Literal outside int64: Token::largeInt with its sign, [-][<radix>r]<digits>.
   std::string largeInt;
+  // SPEC §3.8: how many nesting levels this node holds (the parser refuses more than 256), so the
+  // passes that recurse over the tree stay within a bounded depth.
+  std::uint16_t nesting = 0;
   std::vector<Ast> kids;
   std::vector<std::string> params;
   std::vector<std::string> temps;

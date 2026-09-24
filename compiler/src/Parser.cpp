@@ -2,6 +2,7 @@
 
 #include "ao/Scanner.hpp"
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -41,6 +42,10 @@ class Parser {
   Token prev_;
   bool hadError_ = false;
   CompileError error_;
+  // SPEC §3.8: the deepest nesting allowed, and the parentheses, blocks, literal arrays and
+  // assignments open around the current token (the levels the parser itself recurses on).
+  static constexpr std::uint32_t kMaxNesting = 256;
+  std::uint32_t depth_ = 0;
 
   void advance() {
     prev_ = cur_;
@@ -81,13 +86,45 @@ class Parser {
     return s;
   }
 
-  void fail(const char* message) {
+  void fail(const char* message) { failAt(errorSpan(), message); }
+
+  void failAt(SourceSpan span, const char* message) {
     if (hadError_) {
       return;
     }
     hadError_ = true;
-    error_.span = errorSpan();
+    error_.span = span;
     error_.message = message;
+  }
+
+  // Opens a level that the parser recurses into, at the token `at`; past the limit it is the
+  // error there instead. The caller leaves it once the level is parsed.
+  bool enter(SourceSpan at) {
+    if (depth_ >= kMaxNesting) {
+      failAt(at, "nesting too deep");
+      return false;
+    }
+    ++depth_;
+    return true;
+  }
+
+  void leave() { --depth_; }
+
+  // n holds `levels` nesting levels; past the limit it is the error at `at`. A message chain is
+  // read in a loop, so this check, not enter, bounds how deep its receiver side goes.
+  void nest(Ast& n, std::uint32_t levels, SourceSpan at) {
+    if (levels > kMaxNesting) {
+      failAt(at, "nesting too deep");
+    }
+    n.nesting = static_cast<std::uint16_t>(levels);
+  }
+
+  static std::uint32_t deepest(const std::vector<Ast>& nodes) {
+    std::uint32_t levels = 0;
+    for (const Ast& n : nodes) {
+      levels = std::max<std::uint32_t>(levels, n.nesting);
+    }
+    return levels;
   }
 
   Ast make(Ast::Kind kind, SourceSpan span) const {
@@ -214,6 +251,7 @@ class Parser {
         advance();
         Ast expr = parseExpression();
         Ast ret = make(Ast::Kind::Return, join(caret, expr.span));
+        ret.nesting = expr.nesting;
         ret.kids.push_back(std::move(expr));
         stmts.push_back(std::move(ret));
         match(Tok::Period);
@@ -247,6 +285,7 @@ class Parser {
       sp = join(stmts.front().span, stmts.back().span);
     }
     Ast seq = make(Ast::Kind::Sequence, sp);
+    seq.nesting = static_cast<std::uint16_t>(deepest(stmts));
     seq.kids = std::move(stmts);
     return seq;
   }
@@ -266,10 +305,15 @@ class Parser {
       Token id = cur_;
       advance();
       if (check(Tok::Assign)) {
+        if (!enter(id.span)) {
+          return {};
+        }
         advance();
         Ast rhs = parseExpression();
+        leave();
         Ast as = make(Ast::Kind::Assign, join(id.span, rhs.span));
         as.name = std::move(id.text);
+        nest(as, rhs.nesting + 1u, id.span);
         as.kids.push_back(std::move(rhs));
         return as;
       }
@@ -284,11 +328,16 @@ class Parser {
     return v;
   }
 
-  Ast makeSend(Ast recv, std::string selector, std::vector<Ast> args, SourceSpan end) {
+  // `at` is the selector (its first keyword), where a chain too deep is reported.
+  Ast makeSend(Ast recv, std::string selector, std::vector<Ast> args, SourceSpan at,
+               SourceSpan end) {
     Ast s = make(Ast::Kind::Send, join(recv.span, end));
     s.name = std::move(selector);
     s.argc = static_cast<std::uint8_t>(args.size());
     s.isSuper = recv.kind == Ast::Kind::Variable && recv.name == "super";
+    // SPEC §3.8: the receiver side of a message chain is one level deeper per message.
+    const std::uint32_t recvLevels = recv.nesting + (recv.kind == Ast::Kind::Send ? 1u : 0u);
+    nest(s, std::max(recvLevels, deepest(args)), at);
     s.kids.push_back(std::move(recv));
     for (Ast& a : args) {
       s.kids.push_back(std::move(a));
@@ -300,6 +349,7 @@ class Parser {
     Ast s = make(Ast::Kind::Send, span);
     s.name = std::move(selector);
     s.argc = static_cast<std::uint8_t>(args.size());
+    s.nesting = static_cast<std::uint16_t>(deepest(args));
     s.kids = std::move(args);
     return s;
   }
@@ -312,6 +362,7 @@ class Parser {
     if (check(Tok::Keyword)) {
       std::string selector;
       std::vector<Ast> args;
+      const SourceSpan at = cur_.span;
       SourceSpan end = recv.span;
       while (check(Tok::Keyword)) {
         selector += cur_.text;
@@ -320,7 +371,7 @@ class Parser {
         end = arg.span;
         args.push_back(std::move(arg));
       }
-      recv = makeSend(std::move(recv), std::move(selector), std::move(args), end);
+      recv = makeSend(std::move(recv), std::move(selector), std::move(args), at, end);
     }
     return recv;
   }
@@ -345,6 +396,7 @@ class Parser {
       casc.span = join(casc.span, extra.span);
       casc.kids.push_back(std::move(extra));
     }
+    casc.nesting = static_cast<std::uint16_t>(deepest(casc.kids));
     return casc;
   }
 
@@ -385,7 +437,7 @@ class Parser {
       Token sel = cur_;
       advance();
       Ast arg = parseUnary(parsePrimaryFromStart());
-      recv = makeSend(std::move(recv), sel.text, {std::move(arg)}, arg.span);
+      recv = makeSend(std::move(recv), sel.text, {std::move(arg)}, sel.span, arg.span);
     }
     return recv;
   }
@@ -394,7 +446,7 @@ class Parser {
     while (!hadError_ && check(Tok::Ident)) {
       Token sel = cur_;
       advance();
-      recv = makeSend(std::move(recv), sel.text, {}, sel.span);
+      recv = makeSend(std::move(recv), sel.text, {}, sel.span, sel.span);
     }
     return recv;
   }
@@ -477,12 +529,17 @@ class Parser {
       fail("expected '|'");
       return blk;
     }
+    if (!enter(start)) {
+      return blk;
+    }
     Ast body = parseStatementsAsSequence();
+    leave();
     if (!check(Tok::RBracket)) {
       fail("expected ']'");
       return blk;
     }
     blk.span = join(start, cur_.span);
+    nest(blk, body.nesting + 1u, start);
     advance();
     blk.kids.push_back(std::move(body));
     return blk;
@@ -491,6 +548,9 @@ class Parser {
   Ast finishLiteralArray(SourceSpan start, Tok closer, bool bytes) {
     Ast arr = make(Ast::Kind::Literal, start);
     arr.name = bytes ? "#[" : "#(";
+    if (!enter(start)) {
+      return arr;
+    }
     while (!hadError_ && !check(Tok::Eof) && !check(closer)) {
       if (bytes) {
         arr.kids.push_back(parseByteElement());
@@ -498,11 +558,13 @@ class Parser {
         arr.kids.push_back(parseArrayElement());
       }
     }
+    leave();
     if (!check(closer)) {
       fail(bytes ? "expected ']'" : "expected ')'");
       return arr;
     }
     arr.span = join(start, cur_.span);
+    nest(arr, deepest(arr.kids) + 1u, start);
     advance();
     return arr;
   }
@@ -619,13 +681,18 @@ class Parser {
     }
     if (check(Tok::LParen)) {
       SourceSpan start = cur_.span;
+      if (!enter(start)) {
+        return {};
+      }
       advance();
       Ast inner = parseExpression();
+      leave();
       if (!check(Tok::RParen)) {
         fail("expected ')'");
         return inner;
       }
       inner.span = join(start, cur_.span);
+      nest(inner, inner.nesting + 1u, start);
       advance();
       return inner;
     }

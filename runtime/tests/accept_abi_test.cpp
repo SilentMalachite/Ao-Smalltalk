@@ -2459,3 +2459,62 @@ TEST(AcceptAbi, CascadePartsAreMessageChains) {
   });
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/05 Medium) / SPEC §3.8: 10 000 nested parentheses crashed ao_eval with
+// SIGSEGV (the parser and the code generator recurse per level), and so did a chain of 100 000
+// messages or assignments. 256 levels still evaluate; past them is the compile error
+// "nesting too deep" at the construct that goes past the limit.
+TEST(AcceptAbi, NestingTooDeepIsACompileError) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const auto repeated = [](const std::string& s, int n) {
+    std::string out;
+    for (int i = 0; i < n; ++i) {
+      out += s;
+    }
+    return out;
+  };
+  struct Deep {
+    std::string source;
+    const char* printed;
+  };
+  const std::vector<Deep> evaluated{
+      {repeated("(", 256) + "7" + repeated(")", 256), "7"},
+      {repeated("[", 256) + "7" + repeated("] value", 256), "7"},
+      {"#" + repeated("(", 256) + "7" + repeated(")", 256) + " size", "1"},
+      {"7" + repeated(" yourself", 257), "7"},
+      {"0" + repeated(" + 1", 257), "257"},
+      {"| a | " + repeated("a := ", 256) + "7", "7"},
+  };
+  for (const Deep& d : evaluated) {
+    char out[128];
+    AoSpan err{};
+    ASSERT_EQ(AO_OK, ao_eval(d.source.c_str(), static_cast<int>(d.source.size()),
+                             AO_EVAL_PRINTIT, out, 128, &err))
+        << d.source.substr(0, 40) << ": " << err.message;
+    EXPECT_STREQ(d.printed, out) << d.source.substr(0, 40);
+  }
+  struct TooDeep {
+    std::string source;
+    unsigned start;
+    unsigned end;
+  };
+  const std::vector<TooDeep> refused{
+      {repeated("(", 10000) + "7" + repeated(")", 10000), 256, 257},
+      {repeated("[", 10000) + "7" + repeated("]", 10000), 256, 257},
+      {"#" + repeated("(", 10000) + "7" + repeated(")", 10000), 257, 258},
+      {"7" + repeated(" yourself", 100000), 2 + 9 * 257, 2 + 9 * 257 + 8},
+      {"0" + repeated(" + 1", 100000), 2 + 4 * 257, 3 + 4 * 257},
+      {"| a | " + repeated("a := ", 100000) + "7", 6 + 5 * 256, 7 + 5 * 256},
+  };
+  for (const TooDeep& d : refused) {
+    char out[128];
+    AoSpan err{};
+    EXPECT_EQ(AO_ERR_COMPILE, ao_eval(d.source.c_str(), static_cast<int>(d.source.size()),
+                                      AO_EVAL_PRINTIT, out, 128, &err))
+        << d.source.substr(0, 40);
+    EXPECT_STREQ("nesting too deep", err.message) << d.source.substr(0, 40);
+    EXPECT_EQ(d.start, err.start) << d.source.substr(0, 40);
+    EXPECT_EQ(d.end, err.end) << d.source.substr(0, 40);
+  }
+  ao_runtime_shutdown();
+}

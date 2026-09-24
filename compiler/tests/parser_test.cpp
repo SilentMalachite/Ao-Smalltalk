@@ -241,3 +241,56 @@ TEST(Parser, CascadePartsAreMessageChains) {
   EXPECT_FALSE(sc.kids[2].isSuper);
   EXPECT_TRUE(sc.kids[2].kids.at(0).isSuper);
 }
+
+namespace {
+
+std::string repeated(const std::string& s, int n) {
+  std::string out;
+  for (int i = 0; i < n; ++i) {
+    out += s;
+  }
+  return out;
+}
+
+}  // namespace
+
+// SPEC §3.8: parentheses, blocks and literal arrays nest at most 256 levels; an assignment's value
+// and the receiver side of a message chain count one level deeper each. Past that is the compile
+// error "nesting too deep" at the construct that goes past the limit.
+TEST(Parser, NestingDepthIsLimited) {
+  const std::string head = "foo\n  | a |\n  ^";  // 15 characters
+  struct Case {
+    const char* what;
+    std::string ok;
+    std::string tooDeep;
+    std::uint32_t start;
+    std::uint32_t end;
+  };
+  const std::vector<Case> cases{
+      {"parentheses", repeated("(", 256) + "1" + repeated(")", 256),
+       repeated("(", 10000) + "1" + repeated(")", 10000), 15 + 256, 15 + 257},
+      {"blocks", repeated("[", 256) + "1" + repeated("]", 256),
+       repeated("[", 257) + "1" + repeated("]", 257), 15 + 256, 15 + 257},
+      {"literal arrays", "#" + repeated("(", 256) + "1" + repeated(")", 256),
+       "#" + repeated("(", 10000) + "1" + repeated(")", 10000), 15 + 257, 15 + 258},
+      {"unary chain", "1" + repeated(" yourself", 257), "1" + repeated(" yourself", 100000),
+       15 + 2 + 9 * 257, 15 + 2 + 9 * 257 + 8},
+      {"binary chain", "0" + repeated(" + 1", 257), "0" + repeated(" + 1", 100000),
+       15 + 2 + 4 * 257, 15 + 3 + 4 * 257},
+      {"assignment chain", repeated("a := ", 256) + "1", repeated("a := ", 100000) + "1",
+       15 + 5 * 256, 15 + 5 * 256 + 1},
+      {"chain on a deep argument", "1 + " + repeated("(", 200) + "1" + repeated(")", 200) +
+                                       repeated(" + 1", 56),
+       "1 + " + repeated("(", 200) + "1" + repeated(")", 200) + repeated(" + 1", 57),
+       15 + 4 + 401 + 1 + 4 * 56, 15 + 4 + 401 + 2 + 4 * 56},
+  };
+  for (const Case& c : cases) {
+    auto ok = parseMethod(head + c.ok);
+    EXPECT_TRUE(ok.ok) << c.what << ": " << ok.error.message;
+    auto deep = parseMethod(head + c.tooDeep);
+    EXPECT_FALSE(deep.ok) << c.what;
+    EXPECT_EQ("nesting too deep", deep.error.message) << c.what;
+    EXPECT_EQ(c.start, deep.error.span.start) << c.what;
+    EXPECT_EQ(c.end, deep.error.span.end) << c.what;
+  }
+}
