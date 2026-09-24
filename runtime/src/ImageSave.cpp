@@ -261,8 +261,10 @@ bool syncFile(int fd) {
 // some file systems refuse fsync on a directory.
 void syncParentDirectory(const std::string& path) {
   const std::size_t slash = path.find_last_of('/');
-  const std::string dir =
-      slash == std::string::npos ? std::string(".") : (slash == 0 ? std::string("/") : path.substr(0, slash));
+  std::string dir = ".";
+  if (slash != std::string::npos) {
+    dir = slash == 0 ? std::string("/") : path.substr(0, slash);
+  }
   const int fd = ::open(dir.c_str(), O_RDONLY | O_CLOEXEC);
   if (fd < 0) {
     return;

@@ -321,8 +321,8 @@ RecordKind recordKind(const WellKnown& wk, std::string_view name) {
   return RecordKind::Selector;
 }
 
-// SPEC §3.11: the shapes the runtime reads without checking. Every klass is nil (an internal object:
-// a method dictionary's array, a NativeMethod's name) or a class. The well-known classes and
+// SPEC §3.11: the shapes the runtime reads without checking. Every klass is nil (an internal
+// object: a method dictionary's array, a NativeMethod's name) or a class. The well-known classes and
 // metaclasses are classes, its selectors Symbols. Each class met as a klass or a well-known record,
 // and each class-shaped superclass up from them, has a nil or MethodDictionary methodDict. A
 // MethodDictionary has its array slot, nil or of pointers; a CompiledMethod has all of its slots.
@@ -551,7 +551,8 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
     return refuse("image heap exceeds the old space limit");
   }
   const std::uint64_t records = std::uint64_t{header.wellKnownCount} + header.globalCount;
-  const std::uint64_t beforeRecords = ImageFormat::kImageHeaderBytes + std::uint64_t{header.heapBytes};
+  const std::uint64_t beforeRecords =
+      ImageFormat::kImageHeaderBytes + std::uint64_t{header.heapBytes};
   if (fileSize < beforeRecords + records * kMinRecordBytes ||
       fileSize > beforeRecords + records * kMaxRecordBytes) {
     return refuse(damaged);
