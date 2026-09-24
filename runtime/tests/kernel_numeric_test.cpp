@@ -638,3 +638,49 @@ TEST_F(KernelNumeric, HashNestingReturnsToZeroAfterAnAbortOrAReturn) {
                           "[^42]) y: 1)); yourself. a hash. 0"));
   EXPECT_EQ("true", printIt(fresh));
 }
+
+namespace {
+
+// A user key that caches its hash, from its items (SPEC §3.6: a hash is a function of the value).
+void acceptCachingKey() {
+  acceptClass("Object", "CK", "items h");
+  acceptMethod("CK", "items: a\n  items := a\n");
+  acceptMethod("CK", "items\n  ^items\n");
+  acceptMethod("CK", "= o\n  ^(o isKindOf: CK) and: [items = o items]\n");
+  acceptMethod("CK", "hash\n  h isNil ifTrue: [h := items hash].\n  ^h\n");
+}
+
+}  // namespace
+
+// B8 レビュー（Claude A Low）: 利用者の hash の中で送る hash は、深い入れ子の中から呼ばれても
+// 同じ答えになる。hash を覚える利用者クラスで = と hash の契約が壊れない。
+TEST_F(KernelNumeric, UserHashAnswersTheSameAtAnyNestingDepth) {
+  acceptCachingKey();
+  EXPECT_EQ("true", printIt("| k1 k2 a | k1 := CK new items: #(#(1) #(2)). "
+                            "k2 := CK new items: #(#(1) #(2)). a := k1. "
+                            "4 timesRepeat: [a := (Array new: 1) at: 1 put: a; yourself]. a hash. "
+                            "(k1 = k2) & (k1 hash = k2 hash)"));
+  EXPECT_EQ("true", printIt("| k1 k2 p | k1 := CK new items: (Point x: #(1) y: #(#(2))). "
+                            "k2 := CK new items: (Point x: #(1) y: #(#(2))). p := k1. "
+                            "3 timesRepeat: [p := Point x: p y: 0]. p hash. "
+                            "(k1 = k2) & (k1 hash = k2 hash)"));
+  // Kernel の Array と Point だけの自己参照は、従来どおり入れ子の上限で止まる。
+  EXPECT_EQ("true", printIt("| p a | a := Array new: 1. p := Point x: a y: 1. a at: 1 put: p. "
+                            "p hash class == SmallInteger"));
+}
+
+// SPEC §3.6: 利用者のオブジェクトを経由する循環は打ち切らず、スタックガードで評価エラーになる。
+TEST_F(KernelNumeric, HashCycleThroughAUserObjectAbortsWithStackOverflow) {
+  acceptCachingKey();
+  std::string viaArray;
+  std::string viaPoint;
+  runOnSmallStack([&] {
+    viaArray = printIt("| k | k := CK new. k items: ((Array new: 1) at: 1 put: k; yourself). "
+                       "k hash");
+    viaPoint = printIt("| k | k := CK new. k items: (Point x: 1 y: k). k hash");
+  });
+  EXPECT_EQ("<eval error: stack overflow>", viaArray);
+  EXPECT_EQ("<eval error: stack overflow>", viaPoint);
+  EXPECT_EQ("7", printIt("3 + 4"));
+  EXPECT_EQ("true", printIt("(#(#(#(#(1)))) hash = #(#(#(#(2)))) hash) not"));
+}

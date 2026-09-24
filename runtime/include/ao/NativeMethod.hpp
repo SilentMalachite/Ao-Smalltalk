@@ -111,6 +111,8 @@ Oop apply(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint
 // whose receiver or arguments are locals of the caller.
 Oop invoke(CallContext& ctx, NativeFn fn, Oop receiver, const Oop* args, std::uint32_t argc);
 std::string_view nameBytes(Heap& heap, Oop method);
+// The function method runs when it is a NativeMethod with a valid registry index, else nullptr.
+NativeFn functionOf(const Heap& heap, const WellKnown& wk, Oop method);
 }
 
 }  // namespace ao

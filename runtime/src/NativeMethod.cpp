@@ -152,5 +152,22 @@ std::string_view nameBytes(Heap& heap, Oop method) {
   return std::string_view(reinterpret_cast<const char*>(h + 1), h->size);
 }
 
+
+NativeFn functionOf(const Heap& heap, const WellKnown& wk, Oop method) {
+  if (!method.isHeap() || heap.klass(method) != wk.nativeMethodClass ||
+      heap.size(method) < kNativeSlotCount) {
+    return nullptr;
+  }
+  const auto idxOop = heap.slotAt(method, kNativeSlotRegistryIndex);
+  if (!idxOop.isSmallInteger()) {
+    return nullptr;
+  }
+  const auto idx = idxOop.smallIntegerValue();
+  if (idx < 0 || static_cast<std::size_t>(idx) >= gNativeFns.size()) {
+    return nullptr;
+  }
+  return gNativeFns[static_cast<std::size_t>(idx)];
+}
+
 }  // namespace NativeMethod
 }  // namespace ao

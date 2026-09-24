@@ -3,6 +3,7 @@
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
@@ -123,9 +124,46 @@ Oop ao_Array_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
 }
 
 
+namespace {
+
+// True when the hash method element finds is the Kernel Array or Point hash native (SPEC §3.6).
+bool findsKernelNestingHash(CallContext& ctx, Oop element, Oop selector) {
+  const Oop klass = ctx.wk.classOf(element);
+  Oop method = ctx.cache != nullptr ? ctx.cache->probe(ctx.heap, klass, selector) : Oop{};
+  if (!method.isHeap()) {
+    method = lookup(ctx.heap, klass, selector);
+  }
+  const NativeFn fn = NativeMethod::functionOf(ctx.heap, ctx.wk, method);
+  return fn == ao_Array_hash || fn == ao_Point_hash;
+}
+
+// Sets CallContext::hashNesting to 0 for the scope when reset, and puts the outer count back when
+// the scope ends, whatever path leaves it (a failure, an unwind).
+struct SavedHashNesting {
+  SavedHashNesting(CallContext& c, bool reset) : ctx(c), outer(c.hashNesting) {
+    if (reset) {
+      ctx.hashNesting = 0;
+    }
+  }
+  ~SavedHashNesting() { ctx.hashNesting = outer; }
+  SavedHashNesting(const SavedHashNesting&) = delete;
+  SavedHashNesting& operator=(const SavedHashNesting&) = delete;
+  CallContext& ctx;
+  std::uint32_t outer;
+};
+
+}  // namespace
+
 bool mixElementHash(CallContext& ctx, Oop element, std::uint64_t* h) {
   Root e(ctx.roots, element);
-  const Oop answer = send(ctx, e.slot, ctx.wk.intern("hash"), nullptr, 0, nullptr);
+  const Oop selector = ctx.wk.intern("hash");
+  Oop answer;
+  {
+    // SPEC §3.6: only Kernel Array and Point hashes nested in each other count toward the limit.
+    // Any other hash (a user method, another native) runs from 0, whatever depth asks for it.
+    const SavedHashNesting saved(ctx, !findsKernelNestingHash(ctx, e.slot, selector));
+    answer = send(ctx, e.slot, selector, nullptr, 0, nullptr);
+  }
   if (unwinding(ctx)) {
     return false;
   }
