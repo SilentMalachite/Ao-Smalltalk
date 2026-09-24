@@ -128,6 +128,10 @@ namespace {
 
 // True when the hash method element finds is the Kernel Array or Point hash native (SPEC §3.6).
 bool findsKernelNestingHash(CallContext& ctx, Oop element, Oop selector) {
+  // An immediate's class is never an Array or a Point, so its hash is not one of these natives.
+  if (!element.isHeap()) {
+    return false;
+  }
   const Oop klass = ctx.wk.classOf(element);
   Oop method = ctx.cache != nullptr ? ctx.cache->probe(ctx.heap, klass, selector) : Oop{};
   if (!method.isHeap()) {
