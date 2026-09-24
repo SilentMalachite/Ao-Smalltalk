@@ -26,10 +26,6 @@ extern "C" int ao_image_save(const char* path) {
   return ao::sessionImageSave(path) == 0 ? AO_OK : AO_ERR;
 }
 
-extern "C" int ao_image_load(const char* path) {
-  return ao::sessionImageLoad(path) == 0 ? AO_OK : AO_ERR;
-}
-
 extern "C" int ao_filein_load_order(const char* path) {
   return ao::sessionFileInLoadOrder(path) == 0 ? AO_OK : AO_ERR;
 }
@@ -166,6 +162,17 @@ extern "C" int ao_accept_class(const char* source, AoSpan* err) {
     return AO_ERR_COMPILE;
   }
   return AO_OK;
+}
+
+extern "C" int ao_image_load(const char* path, AoSpan* err) {
+  clearSpan(err);
+  std::string reason;
+  if (ao::sessionImageLoad(path, &reason) == 0) {
+    return AO_OK;
+  }
+  // SPEC §3.10: an AO_ERR says why, never with an empty message.
+  fillSpan(err, ao::compiler::CompileError{{}, reason.empty() ? "image load failed" : reason});
+  return AO_ERR;
 }
 
 extern "C" void ao_set_transcript_hook(AoTranscriptFn fn, void* user) {

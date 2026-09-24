@@ -175,13 +175,22 @@ int sessionImageSave(const char* path) {
   return Image::save(g_session->heap, g_session->roots, g_session->wk, path) ? 0 : 1;
 }
 
-int sessionImageLoad(const char* path) {
-  if (g_session == nullptr || path == nullptr) {
+int sessionImageLoad(const char* path, std::string* reason) {
+  auto fail = [reason](const char* why) {
+    if (reason != nullptr && reason->empty()) {
+      *reason = why;
+    }
     return 1;
+  };
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  if (g_session == nullptr || path == nullptr) {
+    return fail("image load failed");
   }
   auto next = std::make_unique<Session>(false);
-  if (!Image::load(next->heap, next->roots, next->wk, path)) {
-    return 1;
+  if (!Image::load(next->heap, next->roots, next->wk, path, reason)) {
+    return fail("image load failed");
   }
   HostOopHook transcript = nullptr;
   HostOopHook inspect = nullptr;
@@ -191,13 +200,13 @@ int sessionImageLoad(const char* path) {
   }
   installEmptyCache(*next, transcript, inspect);
   if (!installEmptyWorkspace(*next)) {
-    return 1;
+    return fail("image load failed");
   }
   // SPEC §3.10: the natives and the probes run on the new session. Only when both pass does it
   // replace the current one; otherwise the current session stays as it was.
   ensureKernelNatives(*next);
   if (!loadedImageProbes(*next)) {
-    return 1;
+    return fail("image probes failed");
   }
   g_session = std::move(next);
   clearMethodSources();

@@ -6,13 +6,20 @@ func saveImageFile(at url: URL) -> Int32 {
   url.path.withCString { ao_image_save($0) }
 }
 
+/// SPEC §3.10: the status ao_image_load answers, and on AO_ERR the reason it gives
+/// ("unsupported image version 1", "not an Ao image", ...). The reason is empty on AO_OK.
 @MainActor
-func openImageFile(at url: URL, transcript: TranscriptWindow?) -> Int32 {
-  let status = url.path.withCString { ao_image_load($0) }
+func openImageFile(at url: URL, transcript: TranscriptWindow?) -> (status: Int32, reason: String) {
+  var err = AoSpan()
+  let status = url.path.withCString { path in
+    withUnsafeMutablePointer(to: &err) { errPtr in
+      ao_image_load(path, errPtr)
+    }
+  }
   if status == Int32(AO_OK) {
     transcript?.installHook()
   }
-  return status
+  return (status, spanMessage(err))
 }
 
 @MainActor
@@ -85,19 +92,20 @@ public final class AoApp: NSObject, NSApplicationDelegate {
   }
 
   func openImage(from url: URL) -> Bool {
-    guard openImageFile(at: url, transcript: launch?.transcript) == Int32(AO_OK) else {
-      reportImageFailure("Could not open the image", url: url)
+    let opened = openImageFile(at: url, transcript: launch?.transcript)
+    guard opened.status == Int32(AO_OK) else {
+      reportImageFailure("Could not open the image", url: url, reason: opened.reason)
       return false
     }
     browser?.noteImageLoaded()
     return true
   }
 
-  private func reportImageFailure(_ message: String, url: URL) {
+  private func reportImageFailure(_ message: String, url: URL, reason: String = "") {
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = message
-    alert.informativeText = url.path
+    alert.informativeText = reason.isEmpty ? url.path : url.path + "\n" + reason
     presentAlert(alert)
   }
 

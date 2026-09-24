@@ -571,7 +571,7 @@ final class AcceptTests: XCTestCase {
       .appendingPathComponent("ao-accept-\(UUID().uuidString).aoimage")
     defer { try? FileManager.default.removeItem(at: url) }
     XCTAssertEqual(saveImageFile(at: url), Int32(AO_OK))
-    XCTAssertEqual(openImageFile(at: url, transcript: transcript), Int32(AO_OK))
+    XCTAssertEqual(openImageFile(at: url, transcript: transcript).status, Int32(AO_OK))
     var out = [CChar](repeating: 0, count: 64)
     var err = AoSpan()
     let source = "Transcript show: 'z'"
@@ -618,6 +618,8 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(alerts.count, 2)
     XCTAssertEqual(alerts.last?.messageText, "Could not open the image")
     XCTAssertTrue(alerts.last?.informativeText.contains(garbage.path) ?? false)
+    // SPEC §3.10 / §3.11: the alert says why ao_image_load refused the file.
+    XCTAssertTrue(alerts.last?.informativeText.contains("not an Ao image") ?? false)
   }
 
   // `expecting` is the selection after the click when it differs from the clicked row

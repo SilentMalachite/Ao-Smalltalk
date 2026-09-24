@@ -4,11 +4,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace ao {
 
 struct ImageFormat {
-  static constexpr std::uint16_t kImageVersion = 1;
+  // SPEC §3.11: version 1 is the format before B4 (Symbol class names, Kernel instVarNames, the
+  // global dictionary, classPools). It is refused, not repaired.
+  static constexpr std::uint16_t kImageVersion = 2;
   static constexpr std::uint16_t kImageEndianLittle = 1;
   static constexpr std::uint16_t kImagePointerBits = 64;
   static constexpr std::uint16_t kImageHeaderBytes = 48;
@@ -28,7 +31,10 @@ struct ImageFormat {
   static bool encodeNonHeap(Oop o, std::uint64_t* bits);
   static bool decodeNonHeap(std::uint64_t bits, Oop* o);
   static void writeHeader(std::byte* dst, const ImageHeader& h);
-  static bool readHeader(const std::byte* src, std::size_t n, ImageHeader* out);
+  // False, with why in *reason when reason is given (SPEC §3.11), when src is no header this
+  // runtime loads.
+  static bool readHeader(const std::byte* src, std::size_t n, ImageHeader* out,
+                         std::string* reason = nullptr);
   static void writeFiller(std::byte* dst);
 };
 

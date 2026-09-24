@@ -660,7 +660,7 @@ TEST(ImageSaveLoad, ShadowedSmallIntegerSelectorDisablesFastPath) {
 
   // セッションの経路（ao_image_load は ensureKernelNatives のあとで確かめ直す）でも同じ。
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str()));
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), nullptr));
   char out[64];
   AoSpan err{};
   ASSERT_EQ(AO_OK, ao_eval("3 <= 4", 6, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
@@ -690,7 +690,8 @@ TEST(ImageSaveLoad, FailedProbeKeepsCurrentSession) {
   char out[64];
   AoSpan err{};
   ASSERT_EQ(AO_OK, ao_eval("b3keep := 41", 12, AO_EVAL_DOIT, out, 64, &err)) << err.message;
-  EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str()));
+  EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str(), &err));
+  EXPECT_STREQ("image probes failed", err.message);
   ASSERT_EQ(AO_OK, ao_eval("b3keep + 1", 10, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
   EXPECT_STREQ("42", out);
   ASSERT_EQ(AO_OK, ao_eval("nil isNil", 9, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
@@ -765,4 +766,61 @@ TEST(ImageSaveLoad, RefusesExtraRecords) {
   Loaded image;
   EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string()));
   std::filesystem::remove(path);
+}
+
+// B4 review (Codex P2) / SPEC §3.10, §3.11: 失敗シナリオ。旧形式のイメージ（版 1）が理由なしで拒まれ、
+// 壊れたファイルと区別できなかった。ロードはヘッダの段階で理由付きで拒み、何も載せない。ABI は理由を
+// AoSpan.message に入れ、ロード前のセッションを使い続ける。
+TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-version-1.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  std::vector<char> bytes = readAll(path);
+  ASSERT_GT(bytes.size(), 6u);
+  EXPECT_EQ(2, bytes[4]);
+  EXPECT_EQ(0, bytes[5]);
+  {
+    Loaded current;
+    std::string reason = "unchanged";
+    ASSERT_TRUE(ao::Image::load(current.heap, current.roots, current.wk, path.string(), &reason));
+  }
+  bytes[4] = 1;
+  ASSERT_TRUE(writeAll(path, bytes));
+  {
+    Loaded old;
+    std::string reason;
+    EXPECT_FALSE(ao::Image::load(old.heap, old.roots, old.wk, path.string(), &reason));
+    EXPECT_EQ("unsupported image version 1", reason);
+    EXPECT_EQ(0u, old.heap.oldUsed());
+  }
+  const auto garbage = std::filesystem::path(testing::TempDir()) / "load-not-an-image.aoimage";
+  ASSERT_TRUE(writeAll(garbage, std::vector<char>{'n', 'o', 't', ' ', 'a', 'n', ' ', 'i', 'm'}));
+  const auto missing = std::filesystem::path(testing::TempDir()) / "load-no-such.aoimage";
+  {
+    Loaded none;
+    std::string reason;
+    EXPECT_FALSE(ao::Image::load(none.heap, none.roots, none.wk, garbage.string(), &reason));
+    EXPECT_EQ("not an Ao image", reason);
+    EXPECT_FALSE(ao::Image::load(none.heap, none.roots, none.wk, missing.string(), &reason));
+    EXPECT_EQ("cannot read image file", reason);
+  }
+
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_eval("b4keep := 41", 12, AO_EVAL_DOIT, out, 64, &err)) << err.message;
+  EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str(), &err));
+  EXPECT_STREQ("unsupported image version 1", err.message);
+  EXPECT_EQ(AO_ERR, ao_image_load(garbage.string().c_str(), &err));
+  EXPECT_STREQ("not an Ao image", err.message);
+  EXPECT_EQ(AO_ERR, ao_image_load(garbage.string().c_str(), nullptr));
+  ASSERT_EQ(AO_OK, ao_eval("b4keep + 1", 10, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("42", out);
+  bytes[4] = 2;
+  ASSERT_TRUE(writeAll(path, bytes));
+  EXPECT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err));
+  EXPECT_STREQ("", err.message);
+  ao_runtime_shutdown();
+  std::filesystem::remove(path);
+  std::filesystem::remove(garbage);
 }

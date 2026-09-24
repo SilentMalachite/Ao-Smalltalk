@@ -385,28 +385,38 @@ bool checkGlobals(Heap& heap, const WellKnown& wk, const std::vector<ImageRecord
 
 }  // namespace
 
-bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path) {
+bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
+                 std::string* reason) {
   (void)roots;
-  if (&wk.heap() != &heap) {
+  // SPEC §3.11: every refusal says why. Past the header, a file that does not hold together is a
+  // damaged image.
+  auto refuse = [reason](std::string why) {
+    if (reason != nullptr) {
+      *reason = std::move(why);
+    }
     return false;
+  };
+  const std::string damaged = "damaged image";
+  if (&wk.heap() != &heap) {
+    return refuse("image load failed");
   }
 
   std::vector<std::byte> file;
   if (!readFile(path, &file)) {
-    return false;
+    return refuse("cannot read image file");
   }
   ImageFormat::ImageHeader header;
-  if (!ImageFormat::readHeader(file.data(), file.size(), &header)) {
+  if (!ImageFormat::readHeader(file.data(), file.size(), &header, reason)) {
     return false;
   }
-  // SPEC §3.11: a global lives in the dictionary in the heap. Extra records mean an image from
-  // before the dictionary, which is refused.
+  // SPEC §3.11: a global lives in the dictionary in the heap. Extra records are no part of this
+  // version.
   if (header.globalCount != Globals::kSmalltalkCount || header.wellKnownCount != kImageWellKnownCount ||
       header.extraCount != 0) {
-    return false;
+    return refuse(damaged);
   }
   if (header.heapBytes > file.size() - ImageFormat::kImageHeaderBytes) {
-    return false;
+    return refuse(damaged);
   }
   const std::size_t heapBytes = header.heapBytes;
   const std::byte* section = file.data() + ImageFormat::kImageHeaderBytes;
@@ -416,10 +426,10 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   std::vector<ImageRecord> globals;
   if (!parseRecords(file, &cursor, header.wellKnownCount, &wellKnown) ||
       !parseRecords(file, &cursor, header.globalCount, &globals) || cursor != file.size()) {
-    return false;
+    return refuse(damaged);
   }
   if (!wellKnownNamesOk(wellKnown) || !globalNamesOk(globals)) {
-    return false;
+    return refuse(damaged);
   }
 
   kernel::ensureNativeNames();
@@ -428,20 +438,20 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path)
   std::unordered_set<std::uint64_t> starts;
   if (!walkObjects(heap, section, heapBytes, &offsets, &starts) ||
       !precheck(section, heapBytes, starts, offsets, wellKnown, globals)) {
-    return false;
+    return refuse(damaged);
   }
-  if (heapBytes > heap.oldMaxBytes() || heap.oldUsed() != 0) {
-    return false;
+  if (heapBytes > heap.oldMaxBytes()) {
+    return refuse("image heap exceeds the old space limit");
   }
-  if (!heap.adoptOldBytes(section, heapBytes, header.nextHash)) {
-    return false;
+  if (heap.oldUsed() != 0 || !heap.adoptOldBytes(section, heapBytes, header.nextHash)) {
+    return refuse("image load failed");
   }
   relocate(heap, offsets);
   if (!bindAll(heap, wk, wellKnown, offsets)) {
-    return false;
+    return refuse(damaged);
   }
   if (!checkGlobals(heap, wk, globals)) {
-    return false;
+    return refuse(damaged);
   }
   // SPEC §3.5: an old image may hide one of the eight SmallInteger natives.
   wk.checkSmallIntegerFastPath();

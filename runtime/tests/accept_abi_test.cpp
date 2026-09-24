@@ -54,7 +54,7 @@ TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
   ASSERT_EQ(AO_OK, ao_image_save(path));
   ao_runtime_shutdown();
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  ASSERT_EQ(AO_OK, ao_image_load(path));
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
   char out[64];
   ASSERT_EQ(AO_OK, ao_eval("P9Foo new foo", 13, AO_EVAL_PRINTIT, out, 64, &err));
   EXPECT_STREQ("nil", out);
@@ -1187,8 +1187,8 @@ TEST(AcceptAbi, ShapeChangeUnderKernelSuperclassKeepsParentSlots) {
   ao_runtime_shutdown();
 }
 
-// B4 / SPEC §3.6 / §3.11: 名前を持たない Kernel クラス（B4 より前のイメージ）でも、サブクラスの変数は
-// 親のスロットと重ならない。名前の無いスロットはソースから読めない（firstIndex はグローバルになる）。
+// B4 / SPEC §3.6: 名前を持たない Kernel クラス（instVarAt: 8 put: nil で instVarNames を消した
+// もの）でも、サブクラスの変数は親のスロットと重ならない。名前の無いスロットはソースから読めない（firstIndex はグローバルになる）。
 // チャンクの file-in、Accept、形を変える再 Accept の 3 経路とも同じ。
 TEST(AcceptAbi, UnnamedKernelSlotsKeepSubclassVariablesApart) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
@@ -1256,7 +1256,7 @@ TEST(AcceptAbi, KernelSlotNamesSurviveImageSaveAndLoad) {
   ASSERT_EQ(AO_OK, ao_image_save(path));
   ao_runtime_shutdown();
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  ASSERT_EQ(AO_OK, ao_image_load(path));
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
   std::remove(path);
 
   ASSERT_EQ(AO_OK, ao_accept_method("R5OC", 0, "setX: v\n  x := v\n", &err)) << err.message;
@@ -1344,7 +1344,7 @@ TEST(AcceptAbi, ClassNamesAreSymbolsAndMetaclassNamesFollowThem) {
   ASSERT_EQ(AO_OK, ao_image_save(path));
   ao_runtime_shutdown();
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  ASSERT_EQ(AO_OK, ao_image_load(path));
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
   std::remove(path);
   expectChecks("loaded");
   ao_runtime_shutdown();
@@ -1427,7 +1427,7 @@ TEST(AcceptAbi, SmalltalkIsTheGlobalDictionary) {
   ASSERT_EQ(AO_OK, ao_image_save(path));
   ao_runtime_shutdown();
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  ASSERT_EQ(AO_OK, ao_image_load(path));
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
   std::remove(path);
   expectChecks("loaded");
   // 読み直したあとも、メソッドは実行時の値を読む。
@@ -2023,7 +2023,7 @@ TEST(AcceptAbi, ClassVariablesSurviveImageSaveAndLoad) {
   ASSERT_EQ(AO_OK, ao_image_save(path));
   ao_runtime_shutdown();
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  ASSERT_EQ(AO_OK, ao_image_load(path));
+  ASSERT_EQ(AO_OK, ao_image_load(path, nullptr));
   std::remove(path);
   acceptMethods("B4CvImg", 0, {"twice\n  ^Count * 2\n"});
   expectPrints(

@@ -254,8 +254,10 @@ int runImage(int argc, char** argv) {
     return 0;
   }
 
-  if (!ao::Image::load(heap, roots, wk, path)) {
-    std::fputs("ao: image load failed\n", stderr);
+  std::string reason;
+  if (!ao::Image::load(heap, roots, wk, path, &reason)) {
+    // SPEC §3.10 / §3.11: the line says why.
+    std::fprintf(stderr, "ao: image load failed: %s\n", reason.c_str());
     return 1;
   }
   ao::Oop arg = ao::Oop::fromSmallInteger(2);
@@ -263,7 +265,7 @@ int runImage(int argc, char** argv) {
   auto three = ao::send(ctx, ao::Oop::fromSmallInteger(1), sel, &arg, 1, nullptr);
   auto isNil = ao::send(ctx, ao::Oop::nil(), wk.intern("isNil"), nullptr, 0, nullptr);
   if (!three.isSmallInteger() || three.smallIntegerValue() != 3 || !isNil.isTrue()) {
-    std::fputs("ao: image load failed\n", stderr);
+    std::fputs("ao: image load failed: image probes failed\n", stderr);
     return 1;
   }
   return 0;

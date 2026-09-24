@@ -42,7 +42,8 @@ Session* session();
 int sessionBoot();
 int sessionShutdown();
 int sessionImageSave(const char* path);
-int sessionImageLoad(const char* path);
+// SPEC §3.10: nonzero when the load or its probes fail; *reason (when given) then says why.
+int sessionImageLoad(const char* path, std::string* reason = nullptr);
 int sessionFileInLoadOrder(const char* path);
 int sessionWorkspaceReset();
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,

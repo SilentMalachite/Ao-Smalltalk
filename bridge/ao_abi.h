@@ -34,8 +34,10 @@ int ao_runtime_boot(void);
 int ao_runtime_shutdown(void);
 int ao_image_save(const char* path);
 /* Loads into a new session and replaces the current one only when the load and the probes
-   (1 + 2, nil isNil) pass. On AO_ERR the current session stays in use. */
-int ao_image_load(const char* path);
+   (1 + 2, nil isNil) pass. On AO_ERR the current session stays in use, and err (when not NULL)
+   gets the reason in message, never empty ("unsupported image version 1", "not an Ao image",
+   "image probes failed", ...; SPEC §3.11). On AO_OK the message is empty. */
+int ao_image_load(const char* path, AoSpan* err);
 int ao_filein_load_order(const char* path);
 
 typedef void (*AoTranscriptFn)(const char* utf8, int len, int is_clear, void* user);
