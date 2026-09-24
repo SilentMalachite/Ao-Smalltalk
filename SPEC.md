@@ -399,6 +399,7 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 | `Rectangle` | `origin corner` |
 | `PositionableStream` | `collection position readLimit` |
 | `WriteStream` | `writeLimit` |
+| `SmalltalkImage` | `tally array` |
 
 - インスタンス変数の名前と添字は、スーパークラス鎖を根から順にたどって決める。鎖の各クラスは、自分の instSize が 1 つ前のクラスの instSize より増えた分のスロットに、自分の instVarNames を先頭から順に当てる。名前が足りなければ、残りのスロットは名前を持たず、ソースから参照できない（コンパイラは識別子にならない仮の名前で埋める）。増えた分より多い名前は使わない。コンパイラ（§3.8）と `instVarNamed:` はこの規則に従う。これで、Kernel クラスのサブクラスが足す変数は、親のスロットと重ならない。
 - `subclass:instanceVariableNames:…` は、スーパークラスがバイト列のクラス（`isBytes`）で、instanceVariableNames が 1 つ以上あれば、クラスを作らずに評価を中断する（§3.3）。理由は `bytes class cannot have instance variables` である。バイト列のオブジェクトには名前付きのスロットが無いからである。インスタンス変数の無いサブクラスは今までどおり作れる。
@@ -460,6 +461,22 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 - `Transcript` モデル（実際の出力先はホストウィンドウ）
 - `SmalltalkImage`（グローバル辞書のホスト。クラシック `Smalltalk`）
 
+グローバル辞書:
+
+- グローバル `Smalltalk` は `SmalltalkImage` のインスタンスで、グローバル名（intern した Symbol）から値への辞書を持つ。グローバル名の解決は、すべてこの辞書を引く。インタプリタの `PushGlobal`（実行時に引く。無い名前は nil）、クラス定義・Browser・file-in の名前の解決（`WellKnown::named`）、ワークスペースの `knownGlobals`（§3.10）である。
+- 辞書は `Smalltalk` の 2 つのスロット `tally array` に置く。`tally` は対の数、`array` は Array で、キーと値を交互に並べる。キーが nil の対は空きである。対は登録した順に並ぶ。v1 ではグローバルを消さない。
+- ブートストラップ（§3.7）は、56 個の Kernel クラスをクラス名で、`Processor` をスケジューラで、`Smalltalk` を辞書自身で登録する。この 58 個の名前を固定のグローバルと呼ぶ。固定のグローバルの値は、vendor のスタブを file-in が結び直すとき（§3.12）のほかは変わらない。
+- `subclass:instanceVariableNames:…` は、作ったクラスをその名前（intern した Symbol）で登録する。同じ名前があれば値を置き換える。固定のグローバルの名前なら登録しない。
+- 次のネイティブは、レシーバによらず `Smalltalk` の辞書を読み書きする（`SmalltalkImage new` も同じ辞書を指す）。キーは Symbol か String で、同じバイト列の Symbol として扱う。
+
+| セレクタ | 動作 |
+|---|---|
+| `at: key` | key の値。key が無ければ評価を中断する（§3.3）。理由は `key not found: #<名前>`（key が Symbol でも String でもなければ `key not found`） |
+| `at: key put: value` | key を value に結び、value を答える。key が固定のグローバルなら中断し、理由は `cannot rebind Kernel global: <名前>`。key が Symbol でも String でもなければ `key must be a Symbol or String` |
+| `at: key ifAbsent: aBlock` | key の値。key が無ければ `aBlock value` の答え |
+| `includesKey: key` | key があれば true。key が Symbol でも String でもなければ false |
+| `globals` | レシーバ |
+
 ### 3.7 ブートストラップ手順
 
 循環（`Object` のクラスは `Object class`、`Object class` のクラスは `Metaclass`、…）を Smalltalk ソースから作れない。C++ で手書きする。
@@ -472,7 +489,7 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 4. 各クラスの `superclass` / `methodDict` / `format` / メタクラスリンクを結ぶ。
 5. 循環を結んだあと（`Symbol`、`String`、`Array` のクラスが結ばれてから）、クラスの名前の枠に intern した Symbol を、メタクラスの名前の枠に `<クラス名> class` の String を、名前付きのスロットを足す Kernel クラスの instVarNames に §3.6 の表の名前（Symbol の Array）を入れる。
 6. `NativeMethod` を関数ポインタから生成し、各メソッド辞書へ `Symbol` キーで入れる。
-7. グローバル `Smalltalk` にクラス名 → クラスを登録する。
+7. グローバル `Smalltalk`（`SmalltalkImage` の辞書。§3.6）を作り、Kernel クラスをクラス名で、`Processor` と `Smalltalk` 自身を登録する。
 8. スナップショット可能にする。
 9. 以降の非 Kernel クラスは `image/vendor/` の file-in で追加する。自作しない。
 
@@ -673,7 +690,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 ワークスペースはセッションに 1 つ。`IdentityDictionary` ではなく、名前文字列をキーにした `Dictionary` をルートする。値は束縛（`Association`。キーは名前の文字列、値は変数の値）である。`ao_workspace_reset` は空の辞書に戻す。
 
 - 名前の解決順は、ローカル（引数と temp）→ インスタンス変数 → 擬変数 → `knownGlobals` → 束縛。宣言した temp（`| q |`）は同じ名前の束縛と関係しない。
-- `knownGlobals` は `Globals::nameAt` の 57 名、`Smalltalk`、`eachExtra` の名、`eachClass` のクラス名バイト。`Smalltalk` はグローバル表そのもので、クラスは `SmalltalkImage` である（`at:` と `at:put:` を受ける）。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
+- `knownGlobals` は `Smalltalk` の辞書（§3.6）のキー全部である。固定のグローバル（Kernel クラス名、`Processor`、`Smalltalk`）と、`subclass:` と `Smalltalk at:put:` で足した名前を含む。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
 - どれにも当たらない名前は束縛である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar`。束縛が辞書に無ければ、メソッドを作るとき（リテラルを箱に入れるとき）に値 nil で作って辞書に入れる。同じ名前の束縛は評価をまたいで同じ Association なので、ブロックに捕捉した束縛への代入も辞書に残る。束縛の数に上限は無い（temp の 255 に数えない）。
 
 `ao_eval` は、`out` が NULL か `out_len` が 1 未満なら、何も評価せずに `AO_ERR` を返す（副作用を起こさない。呼び出し側が再試行しても二重にならない）。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。評価の失敗（§3.3 の失敗の規則。どれも abort）は `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。理由が 255 バイトを超えれば切る。`AO_ERR_EVAL` のときの `AoSpan.message` は空にしない。abort 以外で値が得られなかったとき（理由が無いとき）は `evaluation failed` を入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。
@@ -702,10 +719,12 @@ LargeInteger とそれ以外はクラス名のまま。
 - マジック `AOIM`、バージョン、ポインタサイズ、エンディアン
 - well-known 表
 - ヒープダンプ（直接ポインタはファイル内オフセットに再配置）
-- グローバル辞書
+- グローバル辞書（`Smalltalk` の中身としてヒープダンプに入る）
 - 起動時に再配置し、NativeMethod の関数ポインタは **ロード時にシンボル名で結び直す**（ポインタをファイルに書かない）
 
 `NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。版番号は 1 のままとする。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。古いイメージのコンパイル済みブロックは、再 Accept するまでコピーの意味論のまま動く。クラスの名前とインスタンス変数名（§3.6）もロードで直さない。古いイメージの Kernel クラスは、名前がクラスを持たないバイト列で、instVarNames を持たないことがある。そのスロットは名前を持たないものとして扱うので、あとからコンパイルするサブクラスの変数は親のスロットと重ならない。
+
+グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。`Smalltalk` がグローバル辞書でない旧イメージ（辞書より前に保存したもの。`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つ）と、extra のレコードを持つイメージは、ロードを拒否する。旧イメージは修復せずに拒否する。上の段落の古いイメージ（コピーの意味論のブロックを持つもの、Kernel クラスの名前が Symbol でないもの）も辞書より前に保存したものなので、ロードできない。
 
 ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
 
