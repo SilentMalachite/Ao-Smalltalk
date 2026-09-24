@@ -4,8 +4,10 @@
 #include "ao/HandleScope.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace ao {
@@ -501,6 +503,54 @@ void floorDivMod(const Big& a, const Big& b, Big& q, Big& r) {
   }
 }
 
+// True when a bit of d below `bit` is set.
+bool magAnyBitBelow(const Digits& d, std::int64_t bit) {
+  if (bit <= 0) {
+    return false;
+  }
+  const auto whole = static_cast<std::size_t>(bit / 32);
+  for (std::size_t i = 0; i < whole && i < d.size(); ++i) {
+    if (d[i] != 0) {
+      return true;
+    }
+  }
+  const auto rest = static_cast<unsigned>(bit % 32);
+  return rest != 0 && whole < d.size() && (d[whole] & ((1u << rest) - 1u)) != 0;
+}
+
+bool magBitAt(const Digits& d, std::int64_t bit) {
+  return bit >= 0 && bit < static_cast<std::int64_t>(d.size()) * 32 &&
+         magBit(d, static_cast<int>(bit));
+}
+
+// SPEC §3.6: the double nearest to mag · 2^exp2 (IEEE754 binary64, ties to even, subnormals
+// included), +inf beyond the range. mag is not zero. sticky says nonzero bits below mag were
+// dropped: the value is a little above mag · 2^exp2.
+double roundToDouble(const Digits& mag, std::int64_t exp2, bool sticky) {
+  const std::int64_t len = magBitLength(mag);
+  const std::int64_t top = len - 1 + exp2;  // the exponent of the leading bit
+  if (top > 1023) {
+    return std::numeric_limits<double>::infinity();
+  }
+  // Significand bits kept: 53, fewer for a subnormal (none at all below 2^-1075).
+  const std::int64_t keep = top >= -1022 ? 53 : 53 - (-1022 - top);
+  const std::int64_t drop = len - keep;
+  std::uint64_t m = 0;
+  for (std::int64_t i = len - 1; i >= std::max<std::int64_t>(drop, 0); --i) {
+    m = (m << 1) | (magBitAt(mag, i) ? 1u : 0u);
+  }
+  if (drop <= 0) {
+    // Exact: at most 53 bits.
+    return std::ldexp(static_cast<double>(m), static_cast<int>(exp2));
+  }
+  const bool half = magBitAt(mag, drop - 1);
+  const bool rest = sticky || magAnyBitBelow(mag, drop - 1);
+  if (half && (rest || (m & 1u) != 0)) {
+    ++m;  // 2^53 at most; ldexp then gives the next binade, or inf past 2^1024
+  }
+  return std::ldexp(static_cast<double>(m), static_cast<int>(exp2 + drop));
+}
+
 }  // namespace
 
 Oop fromInt64(Heap& heap, WellKnown& wk, std::int64_t value) {
@@ -802,6 +852,53 @@ Oop neg(CallContext& ctx, Oop a) {
     A.neg = !A.neg;
   }
   return box(ctx, A);
+}
+
+bool ratioToDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double* out) {
+  if (num.isSmallInteger() && den == Oop::fromSmallInteger(1)) {
+    // A SmallInteger has 63 bits; the conversion rounds to nearest even.
+    *out = static_cast<double>(num.smallIntegerValue());
+    return true;
+  }
+  Big n;
+  Big d;
+  if (!parse(heap, wk, num, n) || !parse(heap, wk, den, d) || d.isZero()) {
+    return false;
+  }
+  if (n.isZero()) {
+    *out = 0.0;
+    return true;
+  }
+  const bool negative = n.neg != d.neg;
+  double v = 0;
+  if (d.d.size() == 1 && d.d[0] == 1) {
+    v = roundToDouble(n.d, 0, false);
+  } else {
+    // The leading bit of n / d is at 2^e or 2^(e-1). Far outside the range the answer is known
+    // without dividing (and without shifting by a huge count).
+    const std::int64_t e = std::int64_t{magBitLength(n.d)} - magBitLength(d.d);
+    if (e > 1025) {
+      v = std::numeric_limits<double>::infinity();
+    } else if (e < -1077) {
+      v = 0.0;
+    } else {
+      // Scale so that the quotient has 66 or 67 bits; the remainder is the sticky bit.
+      const std::int64_t shift = 66 - e;
+      Digits a = n.d;
+      Digits b = d.d;
+      if (shift > 0) {
+        magShl(a, static_cast<unsigned>(shift));
+      } else if (shift < 0) {
+        magShl(b, static_cast<unsigned>(-shift));
+      }
+      Digits q;
+      Digits r;
+      magDivMod(a, b, q, r);
+      v = roundToDouble(q, -shift, !r.empty());
+    }
+  }
+  *out = negative ? -v : v;
+  return true;
 }
 
 }  // namespace LargeInteger

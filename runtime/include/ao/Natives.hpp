@@ -80,6 +80,13 @@ Oop ao_SmallInteger_printString(CallContext& ctx, const Oop& receiver, const Oop
                                 std::uint32_t argc);
 Oop ao_Integer_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
 
+// SPEC §3.6 数の演算: a op b for any mix of Integer, Fraction and Float, in the more general type
+// (Integer < Fraction < Float). Empty Oop when either is not one of them; an Integer or Fraction
+// divided by 0 aborts with "division by zero". a and b are rooted slots (a native's receiver and
+// arguments): the answer is allocated after both are read.
+enum class NumberOp { Add, Subtract, Multiply, Divide };
+Oop numberArith(CallContext& ctx, const Oop& a, const Oop& b, NumberOp op);
+
 Oop ao_Character_printString(CallContext& ctx, const Oop& receiver, const Oop* args,
                              std::uint32_t argc);
 Oop ao_String_printString(CallContext& ctx, const Oop& receiver, const Oop* args,

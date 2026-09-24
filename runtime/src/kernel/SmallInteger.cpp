@@ -28,26 +28,38 @@ bool bothInts(const WellKnown& wk, Oop a, Oop b) {
 
 Oop ao_SmallInteger_add(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+  if (argc != 1) {
     return Oop{};
   }
-  return LargeInteger::add(ctx, receiver, args[0]);
+  if (bothInts(ctx.wk, receiver, args[0])) {
+    return LargeInteger::add(ctx, receiver, args[0]);
+  }
+  // SPEC §3.6: a Fraction or Float argument answers in its type.
+  return numberArith(ctx, receiver, args[0], NumberOp::Add);
 }
 
 Oop ao_Integer_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+  if (argc != 1) {
     return Oop{};
   }
-  return LargeInteger::sub(ctx, receiver, args[0]);
+  if (bothInts(ctx.wk, receiver, args[0])) {
+    return LargeInteger::sub(ctx, receiver, args[0]);
+  }
+  // SPEC §3.6: a Fraction or Float argument answers in its type.
+  return numberArith(ctx, receiver, args[0], NumberOp::Subtract);
 }
 
 Oop ao_Integer_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !bothInts(ctx.wk, receiver, args[0])) {
+  if (argc != 1) {
     return Oop{};
   }
-  return LargeInteger::mul(ctx, receiver, args[0]);
+  if (bothInts(ctx.wk, receiver, args[0])) {
+    return LargeInteger::mul(ctx, receiver, args[0]);
+  }
+  // SPEC §3.6: a Fraction or Float argument answers in its type.
+  return numberArith(ctx, receiver, args[0], NumberOp::Multiply);
 }
 
 Oop ao_Integer_intDivide(CallContext& ctx, const Oop& receiver, const Oop* args,

@@ -43,18 +43,19 @@ double asDouble(Heap& heap, Oop o) {
   return v;
 }
 
+bool asNumDen(CallContext& ctx, Oop o, Oop* num, Oop* den);
+
+// SPEC §3.6: a Float's value, or the Integer or Fraction rounded once to the nearest double (ties
+// to even; the whole LargeInteger range, ±inf beyond it). False for anything else.
 bool asFloat(CallContext& ctx, Oop o, double* out) {
   if (isFloat(ctx.wk, o)) {
     *out = asDouble(ctx.heap, o);
     return true;
   }
-  bool fits = false;
-  const std::int64_t v = LargeInteger::asInt64IfFits(ctx.heap, ctx.wk, o, &fits);
-  if (fits) {
-    *out = static_cast<double>(v);
-    return true;
-  }
-  return false;
+  Oop num;
+  Oop den;
+  return asNumDen(ctx, o, &num, &den) &&
+         LargeInteger::ratioToDouble(ctx.heap, ctx.wk, num, den, out);
 }
 
 Oop makeFraction(CallContext& ctx, Oop num, Oop den) {
@@ -108,9 +109,9 @@ bool asNumDen(CallContext& ctx, Oop o, Oop* num, Oop* den) {
   return true;
 }
 
-enum class FracOp { Add, Sub, Mul, Div };
-
-Oop fracOp(CallContext& ctx, Oop a, Oop b, FracOp op) {
+// Exact arithmetic on Integers and Fractions (SPEC §3.6). a and b are read before anything
+// allocates.
+Oop fracOp(CallContext& ctx, Oop a, Oop b, NumberOp op) {
   Oop na;
   Oop da;
   Oop nb;
@@ -123,26 +124,26 @@ Oop fracOp(CallContext& ctx, Oop a, Oop b, FracOp op) {
   Root Nb(ctx.roots, nb);
   Root Db(ctx.roots, db);
   switch (op) {
-    case FracOp::Add: {
+    case NumberOp::Add: {
       Root left(ctx.roots, LargeInteger::mul(ctx, Na.slot, Db.slot));
       Root right(ctx.roots, LargeInteger::mul(ctx, Nb.slot, Da.slot));
       Root num(ctx.roots, LargeInteger::add(ctx, left.slot, right.slot));
       Root den(ctx.roots, LargeInteger::mul(ctx, Da.slot, Db.slot));
       return makeFraction(ctx, num.slot, den.slot);
     }
-    case FracOp::Sub: {
+    case NumberOp::Subtract: {
       Root left(ctx.roots, LargeInteger::mul(ctx, Na.slot, Db.slot));
       Root right(ctx.roots, LargeInteger::mul(ctx, Nb.slot, Da.slot));
       Root num(ctx.roots, LargeInteger::sub(ctx, left.slot, right.slot));
       Root den(ctx.roots, LargeInteger::mul(ctx, Da.slot, Db.slot));
       return makeFraction(ctx, num.slot, den.slot);
     }
-    case FracOp::Mul: {
+    case NumberOp::Multiply: {
       Root num(ctx.roots, LargeInteger::mul(ctx, Na.slot, Nb.slot));
       Root den(ctx.roots, LargeInteger::mul(ctx, Da.slot, Db.slot));
       return makeFraction(ctx, num.slot, den.slot);
     }
-    case FracOp::Div: {
+    case NumberOp::Divide: {
       Root num(ctx.roots, LargeInteger::mul(ctx, Na.slot, Db.slot));
       Root den(ctx.roots, LargeInteger::mul(ctx, Da.slot, Nb.slot));
       return makeFraction(ctx, num.slot, den.slot);
@@ -151,9 +152,7 @@ Oop fracOp(CallContext& ctx, Oop a, Oop b, FracOp op) {
   return Oop{};
 }
 
-enum class FlOp { Add, Sub, Mul, Div };
-
-Oop floatOp(CallContext& ctx, Oop a, Oop b, FlOp op) {
+Oop floatOp(CallContext& ctx, Oop a, Oop b, NumberOp op) {
   double x = 0;
   double y = 0;
   if (!asFloat(ctx, a, &x) || !asFloat(ctx, b, &y)) {
@@ -161,60 +160,98 @@ Oop floatOp(CallContext& ctx, Oop a, Oop b, FlOp op) {
   }
   double z = 0;
   switch (op) {
-    case FlOp::Add:
+    case NumberOp::Add:
       z = x + y;
       break;
-    case FlOp::Sub:
+    case NumberOp::Subtract:
       z = x - y;
       break;
-    case FlOp::Mul:
+    case NumberOp::Multiply:
       z = x * y;
       break;
-    case FlOp::Div:
+    case NumberOp::Divide:
       z = x / y;
       break;
   }
   return fromDouble(ctx, z);
 }
 
+enum class NumKind { None, Integer, Fraction, Float };
+
+// The place of o in SPEC §3.6's generality order (Integer < Fraction < Float).
+NumKind kindOf(CallContext& ctx, Oop o) {
+  if (o.isSmallInteger() || LargeInteger::isLarge(ctx.wk, o)) {
+    return NumKind::Integer;
+  }
+  if (isFloat(ctx.wk, o)) {
+    return NumKind::Float;
+  }
+  if (isFrac(ctx.wk, o)) {
+    return NumKind::Fraction;
+  }
+  return NumKind::None;
+}
+
 }  // namespace
+
+Oop numberArith(CallContext& ctx, const Oop& a, const Oop& b, NumberOp op) {
+  const NumKind ka = kindOf(ctx, a);
+  const NumKind kb = kindOf(ctx, b);
+  if (ka == NumKind::None || kb == NumKind::None) {
+    return Oop{};
+  }
+  if (ka == NumKind::Float || kb == NumKind::Float) {
+    return floatOp(ctx, a, b, op);
+  }
+  if (op == NumberOp::Divide || ka == NumKind::Fraction || kb == NumKind::Fraction) {
+    return fracOp(ctx, a, b, op);
+  }
+  switch (op) {
+    case NumberOp::Add:
+      return LargeInteger::add(ctx, a, b);
+    case NumberOp::Subtract:
+      return LargeInteger::sub(ctx, a, b);
+    case NumberOp::Multiply:
+      return LargeInteger::mul(ctx, a, b);
+    case NumberOp::Divide:
+      break;
+  }
+  return Oop{};
+}
 
 Oop ao_Integer_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  if (isFloat(ctx.wk, args[0])) {
-    return floatOp(ctx, receiver, args[0], FlOp::Div);
-  }
-  return fracOp(ctx, receiver, args[0], FracOp::Div);
+  return numberArith(ctx, receiver, args[0], NumberOp::Divide);
 }
 
 Oop ao_Float_add(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return floatOp(ctx, receiver, args[0], FlOp::Add);
+  return numberArith(ctx, receiver, args[0], NumberOp::Add);
 }
 
 Oop ao_Float_subtract(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return floatOp(ctx, receiver, args[0], FlOp::Sub);
+  return numberArith(ctx, receiver, args[0], NumberOp::Subtract);
 }
 
 Oop ao_Float_multiply(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return floatOp(ctx, receiver, args[0], FlOp::Mul);
+  return numberArith(ctx, receiver, args[0], NumberOp::Multiply);
 }
 
 Oop ao_Float_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return floatOp(ctx, receiver, args[0], FlOp::Div);
+  return numberArith(ctx, receiver, args[0], NumberOp::Divide);
 }
 
 Oop ao_Float_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -244,7 +281,7 @@ Oop ao_Fraction_add(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   if (argc != 1) {
     return Oop{};
   }
-  return fracOp(ctx, receiver, args[0], FracOp::Add);
+  return numberArith(ctx, receiver, args[0], NumberOp::Add);
 }
 
 Oop ao_Fraction_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -252,7 +289,7 @@ Oop ao_Fraction_subtract(CallContext& ctx, const Oop& receiver, const Oop* args,
   if (argc != 1) {
     return Oop{};
   }
-  return fracOp(ctx, receiver, args[0], FracOp::Sub);
+  return numberArith(ctx, receiver, args[0], NumberOp::Subtract);
 }
 
 Oop ao_Fraction_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -260,14 +297,14 @@ Oop ao_Fraction_multiply(CallContext& ctx, const Oop& receiver, const Oop* args,
   if (argc != 1) {
     return Oop{};
   }
-  return fracOp(ctx, receiver, args[0], FracOp::Mul);
+  return numberArith(ctx, receiver, args[0], NumberOp::Multiply);
 }
 
 Oop ao_Fraction_divide(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  return fracOp(ctx, receiver, args[0], FracOp::Div);
+  return numberArith(ctx, receiver, args[0], NumberOp::Divide);
 }
 
 Oop ao_Float_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {

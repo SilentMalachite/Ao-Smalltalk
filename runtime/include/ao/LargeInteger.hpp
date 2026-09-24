@@ -39,6 +39,10 @@ Oop bitShift(CallContext& ctx, Oop a, Oop n);
 Oop gcd(CallContext& ctx, Oop a, Oop b);
 Oop neg(CallContext& ctx, Oop a);
 bool isZero(Heap& heap, WellKnown& wk, Oop o);
+// SPEC §3.6: the double nearest to num / den (IEEE754 binary64, ties to even, subnormals
+// included), ±inf beyond the range. num / den is rounded once, not num and den apart. False when
+// num or den is not an Integer or den is 0. Does not allocate on the heap.
+bool ratioToDouble(Heap& heap, WellKnown& wk, Oop num, Oop den, double* out);
 
 }  // namespace LargeInteger
 }  // namespace ao
