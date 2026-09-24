@@ -725,7 +725,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 #### プロトコルとカテゴリ
 
-プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列。定義テキストの classVariableNames は、そのクラスの classPool の名前（§3.6。スーパークラスのものは含めない）を並んだ順に空白 1 つで区切ったもの。poolDictionaries は常に空文字 `''`。表示した定義を Accept し直しても、クラス変数は変わらない（§3.9）。
+プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列を文字列リテラルにしたもの。定義テキストはチャンクとして Accept し直すので、`'` を `''` に、`!` を `!!` に二重にする（§3.8 チャンク形式）。表示した定義を Accept し直しても、カテゴリは変わらない。定義テキストの classVariableNames は、そのクラスの classPool の名前（§3.6。スーパークラスのものは含めない）を並んだ順に空白 1 つで区切ったもの。poolDictionaries は常に空文字 `''`。表示した定義を Accept し直しても、クラス変数は変わらない（§3.9）。
 
 #### Transcript のクラス側転送
 
