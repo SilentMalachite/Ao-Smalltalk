@@ -121,3 +121,19 @@ TEST(Parser, TrueExpressionIsVariable) {
   EXPECT_EQ(Ast::Kind::Variable, v.kind);
   EXPECT_EQ("true", v.name);
 }
+
+// SPEC §3.8: `,` is a binary selector, as a send and as a method pattern.
+TEST(Parser, CommaIsABinarySelector) {
+  auto r = parseMethod(", other\n  ^'a' , other , #(1 2) , #,");
+  ASSERT_TRUE(r.ok) << r.error.message;
+  EXPECT_EQ(",", r.method.name);
+  ASSERT_EQ(1u, r.method.params.size());
+  EXPECT_EQ("other", r.method.params[0]);
+  auto& last = r.method.kids.at(0).kids.at(0);
+  EXPECT_EQ(Ast::Kind::Send, last.kind);
+  EXPECT_EQ(",", last.name);
+  ASSERT_EQ(2u, last.kids.size());
+  EXPECT_EQ("#", last.kids[1].name);
+  EXPECT_EQ(",", last.kids[1].text);
+  EXPECT_EQ(",", last.kids[0].name);
+}

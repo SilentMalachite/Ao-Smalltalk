@@ -66,3 +66,22 @@ TEST(Scanner, EighteenDigitIntegerIsExactInt64) {
   EXPECT_EQ(100000000000000001LL, n.intValue);
   EXPECT_NE(100000000000000001LL, static_cast<std::int64_t>(n.number));
 }
+
+// SPEC §3.8: `,` is a binary selector character, in a send and in a symbol.
+TEST(Scanner, CommaIsABinaryCharacter) {
+  Scanner s("'a' , 'b' #, x,y");
+  EXPECT_EQ(Tok::String, s.next().kind);
+  auto comma = s.next();
+  EXPECT_EQ(Tok::Binary, comma.kind);
+  EXPECT_EQ(",", comma.text);
+  EXPECT_EQ(Tok::String, s.next().kind);
+  auto sym = s.next();
+  EXPECT_EQ(Tok::Symbol, sym.kind);
+  EXPECT_EQ(",", sym.text);
+  EXPECT_EQ(Tok::Ident, s.next().kind);
+  auto tight = s.next();
+  EXPECT_EQ(Tok::Binary, tight.kind);
+  EXPECT_EQ(",", tight.text);
+  EXPECT_EQ(Tok::Ident, s.next().kind);
+  EXPECT_EQ(Tok::Eof, s.next().kind);
+}

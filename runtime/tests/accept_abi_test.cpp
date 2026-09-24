@@ -2254,3 +2254,31 @@ TEST(AcceptAbi, SmalltalkRefusesPseudoVariableKeys) {
   });
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/05 High) / SPEC §3.8: `,` is a binary selector character. `'a' , 'b'`
+// was "invalid token"; now it compiles, and a method with the pattern `, other` runs.
+TEST(AcceptAbi, CommaIsABinarySelector) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B7Comma\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'B7-Test'\n",
+                                   &err))
+      << err.message;
+  acceptMethods("B7Comma", 0, {", other\n  ^other + 1\n"});
+  expectPrints({
+      {"B7Comma new , 2", "3"},
+      {"B7Comma new,4", "5"},
+      {"(B7Comma new perform: #, with: 6)", "7"},
+      {"#, size", "1"},
+      {"(#(#, 1) at: 1) == #,", "true"},
+  });
+  char out[128];
+  const char* concat = "'a' , 'b'";
+  EXPECT_NE(AO_ERR_COMPILE, ao_eval(concat, static_cast<int>(std::strlen(concat)),
+                                    AO_EVAL_PRINTIT, out, 128, &err))
+      << err.message;
+  ao_runtime_shutdown();
+}
