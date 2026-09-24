@@ -328,9 +328,9 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(browser.sourceText.contains("subclass: #SmallInteger"))
   }
 
-  // The default question is one sheet: Show Hierarchy while it is up adds none. Return answers
-  // Cancel; Discard is marked destructive and discards.
-  func testDiscardSheetIsNotStackedAndReturnCancels() {
+  // The default question is one sheet: Show Hierarchy while it is up adds none. Return is left
+  // unbound, Escape is Cancel, and Discard is marked destructive; each button does its part.
+  func testDiscardSheetIsNotStackedAndReturnDoesNotDiscard() {
     let browser = BrowserWindow()
     defer {
       for sheet in browser.window.sheets {
@@ -351,12 +351,14 @@ final class AcceptTests: XCTestCase {
       XCTFail("missing sheet")
       return
     }
-    // The shown alert answers Return with the sheet's default button cell.
+    // The shown alert answers Return with the sheet's default button cell or a button whose key
+    // is Return; there is neither, so Return never discards.
     let buttons = views(in: sheet.contentView, of: NSButton.self)
-    let returnButton = buttons.first { $0.cell === sheet.defaultButtonCell }
-    XCTAssertEqual(returnButton?.title, "Cancel")
+    XCTAssertNil(sheet.defaultButtonCell)
+    XCTAssertFalse(buttons.contains { $0.keyEquivalent == "\r" })
+    XCTAssertEqual(buttons.first { $0.title == "Cancel" }?.keyEquivalent, "\u{1B}")
     XCTAssertEqual(buttons.first { $0.title == "Discard" }?.hasDestructiveAction, true)
-    returnButton?.performClick(nil)
+    buttons.first { $0.title == "Cancel" }?.performClick(nil)
     XCTAssertTrue(turnRunLoop(until: { browser.window.sheets.isEmpty }))
     XCTAssertEqual(browser.sourceText, edited)
     XCTAssertTrue(browser.hasUnacceptedChanges)
