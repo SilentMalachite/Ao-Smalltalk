@@ -349,7 +349,7 @@ std::string instVarList(Heap& heap, Oop cls) {
 }
 
 // SPEC §3.10: the class's own class variables (its classPool's names, not the superclasses'), in
-// order, one blank apart.
+// byte order, one blank apart.
 std::string classVarList(Heap& heap, Oop cls) {
   if (!pointerSlots(heap, cls, kClassSlotClassPool + 1)) {
     return {};

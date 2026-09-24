@@ -4,6 +4,7 @@
 #include "ao/Compiler.hpp"
 #include "ao/HandleScope.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <gtest/gtest.h>
@@ -112,25 +113,25 @@ TEST(CollectionDo, DictionaryEqualsLookupAndCollectValues) {
   ASSERT_TRUE(r.slot.isHeap());
   EXPECT_EQ(b.wk.arrayClass, b.heap.klass(r.slot));
   EXPECT_EQ(2, send0(b, r.slot, "size").smallIntegerValue());
-  EXPECT_EQ(18, b.heap.slotAt(r.slot, 0).smallIntegerValue());
-  EXPECT_EQ(8, b.heap.slotAt(r.slot, 1).smallIntegerValue());
+  // SPEC §3.6: the enumeration order of a hashed collection is unspecified.
+  std::vector<std::int64_t> mapped = {b.heap.slotAt(r.slot, 0).smallIntegerValue(),
+                                      b.heap.slotAt(r.slot, 1).smallIntegerValue()};
+  std::sort(mapped.begin(), mapped.end());
+  EXPECT_EQ((std::vector<std::int64_t>{8, 18}), mapped);
 
-  static std::vector<std::int64_t> keys;
-  keys.clear();
-  auto assocDo = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
-    auto k = ao::send(ctx, args[0], ctx.wk.intern("key"), nullptr, 0, nullptr);
-    auto v = ao::send(ctx, args[0], ctx.wk.intern("value"), nullptr, 0, nullptr);
-    if (v.isSmallInteger()) {
-      keys.push_back(v.smallIntegerValue());
+  // 04 High / SPEC §3.6: Dictionary>>do: hands each value to the block, not an Association.
+  static std::vector<std::int64_t> values;
+  values.clear();
+  auto valueDo = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    if (args[0].isSmallInteger()) {
+      values.push_back(args[0].smallIntegerValue());
     }
-    (void)k;
     return args[0];
   };
-  ao::Root doBlk(b.roots, ao::makeNativeBlock(b.ctx, assocDo, 1));
+  ao::Root doBlk(b.roots, ao::makeNativeBlock(b.ctx, valueDo, 1));
   EXPECT_EQ(d.slot, send1(b, d.slot, "do:", doBlk.slot));
-  ASSERT_EQ(2u, keys.size());
-  EXPECT_EQ(9, keys[0]);
-  EXPECT_EQ(4, keys[1]);
+  std::sort(values.begin(), values.end());
+  EXPECT_EQ((std::vector<std::int64_t>{4, 9}), values);
 }
 
 TEST(CollectionDo, IdentityDictionaryDoesNotUseEquals) {
@@ -312,8 +313,9 @@ TEST(CollectionDo, DictionaryAtPutWithTallyAtSmiMaxFails) {
   ASSERT_TRUE(dict.slot.isHeap());
   ASSERT_EQ(smi(ao::kSmiMax), send2(b, dict.slot, "instVarAt:put:", smi(1), smi(ao::kSmiMax)));
   ao::Root key(b.roots, b.wk.intern("smiMaxKey"));
+  // SPEC §3.6: a tally past the capacity is a damaged table.
   expectFailAbort(b, send2(b, dict.slot, "at:put:", key.slot, smi(1)),
-                   "at:put: tally out of range");
+                   "damaged hashed collection");
   EXPECT_EQ(smi(ao::kSmiMax), send1(b, dict.slot, "instVarAt:", smi(1)));
 }
 
@@ -322,7 +324,7 @@ TEST(CollectionDo, SetAddWithTallyAtSmiMaxFails) {
   ao::Root set(b.roots, send0(b, b.wk.setClass, "new"));
   ASSERT_TRUE(set.slot.isHeap());
   ASSERT_EQ(smi(ao::kSmiMax), send2(b, set.slot, "instVarAt:put:", smi(1), smi(ao::kSmiMax)));
-  expectFailAbort(b, send1(b, set.slot, "add:", smi(7)), "add: tally out of range");
+  expectFailAbort(b, send1(b, set.slot, "add:", smi(7)), "damaged hashed collection");
   EXPECT_EQ(smi(ao::kSmiMax), send1(b, set.slot, "instVarAt:", smi(1)));
 }
 

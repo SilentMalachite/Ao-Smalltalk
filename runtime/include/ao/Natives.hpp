@@ -116,6 +116,10 @@ inline std::uint64_t valueHashWord(std::uint64_t h, std::uint64_t word) {
 inline std::int64_t valueHashFold(std::uint64_t h) {
   return static_cast<std::int64_t>((h ^ (h >> 30) ^ (h >> 60)) & 0x3FFFFFFFu);
 }
+// The value hash of a byte sequence: what String>>hash and Symbol>>hash answer for those bytes.
+inline std::int64_t bytesValueHash(const unsigned char* bytes, std::size_t n) {
+  return valueHashFold(valueHashBytes(kValueHashSeed, bytes, n));
+}
 // The Array and Point hash natives send hash to their elements only while fewer than
 // kMaxHashNesting of them are doing so (CallContext::hashNesting); an Array sends it to its first
 // kMaxHashElements elements.
@@ -128,10 +132,14 @@ struct HashNesting {
   HashNesting& operator=(const HashNesting&) = delete;
   CallContext& ctx;
 };
-// Sends hash to element and mixes the answer into *h (SPEC §3.6). Unless the hash element finds
-// is the Kernel Array or Point hash native, hashNesting is 0 during the send and restored after
-// it, so the answer does not depend on the depth it is asked from. False when the frames unwind
-// (SPEC §3.4) or the answer is not an Integer: the caller then answers the empty Oop. May GC.
+// Sends hash to obj and puts the answer in *out as an int64 (SPEC §3.6): a SmallInteger's value,
+// a LargeInteger's value hash (what its hash answers). Unless the hash obj finds is the Kernel
+// Array or Point hash native, hashNesting is 0 during the send and restored after it, so the
+// answer does not depend on the depth it is asked from. False when the frames unwind (SPEC §3.4)
+// or the answer is not an Integer (a failed send's empty Oop included): the caller then answers
+// the empty Oop. May GC. For any native that needs an object's hash: Dictionary, Set.
+bool sendHash(CallContext& ctx, Oop obj, std::int64_t* out);
+// Sends hash to element (sendHash) and mixes the answer into *h. False as sendHash is.
 bool mixElementHash(CallContext& ctx, Oop element, std::uint64_t* h);
 Oop ao_Array_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
 Oop ao_Point_hash(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);

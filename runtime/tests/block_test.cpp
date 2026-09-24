@@ -1024,8 +1024,8 @@ TEST(BlockAbort, EnsureCleanupRunsNearStackLimit) {
 namespace {
 
 // 送った先で「NonBoolean receiver」の abort を始めるクラス（SPEC §3.4）。R2Sour はキーや座標や
-// コレクションとして受けた hash = < <= > + size を中断する。R2Slots は hash と size を普通に答え、
-// = と at:put: を中断する。R2Sink（Stream）は nextPut: を中断する。R2Seen は ensure: の後始末から
+// コレクションとして受けた hash = < <= > + size を中断する。R2Slots は hash（1。キー 1 と同じ値なので
+// ハッシュ表が = を送る）と size を普通に答え、= と at:put: を中断する。R2Sink（Stream）は nextPut: を中断する。R2Seen は ensure: の後始末から
 // 見た Dictionary の大きさを n に残す。
 constexpr const char* kSourProbe =
     "!Object subclass: #R2Sour\n"
@@ -1054,6 +1054,8 @@ constexpr const char* kSourProbe =
     "  poolDictionaries: ''\n"
     "  category: 'B2-Test'!\n"
     "!R2Slots methodsFor: 'aborting'!\n"
+    "hash\n"
+    "  ^1!\n"
     "size\n"
     "  ^3!\n"
     "= other\n"
@@ -1116,7 +1118,8 @@ TEST(NativeSendUnwind, DictionaryAtPutSkipsInsertWhenHashAborts) {
 }
 
 // SPEC §3.4: キーに送った hash か = が abort を始めたら、Dictionary / Set のネイティブは探索も挿入も
-// やめて空 OOP を返す。大きさは変わらない。
+// やめて空 OOP を返す。大きさは変わらない。Dictionary>>includes: は値に = を送り、hash は送らない
+// （SPEC §3.6）ので、空でない表で確かめる。IdentityDictionary と IdentitySet は hash も = も送らない。
 TEST(NativeSendUnwind, HashedCollectionsStopWhenHashOrEqualsAborts) {
   Boot b;
   ASSERT_TRUE(fileIn(b, kSourProbe));
@@ -1130,8 +1133,7 @@ TEST(NativeSendUnwind, HashedCollectionsStopWhenHashOrEqualsAborts) {
       {"^Dictionary new", "at:put:", "R2Sour", 0},
       {"^Dictionary new", "at:", "R2Sour", 0},
       {"^Dictionary new", "includesKey:", "R2Sour", 0},
-      {"^Dictionary new", "includes:", "R2Sour", 0},
-      {"^IdentityDictionary new", "at:put:", "R2Sour", 0},
+      {"^Dictionary new at: 1 put: 1; yourself", "includes:", "R2Sour", 1},
       {"^Set new", "add:", "R2Sour", 0},
       {"^Set new", "includes:", "R2Sour", 0},
       {"^Dictionary new at: 1 put: 1; yourself", "at:put:", "R2Slots", 1},

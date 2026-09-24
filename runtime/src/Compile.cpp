@@ -743,9 +743,13 @@ bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction&
     addError(errors, {action.span, "class definition allocation failed: " + action.className});
     return false;
   }
-  // A kept name keeps its binding (adopt does not collect); a new one gets a fresh binding.
+  // A kept name keeps its binding (adopt does not collect); a new one gets a fresh binding. The
+  // names compare as sets: ClassPool::names lists them in byte order (SPEC §3.6), whatever order
+  // the definition writes them in.
   Root pool(ctx.roots, Oop::nil());
-  const bool poolChanges = classVars != current;
+  std::vector<std::string> wanted = classVars;
+  std::sort(wanted.begin(), wanted.end());
+  const bool poolChanges = wanted != current;
   if (poolChanges) {
     pool.slot = ClassPool::make(ctx, classVars);
     if (!pool.slot.isHeap()) {

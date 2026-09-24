@@ -21,6 +21,7 @@ add_library(ao_runtime
   src/Bootstrap.cpp
   src/Globals.cpp
   src/ClassPool.cpp
+  src/HashedCollection.cpp
   src/Symbol.cpp
   src/MethodDictionary.cpp
   src/NativeMethod.cpp
@@ -87,6 +88,7 @@ add_executable(ao_runtime_tests
   tests/array_string_test.cpp
   tests/print_string_test.cpp
   tests/collection_do_test.cpp
+  tests/hashed_collection_test.cpp
   tests/transcript_model_test.cpp
   tests/process_test.cpp
   tests/geometry_test.cpp

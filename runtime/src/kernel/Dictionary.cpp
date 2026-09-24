@@ -1,7 +1,9 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
+#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/HashedCollection.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
@@ -9,8 +11,6 @@
 namespace ao {
 namespace {
 
-constexpr std::uint32_t kHashedTally = 0;
-constexpr std::uint32_t kHashedArray = 1;
 constexpr std::uint32_t kOcArray = 0;
 constexpr std::uint32_t kOcFirst = 1;
 constexpr std::uint32_t kOcLast = 2;
@@ -18,30 +18,8 @@ constexpr std::uint32_t kIvStart = 0;
 constexpr std::uint32_t kIvStop = 1;
 constexpr std::uint32_t kIvStep = 2;
 constexpr std::uint32_t kDefaultCap = 8;
-
-Oop selEquals(WellKnown& wk) { return wk.intern("="); }
-Oop selHash(WellKnown& wk) { return wk.intern("hash"); }
-
-void consumeHash(CallContext& ctx, Root& key) {
-  send(ctx, key.slot, selHash(ctx.wk), nullptr, 0, nullptr);
-}
-
-bool keysMatch(CallContext& ctx, Root& search, Oop candidate, bool identity) {
-  if (search.slot == candidate) {
-    return true;
-  }
-  if (identity || candidate.isNil()) {
-    return false;
-  }
-  Root cand(ctx.roots, candidate);
-  const Oop eq = send(ctx, search.slot, selEquals(ctx.wk), &cand.slot, 1, nullptr);
-  return eq.isTrue();
-}
-
-std::int64_t tallyOf(Heap& heap, Oop hashed) {
-  const Oop t = heap.slotAt(hashed, kHashedTally);
-  return t.isSmallInteger() ? t.smallIntegerValue() : 0;
-}
+constexpr std::uint32_t kDictWidth = Hashed::kDictionaryWidth;
+constexpr std::uint32_t kSetWidth = Hashed::kSetWidth;
 
 // error: の慣習どおりメッセージ文字列で失敗する。receiver はルート済みスロット（GC しても正しい）。
 Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
@@ -49,245 +27,437 @@ Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
   return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &s, 1);
 }
 
-bool ensureInner(CallContext& ctx, Root& hashed) {
-  Oop inner = ctx.heap.slotAt(hashed.slot, kHashedArray);
-  if (inner.isHeap()) {
+bool isBoolean(Oop o) { return o.isTrue() || o.isFalse(); }
+
+// SPEC §3.6 壊れた表: tally か array が配置に合わなければ、Dictionary と Set のネイティブは失敗する。
+Oop failDamaged(CallContext& ctx, const Oop& coll) {
+  return fail(ctx, coll, "damaged hashed collection");
+}
+
+// False after failing when coll's table is damaged. A keyed native checks before it sends hash.
+bool checkTable(CallContext& ctx, const Oop& coll, std::uint32_t width) {
+  Hashed::Table t;
+  if (Hashed::read(ctx.heap, coll, width, &t) == Hashed::Shape::Damaged) {
+    failDamaged(ctx, coll);
+    return false;
+  }
+  return true;
+}
+
+// SPEC §3.6: the hash a Dictionary or Set saves for key. The identity versions take identityHash
+// and send nothing; the others send hash once (sendHash). False when the frames unwind or hash
+// answers no Integer: the native then answers the empty Oop.
+bool keyHash(CallContext& ctx, Oop key, bool identity, std::int64_t* out) {
+  if (identity) {
+    *out = ao_Object_identityHash(ctx, key, nullptr, 0).smallIntegerValue();
     return true;
   }
-  Oop arr = allocateRetry(ctx, ctx.wk.arrayClass, kDefaultCap, 0);
-  if (!arr.isHeap()) {
+  return sendHash(ctx, key, out);
+}
+
+enum class Lookup { Found, Absent, Failed };
+
+struct Probe {
+  Lookup result;
+  std::uint32_t index;  // the entry, when Found
+};
+
+// SPEC §3.6 探索: from hash's home, compares the entries that saved hash, by == and then (unless
+// identity) by `key = entryKey`, which must answer a Boolean. SPEC §3.6 再入: = may write the
+// table, so after each send the table is read again from coll, and when the array, the tally or
+// the compared key changed, the probe starts over with the same hash. Failed when the frames
+// unwind, = answers no Boolean or the table is damaged (then it has aborted). coll and key are
+// rooted; nothing runs between an answer and the caller's use of the entry.
+Probe probe(CallContext& ctx, Root& coll, Root& key, std::int64_t hash, std::uint32_t width,
+            bool identity) {
+  Root array(ctx.roots);
+  Root candidate(ctx.roots);
+  Root equals(ctx.roots, identity ? Oop::nil() : ctx.wk.intern("="));
+  for (;;) {
+    Hashed::Table t;
+    const Hashed::Shape shape = Hashed::read(ctx.heap, coll.slot, width, &t);
+    if (shape == Hashed::Shape::Damaged) {
+      failDamaged(ctx, coll.slot);
+      return {Lookup::Failed, Hashed::kNoEntry};
+    }
+    if (shape == Hashed::Shape::Empty) {
+      return {Lookup::Absent, Hashed::kNoEntry};
+    }
+    array.slot = t.array;
+    const std::uint32_t mask = t.capacity - 1;
+    std::uint32_t i = Hashed::home(hash, t.capacity);
+    bool again = false;
+    for (std::uint32_t n = 0; n < t.capacity; ++n, i = (i + 1) & mask) {
+      const Oop k = ctx.heap.slotAt(array.slot, i * width + Hashed::kEntryKey);
+      if (k.isNil()) {
+        return {Lookup::Absent, i};
+      }
+      if (!Hashed::savedHashIs(ctx.heap, array.slot, width, i, hash)) {
+        continue;
+      }
+      if (k == key.slot) {
+        return {Lookup::Found, i};
+      }
+      if (identity) {
+        continue;
+      }
+      candidate.slot = k;
+      const Oop eq = send(ctx, key.slot, equals.slot, &candidate.slot, 1, nullptr);
+      if (unwinding(ctx) || !isBoolean(eq)) {
+        return {Lookup::Failed, Hashed::kNoEntry};
+      }
+      Hashed::Table now;
+      if (Hashed::read(ctx.heap, coll.slot, width, &now) != Hashed::Shape::Table ||
+          now.array != array.slot || now.tally != t.tally ||
+          ctx.heap.slotAt(array.slot, i * width + Hashed::kEntryKey) != candidate.slot) {
+        again = true;
+        break;
+      }
+      if (eq.isTrue()) {
+        return {Lookup::Found, i};
+      }
+    }
+    if (!again) {
+      // Every entry is taken (a tally that lies, SPEC §3.6): the key is absent.
+      return {Lookup::Absent, Hashed::kNoEntry};
+    }
+  }
+}
+
+// SPEC §3.6 挿入: puts key (and value, a Dictionary's) in a new entry after probe found key absent,
+// with nothing run since. Grows first past 3/4 of the capacity, when the table is empty, or when
+// no entry is free (a tally that lies). May GC: coll, key and value are rooted. False when the
+// array cannot be allocated.
+bool insertAbsent(CallContext& ctx, Root& coll, Root& key, Root& value, std::int64_t hash,
+                  std::uint32_t width) {
+  Hashed::Table t;
+  const Hashed::Shape shape = Hashed::read(ctx.heap, coll.slot, width, &t);
+  if (shape == Hashed::Shape::Damaged) {
+    failDamaged(ctx, coll.slot);
     return false;
   }
-  ctx.heap.slotAtPut(hashed.slot, kHashedArray, arr);
-  if (!ctx.heap.slotAt(hashed.slot, kHashedTally).isSmallInteger()) {
-    ctx.heap.slotAtPut(hashed.slot, kHashedTally, Oop::fromSmallInteger(0));
+  if (shape == Hashed::Shape::Empty || Hashed::mustGrow(t) ||
+      Hashed::freeEntry(ctx.heap, t.array, t.capacity, width, hash) == Hashed::kNoEntry) {
+    if (!Hashed::grow(ctx, coll, width) ||
+        Hashed::read(ctx.heap, coll.slot, width, &t) != Hashed::Shape::Table) {
+      return false;
+    }
   }
+  const std::uint32_t i = Hashed::freeEntry(ctx.heap, t.array, t.capacity, width, hash);
+  Hashed::putEntry(ctx.heap, t.array, width, i, key.slot, value.slot, hash);
+  ctx.heap.slotAtPut(coll.slot, Hashed::kSlotTally, Oop::fromSmallInteger(t.tally + 1));
   return true;
 }
 
-bool growInner(CallContext& ctx, Root& hashed) {
-  Root old(ctx.roots, ctx.heap.slotAt(hashed.slot, kHashedArray));
-  const std::uint32_t n = old.slot.isHeap() ? ctx.heap.size(old.slot) : 0;
-  const std::uint32_t next = n == 0 ? kDefaultCap : n * 2;
-  Oop grown = allocateRetry(ctx, ctx.wk.arrayClass, next, 0);
-  if (!grown.isHeap()) {
+// The value of entry index of dict, which a probe just found.
+Oop entryValue(const Heap& heap, Oop dict, std::uint32_t index) {
+  return heap.slotAt(heap.slotAt(dict, Hashed::kSlotArray),
+                     index * kDictWidth + Hashed::kEntryValue);
+}
+
+// SPEC §3.6 列挙: for each entry, from the first, puts its key in slots[0] and its value (nil in a
+// Set) in slots[1] and calls visit. The table is read again from coll before each entry, so a
+// block that writes it never makes this read outside the array. True at the end; false when visit
+// answers false or the table is damaged (then it has aborted). Passes a safepoint every 64K entries.
+template <typename Visit>
+bool eachEntry(CallContext& ctx, Root& coll, std::uint32_t width, RootedArray& slots, Visit visit) {
+  Gc gc(ctx.heap, ctx.roots);
+  std::uint64_t visited = 0;
+  for (std::uint32_t i = 0;; ++i) {
+    Hashed::Table t;
+    const Hashed::Shape shape = Hashed::read(ctx.heap, coll.slot, width, &t);
+    if (shape == Hashed::Shape::Damaged) {
+      failDamaged(ctx, coll.slot);
+      return false;
+    }
+    if (shape == Hashed::Shape::Empty || i >= t.capacity) {
+      return true;
+    }
+    const Oop k = ctx.heap.slotAt(t.array, i * width + Hashed::kEntryKey);
+    if (k.isNil()) {
+      continue;
+    }
+    slots[0] = k;
+    slots[1] = width == kDictWidth ? ctx.heap.slotAt(t.array, i * width + Hashed::kEntryValue)
+                                   : Oop::nil();
+    if (!visit()) {
+      return false;
+    }
+    if ((++visited & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
+  }
+}
+
+enum class Pass { Values, Keys, KeysAndValues, Associations };
+
+// do: (values, or a Set's elements), keysDo:, keysAndValuesDo: and associationsDo: (SPEC §3.6).
+Oop enumerate(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+              std::uint32_t width, Pass pass) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  Root coll(ctx.roots, receiver);
+  Root blk(ctx.roots, args[0]);
+  RootedArray slots(ctx.roots, 3);  // key, value, the Association
+  const bool done = eachEntry(ctx, coll, width, slots, [&] {
+    Oop ignored;
+    switch (pass) {
+      case Pass::Values:
+        return callBlock(ctx, blk.slot, &slots[1], 1, &ignored);
+      case Pass::Keys:
+        return callBlock(ctx, blk.slot, &slots[0], 1, &ignored);
+      case Pass::KeysAndValues:
+        return callBlock(ctx, blk.slot, &slots[0], 2, &ignored);
+      case Pass::Associations: {
+        // A new Association per entry: writing it leaves the table alone. May GC: the key and the
+        // value are read from their roots after it.
+        const Oop assoc = allocateInstance(ctx, ctx.wk.associationClass, 2);
+        if (!assoc.isHeap()) {
+          return false;
+        }
+        ctx.heap.slotAtPut(assoc, kAssocKey, slots[0]);
+        ctx.heap.slotAtPut(assoc, kAssocValue, slots[1]);
+        slots[2] = assoc;
+        return callBlock(ctx, blk.slot, &slots[2], 1, &ignored);
+      }
+    }
     return false;
-  }
-  if (old.slot.isHeap()) {
-    for (std::uint32_t i = 0; i < n; ++i) {
-      ctx.heap.slotAtPut(grown, i, ctx.heap.slotAt(old.slot, i));
-    }
-  }
-  ctx.heap.slotAtPut(hashed.slot, kHashedArray, grown);
-  return true;
+  });
+  return done ? coll.slot : Oop{};
 }
 
-// UINT32_MAX when the key is absent, and also when hash or = started an unwind (SPEC §3.4). The
-// caller tells the two apart with unwinding(ctx) and then returns the empty OOP.
-std::uint32_t findPair(CallContext& ctx, Root& dict, Root& key, bool identity) {
-  consumeHash(ctx, key);
-  if (unwinding(ctx) || !ensureInner(ctx, dict)) {
-    return UINT32_MAX;
-  }
-  const Oop inner0 = ctx.heap.slotAt(dict.slot, kHashedArray);
-  if (!inner0.isHeap()) {
-    return UINT32_MAX;
-  }
-  const std::uint32_t n = ctx.heap.size(inner0);
-  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
-    const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
-    const Oop cand = ctx.heap.slotAt(inner, i);
-    if (cand.isNil()) {
-      continue;
-    }
-    if (keysMatch(ctx, key, cand, identity)) {
-      return i;
-    }
-    if (unwinding(ctx)) {
-      return UINT32_MAX;
-    }
-  }
-  return UINT32_MAX;
-}
-
-// Like findPair: UINT32_MAX also when hash or = started an unwind.
-std::uint32_t findValue(CallContext& ctx, Root& set, Root& value, bool identity) {
-  consumeHash(ctx, value);
-  if (unwinding(ctx) || !ensureInner(ctx, set)) {
-    return UINT32_MAX;
-  }
-  const Oop inner0 = ctx.heap.slotAt(set.slot, kHashedArray);
-  if (!inner0.isHeap()) {
-    return UINT32_MAX;
-  }
-  const std::uint32_t n = ctx.heap.size(inner0);
-  for (std::uint32_t i = 0; i < n; ++i) {
-    const Oop inner = ctx.heap.slotAt(set.slot, kHashedArray);
-    const Oop cand = ctx.heap.slotAt(inner, i);
-    if (cand.isNil()) {
-      continue;
-    }
-    if (keysMatch(ctx, value, cand, identity)) {
-      return i;
-    }
-    if (unwinding(ctx)) {
-      return UINT32_MAX;
-    }
-  }
-  return UINT32_MAX;
-}
-
-Oop hashedNew(CallContext& ctx, Oop receiver) {
+Oop hashedNew(CallContext& ctx, const Oop& receiver, std::uint32_t width) {
   Root cls(ctx.roots, receiver);
-  Oop obj = send(ctx, cls.slot, ctx.wk.selBasicNew, nullptr, 0, nullptr);
-  Root o(ctx.roots, obj);
+  Root o(ctx.roots, send(ctx, cls.slot, ctx.wk.selBasicNew, nullptr, 0, nullptr));
   if (!o.slot.isHeap()) {
     return o.slot;
   }
-  Oop arr = allocateRetry(ctx, ctx.wk.arrayClass, kDefaultCap, 0);
-  if (!arr.isHeap()) {
-    return o.slot;
+  // basicNew leaves tally and array nil: an empty table. Give it the first array; when that cannot
+  // be allocated, the empty table stays and the first insertion tries again.
+  Hashed::Table t;
+  if (Hashed::read(ctx.heap, o.slot, width, &t) == Hashed::Shape::Empty) {
+    Hashed::grow(ctx, o, width);
   }
-  ctx.heap.slotAtPut(o.slot, kHashedTally, Oop::fromSmallInteger(0));
-  ctx.heap.slotAtPut(o.slot, kHashedArray, arr);
   return o.slot;
 }
 
-Oop hashedSize(CallContext& ctx, Oop receiver, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+Oop hashedSize(CallContext& ctx, const Oop& receiver, std::uint32_t argc, std::uint32_t width) {
+  if (argc != 0) {
     return Oop{};
   }
-  return Oop::fromSmallInteger(tallyOf(ctx.heap, receiver));
+  Hashed::Table t;
+  switch (Hashed::read(ctx.heap, receiver, width, &t)) {
+    case Hashed::Shape::Damaged:
+      return failDamaged(ctx, receiver);
+    case Hashed::Shape::Empty:
+      return Oop::fromSmallInteger(0);
+    case Hashed::Shape::Table:
+      return Oop::fromSmallInteger(t.tally);
+  }
+  return Oop{};
 }
 
 Oop dictAt(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
            bool identity) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1) {
     return Oop{};
   }
   Root dict(ctx.roots, receiver);
   Root key(ctx.roots, args[0]);
-  const auto i = findPair(ctx, dict, key, identity);
-  if (unwinding(ctx)) {
+  if (!checkTable(ctx, dict.slot, kDictWidth)) {
     return Oop{};
   }
-  if (i == UINT32_MAX) {
+  if (key.slot.isNil()) {
     return Oop::nil();
   }
-  const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
-  return ctx.heap.slotAt(inner, i + 1);
+  std::int64_t hash = 0;
+  if (!keyHash(ctx, key.slot, identity, &hash)) {
+    return Oop{};
+  }
+  const Probe p = probe(ctx, dict, key, hash, kDictWidth, identity);
+  if (p.result == Lookup::Failed) {
+    return Oop{};
+  }
+  return p.result == Lookup::Found ? entryValue(ctx.heap, dict.slot, p.index) : Oop::nil();
+}
+
+Oop dictAtIfAbsent(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+                   bool identity) {
+  if (argc != 2) {
+    return Oop{};
+  }
+  Root dict(ctx.roots, receiver);
+  Root key(ctx.roots, args[0]);
+  Root blk(ctx.roots, args[1]);
+  if (!checkTable(ctx, dict.slot, kDictWidth)) {
+    return Oop{};
+  }
+  if (!key.slot.isNil()) {
+    std::int64_t hash = 0;
+    if (!keyHash(ctx, key.slot, identity, &hash)) {
+      return Oop{};
+    }
+    const Probe p = probe(ctx, dict, key, hash, kDictWidth, identity);
+    if (p.result == Lookup::Failed) {
+      return Oop{};
+    }
+    if (p.result == Lookup::Found) {
+      return entryValue(ctx.heap, dict.slot, p.index);
+    }
+  }
+  Oop answer;
+  if (!callBlock(ctx, blk.slot, nullptr, 0, &answer)) {
+    return Oop{};
+  }
+  return answer;
 }
 
 Oop dictAtPut(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
               bool identity) {
-  if (argc != 2 || !receiver.isHeap()) {
+  if (argc != 2) {
     return Oop{};
   }
   Root dict(ctx.roots, receiver);
   Root key(ctx.roots, args[0]);
   Root value(ctx.roots, args[1]);
-  const auto found = findPair(ctx, dict, key, identity);
-  if (unwinding(ctx)) {
+  if (!checkTable(ctx, dict.slot, kDictWidth)) {
     return Oop{};
   }
-  if (found != UINT32_MAX) {
-    const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
-    ctx.heap.slotAtPut(inner, found + 1, value.slot);
+  if (key.slot.isNil()) {
+    return fail(ctx, dict.slot, "key must not be nil");
+  }
+  std::int64_t hash = 0;
+  if (!keyHash(ctx, key.slot, identity, &hash)) {
+    return Oop{};
+  }
+  const Probe p = probe(ctx, dict, key, hash, kDictWidth, identity);
+  if (p.result == Lookup::Failed) {
+    return Oop{};
+  }
+  if (p.result == Lookup::Found) {
+    ctx.heap.slotAtPut(ctx.heap.slotAt(dict.slot, Hashed::kSlotArray),
+                       p.index * kDictWidth + Hashed::kEntryValue, value.slot);
     return value.slot;
   }
-  if (!ensureInner(ctx, dict)) {
-    return Oop{};
-  }
-  auto n = ctx.heap.size(ctx.heap.slotAt(dict.slot, kHashedArray));
-  auto tally = tallyOf(ctx.heap, dict.slot);
-  // tally は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら、伸ばす前に失敗する。
-  if (tally >= kSmiMax) {
-    return fail(ctx, dict.slot, "at:put: tally out of range");
-  }
-  if (tally * 2 >= static_cast<std::int64_t>(n)) {
-    if (!growInner(ctx, dict)) {
-      return Oop{};
-    }
-    n = ctx.heap.size(ctx.heap.slotAt(dict.slot, kHashedArray));
-  }
-  const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
-  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
-    if (ctx.heap.slotAt(inner, i).isNil()) {
-      ctx.heap.slotAtPut(inner, i, key.slot);
-      ctx.heap.slotAtPut(inner, i + 1, value.slot);
-      ctx.heap.slotAtPut(dict.slot, kHashedTally, Oop::fromSmallInteger(tally + 1));
-      return value.slot;
-    }
-  }
-  return value.slot;
+  return insertAbsent(ctx, dict, key, value, hash, kDictWidth) ? value.slot : Oop{};
 }
 
 Oop dictIncludesKey(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
                     bool identity) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1) {
     return Oop{};
   }
   Root dict(ctx.roots, receiver);
   Root key(ctx.roots, args[0]);
-  const auto i = findPair(ctx, dict, key, identity);
-  if (unwinding(ctx)) {
+  if (!checkTable(ctx, dict.slot, kDictWidth)) {
     return Oop{};
   }
-  return i == UINT32_MAX ? Oop::false_() : Oop::true_();
+  if (key.slot.isNil()) {
+    return Oop::false_();
+  }
+  std::int64_t hash = 0;
+  if (!keyHash(ctx, key.slot, identity, &hash)) {
+    return Oop{};
+  }
+  const Probe p = probe(ctx, dict, key, hash, kDictWidth, identity);
+  if (p.result == Lookup::Failed) {
+    return Oop{};
+  }
+  return p.result == Lookup::Found ? Oop::true_() : Oop::false_();
+}
+
+// removeKey: (withBlock false) and removeKey:ifAbsent: (SPEC §3.6). The entry goes by backward
+// shift, which sends nothing.
+Oop dictRemoveKey(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
+                  bool identity, bool withBlock) {
+  if (argc != (withBlock ? 2u : 1u)) {
+    return Oop{};
+  }
+  Root dict(ctx.roots, receiver);
+  Root key(ctx.roots, args[0]);
+  Root blk(ctx.roots, withBlock ? args[1] : Oop::nil());
+  if (!checkTable(ctx, dict.slot, kDictWidth)) {
+    return Oop{};
+  }
+  if (!key.slot.isNil()) {
+    std::int64_t hash = 0;
+    if (!keyHash(ctx, key.slot, identity, &hash)) {
+      return Oop{};
+    }
+    const Probe p = probe(ctx, dict, key, hash, kDictWidth, identity);
+    if (p.result == Lookup::Failed) {
+      return Oop{};
+    }
+    Hashed::Table t;
+    if (p.result == Lookup::Found &&
+        Hashed::read(ctx.heap, dict.slot, kDictWidth, &t) == Hashed::Shape::Table) {
+      const Oop value = ctx.heap.slotAt(t.array, p.index * kDictWidth + Hashed::kEntryValue);
+      Hashed::removeEntry(ctx.heap, t.array, t.capacity, kDictWidth, p.index);
+      ctx.heap.slotAtPut(dict.slot, Hashed::kSlotTally,
+                         Oop::fromSmallInteger(t.tally > 0 ? t.tally - 1 : 0));
+      return value;
+    }
+  }
+  if (!withBlock) {
+    return fail(ctx, dict.slot, "key not found");
+  }
+  Oop answer;
+  if (!callBlock(ctx, blk.slot, nullptr, 0, &answer)) {
+    return Oop{};
+  }
+  return answer;
 }
 
 Oop setAdd(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
            bool identity) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1) {
     return Oop{};
   }
   Root set(ctx.roots, receiver);
-  Root value(ctx.roots, args[0]);
-  const auto found = findValue(ctx, set, value, identity);
-  if (unwinding(ctx)) {
+  Root element(ctx.roots, args[0]);
+  if (!checkTable(ctx, set.slot, kSetWidth)) {
     return Oop{};
   }
-  if (found != UINT32_MAX) {
-    return value.slot;
+  if (element.slot.isNil()) {
+    return fail(ctx, set.slot, "element must not be nil");
   }
-  if (!ensureInner(ctx, set)) {
+  std::int64_t hash = 0;
+  if (!keyHash(ctx, element.slot, identity, &hash)) {
     return Oop{};
   }
-  auto n = ctx.heap.size(ctx.heap.slotAt(set.slot, kHashedArray));
-  auto tally = tallyOf(ctx.heap, set.slot);
-  // tally は Smalltalk から書き換えられる。+1 が SmallInteger を超えるなら、伸ばす前に失敗する。
-  if (tally >= kSmiMax) {
-    return fail(ctx, set.slot, "add: tally out of range");
+  const Probe p = probe(ctx, set, element, hash, kSetWidth, identity);
+  if (p.result == Lookup::Failed) {
+    return Oop{};
   }
-  if (tally >= static_cast<std::int64_t>(n)) {
-    if (!growInner(ctx, set)) {
-      return Oop{};
-    }
-    n = ctx.heap.size(ctx.heap.slotAt(set.slot, kHashedArray));
+  if (p.result == Lookup::Found) {
+    return element.slot;
   }
-  const Oop inner = ctx.heap.slotAt(set.slot, kHashedArray);
-  for (std::uint32_t i = 0; i < n; ++i) {
-    if (ctx.heap.slotAt(inner, i).isNil()) {
-      ctx.heap.slotAtPut(inner, i, value.slot);
-      ctx.heap.slotAtPut(set.slot, kHashedTally, Oop::fromSmallInteger(tally + 1));
-      return value.slot;
-    }
-  }
-  return value.slot;
+  return insertAbsent(ctx, set, element, element, hash, kSetWidth) ? element.slot : Oop{};
 }
 
 Oop setIncludes(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
                 bool identity) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1) {
     return Oop{};
   }
   Root set(ctx.roots, receiver);
-  Root value(ctx.roots, args[0]);
-  const auto i = findValue(ctx, set, value, identity);
-  if (unwinding(ctx)) {
+  Root element(ctx.roots, args[0]);
+  if (!checkTable(ctx, set.slot, kSetWidth)) {
     return Oop{};
   }
-  return i == UINT32_MAX ? Oop::false_() : Oop::true_();
+  if (element.slot.isNil()) {
+    return Oop::false_();
+  }
+  std::int64_t hash = 0;
+  if (!keyHash(ctx, element.slot, identity, &hash)) {
+    return Oop{};
+  }
+  const Probe p = probe(ctx, set, element, hash, kSetWidth, identity);
+  if (p.result == Lookup::Failed) {
+    return Oop{};
+  }
+  return p.result == Lookup::Found ? Oop::true_() : Oop::false_();
 }
 
 std::int64_t ocSize(Heap& heap, Oop oc) {
@@ -358,11 +528,11 @@ Oop ao_Dictionary_new(CallContext& ctx, const Oop& receiver, const Oop*, std::ui
   if (argc != 0) {
     return Oop{};
   }
-  return hashedNew(ctx, receiver);
+  return hashedNew(ctx, receiver, kDictWidth);
 }
 
 Oop ao_Dictionary_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  return hashedSize(ctx, receiver, argc);
+  return hashedSize(ctx, receiver, argc, kDictWidth);
 }
 
 Oop ao_Dictionary_at_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -374,9 +544,24 @@ Oop ao_Dictionary_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args
   return dictAtPut(ctx, receiver, args, argc, false);
 }
 
+Oop ao_Dictionary_at_ifAbsent_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                               std::uint32_t argc) {
+  return dictAtIfAbsent(ctx, receiver, args, argc, false);
+}
+
 Oop ao_Dictionary_includesKey_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                std::uint32_t argc) {
   return dictIncludesKey(ctx, receiver, args, argc, false);
+}
+
+Oop ao_Dictionary_removeKey_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc) {
+  return dictRemoveKey(ctx, receiver, args, argc, false, false);
+}
+
+Oop ao_Dictionary_removeKey_ifAbsent_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                      std::uint32_t argc) {
+  return dictRemoveKey(ctx, receiver, args, argc, false, true);
 }
 
 Oop ao_IdentityDictionary_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -389,126 +574,120 @@ Oop ao_IdentityDictionary_at_put_(CallContext& ctx, const Oop& receiver, const O
   return dictAtPut(ctx, receiver, args, argc, true);
 }
 
+Oop ao_IdentityDictionary_at_ifAbsent_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                       std::uint32_t argc) {
+  return dictAtIfAbsent(ctx, receiver, args, argc, true);
+}
+
 Oop ao_IdentityDictionary_includesKey_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                        std::uint32_t argc) {
   return dictIncludesKey(ctx, receiver, args, argc, true);
 }
 
+Oop ao_IdentityDictionary_removeKey_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                     std::uint32_t argc) {
+  return dictRemoveKey(ctx, receiver, args, argc, true, false);
+}
+
+Oop ao_IdentityDictionary_removeKey_ifAbsent_(CallContext& ctx, const Oop& receiver,
+                                              const Oop* args, std::uint32_t argc) {
+  return dictRemoveKey(ctx, receiver, args, argc, true, true);
+}
+
+// SPEC §3.6: whether a value is = to the argument (`anObject = value`, not sent to the identical
+// value). No hash is sent.
 Oop ao_Dictionary_includes_(CallContext& ctx, const Oop& receiver, const Oop* args,
                             std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1) {
     return Oop{};
   }
   Root dict(ctx.roots, receiver);
   Root needle(ctx.roots, args[0]);
-  consumeHash(ctx, needle);
-  if (unwinding(ctx)) {
-    return Oop{};
-  }
-  if (!ensureInner(ctx, dict)) {
-    return Oop::false_();
-  }
-  const Oop inner0 = ctx.heap.slotAt(dict.slot, kHashedArray);
-  const std::uint32_t n = inner0.isHeap() ? ctx.heap.size(inner0) : 0;
-  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
-    const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
-    if (ctx.heap.slotAt(inner, i).isNil()) {
-      continue;
+  Root equals(ctx.roots, ctx.wk.intern("="));
+  RootedArray slots(ctx.roots, 2);
+  bool found = false;
+  const bool done = eachEntry(ctx, dict, kDictWidth, slots, [&] {
+    if (slots[1] == needle.slot) {
+      found = true;
+      return false;
     }
-    const Oop val = ctx.heap.slotAt(inner, i + 1);
-    if (keysMatch(ctx, needle, val, false)) {
-      return Oop::true_();
+    const Oop eq = send(ctx, needle.slot, equals.slot, &slots[1], 1, nullptr);
+    if (unwinding(ctx) || !isBoolean(eq)) {
+      return false;
     }
-    if (unwinding(ctx)) {
-      return Oop{};
-    }
+    found = eq.isTrue();
+    return !found;
+  });
+  if (found) {
+    return Oop::true_();
   }
-  return Oop::false_();
+  return done ? Oop::false_() : Oop{};
 }
 
+// SPEC §3.6: the values, not Associations (Blue Book).
 Oop ao_Dictionary_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
-    return Oop{};
-  }
-  Root dict(ctx.roots, receiver);
-  Root blk(ctx.roots, args[0]);
-  if (!ensureInner(ctx, dict)) {
-    return dict.slot;
-  }
-  const Oop inner0 = ctx.heap.slotAt(dict.slot, kHashedArray);
-  const std::uint32_t n = inner0.isHeap() ? ctx.heap.size(inner0) : 0;
-  Root assoc(ctx.roots);
-  Root key(ctx.roots);
-  Root value(ctx.roots);
-  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
-    const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
-    key.slot = ctx.heap.slotAt(inner, i);
-    if (key.slot.isNil()) {
-      continue;
-    }
-    value.slot = ctx.heap.slotAt(inner, i + 1);
-    assoc.slot = allocateRetry(ctx, ctx.wk.associationClass, 2, 0);
-    if (!assoc.slot.isHeap()) {
-      return dict.slot;
-    }
-    ctx.heap.slotAtPut(assoc.slot, kAssocKey, key.slot);
-    ctx.heap.slotAtPut(assoc.slot, kAssocValue, value.slot);
-    Oop ignored;
-    if (!callBlock(ctx, blk.slot, &assoc.slot, 1, &ignored)) {
-      return Oop{};
-    }
-  }
-  return dict.slot;
+  return enumerate(ctx, receiver, args, argc, kDictWidth, Pass::Values);
 }
 
+Oop ao_Dictionary_keysDo_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                          std::uint32_t argc) {
+  return enumerate(ctx, receiver, args, argc, kDictWidth, Pass::Keys);
+}
+
+Oop ao_Dictionary_associationsDo_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                  std::uint32_t argc) {
+  return enumerate(ctx, receiver, args, argc, kDictWidth, Pass::Associations);
+}
+
+Oop ao_Dictionary_keysAndValuesDo_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                                   std::uint32_t argc) {
+  return enumerate(ctx, receiver, args, argc, kDictWidth, Pass::KeysAndValues);
+}
+
+// SPEC §3.6: an Array of the block's answers for the values, as large as the tally was.
 Oop ao_Dictionary_collect_(CallContext& ctx, const Oop& receiver, const Oop* args,
                            std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1) {
     return Oop{};
   }
   Root dict(ctx.roots, receiver);
   Root blk(ctx.roots, args[0]);
-  Oop nOop = Oop::fromSmallInteger(tallyOf(ctx.heap, dict.slot));
+  Hashed::Table t;
+  const Hashed::Shape shape = Hashed::read(ctx.heap, dict.slot, kDictWidth, &t);
+  if (shape == Hashed::Shape::Damaged) {
+    return failDamaged(ctx, dict.slot);
+  }
+  Oop nOop = Oop::fromSmallInteger(shape == Hashed::Shape::Table ? t.tally : 0);
   Root arr(ctx.roots, send(ctx, ctx.wk.arrayClass, ctx.wk.selBasicNew_, &nOop, 1, nullptr));
   if (!arr.slot.isHeap()) {
     return arr.slot;
   }
-  if (!ensureInner(ctx, dict)) {
-    return arr.slot;
-  }
-  const Oop inner0 = ctx.heap.slotAt(dict.slot, kHashedArray);
-  const std::uint32_t n = inner0.isHeap() ? ctx.heap.size(inner0) : 0;
+  RootedArray slots(ctx.roots, 4);  // key, value, index, the block's answer
   std::int64_t idx = 1;
-  Root val(ctx.roots);
-  Root mapped(ctx.roots);
-  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
-    const Oop inner = ctx.heap.slotAt(dict.slot, kHashedArray);
-    if (ctx.heap.slotAt(inner, i).isNil()) {
-      continue;
+  const bool done = eachEntry(ctx, dict, kDictWidth, slots, [&] {
+    if (!callBlock(ctx, blk.slot, &slots[1], 1, &slots[3])) {
+      return false;
     }
-    val.slot = ctx.heap.slotAt(inner, i + 1);
-    if (!callBlock(ctx, blk.slot, &val.slot, 1, &mapped.slot)) {
-      return Oop{};
-    }
-    Oop put[2] = {Oop::fromSmallInteger(idx), mapped.slot};
-    send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
+    slots[2] = Oop::fromSmallInteger(idx);
+    send(ctx, arr.slot, ctx.wk.selAt_put_, &slots[2], 2, nullptr);
     if (unwinding(ctx)) {
-      return Oop{};
+      return false;
     }
     ++idx;
-  }
-  return arr.slot;
+    return true;
+  });
+  return done ? arr.slot : Oop{};
 }
 
 Oop ao_Set_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
   }
-  return hashedNew(ctx, receiver);
+  return hashedNew(ctx, receiver, kSetWidth);
 }
 
 Oop ao_Set_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  return hashedSize(ctx, receiver, argc);
+  return hashedSize(ctx, receiver, argc, kSetWidth);
 }
 
 Oop ao_Set_add_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -530,29 +709,7 @@ Oop ao_IdentitySet_includes_(CallContext& ctx, const Oop& receiver, const Oop* a
 }
 
 Oop ao_Set_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
-    return Oop{};
-  }
-  Root set(ctx.roots, receiver);
-  Root blk(ctx.roots, args[0]);
-  if (!ensureInner(ctx, set)) {
-    return set.slot;
-  }
-  const Oop inner0 = ctx.heap.slotAt(set.slot, kHashedArray);
-  const std::uint32_t n = inner0.isHeap() ? ctx.heap.size(inner0) : 0;
-  Root elt(ctx.roots);
-  for (std::uint32_t i = 0; i < n; ++i) {
-    const Oop inner = ctx.heap.slotAt(set.slot, kHashedArray);
-    elt.slot = ctx.heap.slotAt(inner, i);
-    if (elt.slot.isNil()) {
-      continue;
-    }
-    Oop ignored;
-    if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
-      return Oop{};
-    }
-  }
-  return set.slot;
+  return enumerate(ctx, receiver, args, argc, kSetWidth, Pass::Keys);
 }
 
 Oop ao_OrderedCollection_new(CallContext& ctx, const Oop& receiver, const Oop*,
@@ -893,11 +1050,23 @@ void installDictionary(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.dictionaryClass, "at:", 1, "ao_Dictionary_at_", ao_Dictionary_at_);
   putNative(heap, wk, wk.dictionaryClass, "at:put:", 2, "ao_Dictionary_at_put_",
             ao_Dictionary_at_put_);
+  putNative(heap, wk, wk.dictionaryClass, "at:ifAbsent:", 2, "ao_Dictionary_at_ifAbsent_",
+            ao_Dictionary_at_ifAbsent_);
   putNative(heap, wk, wk.dictionaryClass, "includesKey:", 1, "ao_Dictionary_includesKey_",
             ao_Dictionary_includesKey_);
+  putNative(heap, wk, wk.dictionaryClass, "removeKey:", 1, "ao_Dictionary_removeKey_",
+            ao_Dictionary_removeKey_);
+  putNative(heap, wk, wk.dictionaryClass, "removeKey:ifAbsent:", 2,
+            "ao_Dictionary_removeKey_ifAbsent_", ao_Dictionary_removeKey_ifAbsent_);
   putNative(heap, wk, wk.dictionaryClass, "includes:", 1, "ao_Dictionary_includes_",
             ao_Dictionary_includes_);
   putNative(heap, wk, wk.dictionaryClass, "do:", 1, "ao_Dictionary_do_", ao_Dictionary_do_);
+  putNative(heap, wk, wk.dictionaryClass, "keysDo:", 1, "ao_Dictionary_keysDo_",
+            ao_Dictionary_keysDo_);
+  putNative(heap, wk, wk.dictionaryClass, "associationsDo:", 1, "ao_Dictionary_associationsDo_",
+            ao_Dictionary_associationsDo_);
+  putNative(heap, wk, wk.dictionaryClass, "keysAndValuesDo:", 1, "ao_Dictionary_keysAndValuesDo_",
+            ao_Dictionary_keysAndValuesDo_);
   putNative(heap, wk, wk.dictionaryClass, "collect:", 1, "ao_Dictionary_collect_",
             ao_Dictionary_collect_);
 
@@ -905,8 +1074,14 @@ void installDictionary(Heap& heap, WellKnown& wk) {
             ao_IdentityDictionary_at_);
   putNative(heap, wk, wk.identityDictionaryClass, "at:put:", 2, "ao_IdentityDictionary_at_put_",
             ao_IdentityDictionary_at_put_);
+  putNative(heap, wk, wk.identityDictionaryClass, "at:ifAbsent:", 2,
+            "ao_IdentityDictionary_at_ifAbsent_", ao_IdentityDictionary_at_ifAbsent_);
   putNative(heap, wk, wk.identityDictionaryClass, "includesKey:", 1,
             "ao_IdentityDictionary_includesKey_", ao_IdentityDictionary_includesKey_);
+  putNative(heap, wk, wk.identityDictionaryClass, "removeKey:", 1,
+            "ao_IdentityDictionary_removeKey_", ao_IdentityDictionary_removeKey_);
+  putNative(heap, wk, wk.identityDictionaryClass, "removeKey:ifAbsent:", 2,
+            "ao_IdentityDictionary_removeKey_ifAbsent_", ao_IdentityDictionary_removeKey_ifAbsent_);
 
   putNative(heap, wk, wk.setMetaclass, "new", 0, "ao_Set_new", ao_Set_new);
   putNative(heap, wk, wk.setClass, "size", 0, "ao_Set_size", ao_Set_size);

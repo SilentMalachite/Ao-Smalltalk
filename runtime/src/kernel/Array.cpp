@@ -158,8 +158,8 @@ struct SavedHashNesting {
 
 }  // namespace
 
-bool mixElementHash(CallContext& ctx, Oop element, std::uint64_t* h) {
-  Root e(ctx.roots, element);
+bool sendHash(CallContext& ctx, Oop obj, std::int64_t* out) {
+  Root e(ctx.roots, obj);
   const Oop selector = ctx.wk.intern("hash");
   Oop answer;
   {
@@ -171,8 +171,12 @@ bool mixElementHash(CallContext& ctx, Oop element, std::uint64_t* h) {
   if (unwinding(ctx)) {
     return false;
   }
+  return LargeInteger::valueHash(ctx.heap, ctx.wk, answer, out);
+}
+
+bool mixElementHash(CallContext& ctx, Oop element, std::uint64_t* h) {
   std::int64_t v = 0;
-  if (!LargeInteger::valueHash(ctx.heap, ctx.wk, answer, &v)) {
+  if (!sendHash(ctx, element, &v)) {
     return false;
   }
   *h = valueHashWord(*h, static_cast<std::uint64_t>(v));

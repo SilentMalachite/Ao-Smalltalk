@@ -14,14 +14,16 @@ struct CallContext;
 
 // SPEC §3.6: a class's classPool (kClassSlotClassPool) is a Kernel Dictionary from each class
 // variable's name (an interned Symbol) to its binding, an Association whose key is the name and
-// whose value is the variable's value. Only this namespace reads or writes the Dictionary's slots,
-// so its layout can change in one place.
+// whose value is the variable's value. The Dictionary has the hashed layout of every Kernel
+// Dictionary (HashedCollection.hpp); the key hash this namespace saves is the one the name's Symbol
+// answers to hash, computed without a send.
 namespace ClassPool {
 
-// A new pool with a fresh binding (value nil) for each name, in order. A repeated name gets one
-// binding. May GC. Empty Oop when an allocation fails (the out-of-memory flag is then set).
+// A new pool with a fresh binding (value nil) for each name. A repeated name gets one binding. May
+// GC. Empty Oop when an allocation fails (the out-of-memory flag is then set).
 Oop make(CallContext& ctx, const std::vector<std::string>& names);
-// The names pool binds, in order. Nothing when pool is no pool (nil for a Kernel class). Does not GC.
+// The names pool binds, in byte order (SPEC §3.6: the table keeps no order). Nothing when pool is
+// no pool (nil for a Kernel class) or its table is damaged. Does not GC.
 std::vector<std::string> names(Heap& heap, Oop pool);
 // The binding pool has for name, or the empty Oop. Does not GC.
 Oop bindingAt(Heap& heap, Oop pool, std::string_view name);
@@ -40,8 +42,9 @@ std::vector<std::string> visibleNames(Heap& heap, const WellKnown& wk, Oop cls);
 Oop visibleBinding(Heap& heap, const WellKnown& wk, Oop cls, std::string_view name);
 // SPEC §3.6: whether obj is a binding, an Association LitVar can read and write.
 bool isBinding(const Heap& heap, const WellKnown& wk, Oop obj);
-// SPEC §3.6: what Class>>classPool answers. A new Dictionary with pool's names in pool's order,
-// each bound to the same binding, so at:put: on it leaves pool and every binding as they are.
+// SPEC §3.6: what Class>>classPool answers. A new Dictionary with pool's tally and a copy of its
+// array, so each name is bound to the same binding and at:put: on it leaves pool and every binding
+// as they are.
 // pool itself when it is no pool (nil for a Kernel class). May GC; empty Oop when an allocation
 // fails (the out-of-memory flag is then set).
 Oop copy(CallContext& ctx, Oop pool);
