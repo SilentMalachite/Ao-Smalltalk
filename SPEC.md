@@ -359,14 +359,16 @@ Boolean の演算（Blue Book）:
 | レシーバ | `=` が true になる相手 | `hash` |
 |---|---|---|
 | SmallInteger, LargePositiveInteger, LargeNegativeInteger | 値の等しい Integer | SmallInteger に収まる値はその値。それ以外は符号と絶対値から |
-| Float | IEEE754 の `==` が成り立つ Float（`0.0 = -0.0` は true。NaN はどれとも等しくない） | ビット列から。`-0.0` は `0.0` と同じ |
+| Float | IEEE754 の `==` が成り立つ Float（`0.0 = -0.0` は true。NaN はどれとも等しくない。8 バイトに満たない Float（`Float new`）は 0.0 として読む） | `=` と同じに読んだ値のビット列から。`-0.0` と 8 バイトに満たない Float は `0.0` と同じ |
 | Fraction | 分子どうしと分母どうしが等しい Fraction | 分子と分母の `hash` から |
 | String, Symbol | 同じバイト列の String か Symbol（`#abc = 'abc'` は true） | バイト列から。String と Symbol は同じ関数 |
 | Array | 同じクラスで要素数が同じで、要素どうしが `=` | 要素数と、先頭 16 要素に `hash` を送った答えから |
 | Point | x どうしと y どうしが `=` の Point | x と y に `hash` を送った答えから |
 
 - Array と Point の `hash` は、要素に `hash` を送る（要素の `hash` は Smalltalk のメソッドでもよい）。答えが Integer でなければ失敗する（§3.3）。送った先で巻き戻しが始まったら、残りの要素に送らず直ちに空 OOP を返す（§3.4）。
-- 入れ子の上限: Array と Point の `hash` のネイティブは、評価中に入れ子になっている数（送った先でまた Array か Point の `hash` に入った数）が 4 以上なら、要素に送らない。Array は要素数だけから、Point は定数を答える。自分を要素に持つ Array でも止まる。
+- 入れ子の上限: Array と Point の `hash` のネイティブは、Kernel の Array と Point の `hash` がじかに入れ子になった数が 4 以上なら、要素に送らない。Array は要素数だけから、Point は定数を答える。自分を要素に持つ Array や Point でも止まる。
+- `hash` は値だけで決まり、呼ばれた文脈によらない。要素で見つかる `hash` のメソッドが Kernel の Array か Point の `hash` のネイティブでなければ（利用者のメソッド、ほかのクラスのネイティブ）、入れ子の数を 0 にしてから送り、戻ったら（失敗や巻き戻しで戻ったときも）元の数に戻す。したがって、利用者の `hash` が中で送る `hash` は、どの深さから呼ばれても同じ答えになる。
+- 利用者のオブジェクトを経由する循環（利用者の `hash` が、自分を要素に持つ Array の `hash` を送る）は打ち切らない。再帰はスタックガード（§3.4）に当たり、評価は `stack overflow` で中断する。
 - Character は即値なので、同一性の `=` と `identityHash`（スカラー値）で足りる。`=` を上書きしない Kernel クラス（Interval、Association、Rectangle、OrderedCollection、Dictionary、Set、ByteArray など）は、同一性の `=` と `hash`（`identityHash`）のままである。
 
 #### Kernel-Classes
@@ -520,6 +522,7 @@ Character:
 
 - Point と Rectangle のネイティブは、それぞれのサブクラスのインスタンスも同じに扱う（クラスの一致ではなく `inheritsFrom:` と同じ判定）。
 - Point の算術（`+ - * //`）は成分ごとに送り、答えは Point である。成分の計算が失敗したら（`(Point x: 1 y: 2) + nil`）、Point を作らずに失敗する（§3.3）。
+- Rectangle の `containsPoint:` と `intersect:` は成分を `<=` と `<` で比べる。比べた答えが Boolean でなければ（失敗の空 OOP を含む）、false や成分の代わりにせず失敗する（§3.3）。比べた先で巻き戻しが始まったら、直ちに空 OOP を返す（§3.4）。
 
 #### Streams / System
 
