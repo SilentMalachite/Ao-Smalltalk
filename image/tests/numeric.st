@@ -40,3 +40,8 @@ self assert: 'abc' hash equals: 'abc' copy hash.
 self assert: #abc hash equals: 'abc' hash.
 self assert: #(1 'x' #(2.5 $c)) hash equals: #(1 'x' #(2.5 $c)) hash.
 self assert: (Point x: 1 y: 'p') hash equals: (Point x: 1 y: 'p' copy) hash.
+"SPEC §3.6 Boolean: true & x と false | x は x を答える"
+self assert: (true & nil) equals: nil.
+self assert: (false | 3) equals: 3.
+self assert: (true xor: false) equals: true.
+self assert: (false eqv: false) equals: true.

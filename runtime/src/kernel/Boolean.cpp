@@ -16,6 +16,8 @@ Oop sendValue(CallContext& ctx, Oop block) {
 
 Oop asBool(bool v) { return v ? Oop::true_() : Oop::false_(); }
 
+bool isBoolean(Oop o) { return o.isTrue() || o.isFalse(); }
+
 }  // namespace
 
 // SPEC §3.3: aborts the evaluation like Object>>subclassResponsibility.
@@ -58,9 +60,10 @@ Oop ao_True_not(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   return Oop::false_();
 }
 
+// Blue Book: `true & x` answers x as it is (SPEC §3.6).
 Oop ao_True_and(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
-  return asBool(args[0].isTrue());
+  return args[0];
 }
 
 Oop ao_True_or(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
@@ -68,14 +71,15 @@ Oop ao_True_or(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   return Oop::true_();
 }
 
+// SPEC §3.6: eqv: and xor: fail on an argument that is not a Boolean.
 Oop ao_True_eqv_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
-  if (argc != 1) return Oop{};
-  return asBool(args[0].isTrue());
+  if (argc != 1 || !isBoolean(args[0])) return Oop{};
+  return args[0];
 }
 
-Oop ao_True_xor_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  const Oop eqv = ao_True_eqv_(ctx, receiver, args, argc);
-  return eqv.isTrue() ? Oop::false_() : Oop::true_();
+Oop ao_True_xor_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
+  if (argc != 1 || !isBoolean(args[0])) return Oop{};
+  return asBool(args[0].isFalse());
 }
 
 Oop ao_False_ifTrue_(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
@@ -118,19 +122,20 @@ Oop ao_False_and(CallContext&, const Oop&, const Oop*, std::uint32_t argc) {
   return Oop::false_();
 }
 
+// Blue Book: `false | x` answers x as it is (SPEC §3.6).
 Oop ao_False_or(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
-  return asBool(args[0].isTrue());
+  return args[0];
 }
 
 Oop ao_False_eqv_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
-  if (argc != 1) return Oop{};
+  if (argc != 1 || !isBoolean(args[0])) return Oop{};
   return asBool(args[0].isFalse());
 }
 
 Oop ao_False_xor_(CallContext&, const Oop&, const Oop* args, std::uint32_t argc) {
-  if (argc != 1) return Oop{};
-  return asBool(args[0].isTrue());
+  if (argc != 1 || !isBoolean(args[0])) return Oop{};
+  return args[0];
 }
 
 Oop ao_True_printString(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {

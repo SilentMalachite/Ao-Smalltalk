@@ -431,3 +431,44 @@ TEST_F(KernelNumeric, ValueHashesSurviveImageSaveAndLoad) {
                             "(a collect: [:e | e hash]) printString"));
   std::filesystem::remove(path);
 }
+
+// 03 Low: Boolean の全セレクタ。true & x と false | x は x をそのまま答える（Blue Book）。
+TEST_F(KernelNumeric, BooleanOperatorsFollowTheBlueBook) {
+  EXPECT_EQ("true", printIt("true & true"));
+  EXPECT_EQ("false", printIt("true & false"));
+  EXPECT_EQ("nil", printIt("true & nil"));
+  EXPECT_EQ("3", printIt("true & 3"));
+  EXPECT_EQ("false", printIt("false & true"));
+  EXPECT_EQ("false", printIt("false & nil"));
+  EXPECT_EQ("true", printIt("true | false"));
+  EXPECT_EQ("true", printIt("true | nil"));
+  EXPECT_EQ("false", printIt("false | false"));
+  EXPECT_EQ("true", printIt("false | true"));
+  EXPECT_EQ("3", printIt("false | 3"));
+  EXPECT_EQ("nil", printIt("false | nil"));
+  EXPECT_EQ("true", printIt("true eqv: true"));
+  EXPECT_EQ("false", printIt("true eqv: false"));
+  EXPECT_EQ("false", printIt("false eqv: true"));
+  EXPECT_EQ("true", printIt("false eqv: false"));
+  EXPECT_EQ("false", printIt("true xor: true"));
+  EXPECT_EQ("true", printIt("true xor: false"));
+  EXPECT_EQ("true", printIt("false xor: true"));
+  EXPECT_EQ("false", printIt("false xor: false"));
+  EXPECT_EQ("false", printIt("true not"));
+  EXPECT_EQ("true", printIt("false not"));
+  EXPECT_EQ("3", printIt("true and: [3]"));
+  EXPECT_EQ("false", printIt("false and: [3]"));
+  EXPECT_EQ("true", printIt("true or: [3]"));
+  EXPECT_EQ("4", printIt("false or: [4]"));
+  // 送信で呼んでも（インライン展開しなくても）同じ。
+  EXPECT_EQ("nil", printIt("true perform: #& with: nil"));
+  EXPECT_EQ("3", printIt("false perform: #| with: 3"));
+}
+
+// 03 Low: eqv: と xor: は、引数が Boolean でなければ失敗する。
+TEST_F(KernelNumeric, EqvAndXorFailOnNonBooleanArguments) {
+  EXPECT_EQ("<eval error: failed: #xor:>", printIt("true xor: 3"));
+  EXPECT_EQ("<eval error: failed: #xor:>", printIt("false xor: nil"));
+  EXPECT_EQ("<eval error: failed: #eqv:>", printIt("true eqv: 3"));
+  EXPECT_EQ("<eval error: failed: #eqv:>", printIt("false eqv: nil"));
+}
