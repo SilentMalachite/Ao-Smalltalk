@@ -2,7 +2,6 @@
 
 #include "ao/Scanner.hpp"
 
-#include <deque>
 #include <utility>
 #include <vector>
 
@@ -40,32 +39,15 @@ class Parser {
   std::string_view src_;
   Token cur_;
   Token prev_;
-  std::deque<Token> queued_;
   bool hadError_ = false;
   CompileError error_;
 
   void advance() {
     prev_ = cur_;
-    if (!queued_.empty()) {
-      cur_ = queued_.front();
-      queued_.pop_front();
-    } else {
-      cur_ = scanner_.next();
-    }
+    cur_ = scanner_.next();
     if (cur_.kind == Tok::Error) {
       fail(cur_.text.empty() ? "invalid token" : cur_.text.c_str());
     }
-  }
-
-  void replay(const std::vector<Token>& toks) {
-    if (toks.empty()) {
-      return;
-    }
-    queued_.push_front(cur_);
-    for (std::size_t i = toks.size(); i-- > 1;) {
-      queued_.push_front(toks[i]);
-    }
-    cur_ = toks[0];
   }
 
   bool check(Tok k) const { return cur_.kind == k; }
@@ -168,7 +150,8 @@ class Parser {
     fail("expected message pattern");
   }
 
-  void parseTemps(Ast& method) {
+  // An optional temp declaration `| t u |` (or the empty `||`) of a method or a block.
+  void parseTemps(Ast& node) {
     if (hadError_) {
       return;
     }
@@ -180,8 +163,13 @@ class Parser {
       return;
     }
     advance();
+    parseTempNames(node);
+  }
+
+  // The names of a temp declaration after its opening `|`, and the closing `|`.
+  void parseTempNames(Ast& node) {
     while (check(Tok::Ident)) {
-      method.temps.push_back(cur_.text);
+      node.temps.push_back(cur_.text);
       advance();
     }
     if (!isPipe()) {
@@ -467,27 +455,19 @@ class Parser {
       blk.params.push_back(cur_.text);
       advance();
     }
-    if (isEmptyTemps()) {
+    // SPEC §3.8: after the arguments the `|` is required; `||` is that `|` and the opening of the
+    // temp declaration.
+    if (blk.params.empty()) {
+      parseTemps(blk);
+    } else if (isEmptyTemps()) {
       advance();
+      parseTempNames(blk);
     } else if (isPipe()) {
       advance();
-      if (isPipe()) {
-        advance();
-      } else {
-        std::vector<Token> ids;
-        while (check(Tok::Ident)) {
-          ids.push_back(cur_);
-          advance();
-        }
-        if (isPipe()) {
-          for (const Token& id : ids) {
-            blk.temps.push_back(id.text);
-          }
-          advance();
-        } else {
-          replay(ids);
-        }
-      }
+      parseTemps(blk);
+    } else {
+      fail("expected '|'");
+      return blk;
     }
     Ast body = parseStatementsAsSequence();
     if (!check(Tok::RBracket)) {

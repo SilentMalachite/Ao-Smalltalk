@@ -2406,3 +2406,28 @@ TEST(AcceptAbi, IntegerMantissaWithExponentIsInteger) {
   EXPECT_STREQ("number too large", err.message);
   ao_runtime_shutdown();
 }
+
+// B7 (docs/claude-review/05 High) / SPEC §3.8: a block with arguments and temps was "expected
+// ']'", and `[:a :b | a | b]` read `a` as a temp and answered false. After the arguments the `|`
+// is required; `||` is the separator and the opening of the temps.
+TEST(AcceptAbi, BlockArgumentsThenTemps) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  expectPrints({
+      {"[:x | | t | t := x. t] value: 3", "3"},
+      {"[:x || t | t := x. t] value: 3", "3"},
+      {"[:a :b | a | b] value: true value: false", "true"},
+      {"[:a | a | false] value: true", "true"},
+      {"[:a | ] value: 1", "nil"},
+      {"[ | t | t ] value", "nil"},
+      {"([:x || t | t := x. [t + 1]] value: 4) value", "5"},
+  });
+  char out[128];
+  AoSpan err{};
+  const char* missing = "[:a] value: 1";
+  EXPECT_EQ(AO_ERR_COMPILE, ao_eval(missing, static_cast<int>(std::strlen(missing)),
+                                    AO_EVAL_PRINTIT, out, 128, &err));
+  EXPECT_STREQ("expected '|'", err.message);
+  EXPECT_EQ(3u, err.start);
+  EXPECT_EQ(4u, err.end);
+  ao_runtime_shutdown();
+}

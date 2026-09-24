@@ -13,11 +13,9 @@ LOAD_ORDER による file-in で意図して載せないメソッドを、1 行�
 列挙したメソッドのエラーは数えず、報告もしない。そのメソッドはイメージに入らない。
 `vendor_filein_test` は、失敗するメソッドの集合がこの列挙と一致することを確かめる。直して載るようになったら、その行を消す。
 
-いまの 10 件は、どれもコンパイルエラーである。括弧内は実際のエラーメッセージ。
+いまの 8 件は、どれもコンパイルエラーである。括弧内は実際のエラーメッセージ。
 
 ```text
-Bag>>product:: ブロックが引数と temp を両方持つ構文 [ :each :times | | v | ... ] を解析できない（expected ']'）。B7 のパーサで直す
-Bag>>sum:ifEmpty:: ブロックが引数と temp を両方持つ構文 [ :each :times | | v | ... ] を解析できない（expected ']'）。B7 のパーサで直す
 Notification class>>signalToUpdateDebuggerOn:dueTo:: 波括弧の配列 {...} は Blue Book の構文でない（expected expression）。B7 で image/patches/ に書き換えるか、ここに残す
 Date>>printOn:format:: 波括弧の配列 {d. m. y} は Blue Book の構文でない（expected expression）。B7 で image/patches/ に書き換えるか、ここに残す
 Time class>>dateAndTimeFromSeconds:: 波括弧の配列 {...} は Blue Book の構文でない（expected expression）。B7 で image/patches/ に書き換えるか、ここに残す

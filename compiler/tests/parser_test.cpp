@@ -169,3 +169,40 @@ TEST(Parser, IntegerExponentTooLarge) {
   EXPECT_FALSE(bad.ok);
   EXPECT_EQ("invalid token", bad.error.message);
 }
+
+// SPEC §3.8: after block arguments the `|` is required. A temp declaration may follow it, and
+// `||` is the separator and the opening of the temps. The body after the separator is not read
+// as temps: `[:a :b | a | b]` has the body `a | b`.
+TEST(Parser, BlockArgumentsThenTemps) {
+  for (const char* src : {"foo\n  ^[:x | | t | t := x. t]", "foo\n  ^[:x || t | t := x. t]"}) {
+    auto r = parseMethod(src);
+    ASSERT_TRUE(r.ok) << src << ": " << r.error.message;
+    auto& blk = r.method.kids.at(0).kids.at(0);
+    ASSERT_EQ(Ast::Kind::Block, blk.kind) << src;
+    ASSERT_EQ(1u, blk.params.size()) << src;
+    ASSERT_EQ(1u, blk.temps.size()) << src;
+    EXPECT_EQ("t", blk.temps[0]) << src;
+    EXPECT_EQ(2u, blk.kids.at(0).kids.size()) << src;
+  }
+  for (const char* src : {"foo\n  ^[:a :b | a | b]", "foo\n  ^[:a | a | false]"}) {
+    auto r = parseMethod(src);
+    ASSERT_TRUE(r.ok) << src << ": " << r.error.message;
+    auto& blk = r.method.kids.at(0).kids.at(0);
+    EXPECT_TRUE(blk.temps.empty()) << src;
+    auto& body = blk.kids.at(0);
+    ASSERT_EQ(1u, body.kids.size()) << src;
+    EXPECT_EQ(Ast::Kind::Send, body.kids[0].kind) << src;
+    EXPECT_EQ("|", body.kids[0].name) << src;
+  }
+  auto empty = parseMethod("foo\n  ^[:a | ]");
+  ASSERT_TRUE(empty.ok) << empty.error.message;
+  EXPECT_TRUE(empty.method.kids.at(0).kids.at(0).kids.at(0).kids.empty());
+  auto noArgs = parseMethod("foo\n  ^[ | t | t ]");
+  ASSERT_TRUE(noArgs.ok) << noArgs.error.message;
+  EXPECT_EQ(1u, noArgs.method.kids.at(0).kids.at(0).temps.size());
+  auto missing = parseMethod("foo\n  ^[:a]");
+  EXPECT_FALSE(missing.ok);
+  EXPECT_EQ("expected '|'", missing.error.message);
+  EXPECT_EQ(10u, missing.error.span.start);
+  EXPECT_EQ(11u, missing.error.span.end);
+}
