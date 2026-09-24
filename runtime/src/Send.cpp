@@ -275,7 +275,16 @@ std::string abortReasonText(const CallContext& ctx) {
   }
   const Oop text = ctx.roots.handleAt(ctx.abortReasonHandle);
   if (text.isHeap() && (ctx.heap.flags(text) & kFlagBytes) != 0) {
-    return Str::toUtf8(ctx.heap, text);
+    // SPEC §3.3: NUL は `\0` の 2 文字にして、C 文字列で途切れないようにする。
+    std::string reason;
+    for (const char c : Str::toUtf8(ctx.heap, text)) {
+      if (c == '\0') {
+        reason += "\\0";
+      } else {
+        reason += c;
+      }
+    }
+    return reason;
   }
   return ctx.abortReason != nullptr ? std::string(ctx.abortReason) : std::string();
 }

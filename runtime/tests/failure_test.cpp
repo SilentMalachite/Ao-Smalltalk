@@ -99,6 +99,15 @@ TEST_F(FailureAbort, ErrorReasonPrintsOtherArgument) {
   EXPECT_STREQ("#(1 $a)", err_.message);
 }
 
+// SPEC §3.3, §3.10: 理由の NUL バイトは `\0` の 2 文字にし、AoSpan.message を途切れさせない。
+TEST_F(FailureAbort, ErrorReasonNulBytesBecomeBackslashZero) {
+  EXPECT_EQ(AO_ERR_EVAL, print("nil error: (String new: 1)"));
+  EXPECT_STREQ("\\0", err_.message);
+  EXPECT_EQ(AO_ERR_EVAL,
+            print("nil error: ((String new: 3) at: 1 put: $a; at: 3 put: $b; yourself)"));
+  EXPECT_STREQ("a\\0b", err_.message);
+}
+
 // SPEC §3.3: subclassResponsibility と shouldNotImplement も値を返さずに中断する。
 TEST_F(FailureAbort, SubclassResponsibilityAborts) {
   EXPECT_EQ(AO_ERR_EVAL, print("Object new subclassResponsibility"));

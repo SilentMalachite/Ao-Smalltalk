@@ -32,7 +32,8 @@ Oop abortDoesNotUnderstand(CallContext& ctx, Oop selector);
 // A send of selector answered the empty Oop (SPEC §3.3). Unless the frames are unwinding already,
 // aborts with "failed: #<selector>", or "out of memory" once the heap has run out. May collect.
 Oop abortFailedSend(CallContext& ctx, Oop selector);
-// The reason of the abort in progress as UTF-8, or "" when there is none.
+// The reason of the abort in progress as UTF-8, or "" when there is none. Each NUL byte becomes
+// the two characters \0 so the text survives C strings (SPEC §3.3).
 std::string abortReasonText(const CallContext& ctx);
 // Drops any abort or non-local return left over, with the abort's reason. Only for outermost
 // entry points.
