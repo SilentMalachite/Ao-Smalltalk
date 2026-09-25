@@ -829,6 +829,46 @@ B10 の実施結果（計画からの逸脱と、実装時に決めたこと）:
 - SPEC §6 の「Kernel 走査テストが CI で失敗する変更はマージしない」。リポジトリに CI（`.github`）が無いので、最終確認で扱いを決める。
 - Inspector で A→B→A と開いたときの再利用。再利用の範囲が変わるので、ここでは扱わない。
 
+B11 の実施結果（計画からの逸脱と、実装時に決めたこと）:
+
+- 進め方: 手順 10 のスクリプトだけを worktree で並行して作り、あとでマージした（Serena を使わない変更だからである）。ほかの手順は本体のツリーで順に進めた。
+- ABI と runtime:
+  - `print_len` は `print_utf8` の直後に置いた。`AoTranscriptFn` の `(utf8, len, …)` と同じ並びである。
+  - SPEC に 2 文足した。`out` が NULL の呼び出しは入口を通るので、結果は空文字になる。失敗したロードでは、前の結果が残る。
+  - `ao_eval_result_copy` は、セッションや結果が無いときも、`buf` が有効なら先頭に NUL を書いてから `AO_ERR` を返す。`ao_browser_*` は同じ場合に `buf` に触れないので、そこが違う。
+- app:
+  - XCTest の `tearDown` は nonisolated である。そこで、窓を閉じるヘルパーを static にし、`MainActor.assumeIsolated` の中で呼ぶ。シートを先に閉じ、見えている窓は `isReleasedWhenClosed = false` にしてから閉じる。
+  - Workspace は、Print it と Inspect it が `AO_OK` か `AO_ERR_RANGE` を返したときだけ、保持された結果を読む（`keptEvalResult()`）。読めなければ、今までどおり `out` を使う。
+  - `InspectorWindow.init` に `onClose` を足し、既定値は何もしないクロージャにした。ToolWindowTests が Inspector を直接作っているからである。
+  - `ao_accept_class` の区間は、ソース全体の先頭から数えていた。そのため、クラス定義の Accept でも区間を選択する。Workspace と Browser は、共有の関数 `selectErrorSpan` で選択する。
+  - 空の区間かどうかは、UTF-16 に換算する前のバイトの区間で判定する。スカラーの途中を指す空の区間は、丸めると空でなくなるからである。
+  - 2 万行の Transcript は、62.9 秒から約 2 秒になった（ASan では 3.6 秒）。そのため、`beginEditing` / `endEditing` への切り替えはしていない。
+  - Transcript のフォントのテストは、先に等幅へ切り替えてから確かめる。既定のフォントは、属性の無い文字列と同じ Helvetica 12 で、属性の付け忘れを見分けられないからである。
+  - 末尾が見えることは、最終行の矩形が `visibleRect` に入るかで確かめる。高さで比べる形は、TextKit 2 の見積もりで 6pt ずれた。
+  - `NSApp.mainMenu = nil` だけでは AoApp が解放されなかった。Window メニューに載った窓を通して、メニューと AoApp が循環していた。ToolWindowTests の `tearDown` では、`windowsMenu` も nil にし、元のメニューの項目を外す。
+  - `resourceURL` が nil のときは、`bundleURL` で代える（SPEC に無い補足）。`AO_VENDOR_DIR` の相対パスはカレントディレクトリから解決する。SPEC の「カレントディレクトリは見ない」は、既定の場所についての規定と読んだ。
+- スクリプト:
+  - `--app` が待つ行のパスは、`pwd -P` で求めた実パスから作る。
+  - `.DS_Store` は、写してから消す。
+  - Release ビルドで、NDEBUG による警告は出なかった（GoogleTest の中に 1 件あるが、`-Werror` の対象外である）。
+- Codex レビューで直したもの（Medium 3 件、Low 2 件）:
+  - 「`open` はシェルの環境を渡さない」という計画の前提は誤りだった。open(1) に「起動したアプリは環境変数を継承する」とある。`AO_VENDOR_DIR` を設定した開発環境では、`--app` が偽って失敗していた。SPEC を直し、`open --env AO_VENDOR_DIR=` で変数を空にして起動する。
+  - `--app` の後始末が、`pkill -n -f` で利用者の Ao を止めうる問題を直した。パッケージの前に `build/Ao.app` が動いていれば、止めずに exit 1 で終わる。`open` のあとに見つけたプロセスだけを、PID で止める。
+  - Transcript の文字は、ダークモードでは暗い背景に黒で描かれていた。原因は、`typingAttributes` に文字色を入れていなかったことで、B11 の前からあった。`NSColor.textColor` を足し、その規則を SPEC §3.9 に書いた。
+  - Inspector が窓より先に解放されると、通知の登録が残っていた。`deinit` でも外すようにした。
+  - 拒まれた `ao_eval` が結果に触れないことは、元のテストでは確かめられていなかった。そこで、上位クラスのクラス側で `subclass:…` を上書きし、`ao_accept_class` から Transcript に書くテストを足した（`KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt`）。拒否の経路で結果を消す一時的な変更を入れると、このテストだけが落ちることも確かめた。
+  - 見送ったもの: session_abi_test の一時ファイル名が固定であること（ファイルの慣習どおりで、ctest は直列で走る）。vendor のパスに改行があると 1 行の出力が崩れること。
+- 検証:
+  - `scripts/test.sh`: ctest 850 件、swift test 56 件がすべて緑。
+  - `scripts/test.sh --asan`: 緑。
+  - `scripts/test.sh --app`: 通る。`AO_VENDOR_DIR` に実在しないディレクトリを入れて export しても通る。
+  - `build/ao --test image/tests`: exit 0。
+  - `ctest --test-dir build-release`: 849 件すべて緑。`OopTag.FromSmallIntegerOutOfRangeDies` は NDEBUG で飛ばされる。
+  - `AO_GC_STRESS=1 ctest --test-dir build`: 全件では終わらなかった。時間計測の `KernelBench.*` が 1 件あたり 40〜90 秒かかって失敗し、`IdentitySetNinetyThousandObjects` は 30 分たっても終わらなかった。SPEC の `gcstress` 項目や ASan と同じく `-E '^KernelBench\.'` を付けて回し、838 件すべて緑だった（レビューの修正の前）。修正のあとは、`-R SessionAbi` の 49 件が緑である。以後のバッチでも、この除外を付けて回す。
+  - 手動の確認（`open build/Ao.app` での打鍵、Browser の確認、読み取り専用の場所への保存、ウィンドウの動作）は、まだしていない。§6 の最終確認で行う。
+- 残る懸念:
+  - `--app` は、動いている Ao をパッケージの直前に調べる。そのため、ctest と swift test（約 4 分）のあとで止まる。
+
 ---
 
 ## 検証（全体）
