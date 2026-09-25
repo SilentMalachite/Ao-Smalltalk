@@ -257,10 +257,28 @@ bool findsNative(CallContext& ctx, Oop klass, Oop selector, NativeFn fn) {
   return method.isHeap() && NativeMethod::functionOf(ctx.heap, ctx.wk, method) == fn;
 }
 
+namespace {
+
+// SPEC §3.6: whether byte i of the n bytes at p lies inside a character that starts before it, as
+// at: decodes them: the nearest byte before i that is no continuation byte, at most 3 back, starts
+// a valid sequence reaching past i. A stray continuation byte is a character by itself. O(1).
+bool insideCharacter(const unsigned char* p, std::uint32_t n, std::uint32_t i) {
+  for (std::uint32_t back = 1; back <= 3 && back <= i && i < n; ++back) {
+    const std::uint32_t j = i - back;
+    if ((p[j] & 0xC0) != 0x80) {
+      return decodeUtf8(p + j, n - j).nbytes > back;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
 // SPEC §3.6: walks the UTF-8 once from the start and calls the block with each character. The
-// block may write the string: after each call the size is read again from the rooted receiver and
-// the walk stays inside it (a character may then be skipped or seen twice). A subclass that
-// overrides at: or size gets ArrayedCollection's do:, which sends them.
+// block may write the string: after each call the size is read again from the rooted receiver, and
+// when it changed or the next read lies inside a character, the walk moves to the character after
+// the ones passed (a character may then be skipped or seen twice, but never one the string lacks).
+// A subclass that overrides at: or size gets ArrayedCollection's do:, which sends them.
 Oop ao_String_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -288,12 +306,13 @@ Oop ao_String_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::u
     }
     ++passed;
     i += step.nbytes;
-    // SPEC §3.6: when the block changed the byte count, or i now falls on a continuation byte, the
-    // character after the ones passed starts elsewhere: find it as at: counts (O(n), which the
-    // width-changing at:put: that caused it also costs). Never pass a byte from inside a character.
+    // SPEC §3.6: when the block changed the byte count, or i now lies inside a multibyte character,
+    // the character after the ones passed starts elsewhere: find it as at: counts (O(n), which only
+    // a write by the block causes, and the width-changing at:put: also costs). Never pass a byte
+    // from inside a character; a stray continuation byte is one and needs no resync.
     const std::uint32_t now = ctx.heap.size(receiver);
     const unsigned char* p = bytePayload(ctx.heap, receiver);
-    if (now != n || (i < now && (p[i] & 0xC0) == 0x80)) {
+    if (now != n || insideCharacter(p, now, i)) {
       const std::int64_t at = Str::byteOffsetOfChar(p, now, passed);
       if (at < 0) {
         return receiver;
