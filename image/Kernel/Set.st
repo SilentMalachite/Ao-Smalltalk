@@ -3,3 +3,4 @@
 !Set methodsFor: 'adding'!
 !Set methodsFor: 'testing'!
 !Set methodsFor: 'enumerating'!
+!Set methodsFor: 'copying'!

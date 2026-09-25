@@ -4,3 +4,4 @@
 !Dictionary methodsFor: 'removing'!
 !Dictionary methodsFor: 'enumerating'!
 !Dictionary methodsFor: 'testing'!
+!Dictionary methodsFor: 'copying'!

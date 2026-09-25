@@ -258,6 +258,31 @@ Oop hashedSize(CallContext& ctx, const Oop& receiver, std::uint32_t argc, std::u
   return Oop{};
 }
 
+// SPEC §3.6 copy: shallowCopy of the receiver, then of its array when that is a heap object, so the
+// copy and the receiver share no table. Never fails on a damaged table; empty Oop only when an
+// allocation fails.
+Oop hashedCopy(CallContext& ctx, const Oop& receiver, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  Root copy(ctx.roots, ao_Object_shallowCopy(ctx, receiver, nullptr, 0));
+  if (!copy.slot.isHeap() || (ctx.heap.flags(copy.slot) & kFlagBytes) != 0 ||
+      ctx.heap.size(copy.slot) <= Hashed::kSlotArray) {
+    return copy.slot;
+  }
+  Root array(ctx.roots, ctx.heap.slotAt(copy.slot, Hashed::kSlotArray));
+  if (!array.slot.isHeap()) {
+    return copy.slot;
+  }
+  // shallowCopy may GC: array and copy are rooted, and the fresh array goes in right away.
+  const Oop fresh = ao_Object_shallowCopy(ctx, array.slot, nullptr, 0);
+  if (!fresh.isHeap()) {
+    return Oop{};
+  }
+  ctx.heap.slotAtPut(copy.slot, Hashed::kSlotArray, fresh);
+  return copy.slot;
+}
+
 Oop dictAt(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc,
            bool identity) {
   if (argc != 1) {
@@ -712,6 +737,15 @@ Oop ao_Set_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint
   return enumerate(ctx, receiver, args, argc, kSetWidth, Pass::Keys);
 }
 
+// SPEC §3.6: copy copies the array too, so the copy and the receiver share no table.
+Oop ao_Dictionary_copy(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  return hashedCopy(ctx, receiver, argc);
+}
+
+Oop ao_Set_copy(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  return hashedCopy(ctx, receiver, argc);
+}
+
 Oop ao_OrderedCollection_new(CallContext& ctx, const Oop& receiver, const Oop*,
                              std::uint32_t argc) {
   if (argc != 0) {
@@ -1080,6 +1114,7 @@ void installDictionary(Heap& heap, WellKnown& wk) {
             ao_Dictionary_keysAndValuesDo_);
   putNative(heap, wk, wk.dictionaryClass, "collect:", 1, "ao_Dictionary_collect_",
             ao_Dictionary_collect_);
+  putNative(heap, wk, wk.dictionaryClass, "copy", 0, "ao_Dictionary_copy", ao_Dictionary_copy);
 
   putNative(heap, wk, wk.identityDictionaryClass, "at:", 1, "ao_IdentityDictionary_at_",
             ao_IdentityDictionary_at_);
@@ -1099,6 +1134,7 @@ void installDictionary(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.setClass, "add:", 1, "ao_Set_add_", ao_Set_add_);
   putNative(heap, wk, wk.setClass, "includes:", 1, "ao_Set_includes_", ao_Set_includes_);
   putNative(heap, wk, wk.setClass, "do:", 1, "ao_Set_do_", ao_Set_do_);
+  putNative(heap, wk, wk.setClass, "copy", 0, "ao_Set_copy", ao_Set_copy);
 
   putNative(heap, wk, wk.identitySetClass, "add:", 1, "ao_IdentitySet_add_", ao_IdentitySet_add_);
   putNative(heap, wk, wk.identitySetClass, "includes:", 1, "ao_IdentitySet_includes_",

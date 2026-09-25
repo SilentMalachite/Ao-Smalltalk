@@ -561,6 +561,45 @@ TEST_F(HashedCollection, EnumerationUnwindsThroughNonLocalReturn) {
                             "((d9 at: #b) = 2)"));
 }
 
+// B9 review (Low・既存): Dictionary と Set の copy は array を共有していた。`e := d copy.
+// e at: 2 put: 2` のあと `d at: 2` が 2 を答え、`d size` は 1 のままだった。copy は array も写す。
+// shallowCopy は Blue Book どおり浅い。
+TEST_F(HashedCollection, CopyDoesNotShareTheTable) {
+  EXPECT_EQ("true", printIt("| d e | d := Dictionary new. d at: 1 put: 1. e := d copy. "
+                            "e at: 2 put: 2. (d at: 2) isNil & (d size = 1) & (e size = 2) & "
+                            "((e at: 1) = 1) & (d includesKey: 2) not"));
+  EXPECT_EQ("true", printIt("| d e | d := Dictionary new. d at: 1 put: 1; at: 2 put: 2. e := d copy. "
+                            "e removeKey: 1. ((d at: 1) = 1) & (d size = 2) & (e size = 1)"));
+  EXPECT_EQ("true", printIt("| d e | d := Dictionary new. d at: 1 put: 1. e := d copy. "
+                            "1 to: 20 do: [:i | e at: i + 10 put: i]. (d size = 1) & (e size = 21) & "
+                            "(d at: 15) isNil"));
+  EXPECT_EQ("true", printIt("| s t | s := Set new. s add: 1. t := s copy. t add: 2. "
+                            "(s includes: 2) not & (s size = 1) & (t size = 2) & (t class == Set)"));
+  EXPECT_EQ("true", printIt("| s t | s := IdentitySet new. s add: #a. t := s copy. t add: #b. "
+                            "(s includes: #b) not & (s size = 1) & (t class == IdentitySet)"));
+  EXPECT_EQ("true", printIt("| d e | d := IdentityDictionary new. d at: #a put: 1. e := d copy. "
+                            "e at: #b put: 2. (d includesKey: #b) not & (e class == IdentityDictionary) "
+                            "& ((e at: #a) = 1)"));
+  EXPECT_EQ("true", printIt("| d | d := Dictionary new. d at: 1 put: 1. "
+                            "((d copy instVarAt: 2) ~~ (d instVarAt: 2)) & "
+                            "((d shallowCopy instVarAt: 2) == (d instVarAt: 2))"));
+  // The entries are the same objects (a copy is not a deep copy).
+  EXPECT_EQ("true", printIt("| d k v e | k := 'key' copy. v := 'value' copy. d := Dictionary new. "
+                            "d at: k put: v. e := d copy. (e keysDo: [:x | x == k ifFalse: [^false]]) "
+                            "== e & ((e at: k) == v)"));
+  // basicNew (a nil array) and a damaged table copy without failing.
+  EXPECT_EQ("true", printIt("| d e | d := Dictionary basicNew. e := d copy. e at: 1 put: 1. "
+                            "(d size = 0) & (e size = 1) & (d instVarAt: 2) isNil"));
+  EXPECT_EQ("true", printIt("| d e | d := Dictionary new. d instVarAt: 2 put: 'abc' copy. e := d copy. "
+                            "((e instVarAt: 2) = 'abc') & ((e instVarAt: 2) ~~ (d instVarAt: 2))"));
+  // A subclass keeps its class and its own variables.
+  acceptClass("Dictionary", "B9Dict", "extra");
+  acceptMethod("B9Dict", "extra\n  ^extra\n");
+  acceptMethod("B9Dict", "extra: x\n  extra := x\n");
+  EXPECT_EQ("true", printIt("| d e | d := B9Dict new. d extra: 5; at: 1 put: 1. e := d copy. "
+                            "e at: 2 put: 2. (e class == B9Dict) & (e extra = 5) & (d size = 1)"));
+}
+
 // SPEC §3.6 壊れた表: 前のテストで見ていないネイティブも、壊れた表では失敗する。
 TEST_F(HashedCollection, DamagedTablesFailInEveryNative) {
   const char* damages[] = {
