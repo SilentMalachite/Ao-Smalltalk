@@ -4,6 +4,11 @@
 #include "ao/Oop.hpp"
 #include "ao/Roots.hpp"
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <vector>
+
 #include <gtest/gtest.h>
 
 TEST(GcNursery, UnrootedObjectIsReclaimed) {
@@ -1075,4 +1080,203 @@ TEST(GcRoots, DuplicateRootForwardedOnce) {
   roots.remove(&b);
   roots.remove(&b);
   roots.remove(&a);
+}
+
+// B10 / SPEC §3.4: LIFO のルート（ネイティブのフレームと RootedArray）はプロセスごとに持つ。動いていない
+// プロセスの分は駐車中の Stack にあり、GC は動いている分と駐車中の分をちょうど 1 回ずつ訪ねる。
+// old が [g][a][b] または [g][b][a] のとき、g を捨てた collectOld で a と b はどちらも滑る。
+// 同じスロットを 2 回転送すると、もう一方の object を指してしまう。
+TEST(GcRoots, ParkedStackIsVisitedOnceAndForwarded) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  ao::Roots::Stack baseParked;
+  ao::Roots::Stack fiber;
+  roots.attachStack(&baseParked);
+  roots.attachStack(&fiber);
+
+  ao::Oop g = heap.allocate(ao::Oop::nil(), 1, 0);
+  roots.add(&g);
+  const ao::Oop a0 = heap.allocate(ao::Oop::nil(), 1, 0);
+  const ao::Oop b0 = heap.allocate(ao::Oop::nil(), 1, 0);
+  ASSERT_TRUE(a0.isHeap());
+  ASSERT_TRUE(b0.isHeap());
+
+  // ベースのプロセス: フレーム [a b] と範囲 [b]。
+  std::optional<ao::RootedArray> baseArr;
+  std::optional<ao::RootedArray> fiberArr;
+  ao::Oop* baseFrame = roots.pushFrame(a0, &b0, 1);
+  baseArr.emplace(roots, 1);
+  (*baseArr)[0] = b0;
+
+  roots.switchStack(baseParked, fiber);
+  EXPECT_TRUE(roots.runningStack().empty());
+  EXPECT_FALSE(baseParked.empty());
+  EXPECT_TRUE(fiber.empty());
+
+  // ファイバ: フレーム [b a] と範囲 [a b]。
+  ao::Oop* fiberFrame = roots.pushFrame(b0, &a0, 1);
+  fiberArr.emplace(roots, 2);
+  (*fiberArr)[0] = a0;
+  (*fiberArr)[1] = b0;
+
+  const ao::Roots::Counts both = roots.counts();
+  EXPECT_EQ(1u, both.slots);
+  EXPECT_EQ(2u, both.ranges);
+  EXPECT_EQ(4u, both.frameSlots);
+  EXPECT_EQ(2u, both.attachedStacks);
+  EXPECT_EQ(1 + 2 + 1 + 2 + 2, countVisitedRoots(roots));
+
+  gc.collectNursery();
+  const ao::Oop* aSlots[] = {&baseFrame[0], &fiberFrame[1], &(*fiberArr)[0]};
+  const ao::Oop* bSlots[] = {&baseFrame[1], &(*baseArr)[0], &fiberFrame[0], &(*fiberArr)[1]};
+  const ao::Oop a = *aSlots[0];
+  const ao::Oop b = *bSlots[0];
+  ASSERT_TRUE(heap.inOld(a));
+  ASSERT_TRUE(heap.inOld(b));
+  for (const ao::Oop* s : aSlots) EXPECT_EQ(a, *s);
+  for (const ao::Oop* s : bSlots) EXPECT_EQ(b, *s);
+  heap.slotAtPut(g, 0, ao::Oop::fromSmallInteger(0));
+  heap.slotAtPut(a, 0, ao::Oop::fromSmallInteger(1));
+  heap.slotAtPut(b, 0, ao::Oop::fromSmallInteger(2));
+  roots.remove(&g);
+
+  gc.collectOld();
+
+  const ao::Oop a2 = *aSlots[0];
+  const ao::Oop b2 = *bSlots[0];
+  EXPECT_NE(a, a2);
+  EXPECT_NE(b, b2);
+  for (const ao::Oop* s : aSlots) {
+    EXPECT_EQ(a2, *s);
+    EXPECT_EQ(ao::Oop::fromSmallInteger(1), heap.slotAt(*s, 0));
+  }
+  for (const ao::Oop* s : bSlots) {
+    EXPECT_EQ(b2, *s);
+    EXPECT_EQ(ao::Oop::fromSmallInteger(2), heap.slotAt(*s, 0));
+  }
+
+  // ベースへ戻って、ベースの分を LIFO で外す。ファイバの分は駐車中のまま残る。
+  roots.switchStack(fiber, baseParked);
+  EXPECT_TRUE(baseParked.empty());
+  EXPECT_FALSE(fiber.empty());
+  baseArr.reset();
+  roots.popFrame(baseFrame, 1);
+  EXPECT_TRUE(roots.runningStack().empty());
+  EXPECT_EQ(1u, roots.counts().ranges);
+  EXPECT_EQ(2u, roots.counts().frameSlots);
+  EXPECT_EQ(2 + 2, countVisitedRoots(roots));
+
+  // ファイバへ移って、ファイバの分を外す。
+  roots.switchStack(baseParked, fiber);
+  fiberArr.reset();
+  roots.popFrame(fiberFrame, 1);
+  roots.switchStack(fiber, baseParked);
+  roots.detachStack(&fiber);
+  roots.detachStack(&baseParked);
+  const ao::Roots::Counts none = roots.counts();
+  EXPECT_EQ(0u, none.ranges);
+  EXPECT_EQ(0u, none.frameSlots);
+  EXPECT_EQ(0u, none.attachedStacks);
+  EXPECT_EQ(0, countVisitedRoots(roots));
+}
+
+// B10: フレームのブロックは Stack と一緒に動き、中身の番地は変わらない。ブロックをまたぐほど積んだ
+// 2 本の Stack を差し替えながら積み下ろししても、それぞれの LIFO が保たれる。
+TEST(GcRoots, FrameBlocksStayWithTheirStack) {
+  ao::Roots roots;
+  ao::Roots::Stack baseParked;
+  ao::Roots::Stack fiber;
+  roots.attachStack(&baseParked);
+  roots.attachStack(&fiber);
+  constexpr std::int64_t kFrames = 5000;  // 1 スロットのフレーム。ブロック（4096 スロット）をまたぐ
+  std::vector<ao::Oop*> baseFrames;
+  std::vector<ao::Oop*> fiberFrames;
+  for (std::int64_t i = 0; i < kFrames; ++i) {
+    baseFrames.push_back(roots.pushFrame(ao::Oop::fromSmallInteger(i), nullptr, 0));
+  }
+  roots.switchStack(baseParked, fiber);
+  for (std::int64_t i = 0; i < kFrames; ++i) {
+    fiberFrames.push_back(roots.pushFrame(ao::Oop::fromSmallInteger(-i), nullptr, 0));
+  }
+  EXPECT_EQ(static_cast<std::size_t>(2 * kFrames), roots.counts().frameSlots);
+  EXPECT_EQ(static_cast<std::size_t>(kFrames), roots.runningStack().frameSlotCount());
+  EXPECT_EQ(static_cast<std::size_t>(kFrames), baseParked.frameSlotCount());
+  EXPECT_EQ(static_cast<int>(2 * kFrames), countVisitedRoots(roots));
+
+  // ファイバの上半分を外してからベースへ戻り、ベースを全部外す。
+  for (std::int64_t i = kFrames - 1; i >= kFrames / 2; --i) {
+    ASSERT_EQ(ao::Oop::fromSmallInteger(-i), *fiberFrames[static_cast<std::size_t>(i)]);
+    roots.popFrame(fiberFrames[static_cast<std::size_t>(i)], 0);
+  }
+  roots.switchStack(fiber, baseParked);
+  for (std::int64_t i = kFrames - 1; i >= 0; --i) {
+    ASSERT_EQ(ao::Oop::fromSmallInteger(i), *baseFrames[static_cast<std::size_t>(i)]);
+    roots.popFrame(baseFrames[static_cast<std::size_t>(i)], 0);
+  }
+  EXPECT_TRUE(roots.runningStack().empty());
+  // 空になったベースの Stack に積み直せる。ファイバの残りは番地を保っている。
+  ao::Oop* again = roots.pushFrame(ao::Oop::fromSmallInteger(7), nullptr, 0);
+  EXPECT_EQ(ao::Oop::fromSmallInteger(7), *again);
+  roots.popFrame(again, 0);
+  roots.switchStack(baseParked, fiber);
+  for (std::int64_t i = kFrames / 2 - 1; i >= 0; --i) {
+    ASSERT_EQ(ao::Oop::fromSmallInteger(-i), *fiberFrames[static_cast<std::size_t>(i)]);
+    roots.popFrame(fiberFrames[static_cast<std::size_t>(i)], 0);
+  }
+  roots.switchStack(fiber, baseParked);
+  roots.detachStack(&fiber);
+  roots.detachStack(&baseParked);
+  EXPECT_EQ(0, countVisitedRoots(roots));
+}
+
+// B10: 件数は add/remove、pushRange/popRange（RootedArray）、pushFrame/popFrame、ハンドル、
+// attachStack/detachStack に追従する。ShutdownReclaimsFibers などが「元に戻る」を確かめるのに使う。
+TEST(GcRoots, CountsFollowEveryKindOfRoot) {
+  ao::Roots roots;
+  auto expectCounts = [&](std::size_t slots, std::size_t ranges, std::size_t frameSlots,
+                          std::size_t handles, std::size_t parked) {
+    const ao::Roots::Counts c = roots.counts();
+    EXPECT_EQ(slots, c.slots);
+    EXPECT_EQ(ranges, c.ranges);
+    EXPECT_EQ(frameSlots, c.frameSlots);
+    EXPECT_EQ(handles, c.handles);
+    EXPECT_EQ(parked, c.attachedStacks);
+  };
+  expectCounts(0, 0, 0, 0, 0);
+  ao::Oop x = ao::Oop::nil();
+  roots.add(&x);
+  roots.add(&x);
+  expectCounts(2, 0, 0, 0, 0);
+  roots.remove(&x);
+  expectCounts(1, 0, 0, 0, 0);
+  {
+    ao::RootedArray arr(roots, 3);
+    expectCounts(1, 1, 0, 0, 0);
+    EXPECT_EQ(1u, roots.runningStack().rangeCount());
+  }
+  expectCounts(1, 0, 0, 0, 0);
+  const ao::Oop args[2] = {ao::Oop::nil(), ao::Oop::nil()};
+  ao::Oop* frame = roots.pushFrame(ao::Oop::nil(), args, 2);
+  expectCounts(1, 0, 3, 0, 0);
+  const std::uint32_t h = roots.pushHandle(ao::Oop::nil());
+  expectCounts(1, 0, 3, 1, 0);
+  ao::Roots::Stack parked;
+  ao::Roots::Stack other;
+  roots.attachStack(&parked);
+  roots.attachStack(&other);
+  expectCounts(1, 0, 3, 1, 2);
+  // 駐車中の Stack にあるフレームも数える。
+  roots.switchStack(parked, other);
+  expectCounts(1, 0, 3, 1, 2);
+  EXPECT_EQ(0u, roots.runningStack().frameSlotCount());
+  EXPECT_EQ(3u, parked.frameSlotCount());
+  roots.switchStack(other, parked);
+  roots.detachStack(&other);
+  roots.detachStack(&parked);
+  expectCounts(1, 0, 3, 1, 0);
+  roots.dropHandle(h);
+  roots.popFrame(frame, 2);
+  roots.remove(&x);
+  expectCounts(0, 0, 0, 0, 0);
 }

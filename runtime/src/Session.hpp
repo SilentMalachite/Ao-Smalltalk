@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ao/NativeMethod.hpp"
+#include "ao/Scheduler.hpp"
 
 #include "ao_abi.h"
 
@@ -17,6 +18,10 @@ struct Session {
   WellKnown wk;
   std::unique_ptr<ClassMethodCache> cache;
   std::unique_ptr<CallContext> ctx;
+  // SPEC §3.4, §3.10: the cooperative scheduler; ctx is its base process. Made with ctx and dropped
+  // before it. The destructor drops it first, abandoning the processes left while the heap and the
+  // roots are still there.
+  std::unique_ptr<Scheduler> scheduler;
   // Session Dictionary of workspace name strings to bindings (Associations). Not part of the image.
   Oop workspace = Oop::nil();
   bool workspaceRooted = false;

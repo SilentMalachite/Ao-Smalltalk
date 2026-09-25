@@ -6,6 +6,7 @@
 #include "ao/Image.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Roots.hpp"
+#include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
 #include "ao/TestRunner.hpp"
 #include "ao/Vendor.hpp"
@@ -165,7 +166,11 @@ int runFileIn(int argc, char** argv) {
   ao::ClassMethodCache cache;
   cache.addRoots(roots);
   ao::CallContext ctx{heap, roots, wk, &cache};
+  // SPEC §3.4: ctx is the base process. Declared after the heap and the roots, so it goes first and
+  // abandons what the file-in forked while they are still there.
+  ao::Scheduler scheduler(ctx);
   ao::Bootstrap::run(heap, roots, wk);
+  scheduler.adoptImage();
 
   // SPEC §3.12: every counted error, and exit 1 when there is one. The errors of the methods the
   // DEFERRED.md beside LOAD_ORDER lists are not counted. A single file has no DEFERRED.md.
@@ -191,7 +196,11 @@ int bootAndRunTests(const std::string& dir) {
   ao::ClassMethodCache cache;
   cache.addRoots(roots);
   ao::CallContext ctx{heap, roots, wk, &cache};
+  // SPEC §3.4, §4.4: the files' processes run on this scheduler; ctx is the base process. Declared
+  // after the heap and the roots, so it goes first.
+  ao::Scheduler scheduler(ctx);
   ao::Bootstrap::run(heap, roots, wk);
+  scheduler.adoptImage();
   return ao::runSmalltalkTests(ctx, dir);
 }
 
@@ -235,9 +244,13 @@ int runImage(int argc, char** argv) {
   ao::ClassMethodCache cache;
   cache.addRoots(roots);
   ao::CallContext ctx{heap, roots, wk, &cache};
+  // SPEC §3.4: ctx is the base process, decided after boot or load. Declared after the heap and the
+  // roots, so it goes first.
+  ao::Scheduler scheduler(ctx);
 
   if (isSave) {
     ao::Bootstrap::run(heap, roots, wk);
+    scheduler.adoptImage();
     if (loadOrder != nullptr) {
       // SPEC §3.12: a failed file-in reports its errors like ao filein and writes no image.
       std::vector<ao::FileInError> errors;
@@ -262,6 +275,7 @@ int runImage(int argc, char** argv) {
     std::fprintf(stderr, "ao: image load failed: %s\n", reason.c_str());
     return 1;
   }
+  scheduler.adoptImage();
   ao::Oop arg = ao::Oop::fromSmallInteger(2);
   auto sel = wk.intern("+");
   auto three = ao::send(ctx, ao::Oop::fromSmallInteger(1), sel, &arg, 1, nullptr);

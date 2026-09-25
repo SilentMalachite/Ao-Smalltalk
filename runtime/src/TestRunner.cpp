@@ -5,6 +5,7 @@
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
+#include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 #include "ao/kernel/Install.hpp"
@@ -198,6 +199,8 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     return 1;
   }
   Root doIt(ctx.roots, ctx.wk.intern("doIt"));
+  // SPEC §3.4: the processes of the files run on ctx's scheduler (none: no process can run).
+  Scheduler* scheduler = ctx.scheduler;
   // SPEC §4.4: every file runs, in name order, whatever the earlier ones did. Each failure is one
   // line on stderr.
   int failures = 0;
@@ -206,9 +209,25 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     ctx.heap.clearOutOfMemory();
     clearUnwinding(ctx);
     refreshStackLimit(ctx);
+    const std::uint64_t processFailuresBefore =
+        scheduler != nullptr ? scheduler->processFailures() : 0;
     const std::string failure = runFile(ctx, cls, doIt, file);
     if (!failure.empty()) {
       std::fprintf(stderr, "ao --test: %s%s\n", file.string().c_str(), failure.c_str());
+      ctx.testFailures += 1;
+      failures += 1;
+    }
+    if (scheduler == nullptr) {
+      continue;
+    }
+    // SPEC §4.4: after the file, the drain, then terminate for what is left (its cleanups run; one
+    // a cleanup left blocked is abandoned), so no process goes on to the next file. A process
+    // failure in any of them fails the file: one line, with the last reason.
+    scheduler->drain(Scheduler::kDrainRounds);
+    scheduler->terminateAll(false);
+    if (scheduler->processFailures() != processFailuresBefore) {
+      std::fprintf(stderr, "ao --test: %s: process failed: %s\n", file.string().c_str(),
+                   scheduler->lastFailureReason().c_str());
       ctx.testFailures += 1;
       failures += 1;
     }

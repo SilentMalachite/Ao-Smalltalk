@@ -157,10 +157,10 @@ identity hash は 16 bit なので、65535 個を超えるオブジェクトで�
 ### 3.2 オブジェクトメモリと GC
 
 - アロケータは世代別（nursery bump + 旧世代 free-list または immix 系）。v1 は nursery + mark-compact old でよい。
-- ルート: グローバル辞書 `Smalltalk`、現在のプロセス／コンテキスト連鎖、AppKit が保持するハンドル表、イメージ起動時の well-known 表。
+- ルート: グローバル辞書 `Smalltalk`、生きているすべてのプロセス（走っているもの、実行可能なもの、待っているもの、止まっているもの。§3.4）とそのコンテキスト連鎖、AppKit が保持するハンドル表、イメージ起動時の well-known 表。生きているプロセスは、どこからも参照されていなくても回収しない。
 - 正確式。コンパイラとインタプリタはスタック上の OOP を GC に報告する。
 - ファイナライザと弱配列は v1 では `ephemeron` なしの弱スロットフラグまで。
-- スレッド: ミューテータは基本 1 本（Smalltalk プロセスはグリーンユーザースレッド）。GC は safepoint。AppKit メインスレッドとはブリッジキューで切る。
+- スレッド: ミューテータは 1 本（Smalltalk のプロセスは、同じスレッドの上で切り替えるファイバ。§3.4）。GC は safepoint。AppKit メインスレッドとはブリッジキューで切る。
 - old は、上限 4 GiB − 1 MiB（イメージヘッダの `uint32 heapBytes` で表せる最大値を、コミット単位の 1 MiB に揃えた値）の仮想領域を 1 つ予約し、必要な分だけコミットする。old のアドレスは動かない。
 - 大きなオブジェクトは nursery を通さず old に直接置く。
 - スキャベンジは失敗しない。old に入り切らない生存物は to-space に残す（昇格失敗）。
@@ -174,6 +174,8 @@ identity hash は 16 bit なので、65535 個を超えるオブジェクトで�
 - GC を走らせない割り当て（メソッド辞書の作成・拡張、Symbol の intern、NativeMethod の作成）は、nursery に置き、nursery が満杯なら old に置く（`asSymbol` の Symbol は old に直接置く）。失敗するのは old の上限のときだけである。
 - それでも割り当てられないとき（GC を走らせない割り当てが old の上限で失敗したときを含む）は、評価を「out of memory」で中断する（§3.3 の失敗の規則）。
 - ネイティブが受け取る receiver と引数は、ルート済みとする。ネイティブの途中で GC が走っても、転送先を指す。
+- スケジューラの呼び出し（`fork`、`yield`、`wait`、`signal`、`suspend`、`resume`、`terminate`。これらを使う `SharedQueue` の `next` と `nextPut:` も）は、どれも GC 点である。切り替えれば、戻るまでにほかのプロセスが走り、GC も走る。ネイティブはそれをまたいで生の OOP を持たない（ルートするか、ルート済みのスロットから読み直す）。
+- GC は、走っているプロセスのルートに加えて、止まっているすべてのプロセスのルート（そのプロセスのネイティブがルートした値）をたどる。1 回の GC は、どのルートも 1 度だけたどる。
 
 ### 3.3 メッセージ送信
 
@@ -231,6 +233,7 @@ lookup(receiver, selector)
 | スタックガード（§3.4） | `stack overflow` |
 | 分岐の値が Boolean でない（§3.5） | `NonBoolean receiver` |
 | ホームが死んだ `^` の既定（§3.4） | `cannot return` |
+| プロセスの操作（§3.4 の「プロセスと協調スケジューラ」） | `deadlock: no runnable process`、`too many processes`、`process terminated`、`process cannot run` |
 
 - `error:` の理由: 引数が String（Symbol など String のサブクラスを含む）なら、その内容（UTF-8 のバイト列）。それ以外は、引数に `printString` を送った答えの内容。`printString` が評価を中断したら、その理由のままにする。`printString` が String を答えなければ、理由は `error:` とする。
 - 空 OOP はネイティブの中だけで使う失敗の印であり、値ではない。インタプリタはそれをオペランドスタックに積まない。ヒープのスロットにもコレクションにも残らない。`classOf` が空 OOP にクラスでない値（nil）を返す経路は、送信の入口で止める。
@@ -243,7 +246,7 @@ lookup(receiver, selector)
 v1 の実行モデル:
 
 - ユーザーメソッドは `MethodContext`（Blue Book `Context` / `MethodContext` 相当）。
-- プロセスは協調的。`ProcessorScheduler` / `Process` / `Semaphore` を Kernel に含める。
+- プロセスは協調的。`ProcessorScheduler` / `Process` / `Semaphore` を Kernel に含める（下の「プロセスと協調スケジューラ」）。
 - ホストのプリエンプションは使わない。長時間ネイティブメソッドは safepoint を自ら発行する。
 
 #### クロージャと共有 temp
@@ -270,10 +273,89 @@ v1 の実行モデル:
   - file-in と `ao_accept_class` の、クラス定義チャンク 1 つ（C++ から `subclass:…category:` を送るところ）
   - ワークスペースの作成（起動、`ao_workspace_reset`、`ao_image_load`）
   - `ao_image_load` のロード後の探針（§3.10）
-- 最外は、入る前に前の abort と非局所リターンを消して、スタックの範囲を取り直す。出るときに abort の理由を読んで消す。最外での abort は、その入口の失敗である。`ao_eval` は `AO_ERR_EVAL` と理由を返す（§3.3）。クラス定義チャンクの abort は、そのチャンクの file-in エラー `subclass failed: <クラス名>: <理由>` にする（§3.12）。ワークスペースの作成と探針の abort は、その ABI の失敗（`AO_ERR`）にする。テストクラスの作成の abort は `ao --test` の失敗（exit 1）にする。
+  - fork したプロセスの本体（そのプロセスのスタックで、fork したブロックに `value` を送るところ。下の「プロセスと協調スケジューラ」）
+- 最外は、入る前に前の abort と非局所リターンを消して、スタックの範囲を取り直す。出るときに abort の理由を読んで消す。最外での abort は、その入口の失敗である。`ao_eval` は `AO_ERR_EVAL` と理由を返す（§3.3）。クラス定義チャンクの abort は、そのチャンクの file-in エラー `subclass failed: <クラス名>: <理由>` にする（§3.12）。ワークスペースの作成と探針の abort は、その ABI の失敗（`AO_ERR`）にする。テストクラスの作成の abort は `ao --test` の失敗（exit 1）にする。プロセスの本体の abort は、そのプロセスの失敗（下）にする。ただし `terminate` による巻き戻しは失敗にしない。
 - スタックガード: メソッド（ネイティブを含む）を適用する前に、C スタックの残りが予約分（`min(512 KiB, スタックの大きさの 1/4)`）を下回っていれば、「stack overflow」で abort する。無限再帰でプロセスは落ちない。
   - スタックの範囲は、最外（上記）の入口と、最外の `Interpreter::run` で必ず取り直す。前のスレッドの範囲を使い続けない。
+  - ベースプロセス（下）はホストのスレッドのスタックの範囲を使う。ほかのプロセスは、そのプロセスのスタック（8 MiB。下）の範囲を使い、予約分もその大きさから求める。どちらも、ほかのスタックの範囲を使わない。
   - `ensure:` / `ifCurtailed:` の後始末の間は、予約分の半分まで使ってよい。stack overflow の abort の途中でも、限界近くの後始末が走る。
+
+#### プロセスと協調スケジューラ
+
+プロセスと状態:
+
+- プロセスは `Process` のインスタンスである。どのプロセスも、ランタイムを呼んだホストのスレッド 1 本の上で動く。同時に走るプロセスはいつも 1 つで、`Processor activeProcess` はそのプロセスを答える（nil にならない）。フック（§3.10）も、送ったプロセスの上で同じスレッドから呼ぶ。
+- ベースプロセス: boot とロード（§3.11）の直後の `Processor activeProcess` をベースプロセス（ベース）とする。そこが Process でなければ、新しい Process を作って置き、それをベースとする。ベースはホストのスレッドのスタックで動く。`ao_eval` をはじめ、最外（上）のうちプロセスの本体でないものは、すべてベースで実行する。ベースは終わらない。
+- ベース以外のプロセスは `fork` で作る。それぞれ専用の C スタックを持ち、同じスレッドの上で切り替えて動く（ファイバ）。スタックは 8 MiB（触れた分だけコミットする）で、下端に読み書きできないガードページを置く。
+- ベース以外の生きているプロセス（終わっていないもの。まだ始まっていないものを含む）は 256 までである。
+- プロセスの状態は、走っている、実行可能（実行可能キューにいる）、待っている（セマフォの linkedList にいる）、止まっている（`suspend` された。どのリストにもいない）、終わった、のどれかである。fork したプロセスは、ブロックを始めるまで、実行可能か止まっているかである（まだ始まっていないプロセス）。
+- 走れないプロセスは、ベースでもこのセッションで fork したものでもない Process（`Process new` で作ったもの、ロードしたイメージにあったもの）と、終わったプロセスである。
+- 実行可能キューは `Processor` の quiescentProcesses（OrderedCollection）で、単一の FIFO である。走っているプロセスは入らない。`priority:` は値を保存するだけで、順序に使わない。
+- fork したプロセスの suspendedContext は、fork したブロックである。myList は、そのプロセスが入っているリスト（実行可能キューか、セマフォの linkedList）で、どこにも入っていなければ nil である。
+- プリエンプションは無い。切り替わるのは、走っているプロセスが `yield` したとき、`wait` で待ちに入ったとき、自分を `suspend` したとき、ほかのプロセスに `terminate` を送ったとき（下）、終わったときだけである。切り替える先は、実行可能キューの先頭のプロセス（以下、次のプロセス）である。
+- abort と非局所リターンの状態、割り当てられなかった印（§3.2 の `out of memory`）、スタックの範囲、インタプリタの入れ子の深さ、`hash` の入れ子の数（§3.6）は、プロセスごとに持つ。あるプロセスの abort と非局所リターンは、ほかのプロセスのフレームを巻き戻さない。あるプロセスで割り当てられなかったことは、ほかのプロセスとベースの評価の失敗にならない。
+- グローバル、クラス変数、ワークスペースの束縛（§3.10）は、すべてのプロセスで共有する。fork したブロックでの代入は、ワークスペースの束縛にも残る。
+
+操作（どれもネイティブ。§3.6 の Kernel-Processes）:
+
+- `aBlock fork`
+  - 引数が 0 個のブロックでなければ失敗する（§3.3。理由は `failed: #fork`）。
+  - ベース以外の生きているプロセスがすでに 256 あれば、Process を作らずに `too many processes` で失敗する。
+  - プロセスのスタックを確保できない（`mmap` が失敗する）ときも、`too many processes` で失敗する。作りかけの Process は実行可能キューに入れず、走れないプロセスとして残る。
+  - それ以外は、新しい Process を作って実行可能キューの末尾に入れ、その Process を答える。切り替えない。ブロックは、そのプロセスに切り替わったときに始まる。
+- `Processor yield`: 実行可能キューが空なら、何もせずに返る。空でなければ、走っているプロセスをキューの末尾に入れ、次のプロセスに切り替える。自分の番が来たら返る。答えは `Processor` である。
+- `aSemaphore wait`: excessSignals が 1 以上なら、1 減らしてすぐに返る。0 なら、走っているプロセスを linkedList の末尾に入れて待たせ、次のプロセスに切り替える。`signal` で実行可能になり、自分の番が来たら返る。答えはレシーバである。
+- `aSemaphore signal`: linkedList の先頭の待つプロセスを外し、実行可能キューの末尾に入れる。その場では切り替えない（`signal` を送ったプロセスが走り続ける）。実行可能キューに入れられない（割り当てられない）ときは、linkedList から外さずに失敗する。外したのが走れないプロセスなら、それを捨てて次の待つプロセスを見る。待つプロセスが無ければ、excessSignals を 1 増やす。SmallInteger の上限を超えるなら失敗する（`signal: excess signals out of range`）。答えはレシーバである。
+- `aSharedQueue nextPut: x`: x を末尾に足し、`next` で待つプロセスがあれば 1 つを実行可能にする（`signal` と同じく切り替えない）。実行可能にできずに失敗したときは、x を足さない。自分は待たない（要素の数に上限は無い）。答えは x である。
+- `aSharedQueue next`: 先頭の要素を外して答える。空なら、`nextPut:` されるまで待つ（`wait` と同じ）。`signal` を受けずに `wait` から戻っても（`suspend` と `resume`）、空なら待ち直す。
+- `aProcess suspend`
+  - 走っているプロセスなら、止まっている状態にして次のプロセスに切り替える。`resume` されて自分の番が来たら返る。
+  - 実行可能か待っているプロセスなら、そのリストから外して止まっている状態にする。待っていたプロセスは、`resume` されたあと、`signal` を受けずに `wait` から戻る。
+  - 止まっているプロセスと走れないプロセスには、何もしない。
+  - 答えはレシーバである。
+- `aProcess resume`
+  - 止まっているプロセス（まだ始まっていないものを含む）を、実行可能キューの末尾に入れる。切り替えない。
+  - 走っている、実行可能、待っているプロセスには、何もしない。キューに 2 度入れず、待っているプロセスは待ったままである。
+  - 走れないプロセスなら失敗する（`process cannot run`）。
+  - 答えはレシーバである。
+- `aProcess terminate`: プロセスを巻き戻して終わらせる。巻き戻しは abort と同じで、途中の `ensure:` と `ifCurtailed:` の後始末を、終わらせるプロセスの上で実行する。
+  - 走っているプロセス自身（ベースでない）なら、プロセスの本体まで巻き戻して終わり、次のプロセスに切り替える。送った式には戻らない。
+  - まだ始まっていないプロセスなら、（いれば）実行可能キューから外し、ブロックを始めずに終わらせる。切り替えない。
+  - ほかの始まったプロセス（実行可能、待っている、止まっている）なら、そのリストから外し、そのプロセスに切り替えて巻き戻させる。そのプロセスが終われば、`terminate` を送ったプロセスに戻る。後始末の途中でそのプロセスが切り替えれば（`yield`、`wait`、`suspend`）、その時点で送ったプロセスに戻る。残りの巻き戻しは、そのプロセスが次に走ったときに続ける。
+  - `signal` を受けて待ちから外れたが、まだ `wait` から戻っていないプロセス（実行可能なもの、そのあと `suspend` されて止まっているもの）を終わらせるときは、切り替える前にその signal をセマフォに返す。返すことは、そのセマフォにもう一度 `signal` を送るのと同じである（待つプロセスがいればそれを実行可能にし、いなければ excessSignals を 1 増やす）。SharedQueue の `next` で待っていたプロセスなら、その要素は次に `next` を送ったプロセスが受け取る。返すのが失敗すれば（`signal: excess signals out of range`）、`terminate` はその理由で失敗し、プロセスはそのまま残る。abandon（下）では返さない。`suspend` でも返さない（`resume` されれば、signal を受けた `wait` から普通に戻る）。
+  - `terminate` を送って相手の終わりを待っているプロセスは、待っているプロセスとして扱う（`resume` しても何もしない）。それを（相手の後始末などが）`suspend` すると、止まっている状態になり、戻る先の印が外れる。相手はそのあと終わっても切り替えても送ったプロセスには戻らず、次のプロセスに切り替える（無ければ下のデッドロック）。送ったプロセスは、`resume` されて自分の番が来たら `terminate` から戻る。
+  - ベースへの `terminate` は失敗する（`process terminated`）。ベースは終わらない。ベースで送れば、その `ao_eval` は `AO_ERR_EVAL` を返す。ベース以外のプロセスで送れば、送ったプロセスの失敗（下）になる。
+  - 走れないプロセスには、何もしない。
+  - 送ったプロセスが走り続けるとき、答えはレシーバである。
+  - `terminate` で終わったプロセスは、失敗に数えない。
+
+デッドロック:
+
+- 切り替えようとして実行可能キューが空なら、次のとおりにする。どちらでも、`activeProcess` はベースのままである（nil にしない）。
+  - 走っているのがベースなら（ベースの `wait`、ベース自身への `suspend`）、その操作を取り消し（linkedList から外す。excessSignals は変えない）、評価を `deadlock: no runnable process` で中断する（§3.3）。
+  - 走っているのがベース以外なら（`wait`、自分への `suspend`、プロセスの終わり）、ベースに切り替える。このときベースは待っているか止まっている。ベースのその操作を上と同じく取り消し、ベースの評価を `deadlock: no runnable process` で中断する。切り替えたプロセスは、待っている、止まっている、終わった状態のまま残る。
+
+プロセスの失敗:
+
+- ベース以外のプロセスの本体が abort で終わったとき（`doesNotUnderstand:`、`error:`、ネイティブの失敗、`stack overflow` など §3.3 の失敗）、そのプロセスだけが終わる。これをプロセスの失敗と呼ぶ。途中の `ensure:` は実行する。ほかのプロセスとベースの評価は続く。
+- 本体が abort にならずに終わっても、そのプロセスで割り当てられなかった（§3.2）なら、理由 `out of memory` のプロセスの失敗とする。
+- 本体の中で C++ の例外が起きたとき（例外を投げるフックなど）も、そのプロセスの失敗とする。理由は `internal error` である。例外はプロセスの本体の外へ出さず、ホストのプロセスは落ちない。
+- ブロックの `^` のホームが生きていて、そのプロセスのフレームに無い（ほかのプロセスのコンテキストである）なら、非局所リターンはそのプロセスの本体まで巻き戻り、プロセスの失敗になる。理由は `non-local return to another process` である。ホームのあるプロセスは巻き戻さない。ホームが死んでいれば、上の `cannotReturn:` の規則による。
+- ランタイムは、プロセスの失敗の数と、最後の失敗の理由を持つ。`ao --test` はこれを失敗に数える（§4.4）。`ao_eval` の返り値と `AoSpan` には現れない。
+
+評価の終わり（drain）:
+
+- `ao_eval` は、評価を実行したら（abort したときも）、返り値を確定してから drain する。返り値とは、`out` の文字列（Print it と Inspect it の printString。Inspect it では `inspect` も済ませる）と、`AO_ERR_EVAL` の理由である。drain の前に、ベースの abort の状態を読んで消す。
+- drain は、ベースで `Processor yield` を最大 1000 回繰り返すことである。実行可能キューが空になれば、そこで止める。
+- drain は返り値を変えない。drain の間に起きた失敗は、プロセスのものもベースのものも、その `ao_eval` の失敗にならない。drain の間の Transcript の出力は、その `ao_eval` が返る前にフックに届く。
+- drain のあとに残ったプロセス（待っているもの、止まっているもの、1000 回で走り切らなかった実行可能なもの）は、次の評価に持ち越す。次の評価でベースが切り替えたときと、次の drain で続きを走る。
+- 例: `[n := n + 1] fork. Processor yield. n` の Print it は `1` である。`[Transcript show: 'x'] fork` の Do it は、返る前に Transcript へ `x` を出す。
+
+abandon:
+
+- abandon は、ベース以外のプロセスを、後始末（`ensure:` と `ifCurtailed:`）を走らせずに終わらせることである。abandon の間は Smalltalk のコードを走らせず、フックも呼ばない。失敗に数えない。
+- abandon するのは、`ao_image_load` が古いセッションを新しいセッションと差し替えるとき、`ao::shutdown()`、セッションの破棄のときである（§3.10）。どれもヒープを捨てる前に行う。
+- `ao --test` は、ファイルごとに、drain のあとで残ったベース以外のプロセスを `terminate` で終わらせる（後始末を走らせる。§4.4）。abandon するのは、その後始末が（`wait` などで）ブロックしたまま残ったプロセス（と、§4.4 の繰り返しの上限までに走り切らなかったもの）だけである。
 
 ### 3.5 バイトコード（ユーザーメソッド）
 
@@ -488,6 +570,20 @@ Boolean の演算（Blue Book）:
 - `Semaphore`
 - `SharedQueue`（最小）
 
+必須セレクタ:
+
+`Process`: `resume`, `suspend`, `terminate`, `priority:`
+
+`ProcessorScheduler`: `activeProcess`, `yield`
+
+`Semaphore`: `signal`, `wait`, クラス側 `new`
+
+`SharedQueue`: `nextPut:`, `next`, クラス側 `new`
+
+`BlockContext`（Kernel-Methods）: `fork`
+
+意味は §3.4 の「プロセスと協調スケジューラ」に書く。
+
 #### Collections
 
 ネイティブ必須:
@@ -573,6 +669,7 @@ OrderedCollection:
 
 - スロット `array firstIndex lastIndex`（Kernel-Classes の表）は、要素が `array` の firstIndex 番目から lastIndex 番目にあることを表す。`size` は lastIndex − firstIndex + 1 である。
 - `array` が nil なら空である（`basicNew` のあとなど）。`size` は 0 で、最初の `add:` が大きさ 8 の Array を作り、firstIndex を 1、lastIndex を 0 にしてから入れる。
+- `add:` で `array` の末尾に空きが無いとき、`size` の 2 倍が `array` の大きさ以下なら、要素を `array` の先頭へ詰めてから入れる（`array` を伸ばさない）。そうでなければ、2 倍（8 未満なら 8）の大きさの Array に写してから入れる。先頭から取り出して末尾に足す使い方（実行可能キュー。§3.4）でも、`array` は際限なく伸びない。
 - そうでなければ、`array` が Kernel の Array で、firstIndex と lastIndex が SmallInteger で、`1 <= firstIndex <= lastIndex + 1 <= (array の大きさ) + 1` が成り立たなければ（`instVarAt:put:` で壊したとき）、`size`、`do:`、`add:`、`at:` はどれも失敗する。理由は `damaged ordered collection` である。Array の範囲の外は読み書きしない。
 - `at: index` は、index が 1 以上 `size` 以下の SmallInteger でなければ失敗する（§3.3）。理由は String の `at:` と同じ `at: index out of range` である。組が壊れていれば、index によらず `damaged ordered collection` で失敗する。
 - `do:` は、送ったときの firstIndex から lastIndex までの添字の要素を順に渡す（Blue Book）。ブロックを呼ぶ前に毎回組を読み直し、壊れていれば失敗する。次の添字がそのときの firstIndex から lastIndex の外なら、そこで終わる。ループは 64K 回ごとに safepoint を通る。
@@ -834,7 +931,9 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 
 #### セッション
 
-プロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ作る。既にあるときに再度呼ぶと 0 以外を返す。`ao::shutdown()` はセッションを捨て、セッションが無くても 0 を返す。
+OS のプロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ作る。既にあるときに再度呼ぶと 0 以外を返す。`ao::shutdown()` はセッションを捨て、セッションが無くても 0 を返す。
+
+セッションは協調スケジューラ（§3.4）を 1 つ持つ。boot とロードのあと、ベースプロセスを決める（§3.4、§3.11）。セッションを捨てるとき（`ao::shutdown()`、`ao_image_load` が新しいセッションと差し替えるとき、セッションの破棄）は、ヒープを捨てる前に、ベース以外のプロセスを abandon する（§3.4。後始末を走らせない）。`ao_image_load` が失敗したときは、古いセッションのプロセスはそのまま残る。
 
 中身はテストの `Boot` と同じである。`Heap`、`Roots`、`WellKnown`、`Bootstrap::run`、`ClassMethodCache`、そのキャッシュを指す `CallContext`。既定の初期容量（nursery 1 MiB×2、old 4 MiB）は変えない。old は上限まで伸びる。`ao_image_load` はヘッダの heapBytes に合わせてコミットする。
 
@@ -848,7 +947,7 @@ AppKit オブジェクトを OOP としてヒープに直接置かない。ホ�
 - `ao_image_save`、`ao_image_load`、`ao_filein_load_order`
 - `ao_workspace_reset`、`ao_eval`、`ao_accept_method`、`ao_accept_class`
 
-拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）とブラウザの読み取り（`ao_browser_*`、`ao_version`）は busy でも呼べる。busy の判定は 1 か所にまとめる（B10 の協調スケジューラは、実行中のプロセスがあることをここに足す）。
+拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）とブラウザの読み取り（`ao_browser_*`、`ao_version`）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
 
 ABI の関数は C++ の例外を境界の外へ出さない。関数の中で捕捉し、int を返す関数は `AO_ERR`（件数を返す関数は -1）を返す。`ao_image_load` の理由は `image load failed` である。
 
@@ -940,7 +1039,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 - `knownGlobals` は `Smalltalk` の辞書（§3.6）のキー全部である。固定のグローバル（Kernel クラス名、`Processor`、`Smalltalk`）と、`subclass:` と `Smalltalk at:put:` で足した名前を含む。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
 - どれにも当たらない名前は束縛である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar`。束縛が辞書に無ければ、メソッドを作るとき（リテラルを箱に入れるとき）に値 nil で作って辞書に入れる。同じ名前の束縛は評価をまたいで同じ Association なので、ブロックに捕捉した束縛への代入も辞書に残る。束縛の数に上限は無い（temp の 255 に数えない）。
 
-`ao_eval` は、`out` が NULL か `out_len` が 1 未満なら、何も評価せずに `AO_ERR` を返す（副作用を起こさない。呼び出し側が再試行しても二重にならない）。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。評価の失敗（§3.3 の失敗の規則。どれも abort）は `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。理由が 255 バイトを超えれば切る。`AO_ERR_EVAL` のときの `AoSpan.message` は空にしない。abort 以外で値が得られなかったとき（理由が無いとき）は `evaluation failed` を入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。
+`ao_eval` は、`out` が NULL か `out_len` が 1 未満なら、何も評価せずに `AO_ERR` を返す（副作用を起こさない。呼び出し側が再試行しても二重にならない）。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。評価の失敗（§3.3 の失敗の規則。どれも abort）は `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。理由が 255 バイトを超えれば切る。`AO_ERR_EVAL` のときの `AoSpan.message` は空にしない。abort 以外で値が得られなかったとき（理由が無いとき）は `evaluation failed` を入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。評価したあと、返す前に drain する（§3.4。返り値は drain の前に確定し、drain で変わらない）。
 
 #### printString
 
@@ -990,6 +1089,11 @@ LargeInteger とそれ以外はクラス名のまま。
 グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。辞書より前に保存した旧イメージ（`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つもの）は版 1 なので、ヘッダの段階で拒否する。版 3 で `Smalltalk` がグローバル辞書でないイメージと、extra のレコードを持つイメージは、壊れたイメージとして拒否する。
 
 ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
+
+#### プロセス
+
+- 保存は評価の合間にだけ行う（評価の最中の `ao_image_save` は busy で `AO_ERR`。§3.10）。プロセスの C スタックと切り替えの状態はイメージに書かない。`Processor`、Process、Semaphore、実行可能キューは、ヒープのオブジェクトとしてそのまま書く。待っているプロセスがあっても保存できる。
+- ロードのあと（boot のあとも同じ）、`Processor activeProcess` をベースプロセスにし、実行可能キューを空にする（§3.4）。イメージにあったほかの Process は走れないプロセス（§3.4。死んだものとして扱う）で、保存の前に始まっていたかどうかによらない。`resume` は `process cannot run` で失敗し、セマフォの linkedList に残っていれば `signal` が捨てる。
 
 #### 保存
 
@@ -1111,7 +1215,9 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
-- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる。transcript フックが boot の前後とロードをまたいで届く
+- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）
+- `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
+- `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる
 
 GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体（時間計測の `KernelBench.*` を除く）を 1 プロセスでこのモードで回す。`gcstress_vendor` 項目は、vendor の file-in（`ao filein --load-order image/vendor/LOAD_ORDER`）と `ao --test image/tests` をこのモードで回す。`ao filein` の stderr と終了コードは §3.12 の「file-in のエラー」に従う。`gcstress_vendor` はストレスなしの 1 回の出力を基準にし、ストレス下の出力がそれと一致すること、どちらも exit 0 であることを確かめる。
@@ -1144,7 +1250,9 @@ self assert: (Object new class) equals: Object.
 
 - `<dir>` の `*.st` を名前順に、1 ファイルずつ実行する。1 ファイルは最外の評価 1 回である（§3.4）。失敗したファイルがあっても、残りのファイルを実行する。
 - ファイルの失敗は、読めない、コンパイルエラー、実行中の abort（`assert:equals:` の不一致、`doesNotUnderstand:`、`error:`、ネイティブの失敗など §3.3 の失敗すべて）である。`assert:equals:` の不一致は、理由 `<実際の printString> ~= <期待の printString>` で abort する。
-- 失敗ごとに 1 行を stderr に出す。形式は `ao --test: <ファイル名>: <理由>`。コンパイルエラーは `ao --test: <ファイル名>:<start>-<end>: <メッセージ>`（位置はファイル本文のバイト位置）。
+- 1 ファイルの評価のあと、drain（§3.4）し、残ったベース以外のプロセスを `terminate` で終わらせる（後始末を走らせる）。`terminate` のあとにもう一度 drain して、後始末が切り替えて実行可能のまま残ったプロセスに、後始末を続けさせる。後始末が fork したプロセスなど、まだ `terminate` を送っていないプロセスが残れば、`terminate` と drain を繰り返す。新しく `terminate` したプロセスが無く、生きているプロセスも減らなかった回か、1000 回目で繰り返しをやめる。そのとき残ったプロセス（後始末がブロックしたまま終わらなかったものなど）は abandon する（§3.4。残りの後始末は走らせない）。プロセスを次のファイルに持ち越さない。
+- そのファイルの評価、drain、`terminate` の間にプロセスの失敗（§3.4）が 1 件でもあれば、そのファイルの失敗である。`terminate` で終わったプロセスは数えない。
+- 失敗ごとに 1 行を stderr に出す。形式は `ao --test: <ファイル名>: <理由>`。コンパイルエラーは `ao --test: <ファイル名>:<start>-<end>: <メッセージ>`（位置はファイル本文のバイト位置）。プロセスの失敗は、件数によらずファイルごとに 1 行で、`ao --test: <ファイル名>: process failed: <最後の失敗の理由>` である。
 - 終了コードは、1 つでも失敗があれば 1、`.st` が 0 件か `<dir>` が読めなければ 1、それ以外は 0。
 
 ---
@@ -1155,7 +1263,7 @@ self assert: (Object new class) equals: Object.
 2. **Kernel はネイティブ。** Kernel メソッドを `.st` の実行定義にしない。
 3. **チャットは正本ではない。** 仕様変更は `SPEC.md` を先に直す。
 4. **余計なものを作らない。** 依頼されていないデバッガ、パッケージマネージャ、シンタックステーマ、ウェブサイトを追加しない。
-5. **依存は最小。** runtime は C++20 標準ライブラリ + 必要なら mimalloc 程度。OS の API として mmap / mprotect を使ってよい（old の予約とコミット）。GUI は AppKit のみ。Boost、Qt、SDL、SwiftUI 主系統は使わない。
+5. **依存は最小。** runtime は C++20 標準ライブラリ + 必要なら mimalloc 程度。OS の API として mmap / mprotect / madvise を使ってよい（old の予約とコミット、プロセスのスタックとガードページ）。プロセスの切り替え（§3.4）は arm64 のアセンブリで自前で書く。ucontext、Boost.Context、OS のスレッドを使わない。GUI は AppKit のみ。Boost、Qt、SDL、SwiftUI 主系統は使わない。
 6. **Apple Silicon を第一対象。** Intel Mac は考慮しない。
 7. **C ABI 以外で Swift が C++ テンプレートに依存しない。**
 8. **例外方針:** C++ は例外を境界で使わない。エラーは評価の中断（§3.3。理由の文字列）か ABI のエラーコード。Smalltalk の例外オブジェクトによる捕捉は v1 では扱わない。

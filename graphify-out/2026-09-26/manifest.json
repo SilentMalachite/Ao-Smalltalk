@@ -1476,9 +1476,9 @@
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-09-23-review-fixes.md": {
-    "mtime": 1790351125.8994977,
-    "seen": 1790351130.3402061,
-    "ast_hash": "90b164bb26e31ad80a2962bdc858a421",
+    "mtime": 1790333254.7081547,
+    "seen": 1790350640.0387409,
+    "ast_hash": "ccb569b64ff5fa143b977beb1ef46d37",
     "semantic_hash": ""
   },
   "runtime/include/ao/HandleScope.hpp": {
@@ -1596,9 +1596,9 @@
     "semantic_hash": ""
   },
   "runtime/src/Scheduler.cpp": {
-    "mtime": 1790351037.910844,
-    "seen": 1790351130.340081,
-    "ast_hash": "8b106a898a6e16a6668a3306421382e7",
+    "mtime": 1790350071.2887197,
+    "seen": 1790350640.038612,
+    "ast_hash": "a1d2f04d08f0a2fcc937a5f686bd75fe",
     "semantic_hash": ""
   },
   "runtime/tests/fiber_test.cpp": {

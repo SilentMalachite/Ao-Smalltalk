@@ -2,6 +2,9 @@
 
 #include "test_support.hpp"
 
+#include "../src/Fiber.hpp"
+#include "../src/Session.hpp"
+
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -782,4 +785,227 @@ TEST_F(SessionAbi, ClassSideConstructorsAllocateTheSubclassInstSize) {
     ASSERT_EQ(AO_OK, ao_runtime_shutdown());
   }
   std::filesystem::remove(path);
+}
+
+// ---- B10: the session's cooperative scheduler (SPEC §3.4, §3.10) ----
+
+// SPEC §3.4 評価の終わり: a Do it drains the ready queue before it returns, so what a fork writes
+// to the Transcript reaches the hook before ao_eval returns.
+TEST_F(SessionAbi, DoItDrainsTranscriptFork) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectTranscript, &seen);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("[Transcript show: 'x'] fork"));
+  EXPECT_EQ(std::vector<std::string>{"x"}, seen);
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+}
+
+// SPEC §3.4 評価の終わり: the answer (the printString) is fixed before the drain; what the forks do
+// shows in the next evaluation.
+TEST_F(SessionAbi, PrintItBeforeDrain) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("n := 0. [n := 5] fork. n", out, 64, &err)) << err.message;
+  EXPECT_STREQ("0", out);
+  ASSERT_EQ(AO_OK, evalPrint("n", out, 64, &err)) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, evalPrint("a := OrderedCollection new. [a add: 1] fork. a size", out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("0", out);
+  ASSERT_EQ(AO_OK, evalPrint("a size", out, 64, &err)) << err.message;
+  EXPECT_STREQ("1", out);
+}
+
+// The review's expression: the fork runs at the yield, and the Print it sees its increment.
+TEST_F(SessionAbi, ForkIncrementVisibleAfterYield) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("| n | n := 0. [n := n + 1] fork. Processor yield. n", out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("1", out);
+}
+
+// SPEC §3.4: a process waiting at the end of the drain is kept for the next evaluations; a signal
+// there makes it run in that evaluation's drain. The base stays the same process throughout.
+TEST_F(SessionAbi, WaiterSurvivesAcrossEvals) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalDoIt("base := Processor activeProcess. s := Semaphore new. "
+                            "log := OrderedCollection new. [s wait. log add: #woke] fork"));
+  EXPECT_EQ(1u, ao::session()->scheduler->liveFibers());
+  ASSERT_EQ(AO_OK, evalPrint("log size", out, 64, &err)) << err.message;
+  EXPECT_STREQ("0", out);
+  ASSERT_EQ(AO_OK, evalDoIt("s signal"));
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+  ASSERT_EQ(AO_OK, evalPrint("log size", out, 64, &err)) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == base", out, 64, &err)) << err.message;
+  EXPECT_STREQ("true", out);
+}
+
+// SPEC §3.11 プロセス: an image saved with a waiting and a ready process loads with the base as
+// Processor's activeProcess and an empty ready queue; the saved processes cannot run (resume fails,
+// signal drops the waiter). The old session's fibers are abandoned with it.
+TEST_F(SessionAbi, SaveLoadWithWaitersKeepsBaseActive) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalDoIt("Smalltalk at: #B10Base put: Processor activeProcess. "
+                            "Smalltalk at: #B10Sem put: Semaphore new. "
+                            "Smalltalk at: #B10Waiter put: [(Smalltalk at: #B10Sem) wait] fork. "
+                            "Smalltalk at: #B10Looper put: [1 to: 1001 do: [:i | Processor yield]] fork"));
+  // The waiter waits; the looper is still ready after the drain's 1000 rounds.
+  EXPECT_EQ(2u, ao::session()->scheduler->liveFibers());
+  const auto path = std::filesystem::temp_directory_path() / "ao-b10-waiters.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == B10Base", out, 64, &err)) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, evalPrint("(Processor instVarAt: 1) size", out, 64, &err)) << err.message;
+  EXPECT_STREQ("0", out);
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("B10Waiter resume", out, 64, &err));
+  EXPECT_STREQ("process cannot run", err.message);
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("B10Looper resume", out, 64, &err));
+  EXPECT_STREQ("process cannot run", err.message);
+  ASSERT_EQ(AO_OK, evalPrint("B10Sem signal. (B10Sem instVarAt: 2) size", out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("0", out);
+  ASSERT_EQ(AO_OK, evalPrint("B10Sem instVarAt: 1", out, 64, &err)) << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == B10Base", out, 64, &err)) << err.message;
+  EXPECT_STREQ("true", out);
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.4 abandon, §3.10: shutdown abandons the processes left, before the heap goes: no
+// cleanup runs, no hook is called, each fiber's frames unwind so its roots go, and its stack goes
+// back. Abandoning (what shutdown does first) brings the root counts back to what they were.
+TEST_F(SessionAbi, ShutdownReclaimsFibers) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectTranscript, &seen);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const char* waiters =
+      "s := Semaphore new. "
+      "1 to: 5 do: [:i | [[s wait] ensure: [Transcript show: 'cleanup']] fork]";
+  // The first run interns the Symbols the source names; each stays rooted in the intern table
+  // (WellKnown::internWith), so count from after it.
+  ASSERT_EQ(AO_OK, evalDoIt(waiters));
+  ao::Session* session = ao::session();
+  ASSERT_EQ(5u, session->scheduler->liveFibers());
+  session->scheduler->terminateAll(true);
+  ASSERT_EQ(0u, session->scheduler->liveFibers());
+  const ao::Roots::Counts before = session->roots.counts();
+  ASSERT_EQ(AO_OK, evalDoIt(waiters));
+  ASSERT_EQ(5u, session->scheduler->liveFibers());
+  EXPECT_EQ(before.attachedStacks + 5, session->roots.counts().attachedStacks);
+  session->scheduler->terminateAll(true);
+  const ao::Roots::Counts after = session->roots.counts();
+  EXPECT_EQ(before.slots, after.slots);
+  EXPECT_EQ(before.ranges, after.ranges);
+  EXPECT_EQ(before.frameSlots, after.frameSlots);
+  EXPECT_EQ(before.handles, after.handles);
+  EXPECT_EQ(before.attachedStacks, after.attachedStacks);
+  EXPECT_EQ(0u, session->scheduler->processFailures());
+
+  // Five forks take the pooled stacks and map the rest; shutdown gives all five back.
+  ASSERT_EQ(AO_OK, evalDoIt(waiters));
+  EXPECT_EQ(0u, ao::FiberStack::pooledCount());
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  EXPECT_EQ(ao::FiberStack::kPoolLimit, ao::FiberStack::pooledCount());
+  EXPECT_TRUE(seen.empty());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+}
+
+// SPEC §3.10 再入: a hook called from a forked process (here in the drain) is refused like one
+// called from the base: every entry answers AO_ERR, and the evaluation's answer stands.
+TEST_F(SessionAbi, ReentrantEvalFromHookRejected) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  Reentry r = reentryFixture(std::filesystem::temp_directory_path() / "ao-b10-reentry-fork");
+  ao_set_transcript_hook(
+      [](const char*, int, int, void* user) { reenterEverything(*static_cast<Reentry*>(user)); },
+      &r);
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("b6x := 40. [Transcript show: 'a'] fork. b6x + 2", out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("42", out);
+  ao_set_transcript_hook(nullptr, nullptr);
+  expectAllRefused(r);
+  expectSessionUntouched();
+}
+
+// SPEC §3.4 評価の終わり: a process that fails in the drain is counted, but the evaluation's answer
+// is the one it had: AO_OK and its printString, or its own AO_ERR_EVAL reason.
+TEST_F(SessionAbi, ProcessFailureInDrainKeepsEvalAnswer) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("[nil foo] fork. 3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+  EXPECT_STREQ("", err.message);
+  EXPECT_EQ(1u, ao::session()->scheduler->processFailures());
+  EXPECT_EQ("doesNotUnderstand: #foo", ao::session()->scheduler->lastFailureReason());
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("[nil foo] fork. nil bar", out, 64, &err));
+  EXPECT_STREQ("doesNotUnderstand: #bar", err.message);
+  EXPECT_EQ(2u, ao::session()->scheduler->processFailures());
+  ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+}
+
+// SPEC §3.4 デッドロック: the base's wait with nothing else to run fails the evaluation, and the
+// next evaluation runs on the same base.
+TEST_F(SessionAbi, BaseDeadlockFailsEvalBaseStays) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalDoIt("base := Processor activeProcess"));
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("Semaphore new wait", out, 64, &err));
+  EXPECT_STREQ("deadlock: no runnable process", err.message);
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == base", out, 64, &err)) << err.message;
+  EXPECT_STREQ("true", out);
+}
+
+// SPEC §3.4 プロセスの失敗, §3.10: a C++ exception in a forked process (a transcript hook that
+// throws, called in the drain) ends that process as a failure, internal error. It does not leave
+// the fiber: the native frames on the way are popped, ao_eval answers what it had, and the session
+// goes on.
+TEST_F(SessionAbi, ExceptionInsideForkIsProcessFailure) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao_set_transcript_hook([](const char*, int, int, void*) { throw std::runtime_error("host bug"); },
+                         nullptr);
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("[Transcript show: 'x'] fork. 3", out, 64, &err)) << err.message;
+  EXPECT_STREQ("3", out);
+  ao::Session* session = ao::session();
+  EXPECT_EQ(1u, session->scheduler->processFailures());
+  EXPECT_EQ("internal error", session->scheduler->lastFailureReason());
+  EXPECT_EQ(0u, session->scheduler->liveFibers());
+  EXPECT_TRUE(session->roots.runningStack().empty());
+  ao_set_transcript_hook(nullptr, nullptr);
+  ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+}
+
+// SPEC §3.4: the out-of-memory mark is the process's own. A fork that cannot allocate fails alone;
+// the base's Print it, which allocated fine, answers its value.
+TEST_F(SessionAbi, ForkOutOfMemoryKeepsBaseAnswer) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("[Array new: 600000000] fork. Processor yield. 7", out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("7", out);
+  EXPECT_EQ(1u, ao::session()->scheduler->processFailures());
+  EXPECT_EQ("out of memory", ao::session()->scheduler->lastFailureReason());
+  ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
 }

@@ -347,6 +347,99 @@ TEST(CollectionDo, OrderedCollectionSizeBeyondSmiMaxFails) {
 
 namespace {
 
+// スケジューラの実行可能キューと同じ外し方（Process.cpp の ocRemoveFirst）: 先頭のスロットを nil にして
+// firstIndex を進める。GC しない。
+ao::Oop ocRemoveFirst(Boot& b, ao::Oop oc) {
+  const ao::Oop arr = b.heap.slotAt(oc, 0);
+  const std::int64_t first = b.heap.slotAt(oc, 1).smallIntegerValue();
+  const auto idx = static_cast<std::uint32_t>(first - 1);
+  const ao::Oop value = b.heap.slotAt(arr, idx);
+  b.heap.slotAtPut(arr, idx, ao::Oop::nil());
+  b.heap.slotAtPut(oc, 1, smi(first + 1));
+  return value;
+}
+
+std::uint32_t ocArraySize(Boot& b, ao::Oop oc) { return b.heap.size(b.heap.slotAt(oc, 0)); }
+
+}  // namespace
+
+// B9 の積み残し / B10: add: は、使っている数の 2 倍が array に収まるなら、伸ばさずに先頭へ詰める。
+// 先頭から外して末尾へ足す使い方（実行可能キューの FIFO）で、array が際限なく伸びない。
+TEST(CollectionDo, OrderedCollectionFifoKeepsItsArraySmall) {
+  Boot b;
+  ao::Root oc(b.roots, send0(b, b.wk.orderedCollectionClass, "new"));
+  ASSERT_TRUE(oc.slot.isHeap());
+  constexpr std::int64_t kRounds = 100000;
+  for (std::int64_t i = 1; i <= kRounds; ++i) {
+    ASSERT_EQ(smi(i), send1(b, oc.slot, "add:", smi(i)));
+    ASSERT_EQ(smi(i), ocRemoveFirst(b, oc.slot));
+  }
+  EXPECT_EQ(0, send0(b, oc.slot, "size").smallIntegerValue());
+  EXPECT_LE(ocArraySize(b, oc.slot), 64u);
+  // 5 つを入れたままの FIFO でも同じ。
+  for (std::int64_t i = 1; i <= 5; ++i) {
+    send1(b, oc.slot, "add:", smi(i));
+  }
+  for (std::int64_t i = 6; i <= kRounds; ++i) {
+    ASSERT_EQ(smi(i), send1(b, oc.slot, "add:", smi(i)));
+    ASSERT_EQ(smi(i - 5), ocRemoveFirst(b, oc.slot));
+  }
+  EXPECT_EQ(5, send0(b, oc.slot, "size").smallIntegerValue());
+  EXPECT_LE(ocArraySize(b, oc.slot), 64u);
+  EXPECT_EQ(smi(kRounds - 4), send1(b, oc.slot, "at:", smi(1)));
+  EXPECT_EQ(smi(kRounds), send1(b, oc.slot, "at:", smi(5)));
+}
+
+// 詰めたあとも要素は元の順に firstIndex 1 から並び、at: と do: はその順に答える。空いたスロットは nil
+// （外した要素を捕まえておかない）。2 倍が収まらなければ、今までどおり倍の array へ写す。
+TEST(CollectionDo, OrderedCollectionCompactionKeepsOrder) {
+  Boot b;
+  ao::Root oc(b.roots, send0(b, b.wk.orderedCollectionClass, "new"));
+  ASSERT_TRUE(oc.slot.isHeap());
+  ASSERT_EQ(8u, ocArraySize(b, oc.slot));
+  for (std::int64_t i = 1; i <= 8; ++i) {
+    send1(b, oc.slot, "add:", smi(i));
+  }
+  for (std::int64_t i = 1; i <= 5; ++i) {
+    ASSERT_EQ(smi(i), ocRemoveFirst(b, oc.slot));
+  }
+  // 残り 6 7 8 の 2 倍は 8 に収まる: 詰めて [6 7 8 9 nil nil nil nil]。
+  send1(b, oc.slot, "add:", smi(9));
+  EXPECT_EQ(8u, ocArraySize(b, oc.slot));
+  EXPECT_EQ(smi(1), b.heap.slotAt(oc.slot, 1));
+  EXPECT_EQ(smi(4), b.heap.slotAt(oc.slot, 2));
+  for (std::uint32_t i = 4; i < 8; ++i) {
+    EXPECT_TRUE(b.heap.slotAt(b.heap.slotAt(oc.slot, 0), i).isNil()) << i;
+  }
+  for (std::int64_t i = 1; i <= 4; ++i) {
+    EXPECT_EQ(smi(i + 5), send1(b, oc.slot, "at:", smi(i)));
+  }
+  static std::vector<std::int64_t> seen;
+  seen.clear();
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    seen.push_back(args[0].isSmallInteger() ? args[0].smallIntegerValue() : -1);
+    return args[0];
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  send1(b, oc.slot, "do:", blk.slot);
+  EXPECT_EQ((std::vector<std::int64_t>{6, 7, 8, 9}), seen);
+
+  // 10..13 で埋めてから 6 7 を外す。残り 8..13 の 2 倍は 8 に収まらないので、16 の array へ写す。
+  for (std::int64_t i = 10; i <= 13; ++i) {
+    send1(b, oc.slot, "add:", smi(i));
+  }
+  ASSERT_EQ(smi(6), ocRemoveFirst(b, oc.slot));
+  ASSERT_EQ(smi(7), ocRemoveFirst(b, oc.slot));
+  send1(b, oc.slot, "add:", smi(14));
+  EXPECT_EQ(16u, ocArraySize(b, oc.slot));
+  EXPECT_EQ(7, send0(b, oc.slot, "size").smallIntegerValue());
+  seen.clear();
+  send1(b, oc.slot, "do:", blk.slot);
+  EXPECT_EQ((std::vector<std::int64_t>{8, 9, 10, 11, 12, 13, 14}), seen);
+}
+
+namespace {
+
 // collect: と select: は、ネイティブのブロック（thunk）の pc を添字や件数に使う。do: を書き換えた
 // コレクションは、そのブロックを受け取って pc を書き換えられる。skip: の回数だけは書き換えずに通す。
 const char* kSmiMaxPoker =

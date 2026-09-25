@@ -184,6 +184,41 @@ TEST(AoTestRunner, FailuresAreCountedAndLaterFilesStillRun) {
   EXPECT_FALSE(b.ctx.aborting);
 }
 
+// SPEC §4.4: ファイルの評価、drain、terminate の間にプロセスの失敗があれば、そのファイルの失敗で、
+// 件数によらず 1 行（最後の理由）。ファイルの abort とは別の行になる。drain のあとに残ったプロセスは
+// terminate で終わり（後始末が走る。失敗に数えない）、後始末がブロックしたものは abandon して、
+// 次のファイルに持ち越さない。
+TEST(AoTestRunner, ProcessFailureFailsFileAndLeftoversEnd) {
+  const TestDir dir("ao-test-runner-process");
+  ASSERT_TRUE(dir.write("a_fork.st", "[nil foo] fork.\n[nil bar] fork.\nself assert: 1 equals: 1.\n"));
+  ASSERT_TRUE(dir.write("b_both.st", "[nil baz] fork.\nnil qux.\n"));
+  ASSERT_TRUE(dir.write("c_waiters.st",
+                        "| s |\n"
+                        "s := Semaphore new.\n"
+                        "Smalltalk at: #B10Log put: 0.\n"
+                        "[[s wait] ensure: [Smalltalk at: #B10Log put: 1]] fork.\n"
+                        "[[s wait] ensure: [s wait]] fork.\n"
+                        "self assert: 1 equals: 1.\n"));
+  ASSERT_TRUE(dir.write("d_after.st",
+                        "self assert: (Smalltalk at: #B10Log) equals: 1.\n"
+                        "self assert: (Processor instVarAt: 1) size equals: 0.\n"));
+  Boot b;
+  testing::internal::CaptureStderr();
+  const int code = ao::runSmalltalkTests(b.ctx, dir.path.string());
+  const std::string reported = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(1, code);
+  const auto line = [&dir](const char* file, const char* rest) {
+    return "ao --test: " + (dir.path / file).string() + rest + "\n";
+  };
+  const std::string expected = line("a_fork.st", ": process failed: doesNotUnderstand: #bar") +
+                               line("b_both.st", ": doesNotUnderstand: #qux") +
+                               line("b_both.st", ": process failed: doesNotUnderstand: #baz");
+  EXPECT_EQ(expected, reported);
+  EXPECT_EQ(3, b.ctx.testFailures);
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_FALSE(b.ctx.aborting);
+}
+
 // SPEC §4.4: .st が 0 件か、ディレクトリが読めなければ exit 1。理由を stderr に出す。
 TEST(AoTestRunner, EmptyOrMissingDirectoryFails) {
   const TestDir dir("ao-test-runner-empty");
@@ -1019,6 +1054,71 @@ TEST(BlockAbort, EnsureCleanupRunsNearStackLimit) {
   EXPECT_LE(enter, exit);
   EXPECT_LE(exit, levels);
   EXPECT_LE(levels - enter, 1);
+}
+
+// B10 / SPEC §3.4: ファイバは自分のスタックで動く。fiberStackHigh が 0 でなければ、ガードはその範囲を
+// 取り、予約分はスレッドと同じ式（min(512 KiB, size / 4)、後始末はその半分）で決める。0 に戻せば
+// スレッドのスタックに戻る。
+TEST(BlockAbort, RefreshStackLimitUsesTheFiberStackRange) {
+  Boot b;
+  const std::uintptr_t low = std::uintptr_t{1} << 32;
+  b.ctx.fiberStackLow = low;
+  b.ctx.fiberStackHigh = low + (std::uintptr_t{8} << 20);
+  ao::refreshStackLimit(b.ctx);
+  EXPECT_EQ(low + (std::uintptr_t{8} << 20), b.ctx.stackHigh);
+  EXPECT_EQ(low + 512 * 1024, b.ctx.stackLimit);
+  EXPECT_EQ(low + 256 * 1024, b.ctx.stackCleanupLimit);
+
+  b.ctx.fiberStackHigh = low + (std::uintptr_t{1} << 20);
+  ao::refreshStackLimit(b.ctx);
+  EXPECT_EQ(low + (std::uintptr_t{1} << 20), b.ctx.stackHigh);
+  EXPECT_EQ(low + 256 * 1024, b.ctx.stackLimit);
+  EXPECT_EQ(low + 128 * 1024, b.ctx.stackCleanupLimit);
+
+  b.ctx.fiberStackLow = 0;
+  b.ctx.fiberStackHigh = 0;
+  ao::refreshStackLimit(b.ctx);
+  EXPECT_EQ(reinterpret_cast<std::uintptr_t>(pthread_get_stackaddr_np(pthread_self())),
+            b.ctx.stackHigh);
+}
+
+// B10 / SPEC §3.4: ファイバの範囲を持つコンテキストでは、スレッドのスタックがもっと大きくても、ガードは
+// その範囲の中で当たる。最外の入口と applyMethod の取り直しが、どちらもファイバの範囲を使う。
+TEST(BlockAbort, StackGuardUsesTheFiberStackRange) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #R10Deep\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B10-Test'!\n"
+                               "!R10Deep methodsFor: 'r'!\n"
+                               "recur: n\n"
+                               "  ^self recur: n + 1! !\n",
+                               errs));
+  ao::Root obj(b.roots, send0(b, b.wk.named("R10Deep"), "new"));
+  ao::Oop got = ao::Oop::fromSmallInteger(0);
+  std::uintptr_t high = 0;
+  std::uintptr_t low = 0;
+  runOnSmallStack(
+      [&] {
+        // この関数のフレームから下の 1 MiB を、ファイバのスタックに見立てる。
+        high = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0)) & ~std::uintptr_t{15};
+        low = high - (std::uintptr_t{1} << 20);
+        b.ctx.fiberStackLow = low;
+        b.ctx.fiberStackHigh = high;
+        got = send1(b, obj.slot, "recur:", ao::Oop::fromSmallInteger(0));
+      },
+      std::size_t{8} << 20);
+  b.ctx.fiberStackLow = 0;
+  b.ctx.fiberStackHigh = 0;
+  EXPECT_TRUE(got.isEmpty());
+  ASSERT_TRUE(b.ctx.aborting);
+  EXPECT_EQ(std::string("stack overflow"), b.ctx.abortReason);
+  EXPECT_EQ(high, b.ctx.stackHigh);
+  EXPECT_EQ(low + 256 * 1024, b.ctx.stackLimit);
+  ao::clearUnwinding(b.ctx);
 }
 
 namespace {

@@ -36,6 +36,9 @@ add_library(ao_runtime
   src/ImageLoad.cpp
   src/Lookup.cpp
   src/Send.cpp
+  src/Scheduler.cpp
+  src/Fiber.cpp
+  src/FiberSwitch_arm64.S
   src/kernel/Install.cpp
   src/kernel/BlockContext.cpp
   src/kernel/Object.cpp
@@ -60,12 +63,12 @@ target_include_directories(ao_runtime
     ${CMAKE_SOURCE_DIR}/runtime/include
     ${CMAKE_SOURCE_DIR}/bridge
 )
-target_compile_options(ao_runtime PRIVATE -Wall -Wextra -Werror)
+target_compile_options(ao_runtime PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>")
 
 add_executable(ao src/ao_main.cpp)
 target_link_libraries(ao PRIVATE ao_runtime)
 target_include_directories(ao PRIVATE ${CMAKE_SOURCE_DIR}/compiler/include)
-target_compile_options(ao PRIVATE -Wall -Wextra -Werror)
+target_compile_options(ao PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>")
 set_target_properties(ao PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 add_executable(ao_runtime_tests
@@ -110,6 +113,7 @@ add_executable(ao_runtime_tests
   tests/browser_abi_test.cpp
   tests/accept_abi_test.cpp
   tests/failure_test.cpp
+  tests/fiber_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
 target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")

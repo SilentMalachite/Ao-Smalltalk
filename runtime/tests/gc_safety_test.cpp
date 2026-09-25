@@ -7,6 +7,7 @@
 #include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/Natives.hpp"
@@ -508,29 +509,44 @@ TEST(GcSafety, FloatIntervalSizeAcrossFullGc) {
 
 // SharedQueue の next は、取り出した値を C++ のローカルに持ったまま write の signal を送っていた。
 // signal が待っているプロセスを起こし、scheduler の待ち行列を作り直す割り当てで GC が走ると、
-// 値（キューから外したので他に参照がない）は古い番地のまま返っていた。
+// 値（キューから外したので他に参照がない）は古い番地のまま返っていた。B10（SPEC §3.4）では next
+// が本当に待つ。待っている消費者を nextPut: で起こし、ストレス下で切り替えて受け取らせる。値を指す
+// のはキューだけで、切り替えの間も、待ち行列の作り直し（割り当て = GC）の間も正しい番地のまま届く。
 TEST(GcSafety, SharedQueueNextKeepsValueAcrossSignal) {
   Boot b;
   b.heap.setGcStress(0);  // 準備はストレスなしで行う（AO_GC_STRESS に左右されない）
-  ao::Root p2(b.roots, send0(b, b.wk.processClass, "new"));
-  ASSERT_TRUE(p2.slot.isHeap());
-  send0(b, p2.slot, "resume");
-  ao::Root q(b.roots, send0(b, b.wk.sharedQueueClass, "new"));
-  ASSERT_TRUE(q.slot.isHeap());
-  ao::Root value(b.roots, send1(b, b.wk.arrayClass, "new:", smi(1)));
-  send2(b, value.slot, "at:put:", smi(1), smi(42));
-  send1(b, q.slot, "nextPut:", value.slot);
-  // write の excess は 0。今のプロセスを write で待たせ、p2 に切り替える。
-  ao::Root write(b.roots, send1(b, q.slot, "instVarAt:", smi(3)));
-  send0(b, write.slot, "wait");
-  ASSERT_EQ(p2.slot, send0(b, b.wk.processor, "activeProcess"));
-  // scheduler の待ち行列を捨てておき、signal からの resume に作り直させる（割り当て = GC）。
+  ao::Root env(b.roots, send1(b, b.wk.arrayClass, "new:", smi(2)));
+  auto run = [&b, &env](const char* source) {
+    auto img = ao::compiler::compileMethod(source);
+    ASSERT_TRUE(img.ok) << img.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+    ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), &env.slot, 1, ao::Oop::nil());
+    ASSERT_FALSE(b.ctx.aborting) << ao::abortReasonText(b.ctx);
+  };
+  run("doIt: env\n"
+      "  | q |\n"
+      "  q := SharedQueue new.\n"
+      "  env at: 1 put: q.\n"
+      "  [env at: 2 put: q next] fork.\n"
+      "  Processor yield");
+  ASSERT_EQ(1u, b.scheduler.liveFibers());
+  // scheduler の待ち行列を捨てておき、nextPut: の signal に作り直させる（割り当て = GC）。
   send2(b, b.wk.processor, "instVarAt:put:", smi(1), ao::Oop::nil());
 
   b.heap.setGcStress(1);
-  const ao::Oop got = send0(b, q.slot, "next");
+  run("doIt: env\n"
+      "  | a |\n"
+      "  a := Array new: 1.\n"
+      "  a at: 1 put: 42.\n"
+      "  (env at: 1) nextPut: a.\n"
+      "  a := nil.\n"
+      "  Processor yield");
   b.heap.setGcStress(0);
-  EXPECT_EQ(value.slot, got);
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  ao::Root got(b.roots, send1(b, env.slot, "at:", smi(2)));
+  ASSERT_TRUE(got.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(got.slot));
+  EXPECT_EQ(smi(42), send1(b, got.slot, "at:", smi(1)));
 }
 
 // リテラル配列の箱詰めは、配列を割り当てた（GC した）あとで、値で受けた methodClass をルートに

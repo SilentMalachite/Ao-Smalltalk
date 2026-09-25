@@ -110,6 +110,20 @@ TEST(KernelScan, RequiredSelectorsAreNativeMethods) {
       {b.wk.smalltalkImageClass, "at:put:"},
       {b.wk.smalltalkImageClass, "at:ifAbsent:"},
       {b.wk.smalltalkImageClass, "includesKey:"},
+      // Kernel-Processes (SPEC §3.6).
+      {b.wk.processClass, "resume"},
+      {b.wk.processClass, "suspend"},
+      {b.wk.processClass, "terminate"},
+      {b.wk.processClass, "priority:"},
+      {b.wk.processorSchedulerClass, "activeProcess"},
+      {b.wk.processorSchedulerClass, "yield"},
+      {b.wk.semaphoreClass, "signal"},
+      {b.wk.semaphoreClass, "wait"},
+      {b.wk.semaphoreMetaclass, "new"},
+      {b.wk.sharedQueueClass, "nextPut:"},
+      {b.wk.sharedQueueClass, "next"},
+      {b.wk.sharedQueueMetaclass, "new"},
+      {b.wk.blockContextClass, "fork"},
   };
   for (const auto& r : reqs) {
     auto sel = ao::Symbol::intern(b.wk, r.sel);
