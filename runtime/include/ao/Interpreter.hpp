@@ -19,8 +19,9 @@ Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std
 // current thread's stack, keeping min(512 KiB, size/4) in reserve.
 void refreshStackLimit(CallContext& ctx);
 
-// True while Interpreter::run is on base's stack (base.depth > 0). SPEC §3.10: the ABI refuses a
-// call that re-enters the runtime then; it passes the session's base context.
+// True while Interpreter::run is on base's stack (base.depth > 0), or while a process other than
+// the base runs (base.scheduler, SPEC §3.4). SPEC §3.10: the ABI refuses a call that re-enters the
+// runtime then; it passes the session's base context.
 bool interpreterRunning(const CallContext& base);
 
 }  // namespace ao

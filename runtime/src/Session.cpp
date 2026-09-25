@@ -33,6 +33,8 @@ HostOopHook g_transcriptHook = nullptr;
 Oop workspaceBinding(CallContext& ctx, std::string_view name);
 
 void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook inspect) {
+  // The scheduler's base process runs on ctx: it goes before ctx does and comes back with it.
+  session.scheduler.reset();
   session.cache = std::make_unique<ClassMethodCache>();
   session.cache->addRoots(session.roots);
   session.ctx = std::unique_ptr<CallContext>(new CallContext{
@@ -40,6 +42,8 @@ void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook ins
   session.ctx->transcriptHook = transcript;
   session.ctx->inspectHook = inspect;
   session.ctx->bindingHook = workspaceBinding;
+  // SPEC §3.10: one scheduler per session. adoptImage comes after boot or load.
+  session.scheduler = std::make_unique<Scheduler>(*session.ctx);
 }
 
 bool installEmptyWorkspace(Session& session) {
@@ -116,9 +120,15 @@ Session::Session(bool bootstrap) : wk(heap, roots) {
   }
   installEmptyCache(*this, nullptr, nullptr);
   Bootstrap::run(heap, roots, wk);
+  // SPEC §3.4 ベースプロセス: Processor's activeProcess right after boot.
+  scheduler->adoptImage();
 }
 
-Session::~Session() { releaseMethodSources(*this); }
+Session::~Session() {
+  // SPEC §3.4 abandon, §3.10: the processes left go first, while the heap and the roots are there.
+  scheduler.reset();
+  releaseMethodSources(*this);
+}
 
 Session* session() { return g_session.get(); }
 
@@ -207,15 +217,19 @@ int sessionImageLoad(const char* path, std::string* reason) {
     inspect = g_session->ctx->inspectHook;
   }
   installEmptyCache(*next, g_transcriptHook, inspect);
+  // SPEC §3.4, §3.11: the base is Processor's activeProcess right after the load, and the ready
+  // queue starts empty; the image's other Processes cannot run.
+  next->scheduler->adoptImage();
   if (!installEmptyWorkspace(*next)) {
     return fail("image load failed");
   }
   // SPEC §3.10: the natives and the probes run on the new session. Only when both pass does it
-  // replace the current one; otherwise the current session stays as it was.
+  // replace the current one; otherwise the current session stays as it was, its processes too.
   ensureKernelNatives(*next);
   if (!loadedImageProbes(*next)) {
     return fail("image probes failed");
   }
+  // Dropping the current session abandons its processes (~Session).
   g_session = std::move(next);
   clearMethodSources();
   return 0;
@@ -645,8 +659,9 @@ void blankOut(char* out, int outLen) {
   }
 }
 
+// *ran becomes true once the doIt is applied: the evaluation ran (SPEC §3.4 評価の終わり).
 int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
-             AoInspectFn inspect, void* inspectUser) {
+             AoInspectFn inspect, void* inspectUser, bool* ran) {
   if (err != nullptr) {
     err->start = 0;
     err->end = 0;
@@ -711,6 +726,7 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     return AO_ERR_EVAL;
   }
 
+  *ran = true;
   Root result(session.roots,
               applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil()));
   if (result.slot.isEmpty()) {
@@ -769,7 +785,8 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
     clearUnwinding(*g_session->ctx);
     refreshStackLimit(*g_session->ctx);
   }
-  const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser);
+  bool ran = false;
+  const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser, &ran);
   if (g_session == nullptr || g_session->ctx == nullptr) {
     return rc;
   }
@@ -788,6 +805,12 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
     reason = "evaluation failed";
   }
   clearUnwinding(ctx);
+  // SPEC §3.4 評価の終わり: the answer (out, the reason) is fixed and the base's abort is read and
+  // cleared; then the ready queue drains. Nothing in the drain changes the answer, and what it
+  // writes to the Transcript reaches the hook before this returns.
+  if (ran && g_session->scheduler != nullptr) {
+    g_session->scheduler->drain(Scheduler::kDrainRounds);
+  }
   if (reason.empty()) {
     return rc;
   }

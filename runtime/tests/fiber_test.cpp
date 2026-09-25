@@ -4,6 +4,7 @@
 #include <mach/mach_vm.h>
 #include <unistd.h>
 
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <set>
@@ -221,8 +222,16 @@ TEST(Fiber, GuardPageIsProtNone) {
   EXPECT_EQ(VM_PROT_READ | VM_PROT_WRITE, protectionAt(stack.low()));
   EXPECT_EQ(VM_PROT_READ | VM_PROT_WRITE, protectionAt(stack.high() - 1));
   // Running off the low end of the stack faults instead of writing into a neighbouring mapping.
+  // The dying child takes the fault's default action: a sanitizer's handler would symbolize the
+  // report by attaching atos to the child, which can hang there.
   auto* const guard = reinterpret_cast<volatile unsigned char*>(stack.low() - 1);
-  EXPECT_DEATH(*guard = 1, "");
+  EXPECT_DEATH(
+      {
+        std::signal(SIGSEGV, SIG_DFL);
+        std::signal(SIGBUS, SIG_DFL);
+        *guard = 1;
+      },
+      "");
   ao::FiberStack::release(std::move(stack));
 }
 

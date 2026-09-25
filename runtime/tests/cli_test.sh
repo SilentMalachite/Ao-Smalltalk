@@ -148,12 +148,18 @@ case "$CASE" in
     printf '1/0.\nself assert: 1 equals: 1.\n' >tests/b_zero.st
     printf 'self assert: 1 + equals: 4.\n' >tests/c_compile.st
     printf 'self assert: 1 + 2 equals: 3.\n' >tests/d_pass.st
+    # SPEC §4.4: a process that fails fails its file, one line with the last reason.
+    printf '[nil foo] fork.\n[nil bar] fork.\nself assert: 1 equals: 1.\n' >tests/e_fork.st
     printf 'self assert: 1 + 2 equals: 3.\n' >pass/pass.st
+    # SPEC §4.4: processes left after the drain are terminated, not failures; one whose cleanup
+    # blocks is abandoned.
+    printf '| s |\ns := Semaphore new.\n[[s wait] ensure: [s wait]] fork.\n[s wait] fork.\n' >pass/waiters.st
     printf 'not a test\n' >empty/notes.txt
     run 1 "$AO" --test tests
     stderr_is 'ao --test: tests/a_dnu.st: doesNotUnderstand: #foo
 ao --test: tests/b_zero.st: division by zero
-ao --test: tests/c_compile.st:17-24: expected expression'
+ao --test: tests/c_compile.st:17-24: expected expression
+ao --test: tests/e_fork.st: process failed: doesNotUnderstand: #bar'
     run 0 "$AO" --test pass
     stderr_is ''
     run 1 "$AO" --test empty

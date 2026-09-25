@@ -22,6 +22,16 @@ final class ToolWindowTests: XCTestCase {
     XCTAssertEqual(launch.transcript.useFixedPitch, true)
   }
 
+  // SPEC §3.4: a Do it drains the forked processes before it returns. The fork's Transcript show:
+  // calls the hook on that process's own stack (same main thread), and it reaches the window.
+  func testForkedTranscriptShowReachesTranscriptWindow() {
+    let launch = LaunchSet.make()
+    launch.workspace.replaceText("[Transcript show: 'from a fork'] fork")
+    launch.workspace.selectAll()
+    launch.workspace.doIt()
+    XCTAssertTrue(launch.transcript.text.contains("from a fork"))
+  }
+
   func testMainMenuListsToolsAndSmalltalkKeys() {
     let menu = MainMenu.build(actions: MainMenu.Actions())
     let titles = menuTitles(in: menu)

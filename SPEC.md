@@ -301,6 +301,7 @@ v1 の実行モデル:
 - `aBlock fork`
   - 引数が 0 個のブロックでなければ失敗する（§3.3。理由は `failed: #fork`）。
   - ベース以外の生きているプロセスがすでに 256 あれば、Process を作らずに `too many processes` で失敗する。
+  - プロセスのスタックを確保できない（`mmap` が失敗する）ときも、`too many processes` で失敗する。作りかけの Process は実行可能キューに入れず、走れないプロセスとして残る。
   - それ以外は、新しい Process を作って実行可能キューの末尾に入れ、その Process を答える。切り替えない。ブロックは、そのプロセスに切り替わったときに始まる。
 - `Processor yield`: 実行可能キューが空なら、何もせずに返る。空でなければ、走っているプロセスをキューの末尾に入れ、次のプロセスに切り替える。自分の番が来たら返る。答えは `Processor` である。
 - `aSemaphore wait`: excessSignals が 1 以上なら、1 減らしてすぐに返る。0 なら、走っているプロセスを linkedList の末尾に入れて待たせ、次のプロセスに切り替える。`signal` で実行可能になり、自分の番が来たら返る。答えはレシーバである。
@@ -321,6 +322,8 @@ v1 の実行モデル:
   - 走っているプロセス自身（ベースでない）なら、プロセスの本体まで巻き戻して終わり、次のプロセスに切り替える。送った式には戻らない。
   - まだ始まっていないプロセスなら、（いれば）実行可能キューから外し、ブロックを始めずに終わらせる。切り替えない。
   - ほかの始まったプロセス（実行可能、待っている、止まっている）なら、そのリストから外し、そのプロセスに切り替えて巻き戻させる。そのプロセスが終われば、`terminate` を送ったプロセスに戻る。後始末の途中でそのプロセスが切り替えれば（`yield`、`wait`、`suspend`）、その時点で送ったプロセスに戻る。残りの巻き戻しは、そのプロセスが次に走ったときに続ける。
+  - `signal` を受けて待ちから外れたが、まだ `wait` から戻っていないプロセス（実行可能なもの、そのあと `suspend` されて止まっているもの）を終わらせるときは、切り替える前にその signal をセマフォに返す。返すことは、そのセマフォにもう一度 `signal` を送るのと同じである（待つプロセスがいればそれを実行可能にし、いなければ excessSignals を 1 増やす）。SharedQueue の `next` で待っていたプロセスなら、その要素は次に `next` を送ったプロセスが受け取る。返すのが失敗すれば（`signal: excess signals out of range`）、`terminate` はその理由で失敗し、プロセスはそのまま残る。abandon（下）では返さない。`suspend` でも返さない（`resume` されれば、signal を受けた `wait` から普通に戻る）。
+  - `terminate` を送って相手の終わりを待っているプロセスは、待っているプロセスとして扱う（`resume` しても何もしない）。それを（相手の後始末などが）`suspend` すると、止まっている状態になり、戻る先の印が外れる。相手はそのあと終わっても切り替えても送ったプロセスには戻らず、次のプロセスに切り替える（無ければ下のデッドロック）。送ったプロセスは、`resume` されて自分の番が来たら `terminate` から戻る。
   - ベースへの `terminate` は失敗する（`process terminated`）。ベースは終わらない。ベースで送れば、その `ao_eval` は `AO_ERR_EVAL` を返す。ベース以外のプロセスで送れば、送ったプロセスの失敗（下）になる。
   - 走れないプロセスには、何もしない。
   - 送ったプロセスが走り続けるとき、答えはレシーバである。
@@ -350,7 +353,7 @@ abandon:
 
 - abandon は、ベース以外のプロセスを、後始末（`ensure:` と `ifCurtailed:`）を走らせずに終わらせることである。abandon の間は Smalltalk のコードを走らせず、フックも呼ばない。失敗に数えない。
 - abandon するのは、`ao_image_load` が古いセッションを新しいセッションと差し替えるとき、`ao::shutdown()`、セッションの破棄のときである（§3.10）。どれもヒープを捨てる前に行う。
-- `ao --test` は abandon しない。ファイルごとに、drain のあとで残ったベース以外のプロセスを `terminate` で終わらせる（後始末を走らせる。§4.4）。
+- `ao --test` は、ファイルごとに、drain のあとで残ったベース以外のプロセスを `terminate` で終わらせる（後始末を走らせる。§4.4）。abandon するのは、その後始末が（`wait` などで）ブロックしたまま残ったプロセスだけである。
 
 ### 3.5 バイトコード（ユーザーメソッド）
 
@@ -1212,7 +1215,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
 - `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
-- `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
+- `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる
 
 GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocateRetry` と safepoint で n 回に 1 回 nursery GC を走らせ、そのうち 4 回に 1 回は old の GC も走らせる。GC で解放した領域は `0xA5` で埋め、古い番地を読んだら落ちるようにする。ctest の `gcstress` 項目は、runtime のスイート全体（時間計測の `KernelBench.*` を除く）を 1 プロセスでこのモードで回す。`gcstress_vendor` 項目は、vendor の file-in（`ao filein --load-order image/vendor/LOAD_ORDER`）と `ao --test image/tests` をこのモードで回す。`ao filein` の stderr と終了コードは §3.12 の「file-in のエラー」に従う。`gcstress_vendor` はストレスなしの 1 回の出力を基準にし、ストレス下の出力がそれと一致すること、どちらも exit 0 であることを確かめる。
@@ -1245,7 +1248,7 @@ self assert: (Object new class) equals: Object.
 
 - `<dir>` の `*.st` を名前順に、1 ファイルずつ実行する。1 ファイルは最外の評価 1 回である（§3.4）。失敗したファイルがあっても、残りのファイルを実行する。
 - ファイルの失敗は、読めない、コンパイルエラー、実行中の abort（`assert:equals:` の不一致、`doesNotUnderstand:`、`error:`、ネイティブの失敗など §3.3 の失敗すべて）である。`assert:equals:` の不一致は、理由 `<実際の printString> ~= <期待の printString>` で abort する。
-- 1 ファイルの評価のあと、drain（§3.4）し、残ったベース以外のプロセスを `terminate` で終わらせる（後始末を走らせる）。プロセスを次のファイルに持ち越さない。
+- 1 ファイルの評価のあと、drain（§3.4）し、残ったベース以外のプロセスを `terminate` で終わらせる（後始末を走らせる）。後始末がブロックしたまま終わらなかったプロセスは、そのあと abandon する（§3.4。残りの後始末は走らせない）。プロセスを次のファイルに持ち越さない。
 - そのファイルの評価、drain、`terminate` の間にプロセスの失敗（§3.4）が 1 件でもあれば、そのファイルの失敗である。`terminate` で終わったプロセスは数えない。
 - 失敗ごとに 1 行を stderr に出す。形式は `ao --test: <ファイル名>: <理由>`。コンパイルエラーは `ao --test: <ファイル名>:<start>-<end>: <メッセージ>`（位置はファイル本文のバイト位置）。プロセスの失敗は、件数によらずファイルごとに 1 行で、`ao --test: <ファイル名>: process failed: <最後の失敗の理由>` である。
 - 終了コードは、1 つでも失敗があれば 1、`.st` が 0 件か `<dir>` が読めなければ 1、それ以外は 0。

@@ -37,6 +37,8 @@ class Scheduler {
  public:
   // SPEC §3.4: live processes other than the base (not started ones included).
   static constexpr std::size_t kMaxFibers = 256;
+  // SPEC §3.4 drain, §4.4: the rounds ao_eval and ao --test drain for.
+  static constexpr int kDrainRounds = 1000;
 
   // base is the session's context. Sets base.scheduler to this. Touches no heap object: call
   // adoptImage after boot or load.

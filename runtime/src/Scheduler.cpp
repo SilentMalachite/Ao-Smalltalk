@@ -181,14 +181,17 @@ Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
 }  // namespace
 
 // One process. The base's runs on the session's context and the thread's stack; a fiber's on its
-// own context, stack and Roots::Stack. process, block and waitingOn are GC roots for as long as
-// the record exists (SPEC §3.2: a live process is never collected).
+// own context, stack and Roots::Stack. process, block, waitingOn and signaledBy are GC roots for
+// as long as the record exists (SPEC §3.2: a live process is never collected).
 struct Scheduler::Record {
   Scheduler* owner = nullptr;
   std::uint64_t id = 0;
   Oop process = Oop::nil();
   Oop block = Oop::nil();      // the forked block; nil for the base
   Oop waitingOn = Oop::nil();  // the Semaphore whose linkedList holds it, while it waits on one
+  // The Semaphore whose signal took it out of the linkedList, until it runs again (returns from
+  // wait): a terminate meanwhile gives the signal back (SPEC §3.4).
+  Oop signaledBy = Oop::nil();
   std::unique_ptr<CallContext> ownCtx;  // null for the base
   CallContext* ctx = nullptr;
   FiberStack stack;
@@ -207,13 +210,15 @@ struct Scheduler::Record {
 
 namespace {
 
-void rootRecord(Roots& roots, Oop* process, Oop* block, Oop* waitingOn) {
+void rootRecord(Roots& roots, Oop* process, Oop* block, Oop* waitingOn, Oop* signaledBy) {
   roots.add(process);
   roots.add(block);
   roots.add(waitingOn);
+  roots.add(signaledBy);
 }
 
-void unrootRecord(Roots& roots, Oop* process, Oop* block, Oop* waitingOn) {
+void unrootRecord(Roots& roots, Oop* process, Oop* block, Oop* waitingOn, Oop* signaledBy) {
+  roots.remove(signaledBy);
   roots.remove(waitingOn);
   roots.remove(block);
   roots.remove(process);
@@ -228,7 +233,7 @@ Scheduler::Scheduler(CallContext& base) : base_(base) {
   rec->ctx = &base_;
   rec->state = State::Running;
   rec->started = true;
-  rootRecord(base_.roots, &rec->process, &rec->block, &rec->waitingOn);
+  rootRecord(base_.roots, &rec->process, &rec->block, &rec->waitingOn, &rec->signaledBy);
   base_.roots.attachStack(&rec->rootStack);
   current_ = rec.get();
   records_.push_back(std::move(rec));
@@ -241,7 +246,7 @@ Scheduler::~Scheduler() {
     terminateAll(true);
   }
   Record& b = base();
-  unrootRecord(base_.roots, &b.process, &b.block, &b.waitingOn);
+  unrootRecord(base_.roots, &b.process, &b.block, &b.waitingOn, &b.signaledBy);
   base_.roots.detachStack(&b.rootStack);
   if (base_.scheduler == this) {
     base_.scheduler = nullptr;
@@ -324,7 +329,7 @@ Oop Scheduler::fork(CallContext& ctx, Oop block) {
   r.ctx->fiberStackHigh = reinterpret_cast<std::uintptr_t>(r.stack.high());
   r.process = proc.slot;
   r.block = blk.slot;
-  rootRecord(base_.roots, &r.process, &r.block, &r.waitingOn);
+  rootRecord(base_.roots, &r.process, &r.block, &r.waitingOn, &r.signaledBy);
   base_.roots.attachStack(&r.rootStack);
   fiberInit(r.regs, r.stack, &Scheduler::fiberEntry, &r);
   records_.push_back(std::move(rec));
@@ -392,6 +397,7 @@ bool Scheduler::signal(CallContext& ctx, Oop semaphore) {
     Record* r = find(waiter);
     if (r != nullptr && r->state == State::Waiting && r->waitingOn == sem.slot) {
       r->waitingOn = Oop::nil();
+      r->signaledBy = sem.slot;
       r->state = State::Suspended;
       // Ready at the end of the queue; the signaller goes on (SPEC §3.4).
       return enqueue(ctx, *r);
@@ -460,6 +466,15 @@ bool Scheduler::terminate(CallContext& ctx, Oop process) {
   }
   if (me.abandon) {
     return false;
+  }
+  if (r->signaledBy.isHeap()) {
+    // SPEC §3.4 terminate: signalled but not back from wait yet, it gives the signal back, as a
+    // second signal would. When that fails, the process stays as it was.
+    Root sem(ctx.roots, r->signaledBy);
+    if (!signal(ctx, sem.slot)) {
+      return false;
+    }
+    r->signaledBy = Oop::nil();
   }
   leaveLists(*r);
   if (!r->started) {
@@ -789,6 +804,8 @@ void Scheduler::switchTo(Record& to) {
     heap.slotAtPut(base_.wk.processor, kSchedulerSlotActive, to.process);
   }
   setMyList(heap, to.process, Oop::nil());
+  // Back from its wait (or unwinding): a signal it took is its own now.
+  to.signaledBy = Oop::nil();
   to.state = State::Running;
   current_ = &to;
   base_.roots.switchStack(from.rootStack, to.rootStack);
@@ -814,7 +831,7 @@ void Scheduler::reapDead() {
       }
     }
     base_.roots.detachStack(&r.rootStack);
-    unrootRecord(base_.roots, &r.process, &r.block, &r.waitingOn);
+    unrootRecord(base_.roots, &r.process, &r.block, &r.waitingOn, &r.signaledBy);
     FiberStack::release(std::move(r.stack));
     it = records_.erase(it);
   }

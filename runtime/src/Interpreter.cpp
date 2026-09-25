@@ -6,6 +6,7 @@
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Natives.hpp"
+#include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
 
 #include <pthread.h>
@@ -911,6 +912,8 @@ void refreshStackLimit(CallContext& ctx) {
   ctx.stackCleanupLimit = high - size + reserve / 2;
 }
 
-bool interpreterRunning(const CallContext& base) { return base.depth > 0; }
+bool interpreterRunning(const CallContext& base) {
+  return base.depth > 0 || (base.scheduler != nullptr && base.scheduler->nonBaseRunning());
+}
 
 }  // namespace ao

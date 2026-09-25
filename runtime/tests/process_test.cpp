@@ -830,6 +830,107 @@ TEST(Process, TerminateAllRunsCleanups) {
   EXPECT_EQ("1 2", itemsOf(b, at(b, env.slot, 1)));
 }
 
+// SPEC §3.4 terminate: a process that a signal made ready, but that has not returned from wait
+// yet (ready, or suspended after that), gives the signal back to the semaphore when terminated, as
+// if the semaphore were signalled again: the next waiter, or the next wait, gets it. Suspend does
+// not give it back (the process returns from wait once resumed), and neither does abandon.
+TEST(Process, TerminateSignaledWaiterGivesSignalBack) {
+  Boot b;
+  // The element the terminated reader was woken for goes to the next next.
+  EXPECT_EQ("42", runItems(b,
+                           "doIt\n"
+                           "  | q log a |\n"
+                           "  q := SharedQueue new.\n"
+                           "  log := OrderedCollection new.\n"
+                           "  a := [log add: q next. log add: 1] fork.\n"
+                           "  Processor yield.\n"
+                           "  q nextPut: 42.\n"
+                           "  a terminate.\n"
+                           "  log add: q next.\n"
+                           "  ^log"));
+  // Given back, the signal wakes the reader waiting behind.
+  EXPECT_EQ("42 3", runItems(b,
+                              "doIt\n"
+                              "  | q log a c |\n"
+                              "  q := SharedQueue new.\n"
+                              "  log := OrderedCollection new.\n"
+                              "  a := [log add: q next. log add: 1] fork.\n"
+                              "  c := [log add: q next. log add: 3] fork.\n"
+                              "  Processor yield.\n"
+                              "  q nextPut: 42.\n"
+                              "  a terminate.\n"
+                              "  Processor yield.\n"
+                              "  ^log"));
+  // Suspended after the signal: suspend keeps it, terminate gives it back.
+  EXPECT_EQ("0 1 7", runItems(b,
+                              "doIt\n"
+                              "  | s log a |\n"
+                              "  s := Semaphore new.\n"
+                              "  log := OrderedCollection new.\n"
+                              "  a := [s wait. log add: 1] fork.\n"
+                              "  Processor yield.\n"
+                              "  s signal.\n"
+                              "  a suspend.\n"
+                              "  log add: (s instVarAt: 1).\n"
+                              "  a terminate.\n"
+                              "  log add: (s instVarAt: 1).\n"
+                              "  s wait.\n"
+                              "  log add: 7.\n"
+                              "  ^log"));
+  // Suspended and resumed, it returns from the wait it was signalled in.
+  EXPECT_EQ("0 1", runItems(b,
+                             "doIt\n"
+                             "  | s log a |\n"
+                             "  s := Semaphore new.\n"
+                             "  log := OrderedCollection new.\n"
+                             "  a := [s wait. log add: 1] fork.\n"
+                             "  Processor yield.\n"
+                             "  s signal.\n"
+                             "  a suspend.\n"
+                             "  log add: (s instVarAt: 1).\n"
+                             "  a resume.\n"
+                             "  Processor yield.\n"
+                             "  ^log"));
+  EXPECT_EQ(0u, b.scheduler.processFailures());
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  // Abandon gives nothing back.
+  ao::Root env(b.roots, newEnv(b, 1));
+  run(b,
+      "doIt: env\n"
+      "  | s |\n"
+      "  s := Semaphore new.\n"
+      "  env at: 1 put: s.\n"
+      "  [s wait] fork.\n"
+      "  Processor yield.\n"
+      "  s signal",
+      env.slot);
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(1u, b.scheduler.liveFibers());
+  b.scheduler.terminateAll(true);
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_EQ(smi(0), send1(b, at(b, env.slot, 1), "instVarAt:", smi(1)));
+}
+
+// SPEC §3.10 busy: the interpreter is running while a process other than the base runs, even when
+// the base itself is not in Interpreter::run (a drain from C++, as ao_eval does).
+TEST(Process, InterpreterRunningWhileForkRunsFromDrain) {
+  Boot b;
+  static ao::CallContext* base;
+  static int seen;
+  base = &b.ctx;
+  seen = -1;
+  b.ctx.inspectHook = [](ao::CallContext&, ao::Oop) {
+    seen = (base->depth == 0 && ao::interpreterRunning(*base)) ? 1 : 0;
+  };
+  run(b, "doIt\n  [3 inspect] fork");
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(-1, seen);
+  b.scheduler.drain(10);
+  EXPECT_EQ(1, seen);
+  EXPECT_FALSE(ao::interpreterRunning(b.ctx));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}
+
 // SPEC §3.4 signal, §3.11: a waiter this session has no record of (Process new, a Process from a
 // loaded image) cannot run: signal drops it and looks at the next one.
 TEST(Process, SignalDropsWaitersThatCannotRun) {

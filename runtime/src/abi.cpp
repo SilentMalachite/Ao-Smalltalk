@@ -28,8 +28,8 @@ int guarded(int failed, Body&& body) noexcept {
 std::atomic<int> g_entered{0};
 
 // SPEC §3.10: the runtime is busy while the interpreter runs on the session's base context (a
-// native calls back). Read only with the entry taken, so no other entry replaces the session
-// meanwhile. No session: not busy.
+// native calls back) or a process other than the base runs (interpreterRunning). Read only with
+// the entry taken, so no other entry replaces the session meanwhile. No session: not busy.
 bool runtimeBusy() {
   const ao::Session* s = ao::session();
   return s != nullptr && s->ctx != nullptr && ao::interpreterRunning(*s->ctx);
