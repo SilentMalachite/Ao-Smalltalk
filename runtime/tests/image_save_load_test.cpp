@@ -1731,6 +1731,20 @@ TEST(ImageSaveLoad, EscapedCollectionThunksRunAfterSaveAndLoad) {
   }
   ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 5) value: 5")) << err.message;  // inject:into:
   EXPECT_STREQ("13", out);  // 3, then 8 above, then 13
+  // B9: the select: and reject: thunks keep their buffer (slot 7) and count (slot 2) across the
+  // image: select: kept 2 before the save and 5 above, reject: kept 1 before the save.
+  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 2) value: 7. (B6Keeper kept at: 2) instVarAt: 2"))
+      << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, eval("| t | t := B6Keeper kept at: 2. ((t instVarAt: 7) at: 1) * 100 + "
+                        "(((t instVarAt: 7) at: 2) * 10) + ((t instVarAt: 7) at: 3)"))
+      << err.message;
+  EXPECT_STREQ("257", out);
+  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 3) value: 0. (B6Keeper kept at: 3) instVarAt: 2"))
+      << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, eval("((B6Keeper kept at: 3) instVarAt: 7) at: 2")) << err.message;
+  EXPECT_STREQ("0", out);
   ASSERT_EQ(AO_OK, eval("1 + 2")) << err.message;
   EXPECT_STREQ("3", out);
   ao_runtime_shutdown();

@@ -689,6 +689,64 @@ TEST(CollectionDo, SelectChecksItsBufferBeforeThePredicate) {
   EXPECT_EQ("#(1)", printOf(b, "^(B9Corrupt new slot: 2 value: 0) select: [:x | true]"));
 }
 
+// select: と reject: の穴: 述語からの非局所リターンと述語の中のエラー、述語の中でのレシーバの書き換え
+// （Array、OrderedCollection、Dictionary、Set）、10 万要素での作業領域の拡張、答えの種類。
+TEST(CollectionDo, SelectAndRejectEdgeCases) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #B9Picker\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B9-Test'!\n"
+                               "!B9Picker methodsFor: 'picking'!\n"
+                               "firstOver: n in: c\n"
+                               "  c select: [:x | x > n ifTrue: [^x]. false].\n"
+                               "  ^nil!\n"
+                               "logged: c into: log\n"
+                               "  ^[c reject: [:x | x = 2 ifTrue: [^#left]. false]] ensure: [log add: #ensured]! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  // ^ out of the predicate leaves select:; ensure: runs.
+  EXPECT_EQ("3", printOf(b, "^B9Picker new firstOver: 2 in: #(1 2 3 4)"));
+  EXPECT_EQ("true", printOf(b, "| log r | log := OrderedCollection new.\n"
+                               "r := B9Picker new logged: #(1 2 3) into: log.\n"
+                               "^(r == #left) & (log size = 1)"));
+  // An error in the predicate aborts with its reason.
+  EXPECT_EQ("<abort: doesNotUnderstand: #foo>", printOf(b, "^#(1 2) select: [:x | x foo]"));
+  EXPECT_EQ("<abort: division by zero>", printOf(b, "^#(1 0) reject: [:x | 1 / x > 0]"));
+  // The receiver written from the predicate: the answer holds what each call saw.
+  EXPECT_EQ("#(1 9)", printOf(b, "| a | a := Array new: 3. a at: 1 put: 1; at: 2 put: 2; at: 3 put: 3.\n"
+                                 "^a select: [:x | a at: 3 put: 9. x \\\\ 2 = 1]"));
+  EXPECT_EQ("#(1 2 3)", printOf(b, "| oc | oc := OrderedCollection new. oc add: 1; add: 2; add: 3.\n"
+                                   "^oc select: [:x | oc add: 100. x < 100]"));
+  EXPECT_EQ("true", printOf(b, "| d r | d := Dictionary new. 1 to: 5 do: [:i | d at: i put: i].\n"
+                               "r := d select: [:v | d removeKey: v ifAbsent: [nil]. true].\n"
+                               "^(r size <= 5) & (r class == Array)"));
+  EXPECT_EQ("true", printOf(b, "| s r | s := Set new. 1 to: 5 do: [:i | s add: i].\n"
+                               "r := s reject: [:e | s add: e + 10. false].\n"
+                               "^(r size >= 1) & (r class == Array)"));
+  // 100 000 elements: the buffer doubles 8 -> ... -> 131072 (fewer under GC stress).
+  const std::string count = b.heap.gcStress() != 0 ? "600" : "100000";
+  EXPECT_EQ(b.heap.gcStress() != 0 ? "300" : "50000",
+            printOf(b, "| a | a := Array new: " + count + ". 1 to: " + count +
+                           " do: [:i | a at: i put: i].\n^(a select: [:x | x \\\\ 2 = 0]) size"));
+  EXPECT_EQ(count, printOf(b, "| a r | a := Array new: " + count + ". 1 to: " + count +
+                                  " do: [:i | a at: i put: i].\nr := a reject: [:x | false]. ^r at: " +
+                                  count));
+  // The answer is an Array whatever the receiver.
+  for (const char* rcvr : {"(OrderedCollection new add: 1; add: 2; yourself)", "'ab'",
+                           "(Set new add: 1; add: 2; yourself)", "(Interval from: 1 to: 2 by: 1)",
+                           "(Dictionary new at: #a put: 1; at: #b put: 2; yourself)"}) {
+    SCOPED_TRACE(rcvr);
+    EXPECT_EQ("true", printOf(b, std::string("| r | r := ") + rcvr +
+                                     " select: [:x | true]. ^(r class == Array) & (r size = 2)"));
+    EXPECT_EQ("true", printOf(b, std::string("| r | r := ") + rcvr +
+                                     " reject: [:x | true]. ^(r class == Array) & (r size = 0)"));
+  }
+}
+
 // GC 圧下: nursery を満杯にしてから、集める Array が 8 → 16 → 32 → 64 と伸びる select: を送る。
 TEST(CollectionDo, SelectGrowsItsBufferWithFullNursery) {
   Boot b;

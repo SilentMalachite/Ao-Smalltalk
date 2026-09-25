@@ -456,9 +456,10 @@ void fillNursery(Boot& b) {
 }  // namespace
 
 // SPEC §3.6: String への書き込みを、文字の列のモデルと突き合わせる。1 から 4 バイトの文字の追記と
-// 上書き、position: での後戻り、reset からの next、利用者の String への at:put:（ストリームがまだそれを
-// collection にしている間だけ、モデルにも反映する）を乱数で混ぜる。毎回 contents、position、readLimit、
-// writeLimit と collection の文字数を確かめる。
+// 上書き、nextPutAll:、position: での後戻りと予備の中への前進（readLimit で頭打ち）、reset からの next、
+// 利用者の String への at:put:（ストリームがまだそれを collection にしている間だけ、モデルにも反映する）
+// を乱数で混ぜる。ReadWriteStream と WriteStream の両方で、毎回 contents（WriteStream は position まで）、
+// position、readLimit、writeLimit と collection の文字数を確かめる。
 TEST(StreamDifferential, StringWritesMatchAModel) {
   Boot b;
   const char32_t alphabet[] = {U'a', U'z', U'\0', U'é', U'あ', U'\U0001D11E'};
@@ -466,54 +467,81 @@ TEST(StreamDifferential, StringWritesMatchAModel) {
   auto pick = [&](std::uint32_t n) {
     return static_cast<std::uint32_t>(std::uniform_int_distribution<std::uint32_t>(0, n - 1)(rng));
   };
-  std::u32string model = U"abéあcd";
-  ao::Root user(b.roots, ao::Str::fromUtf8(b.ctx, utf8(model)));
-  ao::Root w(b.roots, send1(b, b.wk.readWriteStreamClass, "on:", user.slot));
-  ASSERT_TRUE(w.slot.isHeap());
-  std::size_t pos = 0;
-  ao::Root got(b.roots);
-  for (int step = 0; step < 3000; ++step) {
-    SCOPED_TRACE(step);
-    const std::uint32_t op = pick(10);
-    if (op < 6) {
-      const char32_t c = alphabet[pick(6)];
-      ASSERT_EQ(ao::Oop::fromCharacter(c), send1(b, w.slot, "nextPut:", ao::Oop::fromCharacter(c)))
-          << takeAbortReason(b);
+  for (const bool readWrite : {true, false}) {
+    SCOPED_TRACE(readWrite ? "ReadWriteStream" : "WriteStream");
+    std::u32string model = U"abéあcd";
+    ao::Root user(b.roots, ao::Str::fromUtf8(b.ctx, utf8(model)));
+    ao::Root w(b.roots, send1(b, readWrite ? b.wk.readWriteStreamClass : b.wk.writeStreamClass,
+                              "on:", user.slot));
+    ASSERT_TRUE(w.slot.isHeap());
+    std::size_t pos = 0;
+    ao::Root got(b.roots);
+    ao::Root text(b.roots);
+    auto put = [&](char32_t c) {
       if (pos < model.size()) {
         model[pos] = c;
       } else {
         model.push_back(c);
       }
       ++pos;
-    } else if (op < 8) {
-      pos = pick(static_cast<std::uint32_t>(model.size()) + 1);
-      send1(b, w.slot, "position:", smi(static_cast<std::int64_t>(pos)));
-    } else if (op == 8) {
-      send0(b, w.slot, "reset");
-      pos = 0;
-      const std::size_t reads = pick(4);
-      for (std::size_t i = 0; i < reads && pos < model.size(); ++i) {
-        ASSERT_EQ(ao::Oop::fromCharacter(model[pos]), send0(b, w.slot, "next"));
-        ++pos;
+    };
+    // Under GC stress the other tests look after GC safety: fewer steps keep the time down.
+    const int steps = b.heap.gcStress() != 0 ? 800 : 3000;
+    for (int step = 0; step < steps; ++step) {
+      SCOPED_TRACE(step);
+      const std::uint32_t op = pick(12);
+      if (op < 6) {
+        const char32_t c = alphabet[pick(6)];
+        ASSERT_EQ(ao::Oop::fromCharacter(c),
+                  send1(b, w.slot, "nextPut:", ao::Oop::fromCharacter(c)))
+            << takeAbortReason(b);
+        put(c);
+      } else if (op == 6) {
+        std::u32string more;
+        for (std::uint32_t i = pick(5); i > 0; --i) {
+          more.push_back(alphabet[pick(6)]);
+        }
+        text.slot = ao::Str::fromUtf8(b.ctx, utf8(more));
+        send1(b, w.slot, "nextPutAll:", text.slot);
+        ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+        for (const char32_t c : more) {
+          put(c);
+        }
+      } else if (op < 9) {
+        pos = pick(static_cast<std::uint32_t>(model.size()) + 1);
+        send1(b, w.slot, "position:", smi(static_cast<std::int64_t>(pos)));
+      } else if (op == 9) {
+        // Past what was written, into the reserve: position stops at readLimit.
+        const std::size_t want = model.size() + 1 + pick(40);
+        send1(b, w.slot, "position:", smi(static_cast<std::int64_t>(want)));
+        pos = model.size();
+      } else if (op == 10) {
+        send0(b, w.slot, "reset");
+        pos = 0;
+        const std::size_t reads = pick(4);
+        for (std::size_t i = 0; i < reads && pos < model.size(); ++i) {
+          ASSERT_EQ(ao::Oop::fromCharacter(model[pos]), send0(b, w.slot, "next"));
+          ++pos;
+        }
+      } else if (b.heap.slotAt(w.slot, 0) == user.slot && !model.empty()) {
+        const std::size_t i = pick(static_cast<std::uint32_t>(model.size()));
+        const char32_t c = alphabet[pick(6)];
+        const ao::Oop r = send2(b, user.slot, "at:put:", smi(static_cast<std::int64_t>(i + 1)),
+                                ao::Oop::fromCharacter(c));
+        if (r.isEmpty()) {
+          takeAbortReason(b);  // UTF-8 width mismatch: the String is unchanged.
+        } else {
+          model[i] = c;
+        }
       }
-    } else if (b.heap.slotAt(w.slot, 0) == user.slot && !model.empty()) {
-      const std::size_t i = pick(static_cast<std::uint32_t>(model.size()));
-      const char32_t c = alphabet[pick(6)];
-      const ao::Oop r = send2(b, user.slot, "at:put:", smi(static_cast<std::int64_t>(i + 1)),
-                              ao::Oop::fromCharacter(c));
-      if (r.isEmpty()) {
-        takeAbortReason(b);  // UTF-8 width mismatch: the String is unchanged.
-      } else {
-        model[i] = c;
-      }
+      got.slot = send0(b, w.slot, "contents");
+      ASSERT_TRUE(got.slot.isHeap()) << takeAbortReason(b);
+      ASSERT_EQ(utf8(readWrite ? model : model.substr(0, pos)), ao::Str::toUtf8(b.heap, got.slot));
+      ASSERT_EQ(smi(static_cast<std::int64_t>(pos)), b.heap.slotAt(w.slot, 1));
+      ASSERT_EQ(smi(static_cast<std::int64_t>(model.size())), b.heap.slotAt(w.slot, 2));
+      const ao::Oop count = send0(b, b.heap.slotAt(w.slot, 0), "size");
+      ASSERT_EQ(count, b.heap.slotAt(w.slot, 3));
     }
-    got.slot = send0(b, w.slot, "contents");
-    ASSERT_TRUE(got.slot.isHeap()) << takeAbortReason(b);
-    ASSERT_EQ(utf8(model), ao::Str::toUtf8(b.heap, got.slot));
-    ASSERT_EQ(smi(static_cast<std::int64_t>(pos)), b.heap.slotAt(w.slot, 1));
-    ASSERT_EQ(smi(static_cast<std::int64_t>(model.size())), b.heap.slotAt(w.slot, 2));
-    const ao::Oop count = send0(b, b.heap.slotAt(w.slot, 0), "size");
-    ASSERT_EQ(count, b.heap.slotAt(w.slot, 3));
   }
 }
 
@@ -567,6 +595,39 @@ TEST(StreamGc, GrowAndContentsWithFullNursery) {
   EXPECT_EQ("o2", ao::Str::toUtf8(b.heap, send1(b, oco.slot, "at:", smi(2))));
   EXPECT_EQ(b.wk.byteArrayClass, b.heap.klass(bco.slot));
   EXPECT_EQ(smi(30), send1(b, bco.slot, "at:", smi(3)));
+}
+
+// GC 圧下: 書いた文字を幅の違う文字で上書きして String を差し替える経路と、予備の中へ広い文字を書く
+// 経路を、nursery を満杯にしてから回す。
+TEST(StreamGc, OverwriteAndReserveWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);
+  ao::Root w(b.roots, send1(b, b.wk.readWriteStreamClass, "on:", ao::Str::fromUtf8(b.ctx, "")));
+  for (const char c : std::string("abcdef")) {
+    send1(b, w.slot, "nextPut:", ao::Oop::fromCharacter(static_cast<char32_t>(c)));
+  }
+  std::u32string expect = U"abcdef";
+  fillNursery(b);
+  b.heap.setGcStress(1);
+  // Overwrite before readLimit with other widths: each replaces the String (one character).
+  const char32_t wide[] = {U'\u00E9', U'\u3042', U'\U0001D11E', U'x'};
+  for (int i = 0; i < 12; ++i) {
+    const std::size_t at = static_cast<std::size_t>(i % 6);
+    send1(b, w.slot, "position:", smi(static_cast<std::int64_t>(at)));
+    send1(b, w.slot, "nextPut:", ao::Oop::fromCharacter(wide[i % 4]));
+    expect[at] = wide[i % 4];
+  }
+  // Append past readLimit: wide characters fill the one-byte reserve in place.
+  send1(b, w.slot, "position:", smi(6));
+  for (int i = 0; i < 20; ++i) {
+    send1(b, w.slot, "nextPut:", ao::Oop::fromCharacter(wide[i % 3]));
+    expect.push_back(wide[i % 3]);
+  }
+  ao::Root c(b.roots, send0(b, w.slot, "contents"));
+  b.heap.setGcStress(0);
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  EXPECT_EQ(utf8(expect), ao::Str::toUtf8(b.heap, c.slot));
+  EXPECT_EQ(send0(b, b.heap.slotAt(w.slot, 0), "size"), b.heap.slotAt(w.slot, 3));
 }
 
 namespace {
