@@ -96,6 +96,60 @@ func spanMessage(_ span: AoSpan) -> String {
   }
 }
 
+// SPEC §3.8, §3.9: a span's UTF-8 byte offsets as a UTF-16 range of `text`, the source the span
+// counts in. An offset inside a scalar moves out of it: the start back to the scalar's first
+// byte, the end past its last byte. Offsets past the end of `text` stop at the end.
+func utf16Range(of span: AoSpan, in text: String) -> NSRange {
+  let byteCount = text.utf8.count
+  let start = min(Int(span.start), byteCount)
+  let end = min(max(Int(span.end), start), byteCount)
+  var bytes = 0
+  var units = 0
+  var lower: Int?
+  var upper: Int?
+  for scalar in text.unicodeScalars {
+    let nextBytes = bytes + UTF8.width(scalar)
+    if lower == nil, start < nextBytes {
+      lower = units
+    }
+    if upper == nil, end <= bytes {
+      upper = units
+    }
+    if lower != nil, upper != nil {
+      break
+    }
+    bytes = nextBytes
+    units += UTF16.width(scalar)
+  }
+  let from = lower ?? units
+  let to = max(upper ?? units, from)
+  return NSRange(location: from, length: to - from)
+}
+
+// SPEC §3.9: a compile error selects its span in `textView` and leaves the text alone. `source`
+// is the text the span counts in, and it starts at `base` in the view. AO_ERR_EVAL (span 0-0) and
+// an empty span leave the selection as it is.
+@MainActor
+func selectErrorSpan(
+  status: Int32,
+  span: AoSpan,
+  source: String,
+  base: Int,
+  in textView: NSTextView
+) {
+  guard status == Int32(AO_ERR_COMPILE), span.start < span.end else {
+    return
+  }
+  let local = utf16Range(of: span, in: source)
+  let range = NSRange(location: base + local.location, length: local.length)
+  guard range.length > 0, NSMaxRange(range) <= (textView.string as NSString).length else {
+    return
+  }
+  textView.setSelectedRange(range)
+  textView.scrollRangeToVisible(range)
+  textView.showFindIndicator(for: range)
+}
+
 func failureText(status: Int32, message: String) -> String {
   if !message.isEmpty {
     return message
@@ -249,6 +303,14 @@ final class WorkspaceWindow {
     let result = evaluate(source, mode: mode)
     if result.status != Int32(AO_OK) {
       errorField.stringValue = failureText(status: result.status, message: result.message)
+      // SPEC §3.8: an ao_eval span counts from the start of the evaluated fragment.
+      selectErrorSpan(
+        status: result.status,
+        span: result.span,
+        source: source,
+        base: range.location,
+        in: textView
+      )
       return
     }
     errorField.stringValue = ""
@@ -281,7 +343,10 @@ final class WorkspaceWindow {
     inspectors.append(inspector)
   }
 
-  private func evaluate(_ source: String, mode: Int32) -> (status: Int32, output: String, message: String) {
+  private func evaluate(
+    _ source: String,
+    mode: Int32
+  ) -> (status: Int32, output: String, message: String, span: AoSpan) {
     var out = [CChar](repeating: 0, count: aoEvalOutCapacity)
     var err = AoSpan()
     let status: Int32 = source.withCString { src in
@@ -298,7 +363,7 @@ final class WorkspaceWindow {
     // reads the kept result whole. Without one, AO_ERR_RANGE stays `result does not fit`.
     let answered = status == Int32(AO_OK) || status == Int32(AO_ERR_RANGE)
     if answered, mode != Int32(AO_EVAL_DOIT), let whole = keptEvalResult() {
-      return (Int32(AO_OK), whole, spanMessage(err))
+      return (Int32(AO_OK), whole, spanMessage(err), err)
     }
     let output = out.withUnsafeBufferPointer { buf -> String in
       guard let base = buf.baseAddress else {
@@ -306,7 +371,7 @@ final class WorkspaceWindow {
       }
       return String(cString: base)
     }
-    return (status, output, spanMessage(err))
+    return (status, output, spanMessage(err), err)
   }
 
   // Empty selection is the caret's line, without the line break, so Print it stays on that line.

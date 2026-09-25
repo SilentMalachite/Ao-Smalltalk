@@ -224,6 +224,86 @@ final class WorkspaceEvalTests: XCTestCase {
     XCTAssertEqual(workspace.inspectorText, "String\n'\0\0\0'")
   }
 
+  // The view counts UTF-16 units and the runtime gets UTF-8. Print it inserts right after the
+  // selection, or at the end of the caret's line, past Japanese and an emoji.
+  func testPrintItAfterJapaneseAndEmojiSelectionInsertsRightAfterIt() {
+    let first = "'日本' size"
+    let second = "'あ😀' size"
+    let text = first + "\n" + second
+    let workspace = workspace(text)
+    guard let view = textView(in: workspace.window.contentView) else {
+      XCTFail("missing Workspace text view")
+      return
+    }
+    let secondStart = ((first + "\n") as NSString).length
+    let end = (text as NSString).length
+
+    view.setSelectedRange(NSRange(location: 0, length: (first as NSString).length))
+    workspace.printIt()
+    XCTAssertEqual(workspace.text, first + "2\n" + second)
+    XCTAssertEqual(view.selectedRange(), NSRange(location: (first as NSString).length + 1, length: 0))
+
+    workspace.replaceText(text)
+    view.setSelectedRange(NSRange(location: secondStart, length: (second as NSString).length))
+    workspace.printIt()
+    XCTAssertEqual(workspace.text, text + "2")
+    XCTAssertEqual(view.selectedRange(), NSRange(location: end + 1, length: 0))
+
+    workspace.replaceText(text)
+    workspace.setCaret(("'日" as NSString).length)
+    workspace.printIt()
+    XCTAssertEqual(workspace.text, first + "2\n" + second)
+
+    workspace.replaceText(text)
+    workspace.setCaret(secondStart + ("'あ😀" as NSString).length)
+    workspace.printIt()
+    XCTAssertEqual(workspace.text, text + "2")
+    XCTAssertEqual(view.selectedRange(), NSRange(location: end + 1, length: 0))
+  }
+
+  // SPEC §3.8, §3.9: UTF-8 byte offsets as UTF-16. 日 is 3 bytes and 1 unit, 😀 is 4 bytes and 2
+  // units. Inside a scalar, the start moves back and the end moves forward; past the end, both stop.
+  func testUtf8SpanMapsToUtf16AcrossEmojiAndRoundsInsideScalar() {
+    // Bytes: a 0, 日 1-3, 😀 4-7, b 8. Units: a 0, 日 1, 😀 2-3, b 4.
+    let text = "a日😀b"
+    func range(_ start: UInt32, _ end: UInt32) -> NSRange {
+      var span = AoSpan()
+      span.start = start
+      span.end = end
+      return utf16Range(of: span, in: text)
+    }
+    XCTAssertEqual(range(0, 1), NSRange(location: 0, length: 1))
+    XCTAssertEqual(range(1, 4), NSRange(location: 1, length: 1))
+    XCTAssertEqual(range(4, 8), NSRange(location: 2, length: 2))
+    XCTAssertEqual(range(8, 9), NSRange(location: 4, length: 1))
+    XCTAssertEqual(range(2, 3), NSRange(location: 1, length: 1))
+    XCTAssertEqual(range(5, 6), NSRange(location: 2, length: 2))
+    XCTAssertEqual(range(6, 9), NSRange(location: 2, length: 3))
+    XCTAssertEqual(range(0, 5), NSRange(location: 0, length: 4))
+    XCTAssertEqual(range(4, 4), NSRange(location: 2, length: 0))
+    XCTAssertEqual(range(8, 40), NSRange(location: 4, length: 1))
+    XCTAssertEqual(range(30, 40), NSRange(location: 5, length: 0))
+  }
+
+  // SPEC §3.9: a compile error selects its span in the text and leaves the text alone. The span
+  // counts from the evaluated line, which comes after a line of Japanese.
+  func testCompileErrorSelectsSpanAfterJapaneseWithoutChangingText() {
+    let first = "'日本'"
+    let second = "'あ' + + 1"
+    let text = first + "\n" + second
+    let workspace = workspace(text)
+    guard let view = textView(in: workspace.window.contentView) else {
+      XCTFail("missing Workspace text view")
+      return
+    }
+    let fragmentStart = ((first + "\n") as NSString).length
+    workspace.setCaret(fragmentStart + 2)
+    workspace.printIt()
+    XCTAssertEqual(workspace.text, text)
+    XCTAssertFalse(workspace.errorText.isEmpty)
+    XCTAssertEqual(view.selectedRange(), NSRange(location: fragmentStart + 6, length: 1))
+  }
+
   private func textView(in root: NSView?) -> NSTextView? {
     guard let root else {
       return nil

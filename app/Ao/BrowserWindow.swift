@@ -239,6 +239,14 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     let outcome = submit(source, method: method)
     guard outcome.status == Int32(AO_OK) else {
       errorField.stringValue = failureText(status: outcome.status, message: outcome.message)
+      // SPEC §3.8: both accepts count the span from the start of the pane's whole source.
+      selectErrorSpan(
+        status: outcome.status,
+        span: outcome.span,
+        source: source,
+        base: 0,
+        in: sourceView
+      )
       return
     }
     errorField.stringValue = ""
@@ -573,7 +581,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   // Failure leaves sourceView.string alone. refresh runs only after AO_OK.
-  private func submit(_ source: String, method: Bool) -> (status: Int32, message: String) {
+  private func submit(_ source: String, method: Bool) -> (status: Int32, message: String, span: AoSpan) {
     var err = AoSpan()
     let status: Int32
     if !method {
@@ -593,7 +601,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
         }
       }
     }
-    return (status, spanMessage(err))
+    return (status, spanMessage(err), err)
   }
 }
 
