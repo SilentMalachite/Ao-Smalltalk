@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
+#include <random>
 #include <string>
 #include <gtest/gtest.h>
 #include <vector>
@@ -730,6 +731,97 @@ TEST(CollectionDo, StringDoSurvivesTheBlockWritingTheString) {
   }
 }
 
+// B9 review (Medium): String の do: は、ブロックが渡し済みの文字の幅を変えると、デコード済みの幅で
+// 進むので多バイト文字の途中に落ち、継続バイトを 1 文字として渡した（'ab' の 'a' を 'あ' にすると
+// #(97 129 130 98)）。SPEC §3.6: 渡した文字の数で位置を合わせ直すので、文字列に無い文字は渡さない。
+TEST(CollectionDo, StringDoPassesOnlyCharactersOfTheString) {
+  Boot b;
+  EXPECT_EQ("#(97 98 nil nil)",
+            printOf(b, "| s out n | s := 'ab' copy. out := Array new: 4. n := 0.\n"
+                       "s do: [:c | n := n + 1. out at: n put: c asInteger.\n"
+                       "  n = 1 ifTrue: [s at: 1 put: $\xE3\x81\x82]]. ^out"));
+  EXPECT_EQ("'say \xE2\x80\x9Dhi\xE2\x80\x9D now'",
+            printOf(b, "| s i | s := 'say \"hi\" now' copy. i := 0.\n"
+                       "s do: [:c | i := i + 1. c = $\" ifTrue: [s at: i put: $\xE2\x80\x9D]]. ^s"));
+  // Narrowing a passed character: the walk goes on at the next character.
+  EXPECT_EQ("#(233 12354 98)",
+            printOf(b, "| s out n | s := '\xC3\xA9\xE3\x81\x82" "b' copy. out := Array new: 3. n := 0.\n"
+                       "s do: [:c | n := n + 1. out at: n put: c asInteger. s at: 1 put: $x]. ^out"));
+  // Raw bytes that leave fewer characters than were passed end the walk; the continuation bytes
+  // left after the second character are not passed.
+  EXPECT_EQ("#(97 98 nil nil)",
+            printOf(b, "| s out n | s := 'abcd' copy. out := Array new: 4. n := 0.\n"
+                       "s do: [:c | n := n + 1. out at: n put: c asInteger. n = 2 ifTrue: [\n"
+                       "  s basicAt: 1 put: 227; basicAt: 2 put: 129; basicAt: 3 put: 130]]. ^out"));
+}
+
+namespace {
+
+struct StringDoProbe {
+  std::mt19937 rng{20260926};
+  std::int64_t calls = 0;
+  std::int64_t strangers = 0;
+  ao::Root* walked = nullptr;  // the String being walked (a rooted slot the GC keeps current)
+};
+
+StringDoProbe& stringDoProbe() {
+  static StringDoProbe probe;
+  return probe;
+}
+
+}  // namespace
+
+// SPEC §3.6: ブロックが毎回ランダムな位置の文字を 1〜4 バイトの文字で書き換えても、渡される文字は
+// どれも、その時点の文字列に at: で読める文字である。
+TEST(CollectionDo, StringDoRandomRewritesPassOnlyPresentCharacters) {
+  Boot b;
+  const bool stressed = b.heap.gcStress() != 0;
+  static constexpr char32_t kChars[] = {U'a', U'\u00E9', U'\u3042', U'\U0001D11E', U'z'};
+  auto body = [](ao::CallContext& ctx, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    StringDoProbe& p = stringDoProbe();
+    ++p.calls;
+    ao::Root ch(ctx.roots, args[0]);
+    const std::uint32_t n = ao::Str::codePointCount(ctx.heap, p.walked->slot);
+    bool present = false;
+    for (std::uint32_t i = 1; i <= n && !present; ++i) {
+      present = ao::Str::at(ctx.heap, p.walked->slot, i) == ch.slot;
+    }
+    p.strangers += present ? 0 : 1;
+    const auto times = static_cast<std::uint32_t>(p.rng() % 3);
+    for (std::uint32_t t = 0; t < times && n > 0; ++t) {
+      ao::Oop put[2] = {ao::Oop::fromSmallInteger(1 + static_cast<std::int64_t>(p.rng() % n)),
+                        ao::Oop::fromCharacter(kChars[p.rng() % 5])};
+      ao::send(ctx, p.walked->slot, ctx.wk.intern("at:put:"), put, 2, nullptr);
+      if (ctx.aborting) {
+        // A wider character that does not fit the String's bytes fails; the String is unchanged.
+        ao::clearUnwinding(ctx);
+      }
+    }
+    return ch.slot;
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, +body, 1));
+  ao::Root s(b.roots);
+  stringDoProbe().walked = &s;
+  for (int round = 0; round < (stressed ? 5 : 80); ++round) {
+    SCOPED_TRACE(round);
+    std::string bytes;
+    const int len = 1 + static_cast<int>(stringDoProbe().rng() % 24);
+    for (int i = 0; i < len; ++i) {
+      unsigned char enc[4];
+      const std::uint32_t w = ao::Str::encodeUtf8(kChars[stringDoProbe().rng() % 5], enc);
+      bytes.append(reinterpret_cast<const char*>(enc), w);
+    }
+    s.slot = ao::Str::fromUtf8(b.ctx, bytes);
+    stringDoProbe().calls = 0;
+    stringDoProbe().strangers = 0;
+    send1(b, s.slot, "do:", blk.slot);
+    ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+    EXPECT_GE(stringDoProbe().calls, 1);
+    EXPECT_EQ(0, stringDoProbe().strangers);
+  }
+  stringDoProbe().walked = nullptr;
+}
+
 // SPEC §3.6: at: か size を上書きしたサブクラスは、size と at: を送って回す。
 TEST(CollectionDo, StringDoSendsAtWhenASubclassOverridesIt) {
   Boot b;
@@ -749,7 +841,7 @@ TEST(CollectionDo, StringDoSendsAtWhenASubclassOverridesIt) {
 }
 
 // docs/claude-review/04 Medium の計測: (String new: 40000) inject: 0 into: [...] は 6.7 秒かかった
-// （Debug）。1 パスの do: で 1 秒未満。上限はゆるく取る。
+// （Debug）。1 パスの do: で 1 秒未満。上限はゆるく取る（ASan を手で回すと 1.2 秒になるので 2 秒）。
 TEST(KernelBench, StringInjectFortyThousandCharacters) {
   Boot b;
   const auto start = std::chrono::steady_clock::now();
@@ -759,5 +851,5 @@ TEST(KernelBench, StringInjectFortyThousandCharacters) {
                       .count();
   std::printf("B9 (String new: 40000) inject:into: %lld ms\n", static_cast<long long>(ms));
   EXPECT_EQ("40000", printed);
-  EXPECT_LT(ms, 1000);
+  EXPECT_LT(ms, 2000);
 }

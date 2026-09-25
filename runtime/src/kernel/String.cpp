@@ -272,6 +272,7 @@ Oop ao_String_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::u
   }
   Gc gc(ctx.heap, ctx.roots);
   std::uint64_t visited = 0;
+  std::int64_t passed = 0;  // characters handed to the block so far
   std::uint32_t i = 0;
   for (;;) {
     // receiver and args[0] are rooted slots: after the block they are where the GC moved them.
@@ -285,7 +286,20 @@ Oop ao_String_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::u
     if (!callBlock(ctx, args[0], &ch, 1, &ignored)) {
       return Oop{};
     }
+    ++passed;
     i += step.nbytes;
+    // SPEC §3.6: when the block changed the byte count, or i now falls on a continuation byte, the
+    // character after the ones passed starts elsewhere: find it as at: counts (O(n), which the
+    // width-changing at:put: that caused it also costs). Never pass a byte from inside a character.
+    const std::uint32_t now = ctx.heap.size(receiver);
+    const unsigned char* p = bytePayload(ctx.heap, receiver);
+    if (now != n || (i < now && (p[i] & 0xC0) == 0x80)) {
+      const std::int64_t at = Str::byteOffsetOfChar(p, now, passed);
+      if (at < 0) {
+        return receiver;
+      }
+      i = static_cast<std::uint32_t>(at);
+    }
     if ((++visited & 0xFFFF) == 0) {
       gc.safepoint();
     }
