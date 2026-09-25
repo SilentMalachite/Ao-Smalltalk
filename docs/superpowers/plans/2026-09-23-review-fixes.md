@@ -595,25 +595,239 @@ B10 の実施結果（計画からの逸脱と、実装時に決めたこと）:
   - `ctx.testFailures` は、失敗の行 1 つにつき 1 を数える。abort とプロセスの失敗が同じファイルで起きれば 2 である。
   - `yield` しない無限ループはアプリを止める（B11 で SPEC に明記する）。
 
-## B11 App とビルドの残り
+## B11 App とビルドの残り（07 Medium ×3、Low ×6、テストの穴）
 
-- Transcript は `textStorage.append` で差分だけを追加し、スクロールは評価の最後にまとめる（07 Medium）。
-- vendor を `Contents/Resources/vendor` に同梱し、`Bundle.main` から探す。開発時は環境変数 `AO_VENDOR_DIR` で場所を渡す（07 Medium）。
-- 評価結果の長さ:
-  - ABI に `ao_eval_result_length` と `ao_eval_result_copy` を足し、直前の結果をセッションに持たせる。
-  - `ao_eval` は `AO_ERR_RANGE` のときに必要な長さを返す。
-  - Swift 側は長さを指定して読む（07 Medium、Low「NUL」）。
-  - SPEC §3.10 に追記する。
-- Inspector は `willCloseNotification` で配列から外す（07 Low）。
-- `AoSpan` の UTF-8 オフセットを UTF-16 に換算して、エラー位置を選択表示する（07 Low）。
-- 評価の中断は v1 の範囲外として SPEC §3.9 に明記する（07 Low）。B10 の後は、`[true] whileTrue` のような無限ループは既知の制約として扱う。
-- `package-app.sh`: 先に `build.sh` を実行し、Release でビルドする。`codesign --force --sign -` を実行し、CFBundleVersion を入れる（07 Low）。
-- テストの後始末: ウィンドウを閉じ、フックを外す（07 テストの穴）。
-- テストを足す:
-  - 日本語を含む選択範囲と、その Print it の挿入位置
-  - 64 KiB を超える結果と、NUL を含む結果
-  - Transcript に 2 万行を出したときの所要時間の上限
-  - `open build/Ao.app` で起動したときに vendor が読み込まれること（`test.sh` から実行する）
+前提: 次の 3 つが入っていること。
+- B5: 打鍵経路と Undo。
+- B6: busy ガード。
+- B10: `ao_eval` は返る前に drain する。そのため、評価の Transcript 出力はすべて `ao_eval` の中でフックに届く。
+
+ブランチは `fix/review-b11-app-build`、1 PR とする。
+
+調べ方:
+- Graphify: `graphify path WorkspaceWindow sessionEval` と `graphify explain TranscriptWindow`。
+- Serena: 最初に `activate_project` する。編集の前に、`AoInspectFn`、`sessionEval`、`writeBuf`、`TranscriptWindow/append`、`fileInVendorIfPresent` の参照を `find_referencing_symbols` で取る。
+- SPEC とシェルスクリプトにはシンボルが無いので、ふつうに編集する。
+
+計画の文言の読み替え:
+- 「`ao_eval` は `AO_ERR_RANGE` のときに必要な長さを返す」は採らない。
+- `ao_eval` の返り値は状態コードである。runtime のテストの多くは、64 バイトか 128 バイトの `out` で呼んでいる。
+- そこで `ao_eval` のシグネチャも返り値も変えない。必要な長さは `ao_eval_result_length` で取る。この点は実施結果に逸脱として書く。
+
+### SPEC を先に直す（最初のコミット。`.gitignore` も含める）
+
+- §3.2（163 行）: 「AppKit メインスレッドとはブリッジキューで切る」を次の文に改める。「ABI は AppKit のメインスレッドから同期で呼ぶ。ブリッジキューは置かない」。§3.9 の中断の記述と食い違わないようにするためである。
+- §3.8（833 行）: 区間の単位は UTF-8 のバイトオフセットと書く。数え始めの位置は次のとおり。
+  - `ao_eval`: 評価した断片の先頭。
+  - `ao_accept_method`: メソッドのソースの先頭。
+  - `ao_accept_class`: ソース全体の先頭。
+  - `AO_ERR_EVAL` の区間は 0-0 で、位置を表さない。
+- §3.9 Transcript: 出力は差分で足し、全文を置き換えない。末尾へのスクロールは評価のあとで 1 回だけ行う。
+- §3.9 Workspace:
+  - Print it と Inspect it は、結果の長さによらず全体を挿入・表示する。NUL を含んでも切らない。
+  - コンパイルエラーは、テキストを変えずに、その区間を選択して示す（UTF-16 に換算する）。空の区間では選択を変えない。Browser の Accept も同じにする。
+  - 閉じた Inspector は捨てる。次の Inspect it は新しいウィンドウを開く。
+  - 評価の中断は v1 の範囲外とする。`ao_eval` はメインスレッドで同期に走る。そのため、`yield` しない無限ループ（`[true] whileTrue`）はアプリを止める。止めるには強制終了するしかなく、保存していないイメージと編集中のテキストは失われる。
+- §3.9 に「起動と同梱」の項を足す:
+  - 起動時に vendor を file-in する。場所は、環境変数 `AO_VENDOR_DIR` が空でなければそこ、空ならバンドルの `Contents/Resources/vendor` である。カレントディレクトリは見ない。
+  - 結果を Transcript に 1 行出す。同じ行を、先頭に `ao: ` を付けて標準エラーにも出す。行は次のどれかである。
+    - `vendor loaded: <dir>`
+    - `vendor file-in failed: <dir>`
+    - `vendor not found: <dir>`（LOAD_ORDER が無い）
+  - `scripts/package-app.sh` の動作:
+    - Release でビルドする。
+    - `image/vendor` を `Contents/Resources/vendor` に写す。
+    - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも `ao --version` の `-` より前の部分（今は `0.0.0`）とする。
+    - アドホック署名する。`codesign --verify --strict` が通る。
+- §3.10:
+  - `AoInspectFn` に `int print_len` を足す。これは `print_utf8` のバイト数で、NUL を含みうる。末尾にも NUL を置く。
+  - `int ao_eval_result_length(void);` と `int ao_eval_result_copy(char* buf, int buf_len);` を足す。意味論は下の「評価結果の保持」に書く。
+  - 再入の節（950 行）: この 2 つは busy でも呼べると書く。
+  - 文字列バッファの規則（965 行）: `ao_eval_result_copy` も同じ規則に従うと書く。
+- §4.1 の session_abi_test と §4.3 の XCTest に、下の手順のテストを足す。§4.3 には `scripts/test.sh --app` も書く。
+- `.gitignore` に `/build-release/` と `/docs/plans/`（計画ツールの作業コピー）を足す。
+
+### 評価結果の保持（07 Medium「64 KiB」、Low「NUL」）
+
+- 持ち方:
+  - セッションは、直前の `ao_eval` の結果を `std::optional<std::string>` で持つ。
+  - C++ の文字列なので、GC はたどらず、イメージにも書かない。
+  - boot とロードの直後は空文字である。
+- 入れる時点:
+  - `ao_eval` が入口を通ったら、まず結果を空文字にする。busy で拒まれた呼び出しは入口を通らないので、結果に触れない。
+  - 結果を入れるのは、`sessionEval` が最後に `AO_OK` か `AO_ERR_RANGE` を返すときだけである。Print it と Inspect it では、drain のあとで printString の UTF-8 を切らずに入れる。Do it では空文字のままにする。
+  - それ以外の返り値や、途中で例外が起きたときも空文字のままである。
+  - したがって、評価の途中（フックの中）で読むと、その評価の結果はまだ無く、空文字が返る。
+- 読み出し:
+  - `ao_eval_result_length` はバイト数を返す。セッションが無いとき、結果を持たなかったとき（下）は -1 を返す。
+  - `ao_eval_result_copy` は `writeBuf` で書く。入り切らなければ切り詰めて NUL で終え、`AO_ERR_RANGE` を返す。
+  - 次のどれかなら `AO_ERR` を返す: `buf` が NULL、`buf_len` が 1 未満、セッションが無い、結果を持たなかった。
+  - `writeBuf` の契約は `ao_browser_*` と共有しているので、変えない。
+- INT_MAX を超える結果:
+  - 長さは ABI のほかの関数と同じく int である。
+  - printString が INT_MAX バイト以上なら、NUL を足した大きさを int で渡せない。この場合は結果を持たない（nullopt）。
+  - `ao_eval` は今までどおり `AO_ERR_RANGE` を返し、inspect フックは呼ばない。
+  - 2 GiB の文字列はテストでは作らない。
+- Swift 側:
+  - Print it と Inspect it で `AO_OK` か `AO_ERR_RANGE` を受けたら、長さを取る。長さ + 1 の配列に写し、`String(decoding:as:)` で長さの分だけ読む。
+  - 長さが -1 なら、今までどおり `result does not fit` を出す。
+  - `out` は今の 64 KiB のまま渡す（`ao_eval` は `out` を必要とする）。
+- inspect フック:
+  - フックも長さで読む。フックの文字列が NUL で切れると、`run` が呼ぶ 2 回の `openInspector` で中身が食い違い、窓が 2 枚になるからである。
+  - 呼び出し元はリポジトリの中だけにある。Swift に 1 か所、session_abi_test に 3 か所である。
+
+### ファイルごとの変更
+
+- `bridge/ao_abi.h`:
+  - `AoInspectFn` を直す。
+  - 2 つの関数とその説明を足す。
+  - busy のコメント（「may be called then」）に 2 つを足す。
+- `runtime/src/Session.{hpp,cpp}`:
+  - `Session::evalResult` を足す。
+  - `evalBody` は printString を出力引数で返す。
+  - `sessionEval` は入口で結果を空にし、最後に入れる。
+  - inspect フックに長さを渡す。
+  - `sessionEvalResultLength` と `sessionEvalResultCopy` を足す。
+- `runtime/src/abi.cpp`: 2 つの `extern "C"` を `guarded` で包む。`AbiEntry` は取らない（`ao_browser_*` と同じ）。
+- `app/Ao/WorkspaceWindow.swift`:
+  - フックと `evaluate` を長さで読むようにする。
+  - `openInspector` を、閉じた窓を配列から外す形にする。
+  - コンパイルエラーの区間を選択する。
+  - 換算関数 `utf16Range(of:in:)` を足す。`spanMessage` と同じく、ファイルの関数にする。
+- `app/Ao/InspectorWindow.swift`:
+  - 自分のウィンドウの `willCloseNotification` を `queue: nil` で観察する（`close` の中で同期に呼ばれる）。
+  - 通知が来たら、渡されたクロージャを呼び、観察を外す。
+- `app/Ao/BrowserWindow.swift`: Accept が `AO_ERR_COMPILE` を返したら、ソース欄でその区間を選択する。
+- `app/Ao/TranscriptWindow.swift`:
+  - `text` を、textStorage から読む計算プロパティにする。
+  - `append` は、`applyFont` で決めたフォントを属性にして textStorage に足す。
+  - スクロールは、フラグを見て 1 回だけメインキューに積む。`[weak self]` で受ける。
+  - `showText` を消す。
+- `app/Ao/AoApp.swift`: `vendorDirectory(environment:resources:)` と `fileInVendor(at:transcript:)` をファイルの関数として足し、`fileInVendorIfPresent` を置き換える。
+- `scripts/build.sh`: `--release` を足す。
+  - 出力先は `build-release/`、`-DCMAKE_BUILD_TYPE=Release` を付ける。
+  - `--asan` とは併用できない。
+  - `compile_commands.json` を写すのは `build/` のときだけにする。
+- `scripts/package-app.sh`:
+  - 最初に `build.sh --release` を呼ぶ。
+  - `swift build -c release` で、`build-release` の `.a` を `-force_load` する。
+  - Resources を作る。`.DS_Store` は写さない。
+  - Info.plist の版を入れる。ヒアドキュメントの中で変数を展開する。
+  - `codesign --force --sign -` を実行する。
+  - 出力先は今までどおり `build/Ao.app` とする。
+- `scripts/test.sh`: `--app` を足す（手順 10）。
+- テスト: `runtime/tests/session_abi_test.cpp` と、`app/AoTests/` の 4 ファイル（WorkspaceEval、Accept、BrowserModel、ToolWindow）。
+
+### 手順（各段を緑にしてから次へ進む）
+
+1. SPEC と `.gitignore` だけを直す。
+2. テストの後始末（07 テストの穴）:
+   - ウィンドウを作る 4 つのテストクラスで、`tearDown` を直す。見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
+   - ヘルパーは、今の慣習どおりファイルごとに持つ。
+   - テスト基盤の変更なので、赤のテストは作らない。全件が緑のままであることを確かめる。
+3. runtime の評価結果（session_abi_test。先に赤を確かめる）:
+   - `EvalResultLengthGivesWholePrintStringPastOut`:
+     - `b11n := 0` を評価したあと、`b11n := b11n + 1. Array new: 20000` を 64 バイトの `out` で Print it する。
+     - 返り値は `AO_ERR_RANGE`、長さは 65536 を超える。
+     - 写した結果の先頭 63 バイトは `out` と一致する。
+     - `b11n` は `1` である（副作用は 1 回だけ）。
+   - `EvalResultCopyKeepsNulBytes`:
+     - `String new: 3` の結果は長さ 5 で、バイト列は `27 00 00 00 27`。
+     - `String new: 70000` の結果は長さ 70002。
+     - 比較には `std::string(buf, n)` を使い、STREQ は使わない。
+   - `EvalResultCopyCutsLikeOtherBuffers`: 小さい `buf` では `AO_ERR_RANGE` を返し、NUL で終わる。`buf` が NULL のときと `buf_len` が 0 のときは `AO_ERR`。
+   - `EvalResultEmptyAfterDoItAndFailures`: 次の呼び出しのあと、長さは 0 である。Do it、`1 +`、`nil foo`、`out` が NULL の呼び出し。
+   - `EvalResultFollowsSessionLifetime`: shutdown のあとは -1 と `AO_ERR`。boot とロードのあとは 0。失敗したロードでは結果が残る。
+   - `EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`: transcript フックの中では長さは 0 である。フックの中で `ao_eval` を呼ぶと拒まれる。そのあとも、外側の評価の結果 `42` が入る。
+   - `InspectHookGetsPrintLengthWithNul`: `String new: 3` の Inspect it で、`print_len` は 5。
+   - 既存の inspect フック 3 か所に `int` の引数を足す。
+   - Swift のフックも同じコミットで長さで読むように直し、swift test を緑に保つ。
+4. Swift の結果の読み（WorkspaceEvalTests。先に赤を確かめる）:
+   - `testPrintItInsertsWholeResultPast64KiBAndRunsOnce`: 手順 3 と同じ式を使う。挿入は 65536（UTF-16 単位）を超え、エラー欄は空、`b11n` は `1`。
+   - `testPrintItInsertsResultWithNulBytes`: `'\0\0\0'` を挿入する。`String new: 70000` では 70002 文字を挿入する。
+   - `testInspectItWithNulOpensOneInspectorWithWholeText`: 窓は 1 枚で、`inspectorText` は `String\n'\0\0\0'`。
+5. Inspector（07 Low）:
+   - 既存テストとの衝突: `testRepeatedInspectItOrdersInspectorFront` は、閉じた窓が同じ窓のまま戻ることを確かめている（97–98 行）。閉じる代わりに `orderOut` で隠すように書き直す。再利用と前面化を確かめる意図は残る。
+   - 新規 `testClosedInspectorIsDroppedAndNextInspectItOpensNewWindow`: 閉じると `inspectorCount` は 0 になる。次の Inspect it は別の窓を開き、前面に出す。
+6. 日本語とエラー位置（07 Low、テストの穴）:
+   - `testPrintItAfterJapaneseAndEmojiSelectionInsertsRightAfterIt`:
+     - `'日本' size` と `'あ😀' size` の 2 行で、選択範囲とキャレット行のそれぞれを確かめる。
+     - 今の実装で正しいので、最初から緑になる。回帰テストとして足す。
+   - `testUtf8SpanMapsToUtf16AcrossEmojiAndRoundsInsideScalar`:
+     - 換算関数の単体テスト。
+     - スカラーの途中を指すオフセットは、始まりを前へ、終わりを後ろへ丸める。
+     - 範囲外のオフセットは末尾で止める。
+   - `testCompileErrorSelectsSpanAfterJapaneseWithoutChangingText`:
+     - 1 行目が `'日本'`、2 行目が `'あ' + + 1` のテキストで、2 行目をキャレット行として Print it する。
+     - テキストは変わらない。選択は 2 つ目の `+`（断片の先頭 + 6、長さ 1）になる。
+   - AcceptTests `testFailedAcceptSelectsErrorSpanAfterJapaneseComment`:
+     - コメントに日本語を含むメソッドのソースで、区間が選択されることを確かめる。
+     - `ao_accept_class` の区間がソース全体の先頭から数えていることも、ここで確かめる。違っていたら、クラス定義では選択しない。その場合は実施結果に書く。
+   - 選択には `setSelectedRange`、`scrollRangeToVisible`、`showFindIndicator(for:)` を使う。`AO_ERR_EVAL` と空の区間では、選択を変えない。
+7. Transcript（07 Medium）:
+   - `testTwentyThousandTranscriptLinesFinishWithinTenSecondsAndShowTheEnd`:
+     - `LaunchSet.make()` の Workspace で `1 to: 20000 do: [:i | Transcript show: i printString; cr]` を Do it する。フックは 4 万回呼ばれる。
+     - 10 秒以内に終わる。出力は 2 万行で、`20000\n` で終わる。
+     - run loop を回したあと、末尾が見えている。
+     - 最後の文字のフォントは、今のフォントである。
+     - Transcript の窓は `NSApp.windows` から題名で引く。
+   - 10 秒は、ASan の swift test でも通る値にした。今の実装は数分かかるので、赤の確認では 1 回だけ待つ。
+8. vendor の場所（07 Medium）:
+   - `testVendorDirectoryPrefersEnvironmentOverBundleResources`: 環境の辞書とリソースの URL を受け取る関数の単体テスト。空の `AO_VENDOR_DIR` は無視する。
+   - `testVendorFileInWritesLoadedLineAndDefinesTimespan`: `#filePath` から求めた `image/vendor` を渡す。Transcript に `vendor loaded: <dir>` が出て、`Smalltalk includesKey: #Timespan` を Print it すると `true` になる。
+   - `testMissingVendorWritesNotFoundLine`: LOAD_ORDER の無い一時ディレクトリで確かめる。
+   - 標準エラーへの 1 行は、`open` で起動したアプリを外から確かめる唯一の手段なので足す。自己診断モードは足さない。
+9. Tools メニュー（SPEC §6 の未チェック項目の準備）:
+   - `testToolsBrowserMenuItemOpensSystemBrowser` を足す。
+     - `AoApp().applicationWillFinishLaunching` を呼ぶ。
+     - Tools → Browser の項目を `NSApp.sendAction` で送る。
+     - `System Browser` の窓が見えることを確かめる。
+   - 後始末で `NSApp.mainMenu` を nil に戻す。メニューのクロージャが AoApp を握ったままだと、フックが残るからである。
+   - 今の配線で動くので、最初から緑になる。§6 のチェックは最終確認で付ける。
+10. ビルドと配布（07 Low、テストの穴）:
+    - 赤: `scripts/test.sh --app` が usage で止まる。
+    - `build.sh --release`、`package-app.sh`、`test.sh --app` を直す。
+    - `test.sh --app` の流れ:
+      1. 通常の ctest と swift test を回す。
+      2. `package-app.sh` を実行する。
+      3. `codesign --verify --strict build/Ao.app` が通ることを確かめる。
+      4. `open -n -g --stderr <一時ファイル> build/Ao.app` で起動する。
+      5. 30 秒以内に `ao: vendor loaded: <root>/build/Ao.app/Contents/Resources/vendor` が出れば成功とする。
+      6. 起動したプロセスを `pkill -n -f` で止める。AppleEvent の quit は自動操作の許可を求めるので使わない。
+    - `open` はシェルの環境を渡さない。そのため、`AO_VENDOR_DIR` を設定した開発環境でも、`Bundle.main` の経路を確かめられる。
+    - `--asan` とは併用しない。
+    - GUI を開いてフォーカスを奪うので、既定では回さない。B11 の検証とリリースの前に回す。
+
+### 検証
+
+- 次がすべて exit 0 になる: `scripts/test.sh`、`scripts/test.sh --asan`、`AO_GC_STRESS=1 ctest --test-dir build`、`build/ao --test image/tests`。
+- `scripts/test.sh --app` が通る。
+- `ctest --test-dir build-release` を 1 回回す。配るのは Release の成果物なので、NDEBUG と -O3 での差を見るためである。
+- 手動（`open build/Ao.app`）:
+  - Transcript に `vendor loaded: …/Contents/Resources/vendor` が出る。
+  - Workspace で `'a', 'b'` を打鍵して Print it できる。`Array new: 20000` の Print it で全体が挿入される。
+  - Browser で編集中に選択を変えると、確認が出る。
+  - 読み取り専用の場所に保存すると、アラートが出る。
+  - ウィンドウの閉じる・最小化・Spaces の動作を見る（§6 の最終確認で使う）。
+- 最後に `graphify update .` を実行する。各コミットに `Graphify:` と `Serena:` のトレーラを付ける。
+- 実施結果（計画からの逸脱と、実装時に決めたこと）は、この節の末尾に書く。
+
+### リスク
+
+- Transcript への追記は、TextKit のレイアウトの無効化を 1 回ずつ起こす。10 秒を超えたら、評価の間を `beginEditing` / `endEditing` で囲む形に切り替える。囲みは、スクロールと同じ遅延処理の中で閉じる。
+- テストでは、遅延スクロールが次のテストの run loop で走ることがある。`[weak self]` で受け、閉じた窓で走っても害が無いようにする。
+- 大きな printString は、次の評価まで C++ のメモリに残る。
+- Release の初回の構成では、GoogleTest を取得しに行く（`build-asan` と同じ）。
+- NDEBUG では、assert の中でしか使わない変数が警告になり、`-Werror` でビルドが止まる。見つけたら `(void)` か `[[maybe_unused]]` で直す。今の走査では該当する箇所は無い。
+- エラーの区間を選択するので、続けて Print it すると、選択した区間だけが評価される。SPEC の「選択範囲を評価」どおりの動作として受け入れる。
+
+### B11 では扱わない
+
+- B10 の残り:
+  - 駐車中のファイバがルートした値が、イメージに入る件。
+  - `ctx.testFailures` の二重計上（TestRunner.cpp 217 行と 231 行）。
+- SPEC §6 の「Kernel 走査テストが CI で失敗する変更はマージしない」。リポジトリに CI（`.github`）が無いので、最終確認で扱いを決める。
+- Inspector で A→B→A と開いたときの再利用。再利用の範囲が変わるので、ここでは扱わない。
 
 ---
 

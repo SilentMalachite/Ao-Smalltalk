@@ -160,7 +160,7 @@ identity hash は 16 bit なので、65535 個を超えるオブジェクトで�
 - ルート: グローバル辞書 `Smalltalk`、生きているすべてのプロセス（走っているもの、実行可能なもの、待っているもの、止まっているもの。§3.4）とそのコンテキスト連鎖、AppKit が保持するハンドル表、イメージ起動時の well-known 表。生きているプロセスは、どこからも参照されていなくても回収しない。
 - 正確式。コンパイラとインタプリタはスタック上の OOP を GC に報告する。
 - ファイナライザと弱配列は v1 では `ephemeron` なしの弱スロットフラグまで。
-- スレッド: ミューテータは 1 本（Smalltalk のプロセスは、同じスレッドの上で切り替えるファイバ。§3.4）。GC は safepoint。AppKit メインスレッドとはブリッジキューで切る。
+- スレッド: ミューテータは 1 本（Smalltalk のプロセスは、同じスレッドの上で切り替えるファイバ。§3.4）。GC は safepoint。ABI は AppKit のメインスレッドから同期で呼ぶ。ブリッジキューは置かない（§3.9 の評価の中断）。
 - old は、上限 4 GiB − 1 MiB（イメージヘッダの `uint32 heapBytes` で表せる最大値を、コミット単位の 1 MiB に揃えた値）の仮想領域を 1 つ予約し、必要な分だけコミットする。old のアドレスは動かない。
 - 大きなオブジェクトは nursery を通さず old に直接置く。
 - スキャベンジは失敗しない。old に入り切らない生存物は to-space に残す（昇格失敗）。
@@ -832,6 +832,13 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 
 エラーはソース区間付き。Browser の accept は失敗時にテキストを壊さずエラーを表示する。
 
+区間（`AoSpan` の `start` と `end`）の単位は、UTF-8 のバイトオフセットである。数え始めの位置は次のとおり。
+
+- `ao_eval`: 評価した断片の先頭。
+- `ao_accept_method`: メソッドのソースの先頭。
+- `ao_accept_class`: ソース全体の先頭。
+- `AO_ERR_EVAL` の区間は 0-0 で、位置を表さない。
+
 #### チャンク形式
 
 - チャンクは、文字列とコメントの外にある単独の `!` で終わる。`!!` は `!` 1 文字に戻す。文字列とコメントの中でも `!!` は `!` に戻す（`^'Hello!!'` のメソッドは `'Hello!'` を返す）。
@@ -852,6 +859,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - グローバル `Transcript` への `show:` / `cr` / `nextPutAll:` / `clear` がこのウィンドウに出る。
 - フォントは可変幅可。等幅設定を用意する。
 - 起動時に 1 枚開く。閉じてもオブジェクトは生き、再表示できる。
+- 出力は差分で足し、全文を置き換えない。末尾へのスクロールは、評価のあとで 1 回だけ行う。
 
 #### Workspace
 
@@ -861,6 +869,10 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
   - Print it（評価して結果の `printString` を挿入）
   - Inspect it（結果を Inspector 相当のウィンドウへ。v1 は簡易オブジェクトビューで可）
 - 評価コンテキストの `self` は `nil`。ワークスペース変数（未定義識別子を束縛にする。§3.10）は v1 で実装する。
+- Print it と Inspect it は、結果の長さによらず全体を挿入・表示する。結果が NUL を含んでも切らない（§3.10 の `ao_eval_result_length` と `ao_eval_result_copy`）。
+- コンパイルエラーは、テキストを変えずに、その区間（§3.8）を選択して示す。区間は UTF-16 に換算する。空の区間では選択を変えない。Browser の Accept も同じにする。
+- 閉じた Inspector は捨てる。次の Inspect it は新しいウィンドウを開く。
+- 評価の中断は v1 の範囲外とする。`ao_eval` はメインスレッドで同期に走る（§3.2）。そのため、`yield` しない無限ループ（`[true] whileTrue`）はアプリを止める。止めるには強制終了するしかなく、保存していないイメージと編集中のテキストは失われる。
 
 #### System Browser
 
@@ -915,6 +927,19 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 既存インスタンスは移行しない。形が変わったあとも旧クラスのインスタンスのまま残り、旧クラスのメソッドで動く。
 - 1 回の `ao_accept_class` に複数のクラス定義があれば、先頭から順に適用し、拒否された定義で止まって `AO_ERR_COMPILE` を返す。それより前のチャンク（クラス定義と `methodsFor:`）は適用済みのまま残り、それより後のチャンクは適用しない。
 
+#### 起動と同梱
+
+- 起動時に vendor（§3.12）を file-in する。場所は、環境変数 `AO_VENDOR_DIR` が空でなければそこ、無いか空ならバンドルの `Contents/Resources/vendor` である。カレントディレクトリは見ない。
+- 結果を Transcript に 1 行出す。同じ行を、先頭に `ao: ` を付けて標準エラーにも出す。行は次のどれかである。
+  - `vendor loaded: <dir>`
+  - `vendor file-in failed: <dir>`
+  - `vendor not found: <dir>`（LOAD_ORDER が無い）
+- `scripts/package-app.sh` は次を行う。
+  - Release でビルドする。
+  - `image/vendor` を `Contents/Resources/vendor` に写す。
+  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（今は `0.0.0`）である。
+  - アドホック署名する。`codesign --verify --strict` が通る。
+
 ### 3.10 ブリッジ
 
 C ABI（`bridge/ao_abi.h`）のみが runtime と app の境界。
@@ -947,7 +972,7 @@ OS のプロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ�
 - `ao_image_save`、`ao_image_load`、`ao_filein_load_order`
 - `ao_workspace_reset`、`ao_eval`、`ao_accept_method`、`ao_accept_class`
 
-拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）とブラウザの読み取り（`ao_browser_*`、`ao_version`）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
+拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）、ブラウザの読み取り（`ao_browser_*`、`ao_version`）、評価結果の読み出し（`ao_eval_result_length`、`ao_eval_result_copy`。下の「評価結果」）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
 
 ABI の関数は C++ の例外を境界の外へ出さない。関数の中で捕捉し、int を返す関数は `AO_ERR`（件数を返す関数は -1）を返す。`ao_image_load` の理由は `image load failed` である。
 
@@ -962,7 +987,7 @@ AO_ERR_RANGE = 4
 AO_ERR_NOSOURCE = 5
 ```
 
-文字列バッファは、`buf_len > 0` なら必ず NUL で終わる。入り切らないときは `AO_ERR_RANGE`（`ao_browser_source` の `AO_ERR_NOSOURCE` だけは例外で、下に書く）。`ao_version` も同じで、切り詰めたら（`buf` は NUL で終わる）`AO_ERR_RANGE`、`buf` が NULL か `buf_len` が 1 未満なら `AO_ERR` を返す。
+文字列バッファは、`buf_len > 0` なら必ず NUL で終わる。入り切らないときは `AO_ERR_RANGE`（`ao_browser_source` の `AO_ERR_NOSOURCE` だけは例外で、下に書く）。`ao_version` も同じで、切り詰めたら（`buf` は NUL で終わる）`AO_ERR_RANGE`、`buf` が NULL か `buf_len` が 1 未満なら `AO_ERR` を返す。`ao_eval_result_copy`（下の「評価結果」）も同じ規則に従う。
 
 件数を返す関数（`ao_browser_class_count`、`ao_browser_protocol_count`、`ao_browser_selector_count`、`ao_browser_subclass_count`）は、成功なら 0 以上の件数を返し、失敗なら -1 を返す。失敗は、セッションが無い、名前がクラスに当たらない、`meta` が 0 でも 1 でない、引数が NULL、のどれかである。`AO_ERR`（1）を返さない。1 件と区別できないからである。
 
@@ -974,7 +999,8 @@ typedef struct AoSpan {
 } AoSpan;
 
 typedef void (*AoTranscriptFn)(const char* utf8, int len, int is_clear, void* user);
-typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, void* user);
+typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, int print_len,
+                            void* user);
 
 int ao_image_save(const char* path);
 int ao_image_load(const char* path, AoSpan* err);
@@ -997,11 +1023,15 @@ int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len
 
 int ao_workspace_reset(void);
 int ao_eval(const char* source, int source_len, int mode, char* out, int out_len, AoSpan* err);
+int ao_eval_result_length(void);
+int ao_eval_result_copy(char* buf, int buf_len);
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);
 int ao_accept_class(const char* source, AoSpan* err);
 ```
 
 `meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
+
+`AoInspectFn` の `print_len` は、`print_utf8` のバイト数である。printString は NUL を含みうるので、フックは `print_len` で読む。`print_utf8` の末尾（`print_len` バイト目の次）にも NUL を置く。
 
 `ao_browser_source` は、ソース表（下の「ソースはイメージに書かない」）にソースがあるメソッドなら、そのソースを `buf` に書いて `AO_OK` を返す（入り切らなければ `AO_ERR_RANGE`）。ソース表にソースが無いメソッドなら `AO_ERR_NOSOURCE` を返し、`buf` にプレースホルダを書く。ソースが無いのは、NativeMethod、イメージを読み込んだあとのメソッド、vendor と file-in（`ao_accept_class` の `methodsFor:` のチャンクを含む）で入れたメソッドである。プレースホルダは、コメント 1 つだけの 1 行である（改行を含まない）。
 
@@ -1039,7 +1069,36 @@ int ao_accept_class(const char* source, AoSpan* err);
 - `knownGlobals` は `Smalltalk` の辞書（§3.6）のキー全部である。固定のグローバル（Kernel クラス名、`Processor`、`Smalltalk`）と、`subclass:` と `Smalltalk at:put:` で足した名前を含む。セッションはこれをキャッシュし、クラスの定義と `Smalltalk at:put:`（グローバルの登録）のあとで作り直す。既知のグローバル名の読みは `PushGlobal`、その名前への代入はコンパイルエラー `cannot assign`。後から同じ名前のクラスを定義すると、束縛よりクラスが勝つ。
 - どれにも当たらない名前は束縛である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar`。束縛が辞書に無ければ、メソッドを作るとき（リテラルを箱に入れるとき）に値 nil で作って辞書に入れる。同じ名前の束縛は評価をまたいで同じ Association なので、ブロックに捕捉した束縛への代入も辞書に残る。束縛の数に上限は無い（temp の 255 に数えない）。
 
-`ao_eval` は、`out` が NULL か `out_len` が 1 未満なら、何も評価せずに `AO_ERR` を返す（副作用を起こさない。呼び出し側が再試行しても二重にならない）。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。評価の失敗（§3.3 の失敗の規則。どれも abort）は `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。理由が 255 バイトを超えれば切る。`AO_ERR_EVAL` のときの `AoSpan.message` は空にしない。abort 以外で値が得られなかったとき（理由が無いとき）は `evaluation failed` を入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。評価したあと、返す前に drain する（§3.4。返り値は drain の前に確定し、drain で変わらない）。
+`ao_eval` は、`out` が NULL か `out_len` が 1 未満なら、何も評価せずに `AO_ERR` を返す（副作用を起こさない。呼び出し側が再試行しても二重にならない）。Do it は結果を捨て `out` は空文字。Print it は `printString` の UTF-8 を `out` に書く。Inspect it は `inspect` のあと Print it と同じ文字列を `out` に書く。`out` に入り切らなければ、切り詰めて `AO_ERR_RANGE` を返す（文字列バッファの規則）。結果の全体は、下の「評価結果」の 2 つの関数で読む。評価の失敗（§3.3 の失敗の規則。どれも abort）は `AO_ERR_EVAL` で、理由を `AoSpan.message` に入れる。理由が 255 バイトを超えれば切る。`AO_ERR_EVAL` のときの `AoSpan.message` は空にしない。abort 以外で値が得られなかったとき（理由が無いとき）は `evaluation failed` を入れる。コンパイル失敗は `AO_ERR_COMPILE` と `AoSpan`。評価したあと、返す前に drain する（§3.4。返り値は drain の前に確定し、drain で変わらない）。
+
+#### 評価結果
+
+`ao_eval` のシグネチャと返り値は変えない。`out` に入り切らない結果は、`ao_eval_result_length` と `ao_eval_result_copy` で読む。
+
+持ち方:
+
+- セッションは、直前の `ao_eval` の結果（printString の UTF-8）を C++ の文字列で持つ。GC はたどらず、イメージにも書かない。
+- boot とロードの直後は空文字である。`ao_image_load` が失敗したときは、ロード前のセッションを使い続けるので、その結果が残る。
+- 大きな結果は、次の `ao_eval` までセッションのメモリに残る。
+
+入れる時点:
+
+- `ao_eval` が入口を通ったら、まず結果を空文字にする。busy で拒まれた呼び出し（上の「再入と例外」）は入口を通らないので、結果に触れない。`out` が NULL か `out_len` が 1 未満の呼び出しは入口を通るので、結果は空文字になる。
+- 結果を入れるのは、`ao_eval` が `AO_OK` か `AO_ERR_RANGE` を返すときだけである。Print it と Inspect it では、drain のあとで、printString の UTF-8 を切らずに入れる。Do it では空文字のままである。
+- それ以外の返り値のときや、途中で例外が起きたときも、空文字のままである。
+- したがって、評価の途中（フックの中）で読むと、その評価の結果はまだ無く、空文字が返る。
+
+読み出し:
+
+- `ao_eval_result_length` は、結果のバイト数を返す。セッションが無いとき、結果を持たなかったとき（下の INT_MAX）は -1 を返す。
+- `ao_eval_result_copy` は、結果を `buf` に書く。入り切らなければ切り詰めて NUL で終え、`AO_ERR_RANGE` を返す（文字列バッファの規則）。結果は NUL を含みうるので、呼び出し側は `ao_eval_result_length` のバイト数で読む。
+- `ao_eval_result_copy` は、次のどれかなら `AO_ERR` を返す: `buf` が NULL、`buf_len` が 1 未満、セッションが無い、結果を持たなかった。
+
+INT_MAX バイト以上の結果:
+
+- 長さは、ABI のほかの関数と同じく int である。
+- printString が INT_MAX バイト以上なら、NUL を足した大きさを int で渡せない。この場合は結果を持たない。
+- `ao_eval` は `AO_ERR_RANGE` を返し、inspect フックは呼ばない。
 
 #### printString
 
@@ -1215,7 +1274,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
-- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）
+- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）。評価結果（§3.10）: `out` を超える Print it の全体と、副作用が 1 回であること（`EvalResultLengthGivesWholePrintStringPastOut`）、NUL を含む結果（`EvalResultCopyKeepsNulBytes`）、切り詰めと `AO_ERR` の規則（`EvalResultCopyCutsLikeOtherBuffers`）、Do it と失敗のあとの空文字（`EvalResultEmptyAfterDoItAndFailures`）、shutdown・boot・ロードとの関係（`EvalResultFollowsSessionLifetime`）、busy の間の読み出しと、拒まれた評価が結果に触れないこと（`EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`）、inspect フックの `print_len`（`InspectHookGetsPrintLengthWithNul`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
 - `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる
@@ -1234,6 +1293,22 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - Browser モデルのカテゴリ / クラス / セレクタ列挙
 - accept 成功と失敗
 - Workspace Do it / Print it
+- Workspace の結果（§3.9、§3.10）: 64 KiB を超える Print it の全体の挿入と、副作用が 1 回であること（`testPrintItInsertsWholeResultPast64KiBAndRunsOnce`）、NUL を含む結果の挿入（`testPrintItInsertsResultWithNulBytes`）、NUL を含む Inspect it で窓が 1 枚で全文が出ること（`testInspectItWithNulOpensOneInspectorWithWholeText`）
+- Inspector: 閉じた窓を捨て、次の Inspect it が新しい窓を開いて前面に出す（`testClosedInspectorIsDroppedAndNextInspectItOpensNewWindow`）
+- 日本語とエラーの区間（§3.8、§3.9）: 日本語と絵文字の選択のあとの Print it の挿入位置（`testPrintItAfterJapaneseAndEmojiSelectionInsertsRightAfterIt`）、UTF-8 の区間から UTF-16 への換算（`testUtf8SpanMapsToUtf16AcrossEmojiAndRoundsInsideScalar`）、コンパイルエラーの区間の選択（`testCompileErrorSelectsSpanAfterJapaneseWithoutChangingText`）、Accept の失敗の区間の選択（`testFailedAcceptSelectsErrorSpanAfterJapaneseComment`）
+- Transcript: 2 万行の出力が 10 秒以内に終わり、末尾が見える（`testTwentyThousandTranscriptLinesFinishWithinTenSecondsAndShowTheEnd`）
+- 起動と同梱（§3.9）: vendor の場所の選び方（`testVendorDirectoryPrefersEnvironmentOverBundleResources`）、読み込んだ行とクラス（`testVendorFileInWritesLoadedLineAndDefinesTimespan`）、見つからない行（`testMissingVendorWritesNotFoundLine`）
+- Tools メニュー: Tools → Browser で System Browser が開く（`testToolsBrowserMenuItemOpensSystemBrowser`）
+- ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
+
+`scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。
+
+1. 通常の ctest と swift test を回す。
+2. `scripts/package-app.sh` で `build/Ao.app` を作る。
+3. `codesign --verify --strict build/Ao.app` が通ることを確かめる。
+4. `open -n -g --stderr <一時ファイル> build/Ao.app` で起動する。`open` はシェルの環境を渡さないので、バンドルの vendor の経路を確かめられる。
+5. 30 秒以内に標準エラーに `ao: vendor loaded: <root>/build/Ao.app/Contents/Resources/vendor` が出れば成功とする。
+6. 起動したプロセスを止める。
 
 ### 4.4 ゴールデン評価（P6 以降常時）
 

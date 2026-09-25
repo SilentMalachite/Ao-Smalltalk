@@ -1,5 +1,6 @@
 /build/
 /build-asan/
+/build-release/
 /.build/
 /compile_commands.json
 .serena/compile_commands.json
@@ -16,3 +17,4 @@ CMakeFiles/
 .worktrees/
 /.cache/
 .serena/logs/
+/docs/plans/
