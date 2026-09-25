@@ -51,8 +51,8 @@ using BindingHook = Oop (*)(CallContext& ctx, std::string_view name);
 
 // One per process (SPEC §3.4): the base process runs on the session's, each fiber on its own. A
 // fiber's copies the heap, roots, wk, cache, scheduler and hooks from the base; keeps its own
-// unwinding state, depth, stack guard and hashNesting; and folds its counters (interpreted*,
-// testFailures) into the base's when it is left.
+// unwinding state, depth, stack guard, hashNesting and abandoning; and folds its counters
+// (interpreted*, testFailures) into the base's when it is left.
 struct CallContext {
   Heap& heap;
   Roots& roots;
@@ -87,6 +87,9 @@ struct CallContext {
   std::uintptr_t stackHigh = 0;
   std::uintptr_t stackCleanupLimit = 0;
   std::uint32_t cleanupDepth = 0;
+  // SPEC §3.4 abandon: this process is being ended without its cleanups. ensure: and
+  // ifCurtailed: then run no cleanup block while the abort unwinds the frames.
+  bool abandoning = false;
   // The stack a fiber runs this context on, [fiberStackLow, fiberStackHigh). Both 0: the thread's
   // own stack. refreshStackLimit takes the guard from it.
   std::uintptr_t fiberStackLow = 0;

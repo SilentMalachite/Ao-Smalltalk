@@ -4,6 +4,7 @@
 #include "ao/Heap.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Roots.hpp"
+#include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 #include "ao/WellKnown.hpp"
@@ -23,13 +24,20 @@ struct Boot {
   ao::WellKnown wk;
   ao::ClassMethodCache cache;
   ao::CallContext ctx;
+  // SPEC §3.4: the session's cooperative scheduler; ctx is its base process. Declared last, so it
+  // is destroyed first and abandons the fibers left while the heap is still there.
+  ao::Scheduler scheduler;
   Boot() : Boot(1 << 20, 4 << 20, ao::kOldMaxBytes) {}
   Boot(std::size_t nurseryBytes, std::size_t oldBytes, std::size_t oldMaxBytes)
-      : heap(nurseryBytes, oldBytes, oldMaxBytes), wk(heap, roots), ctx{heap, roots, wk, &cache} {
+      : heap(nurseryBytes, oldBytes, oldMaxBytes),
+        wk(heap, roots),
+        ctx{heap, roots, wk, &cache},
+        scheduler(ctx) {
     cache.addRoots(roots);
     ao::Bootstrap::run(heap, roots, wk);
+    scheduler.adoptImage();
   }
-};
+};;
 
 inline ao::Oop send0(Boot& b, ao::Oop rcvr, const char* sel) {
   auto s = ao::Symbol::intern(b.wk, sel);

@@ -36,6 +36,7 @@ add_library(ao_runtime
   src/ImageLoad.cpp
   src/Lookup.cpp
   src/Send.cpp
+  src/Scheduler.cpp
   src/Fiber.cpp
   src/FiberSwitch_arm64.S
   src/kernel/Install.cpp
