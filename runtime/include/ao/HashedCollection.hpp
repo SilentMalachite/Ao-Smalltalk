@@ -62,8 +62,8 @@ std::uint32_t freeEntry(const Heap& heap, Oop array, std::uint32_t capacity, std
 void putEntry(Heap& heap, Oop array, std::uint32_t width, std::uint32_t index, Oop key, Oop value,
               std::int64_t hash);
 // Frees entry index by backward shift (SPEC §3.6): each later entry of the run up to a free entry
-// moves into the hole unless its home lies after the hole and not after the entry, and its old
-// place becomes the hole. Leaves the tally alone.
+// (or, in a table without one, around to the hole) moves into the hole unless its home lies after
+// the hole and not after the entry, and its old place becomes the hole. Leaves the tally alone.
 void removeEntry(Heap& heap, Oop array, std::uint32_t capacity, std::uint32_t width,
                  std::uint32_t index);
 // The smallest capacity that holds count entries without growing (count * 4 <= capacity * 3).

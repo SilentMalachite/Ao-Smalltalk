@@ -11,6 +11,7 @@
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/HashedCollection.hpp"
 #include "ao/Natives.hpp"
 
 #include <algorithm>
@@ -18,6 +19,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <map>
+#include <random>
 #include <set>
 #include <string>
 #include <utility>
@@ -471,6 +474,85 @@ TEST(HashedCollectionRandom, OperationsMatchAReferenceModel) {
     SCOPED_TRACE(sel);
     EXPECT_TRUE(send0(b, probe.slot, sel).isTrue());
     EXPECT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  }
+}
+
+namespace {
+
+// A SmallInteger key from `from` on, not in used, whose home in a table of capacity entries is
+// want. A SmallInteger's hash is its value, so a Dictionary saves the key itself as its hash.
+std::int64_t keyWithHome(std::uint32_t want, std::uint32_t capacity, std::set<std::int64_t>& used,
+                         std::int64_t from) {
+  for (std::int64_t k = from;; ++k) {
+    if (used.count(k) == 0 && ao::Hashed::home(k, capacity) == want) {
+      used.insert(k);
+      return k;
+    }
+  }
+}
+
+// Gives d a table with no free entry: entry p holds keys[p], the value keys[p] * 10 and the hash
+// keys[p]. The tally is 0, a lie that only instVarAt:put: can tell (SPEC §3.6 壊れた表).
+void fillFullTable(Boot& b, ao::Root& d, const std::vector<std::int64_t>& keys) {
+  const auto capacity = static_cast<std::uint32_t>(keys.size());
+  ao::Root array(b.roots, send1(b, b.wk.arrayClass, "new:", smi(capacity * 3)));
+  ASSERT_TRUE(array.slot.isHeap());
+  for (std::uint32_t p = 0; p < capacity; ++p) {
+    b.heap.slotAtPut(array.slot, p * 3, smi(keys[p]));
+    b.heap.slotAtPut(array.slot, p * 3 + 1, smi(keys[p] * 10));
+    b.heap.slotAtPut(array.slot, p * 3 + 2, smi(keys[p]));
+  }
+  b.heap.slotAtPut(d.slot, ao::Hashed::kSlotTally, smi(0));
+  b.heap.slotAtPut(d.slot, ao::Hashed::kSlotArray, array.slot);
+}
+
+}  // namespace
+
+// B9 review (Low): 空きの無い表（tally が嘘）からの削除でエントリを見失わない。後方シフトは容量 - 1
+// 歩で打ち切っていたので、回り込んで置かれたエントリがホームから届かなくなった（容量 8、キー
+// #(0 10 11 3 4 5 6 7) を hash bitAnd: 7 で置いた表で removeKey: 0 のあと at: 10 が nil）。
+// 最初の配置はその再現をホームで置き直したもの、残りは乱数で選んだ満杯の配置で、キーを乱数の順に
+// 全部消しながら参照モデルと突き合わせる。
+TEST(HashedCollectionRandom, RemovalFromAFullTableMatchesAReferenceModel) {
+  Boot b;
+  const bool stressed = b.heap.gcStress() != 0;
+  std::mt19937 rng(20260925);
+  std::vector<std::vector<std::uint32_t>> layouts = {{0, 2, 3, 3, 4, 5, 6, 7}};
+  for (int t = 0; t < (stressed ? 20 : 300); ++t) {
+    const std::uint32_t capacity = 8u << (rng() % 3);
+    std::vector<std::uint32_t> homes(capacity);
+    for (std::uint32_t& h : homes) {
+      h = static_cast<std::uint32_t>(rng() % capacity);
+    }
+    layouts.push_back(std::move(homes));
+  }
+  for (std::size_t l = 0; l < layouts.size(); ++l) {
+    SCOPED_TRACE(l);
+    const auto capacity = static_cast<std::uint32_t>(layouts[l].size());
+    std::set<std::int64_t> used;
+    std::vector<std::int64_t> keys;
+    for (const std::uint32_t h : layouts[l]) {
+      keys.push_back(keyWithHome(h, capacity, used, static_cast<std::int64_t>(rng() % 1000)));
+    }
+    ao::Root d(b.roots, send0(b, b.wk.dictionaryClass, "new"));
+    fillFullTable(b, d, keys);
+    std::map<std::int64_t, std::int64_t> model;
+    for (const std::int64_t k : keys) {
+      model[k] = k * 10;
+    }
+    std::vector<std::int64_t> order = keys;
+    if (l > 0) {
+      std::shuffle(order.begin(), order.end(), rng);
+    }
+    for (const std::int64_t k : order) {
+      ASSERT_EQ(smi(k * 10), send1(b, d.slot, "removeKey:", smi(k))) << "removing " << k;
+      model.erase(k);
+      for (const auto& [mk, mv] : model) {
+        ASSERT_EQ(smi(mv), send1(b, d.slot, "at:", smi(mk))) << mk << " lost after removing " << k;
+      }
+      ASSERT_TRUE(send1(b, d.slot, "at:", smi(k)).isNil());
+      ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+    }
   }
 }
 

@@ -90,10 +90,9 @@ void removeEntry(Heap& heap, Oop array, std::uint32_t capacity, std::uint32_t wi
                  std::uint32_t index) {
   const std::uint32_t mask = capacity - 1;
   std::uint32_t hole = index;
-  std::uint32_t j = index;
-  // At most capacity - 1 steps: a table whose tally lies may have no free entry at all.
-  for (std::uint32_t n = 1; n < capacity; ++n) {
-    j = (j + 1) & mask;
+  // Until a free entry, or until j comes back around to the hole: a table whose tally lies may have
+  // no free entry at all (SPEC §3.6). Each move brings an entry nearer its home, so this ends.
+  for (std::uint32_t j = (index + 1) & mask; j != hole; j = (j + 1) & mask) {
     if (heap.slotAt(array, j * width + kEntryKey).isNil()) {
       break;
     }
