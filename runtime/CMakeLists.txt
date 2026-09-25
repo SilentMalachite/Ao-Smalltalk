@@ -90,6 +90,7 @@ add_executable(ao_runtime_tests
   tests/collection_do_test.cpp
   tests/hashed_collection_test.cpp
   tests/transcript_model_test.cpp
+  tests/stream_test.cpp
   tests/process_test.cpp
   tests/geometry_test.cpp
   tests/kernel_scan_test.cpp

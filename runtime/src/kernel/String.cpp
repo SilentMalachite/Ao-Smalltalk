@@ -150,6 +150,35 @@ Oop at(Heap& heap, Oop str, std::int64_t oneBased) {
   return Oop{};
 }
 
+std::uint32_t encodeUtf8(char32_t cp, unsigned char out[4]) { return ao::encodeUtf8(cp, out); }
+
+std::uint32_t charBytes(const unsigned char* p, std::uint32_t remaining) {
+  return decodeUtf8(p, remaining).nbytes;
+}
+
+std::int64_t byteOffsetOfChar(const unsigned char* p, std::uint32_t n, std::int64_t chars) {
+  std::uint32_t i = 0;
+  std::int64_t seen = 0;
+  while (seen < chars) {
+    if (i >= n) {
+      return -1;
+    }
+    // A run of 8 ASCII bytes is 8 characters: skip it whole when that many are still wanted.
+    if (chars - seen >= 8 && n - i >= 8) {
+      std::uint64_t word = 0;
+      std::memcpy(&word, p + i, 8);
+      if ((word & 0x8080808080808080ull) == 0) {
+        i += 8;
+        seen += 8;
+        continue;
+      }
+    }
+    i += decodeUtf8(p + i, n - i).nbytes;
+    ++seen;
+  }
+  return i;
+}
+
 }  // namespace Str
 
 Oop ao_String_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
