@@ -377,6 +377,7 @@ Boolean の演算（Blue Book）:
 
 - `Object>>shallowCopy` と `Object>>copy` は、レシーバと同じクラス・同じ大きさの新しいオブジェクトに、スロット（バイト列ならバイト）をそのまま写して答える。即値はレシーバをそのまま答える。
 - Symbol の `copy` と `shallowCopy` は、レシーバそのものを答える。intern した Symbol は綴りごとに 1 つで、セレクタの探索は同一性で比べるからである。`#printString copy == #printString` は true、`3 perform: #printString copy` は `'3'` である。
+- Dictionary と Set（サブクラスを含む）の `copy` は、`array` も写す（Collections の「Dictionary と Set」）。写しとレシーバは表を共有しない。`shallowCopy` は Blue Book どおり浅く、`array` をレシーバと共有する。
 
 #### Kernel-Classes
 
@@ -446,13 +447,18 @@ Boolean の演算（Blue Book）:
 - Kernel クラスが足したスロットは、コンパイルしたコードからは読み取り専用である。読みは今までどおりインスタンス変数として読む（`Association>>probeKey ^key` は key を読む）。代入はコンパイルエラーで、理由は `cannot assign to Kernel instance variable <名前>` である（§3.8）。ネイティブは、これらのスロットに決まった種類の値（`OrderedCollection` の `array` なら Array）があるものとして読み書きするので、ソースから別の値を入れるとネイティブが壊れるからである。
   - 読み取り専用のスロットは、メソッドのクラスのスーパークラス鎖（そのクラス自身を含む）でいちばん近い Kernel クラスの instSize までの、先頭のスロットである。サブクラスが継承したスロットも含む。クラス側のメソッドでは、鎖でいちばん近いのは Kernel クラスのメタクラス（`Object class` など）なので、Behavior の 8 つの枠（`superclass methodDict format name thisClass category classPool instVarNames`）が読み取り専用になる。vendor のスタブ（§3.12）は Kernel クラスに数えない。
   - 既知の制約（v1）: `instVarAt:put:` はこの制限を受けない。Kernel クラスのスロットに `instVarAt:put:` で合わない値を入れると、ネイティブは壊れうる。
+  - classPool（Behavior の `classPool`）を壊れた表にしたとき（`tally` を容量より大きくする、`array` を配置に合わない値にするなど。Collections の「壊れた表」）は、ランタイムはそのクラスに classPool が無いものとして扱う。その名前はクラス変数として解決されず（§3.8）、Browser の定義テキスト（§3.10）にも並ばない。すでにコンパイルしたメソッドは束縛を持ち続け、読み書きできる。`classPool` の答えは下の「クラス変数」に書く。
 
 クラス変数:
 
 - `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` は、classVariableNames を空白で区切った名前ごとにクラス変数を作り、作ったクラスの classPool（`kClassSlotClassPool`）に置く。classPool は Kernel の `Dictionary` で、名前（intern した Symbol）から束縛への辞書である。束縛は `Association` で、キーは同じ Symbol、値はクラス変数の値（最初は nil）である。同じ名前を 2 度書いても束縛は 1 つである。クラス変数が無くても、classPool は空の `Dictionary` である。
 - classPool は、ほかの `Dictionary` と同じハッシュ表の配置（Collections の「Dictionary と Set」）を持つ。ランタイムが classPool を作るときは、キーに `hash` を送らず、同じ値（`#名前 hash`。String と Symbol の値ベースの hash）を C++ で求めて入れる。したがって `Foo classPool at: #Count` も `Foo classPool at: 'Count'` も同じ束縛を引く。
+- classPool の名前は、キーのうち Symbol のものだけである。Symbol でないキー（String、LargeInteger、ByteArray、Float など。`instVarAt:` で取り出した classPool に `at:put:` したとき）は名前にならない。クラス変数として解決せず（§3.8）、Browser の定義テキスト（§3.10）にも並べない。
 - classPool の名前を並べるとき（Browser の定義テキスト、§3.10）は、名前のバイト列の昇順に並べる。ハッシュ表は書いた順を保たないからである。
-- `Class>>classPool` はその辞書の写しを答える。写しは新しい `Dictionary` で、classPool の `tally` と配列の中身をそのまま写すので、同じ名前を同じ束縛（Association そのもの）に結ぶ。`Foo classPool at: #Count` は束縛で、その `value` がクラス変数の値である。`(Foo classPool at: #Count) value: 5` はクラス変数の値を変える。写しへの `at:put:` はクラスの classPool も束縛も変えない。メソッドのリテラルは classPool の束縛そのもので、再 Accept の検査（§3.9）もそれを前提にするので、束縛を別の値に差し替えさせないためである。送るたびに新しい写しを答える。classPool の枠が辞書でなければ（Kernel クラスの nil など）、枠の値をそのまま答える。
+- `Class>>classPool` はその辞書の写しを答える。写しは新しい `Dictionary` で、classPool の `tally` と配列の中身をそのまま写すので、同じ名前を同じ束縛（Association そのもの）に結ぶ。`Foo classPool at: #Count` は束縛で、その `value` がクラス変数の値である。`(Foo classPool at: #Count) value: 5` はクラス変数の値を変える。写しへの `at:put:` はクラスの classPool も束縛も変えない。メソッドのリテラルは classPool の束縛そのもので、再 Accept の検査（§3.9）もそれを前提にするので、束縛を別の値に差し替えさせないためである。送るたびに新しい写しを答える。
+  - classPool の `array` が nil（空の表。`Foo instVarAt: 7 put: Dictionary basicNew` のあとなど）なら、新しい空の `Dictionary`（`Dictionary new` と同じ）を答える。枠の値そのものは答えない。
+  - classPool が壊れた表なら（枠が `tally array` のスロットを持つポインタのオブジェクトで、Collections の「壊れた表」に当たるとき）、`damaged hashed collection` で失敗する。
+  - classPool の枠がそれ以外（Kernel クラスの nil、SmallInteger、スロットが 2 つに満たないオブジェクトなど）なら、枠の値をそのまま答える。
 - classPool のある名前の値が束縛（`Association`）でないとき（クラス側のメソッドがインスタンス変数 `classPool` を読んで `at:put:` した、`instVarAt:` で classPool そのものを取り出して書き換えた、など）、その名前をクラス変数として読むか代入するメソッドは入れない。Accept と file-in では、コンパイルエラーで、理由は `class variable <名前> is not bound to an Association` である。形の変更での移し替え（§3.9）では、送信のあとの検査と同じく、どのクラスも変えずに名前を旧クラスに戻して `AO_ERR_COMPILE` を返す。理由は同じ文の前に `shape change refused: <Class>>><selector>: ` を付けたものである。
 - Kernel クラスはクラス変数を持たない（classPool は nil）。メタクラスの classPool の枠も nil である。
 - メソッドから見えるクラス変数は、そのクラス（クラス側のメソッドなら、メタクラスの thisClass）とそのスーパークラス鎖のクラスの classPool にある名前である。近いクラスの名前が、遠いクラスの同じ名前を隠す。サブクラスのメソッドも、クラス側のメソッドも、同じ束縛を読み書きする。コンパイラの名前の解決順は §3.8 に書く。
@@ -509,16 +515,17 @@ Dictionary と Set:
 - ハッシュ値:
   - Dictionary と Set は、1 回の操作でキーに `hash` を 1 回だけ送る。送り方（入れ子の数の扱い）は、Array の `hash` が要素に送るときと同じである（Kernel-Objects の「`=` と `hash`」）。答えが Integer でなければ失敗する（§3.3）。答えが LargeInteger なら、その `hash` の値を保存する。送った先で巻き戻しが始まったら、表に触れずに直ちに空 OOP を返す（§3.4）。
   - IdentityDictionary と IdentitySet は送信しない。`identityHash` と同じ値を使う。
-- 探索: 容量を c とすると、`hash bitAnd: c - 1` のエントリから始めて 1 つずつ後ろへ見る（最後の次は先頭）。空きに当たれば、キーは無い。保存した hash がキーの hash と等しいエントリだけを比べる。
+- ホーム: 容量を c = 2^k とすると、hash のホーム（探索を始めるエントリ）は、hash を 64 ビットの符号なし整数として `0x9E3779B97F4A7C15` を掛け（2^64 を法とする）、上位 k ビットを取った値 `(hash × 0x9E3779B97F4A7C15 mod 2^64) >> (64 − k)` である。下位ビットのそろった hash（`i * 4096` の SmallInteger や、65535 以下の identityHash を容量 131072 の表に入れたとき）でも、ホームが表全体に散らばるようにするためである。混ぜるのはホームを求めるときだけで、エントリに保存する hash は混ぜる前の値である。拡張と削除は、保存した hash からホームを求め直す。classPool（Kernel-Classes のクラス変数）も同じホームを使う。
+- 探索: キーの hash のホームのエントリから始めて 1 つずつ後ろへ見る（最後の次は先頭）。空きに当たれば、キーは無い。保存した hash がキーの hash と等しいエントリだけを比べる。
   - Dictionary と Set は、エントリのキーがキーと同一（`==`）なら一致とし、そうでなければキーに `=` を送る（`キー = エントリのキー`）。答えが Boolean でなければ失敗する（§3.3）。
   - IdentityDictionary と IdentitySet は `==` だけで比べる。
 - 挿入: キーが無ければ、入れたあとの要素の数が容量の 3/4 を超えるとき、先に容量を 2 倍にする（拡張）。そのあと、キーの hash の位置から探した最初の空きに入れる。
-- 拡張は新しい配列を作り、各エントリを保存した hash で入れ直し、`tally` を入れ直した数にしてから `array` を差し替える。削除は後方シフトで行い、空きの印を残さない。空いた場所を i として、その後ろのエントリを空きに当たるまで順に見る。エントリの本来の位置（保存した hash から決まる位置）が、巡回した順で i より後ろ、そのエントリ以前にあれば動かさない。そうでなければ、そのエントリを i へ移し、移したもとの場所を新しい i とする。拡張も削除も `hash` と `=` を送らない。利用者のコードが走らないので、途中で失敗も巻き戻しも起きない。
-- 再入: `hash` と `=` は利用者のメソッドでもよく、その中で同じ表を書き換えうる（`at:put:`、`removeKey:`、拡張による `array` の差し替え、`instVarAt:put:`）。ネイティブは送信から戻るたびに、レシーバから表を読み直す。`array` が差し替わったか、`tally` か比べていたエントリのキーが変わっていれば、求めた hash のまま初めから探し直す（`hash` は送り直さない）。どの書き換えのあとも、配列の範囲外は読み書きしない。
+- 拡張は新しい配列を作り、各エントリを保存した hash で入れ直し、`tally` を入れ直した数にしてから `array` を差し替える。削除は後方シフトで行い、空きの印を残さない。空いた場所を i として、その後ろのエントリを、空きに当たるか、見る場所が i に戻るまで順に見る（i に戻るのは、`tally` が実際の数と違って空きの無い表から消すときだけである）。エントリのホームが、巡回した順で i より後ろ、そのエントリ以前にあれば動かさない。そうでなければ、そのエントリを i へ移し、移したもとの場所を新しい i とする。終わったら i を空きにする。どちらで終わっても、残ったエントリはどれも、ホームから空きを通らずに届く。拡張も削除も `hash` と `=` を送らない。利用者のコードが走らないので、途中で失敗も巻き戻しも起きない。
+- 再入: `hash` と `=` は利用者のメソッドでもよく、その中で同じ表を書き換えうる（`at:put:`、`removeKey:`、拡張による `array` の差し替え、`instVarAt:put:`）。ネイティブは送信から戻るたびに、レシーバから表を読み直す。`array` が差し替わったか、`tally` か比べていたエントリのキーが変わっていれば、求めた hash のまま初めから探し直す（`hash` は送り直さない）。どの書き換えのあとも、配列の範囲外は読み書きしない。探し直しの回数に上限は無い。`=` が送られるたびに表を書き換えれば、探索は終わらない（利用者のループと同じく、停止は保証しない）。探し直しても、`hash` は 1 回の操作で 1 回しか送らない。
 - 壊れた表:
   - `array` が nil なら空の表として扱う（`Dictionary basicNew` など）。`size` は 0 で、最初の挿入で容量 8 の配列を作り、`tally` を 0 から数える。
   - `array` がポインタのオブジェクトでないか、大きさが「8 以上の 2 のべき乗×幅」でないか、`tally` が 0 以上容量以下の SmallInteger でなければ（`instVarAt:put:` で壊したときなど）、Dictionary と Set のネイティブはどれも失敗する。理由は `damaged hashed collection` である。
-  - `tally` が実際の数と違うだけなら失敗しない。挿入で空きが見つからなければ拡張し、拡張は `tally` を数え直す。削除は `tally` を 1 減らす（0 より小さくしない）。保存した hash が SmallInteger でないエントリは、どのキーとも一致せず、拡張と削除では hash を 0 として扱う。
+  - `tally` が実際の数と違うだけなら、探索、挿入、削除、列挙は失敗しない。挿入で空きが見つからなければ拡張し、拡張は `tally` を数え直す。削除は `tally` を 1 減らす（0 より小さくしない）。ただし `size` は `tally` を答え、`tally` を使うネイティブ（Dictionary の `collect:` と、`size` を送る Collection の `collect:`）は `tally` を信じる。`tally` が実際の数より小さければ `collect:` は失敗しうる。大きければ、答えの Array の末尾に nil が残る。`tally` を実際と違う値にできるのは `instVarAt:put:` だけである（Kernel-Classes の既知の制約）。保存した hash が SmallInteger でないエントリは、どのキーとも一致せず、拡張と削除では hash を 0 として扱う。
 - 列挙（`do:`、`keysDo:`、`associationsDo:`、`keysAndValuesDo:`、`collect:`、値の `includes:`）は、`array` を先頭から順に見る。順序は規定しない。ブロック（`includes:` では `=`）が表を書き換えても、ネイティブはエントリごとに表を読み直し、そのときの `array` の大きさの範囲で続ける。そのとき要素を飛ばしたり 2 度渡したりすることがあるが、どうなるかは規定しない。列挙のループも 64K 回ごとに safepoint を通る。
 
 Dictionary のプロトコル（Blue Book）。IdentityDictionary は、キーを探すセレクタ（`at:`、`at:put:`、`at:ifAbsent:`、`includesKey:`、`removeKey:`、`removeKey:ifAbsent:`）を同一性版で持ち、ほかは Dictionary のものを使う。
@@ -536,10 +543,11 @@ Dictionary のプロトコル（Blue Book）。IdentityDictionary は、キー�
 | `keysDo: aBlock` | キーごとに `aBlock value: キー` |
 | `associationsDo: aBlock` | エントリごとに、キーと値を持つ新しい Association を作って渡す。それを書き換えても表は変わらない |
 | `keysAndValuesDo: aBlock` | エントリごとに `aBlock value: キー value: 値` |
-| `collect: aBlock` | 値ごとの `aBlock value: 値` の答えを並べた Array。大きさは送ったときの `tally` である。ブロックが表を書き換えたときの答えは規定しない（失敗することもある） |
+| `collect: aBlock` | 値ごとの `aBlock value: 値` の答えを並べた Array。大きさは送ったときの `tally` である（`tally` が実際の数と違うときは「壊れた表」）。ブロックが表を書き換えたときの答えは規定しない（失敗することもある） |
 | `size` | `tally` |
+| `copy` | レシーバと同じクラスの新しいオブジェクトに、スロットをそのまま写したもの。ただし `array` がヒープのオブジェクトなら、それも同じクラス・同じ大きさの新しいオブジェクトに写して入れる（壊れた表でも失敗しない）。写しとレシーバは表を共有しないので、`e := d copy. e at: 2 put: 2` のあとも `d at: 2` は nil のままである。`shallowCopy` は浅く、`array` を共有する |
 
-Set と IdentitySet のプロトコルは `add:`、`includes:`、`do:`（要素ごと）、`size` である。`add: anObject` は、anObject が無ければ入れ、anObject を答える。anObject が nil なら失敗し、理由は `element must not be nil` である。
+Set と IdentitySet のプロトコルは `add:`、`includes:`、`do:`（要素ごと）、`size`、`copy`（Dictionary と同じく `array` も写す）である。`add: anObject` は、anObject が無ければ入れ、anObject を答える。anObject が nil なら失敗し、理由は `element must not be nil` である。
 
 - nil はキーにも要素にもならない。nil には `hash` を送らない。`at: nil` は nil、`includesKey: nil` と Set の `includes: nil` は false、`at: nil ifAbsent:` と `removeKey: nil ifAbsent:` はブロックの答えである。`removeKey: nil` は `key not found` で失敗する。
 - Dictionary の `do:` は値を渡すので、`do:` を通る Collection のネイティブ（`select:`、`reject:`、`detect:ifNone:`、`inject:into:`）も値を受ける。
@@ -547,15 +555,20 @@ Set と IdentitySet のプロトコルは `add:`、`includes:`、`do:`（要素�
 Interval:
 
 - `Interval from: start to: stop by: step` の要素は、start、start + step、start + step + step と続き、終端を越えたところで終わる。`do:` はこの順に要素を渡し、`size` は要素の数を答える。
-- start、stop、step がどれも SmallInteger なら、送信せずに数える。`size` が SmallInteger に収まらなければ LargeInteger を答える。
-- そうでなければ、まず刻みの向きを決める。step が SmallInteger ならその符号で決める。そうでなければ `step < 0` を送り、true なら後ろ向きである。false なら `step > 0` を送り、true なら前向き、false なら要素は無い（刻み 0 と同じ）。どちらも答えが Boolean でなければ失敗する（§3.3）。
-- 前向きは `要素 > stop`、後ろ向きは `要素 < stop` を送り、true になったところで終わる。答えが Boolean でなければ失敗する。次の要素は `要素 + step` を送って求める。それが失敗すれば失敗する。
+- start、stop、step がどれも Integer（SmallInteger、LargePositiveInteger、LargeNegativeInteger）なら、`size` は送信せずに厳密に求める。step が 0 なら 0 である。step が正で stop < start のときと、負で stop > start のときも 0 である。それ以外は `(stop - start) // step + 1` である。答えは SmallInteger に収まれば SmallInteger、収まらなければ LargeInteger である（`(1 to: (1 bitShift: 70)) size` は `1 bitShift: 70`）。どれも SmallInteger なら、`do:` も送信せずに数える。
+- そうでなければ（`do:` では、どれかが SmallInteger でなければ）、まず刻みの向きを決める。step が SmallInteger ならその符号で決める。そうでなければ `step < 0` を送り、true なら後ろ向きである。false なら `step > 0` を送り、true なら前向き、false なら要素は無い（刻み 0 と同じ）。どちらも答えが Boolean でなければ失敗する（§3.3）。
+- 前向きは `要素 <= stop`、後ろ向きは `要素 >= stop` を送り、答えが true の間だけ続け、false になったところで終わる。答えが Boolean でなければ失敗する。次の要素は `要素 + step` を送って求める。それが失敗すれば失敗する。比べられない値（NaN）との比較は false なので、端点が NaN なら要素は無い。`nan := 0.0 / 0.0` として、`(Interval from: 1 to: nan by: 1)` と `(Interval from: nan to: 5 by: 1)` の `size` は 0 で、`do:` はブロックを呼ばない。
 - 要素の数に上限は無い。ループはネイティブのループの規則（Kernel-Methods。64K 回ごとに safepoint）に従い、ブロックの abort や巻き戻しで止まる。
 - `(Interval from: 2.0 to: 1.0 by: -0.5) size` は 3 で、`collect:` は 3 要素の Array を答える。`(Interval from: 1 to: 2 by: 0.5) do: aBlock` は 1、1.5、2 で aBlock を呼ぶ。Fraction の刻みも同じである（`(Interval from: 0 to: 1 by: 1/2) size` は 3）。
+- `collect:`（Collection の `collect:`）は、`size` を送って答えの Array を作ってから、`do:` で要素を集める。どれかが SmallInteger でなければ、`do:` は比較と `+` を送り、Integer でなければ `size` も送る。それらに副作用があって、`size` と `do:` の要素の数が食い違うときの `collect:` の答えは規定しない（失敗することもある）。`size` が大きすぎれば、Array を作る `basicNew:` で失敗する。
 
 OrderedCollection:
 
-- `at: index` は、index が 1 以上 `size` 以下の SmallInteger でなければ失敗する（§3.3）。理由は String の `at:` と同じ `at: index out of range` である。
+- スロット `array firstIndex lastIndex`（Kernel-Classes の表）は、要素が `array` の firstIndex 番目から lastIndex 番目にあることを表す。`size` は lastIndex − firstIndex + 1 である。
+- `array` が nil なら空である（`basicNew` のあとなど）。`size` は 0 で、最初の `add:` が大きさ 8 の Array を作り、firstIndex を 1、lastIndex を 0 にしてから入れる。
+- そうでなければ、`array` が Kernel の Array で、firstIndex と lastIndex が SmallInteger で、`1 <= firstIndex <= lastIndex + 1 <= (array の大きさ) + 1` が成り立たなければ（`instVarAt:put:` で壊したとき）、`size`、`do:`、`add:`、`at:` はどれも失敗する。理由は `damaged ordered collection` である。Array の範囲の外は読み書きしない。
+- `at: index` は、index が 1 以上 `size` 以下の SmallInteger でなければ失敗する（§3.3）。理由は String の `at:` と同じ `at: index out of range` である。組が壊れていれば、index によらず `damaged ordered collection` で失敗する。
+- `do:` は、送ったときの firstIndex から lastIndex までの添字の要素を順に渡す（Blue Book）。ブロックを呼ぶ前に毎回組を読み直し、壊れていれば失敗する。次の添字がそのときの firstIndex から lastIndex の外なら、そこで終わる。ループは 64K 回ごとに safepoint を通る。
 
 #### Magnitude
 
@@ -1084,7 +1097,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `kernel_numeric_test`: 数の混合演算と厳密な比較（NaN、±inf、LargeInteger）、Float への丸め、`bitShift:` の境界、Boolean の演算、Point と Rectangle のサブクラス、`asCharacter` の範囲、`to:do:` の終端、`=` と `hash` の契約
 - `collection_do_test`: Array/String/Dictionary の中核プロトコル。`select:` と `reject:` の述語は要素ごとに 1 回、String の `do:` の 1 パスと書き換え
 - `stream_test`: ストリームの `contents` の種類と要素の数（ByteArray、OrderedCollection、Array のサブクラス、Symbol、ReadWriteStream）、String への書き込み（多バイト文字、予備、上書き、差し替え、利用者の書き換え）、ReadStream の `nextPut:`、GC 圧下、性能
-- `hashed_collection_test`: Dictionary と Set のハッシュ表（`=` と `hash` の送り方と失敗、nil、削除と拡張、再入、壊れた表、GC 圧下、性能）、classPool の配置と名前の並び、Interval の刻みと終端の比較、OrderedCollection の `at:` の範囲
+- `hashed_collection_test`: Dictionary と Set のハッシュ表（`=` と `hash` の送り方と失敗、nil、削除と拡張、再入、壊れた表、GC 圧下、性能、ホームの混ぜ方、満杯の表からの削除、`copy`）、classPool の配置と名前の並び（Symbol のキーだけ）と写し、Interval の刻みと終端の比較（NaN）と Integer の `size`、OrderedCollection の組の検査と `at:` の範囲
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
