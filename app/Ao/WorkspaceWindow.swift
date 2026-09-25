@@ -109,6 +109,28 @@ func failureText(status: Int32, message: String) -> String {
   return "evaluation failed"
 }
 
+// SPEC §3.10: the whole result the runtime kept for the last Print it or Inspect it. It may hold
+// NUL bytes, so exactly `length` bytes are decoded. nil when the runtime kept no result.
+private func keptEvalResult() -> String? {
+  let length = Int(ao_eval_result_length())
+  guard length >= 0 else {
+    return nil
+  }
+  var bytes = [CChar](repeating: 0, count: length + 1)
+  let status = bytes.withUnsafeMutableBufferPointer { buf -> Int32 in
+    guard let base = buf.baseAddress else {
+      return Int32(AO_ERR)
+    }
+    return ao_eval_result_copy(base, Int32(buf.count))
+  }
+  guard status == Int32(AO_OK) else {
+    return nil
+  }
+  return bytes.withUnsafeBytes { raw in
+    String(decoding: raw.prefix(length), as: UTF8.self)
+  }
+}
+
 @MainActor
 final class WorkspaceWindow {
   let window: NSWindow
@@ -266,6 +288,12 @@ final class WorkspaceWindow {
           ao_eval(src, Int32(source.utf8.count), mode, outPtr, Int32(outBuf.count), errPtr)
         }
       }
+    }
+    // SPEC §3.10: out stops at 64 KiB and at the first NUL, so an answered Print it or Inspect it
+    // reads the kept result whole. Without one, AO_ERR_RANGE stays `result does not fit`.
+    let answered = status == Int32(AO_OK) || status == Int32(AO_ERR_RANGE)
+    if answered, mode != Int32(AO_EVAL_DOIT), let whole = keptEvalResult() {
+      return (Int32(AO_OK), whole, spanMessage(err))
     }
     let output = out.withUnsafeBufferPointer { buf -> String in
       guard let base = buf.baseAddress else {

@@ -145,6 +145,55 @@ final class WorkspaceEvalTests: XCTestCase {
     XCTAssertEqual(workspace.text, "1 + 23")
   }
 
+  // SPEC §3.9, §3.10: a result past the 64 KiB out is inserted whole, and the source runs once.
+  func testPrintItInsertsWholeResultPast64KiBAndRunsOnce() {
+    let workspace = workspace("b11n := 0")
+    workspace.selectAll()
+    workspace.doIt()
+    let source = "b11n := b11n + 1. Array new: 20000"
+    workspace.replaceText(source)
+    workspace.selectAll()
+    workspace.printIt()
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertTrue(workspace.text.hasPrefix(source))
+    let inserted = (workspace.text as NSString).length - (source as NSString).length
+    XCTAssertGreaterThan(inserted, 65_536)
+    XCTAssertTrue(workspace.text.hasSuffix(")"))
+    workspace.replaceText("b11n")
+    workspace.selectAll()
+    workspace.printIt()
+    XCTAssertEqual(workspace.text, "b11n1")
+  }
+
+  // SPEC §3.9: a printString holding NUL bytes is inserted whole, not cut at the first NUL.
+  func testPrintItInsertsResultWithNulBytes() {
+    let small = "String new: 3"
+    let workspace = workspace(small)
+    workspace.selectAll()
+    workspace.printIt()
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertEqual(String(workspace.text.dropFirst(small.count)), "'\0\0\0'")
+
+    let large = "String new: 70000"
+    workspace.replaceText(large)
+    workspace.selectAll()
+    workspace.printIt()
+    XCTAssertEqual(workspace.errorText, "")
+    let inserted = String(workspace.text.dropFirst(large.count))
+    XCTAssertEqual((inserted as NSString).length, 70_002)
+    XCTAssertEqual(inserted, "'" + String(repeating: "\0", count: 70_000) + "'")
+  }
+
+  // The hook and the result carry the same whole text, so Inspect it opens one window.
+  func testInspectItWithNulOpensOneInspectorWithWholeText() {
+    let workspace = workspace("String new: 3")
+    workspace.selectAll()
+    workspace.inspectIt()
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertEqual(workspace.inspectorCount, 1)
+    XCTAssertEqual(workspace.inspectorText, "String\n'\0\0\0'")
+  }
+
   private func textView(in root: NSView?) -> NSTextView? {
     guard let root else {
       return nil
