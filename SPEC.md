@@ -398,6 +398,7 @@ Boolean の演算（Blue Book）:
 
 - `basicNew: n` は、n が 0 以上の SmallInteger でなければ失敗する（§3.3）。可変長でないクラスは、n によらず instSize だけのスロットを割り当てる。可変長のポインタのクラスは instSize + n のスロットを、バイト列のクラスは n バイトを割り当てる。
 - スロットの数とバイト数は 2^32 − 1 以下である。超えれば割り当てずに失敗する（理由は `failed: #basicNew:`。`new:` から送ったときは `failed: #new:`）。下位 32 ビットに切り詰めない。`(String new: 4294967299) size` は評価エラーである。
+- 上限以内でも、GC をしても old に入らなければ（old の上限。§3.2）、評価を `out of memory` で中断する。`Array new: 4294967295` はこれに当たる。
 
 メタクラス循環は Blue Book ルール 6–10 を満たすこと。
 
@@ -502,10 +503,14 @@ Boolean の演算（Blue Book）:
 
 Collection の列挙:
 
-- `select:` と `reject:` は、レシーバに `do:` を 1 回だけ送り、述語のブロックを要素ごとに 1 回だけ呼ぶ。`select:` は答えが true の要素を、`reject:` は答えが false の要素を、渡された順に並べた Array を答える。Boolean でない答えの要素は、どちらにも入れない。集めた要素は、`do:` に渡すネイティブのブロック（§3.11）のスロットにある Array に入れ、足りなくなれば大きさを倍にした Array に写す。述語に副作用があっても、答えは要素ごとに 1 回の評価どおりである。`#(1 2 3) select: [:x | Transcript show: x printString. true]` は 1 2 3 を 1 回だけ出す。`| oc | oc := OrderedCollection new. #(1 2 3) select: [:x | oc add: x. oc size <= 3]` は `#(1 2 3)` である。
-  - そのブロックのスロット（集めた数と Array）は、ブロックを受け取った `do:` から書き換えられる。数が 0 以上その Array の大きさ以下の SmallInteger でないか、Array が Kernel の Array でなければ、`select: count out of range`（`reject:` では `reject: count out of range`）で失敗する。
-- `includes: anObject` は、anObject に `hash` を 1 回送る。送り方は Dictionary と Set と同じで、答えが Integer でなければ失敗する（§3.3）。そのあと `do:` で要素を順に見て、`要素 = anObject` が true になったところで true を答える。
-- String の `do:` は、UTF-8 のバイト列を先頭から 1 回だけたどり、文字ごとにブロックを呼ぶ（`at:` を送らない。長さ n の文字列で O(n)）。ブロックを呼ぶたびにレシーバの大きさを読み直し、その範囲で続ける。ブロックが文字列を書き換えたとき、文字を飛ばすか 2 度渡すかは規定しない。ループは 64K 回ごとに safepoint を通る。レシーバのクラスで見つかる `at:` か `size` が Kernel の String のネイティブでなければ（利用者が上書きしたサブクラス）、ArrayedCollection の `do:` と同じく `size` と `at:` を送って回す。
+- `select:` と `reject:` は、レシーバに `do:` を 1 回だけ送り、述語のブロックを要素ごとに 1 回だけ呼ぶ。`select:` は答えが true の要素を、`reject:` は答えが false の要素を、渡された順に並べた Array を答える。レシーバの種類によらず（OrderedCollection、String、Set、Interval でも）答えは Array である。述語の答えが Boolean でなければ、§3.5 の分岐と同じく答えに `mustBeBoolean` を送り、その答えで決める。それも Boolean でなければ `NonBoolean receiver` で中断する（`Object>>mustBeBoolean` の既定も同じ理由で中断する）。`#(1 2 3) select: [:x | nil]` は評価エラーである。集めた要素は、`do:` に渡すネイティブのブロック（§3.11）のスロットにある Array に入れ、足りなくなれば大きさを倍にした Array に写す。述語に副作用があっても、答えは要素ごとに 1 回の評価どおりである。`#(1 2 3) select: [:x | Transcript show: x printString. true]` は 1 2 3 を 1 回だけ出す。`| oc | oc := OrderedCollection new. #(1 2 3) select: [:x | oc add: x. oc size <= 3]` は `#(1 2 3)` である。
+  - そのブロックのスロット（集めた数と Array）は、ブロックを受け取った `do:` から書き換えられる。数が 0 以上その Array の大きさ以下の SmallInteger でないか、Array が Kernel の Array でなければ、`select: count out of range`（`reject:` では `reject: count out of range`）で失敗する。スロットは、ブロックが呼ばれるたびに、述語を呼ぶ前と、述語から戻って要素を入れる前に確かめる。述語を呼ぶ前に壊れていれば、述語は呼ばない。
+- `detect: aBlock ifNone: exceptionBlock` も、述語の答えが Boolean でなければ `select:` と同じく `mustBeBoolean` を送る。
+- `includes: anObject` は、`do:` で要素を順に見て、`anObject = 要素` が true になったところで true を答える（Blue Book。`=` は anObject に送る）。要素が anObject と同一なら、`=` を送らずに true とする。`=` の答えが Boolean でなければ失敗する（§3.3。理由は `failed: #includes:`）。`hash` は送らない。Dictionary の `includes:`（値を比べる）と同じ規則である。空のコレクションは何も送らずに false を答える。
+- String の `do:` は、UTF-8 のバイト列を先頭から 1 回だけたどり、文字ごとにブロックを呼ぶ（`at:` を送らない。長さ n の文字列で O(n)）。渡した文字の数 k を数える。ブロックから戻るたびにレシーバのバイト数を読み直し、バイト数が変わったか、次に読む位置が UTF-8 の継続バイト（0x80〜0xBF）なら、そのときの文字列の k + 1 文字目の位置に合わせ直す（`at:` と同じ数え方で先頭から数える。k 文字に満たなければ終わる）。したがって、渡す文字はどれも、渡した時点の文字列に `at:` で読める文字である。文字列に無い文字（多バイト文字の途中の継続バイトなど）は渡さない。`| s i | s := 'say "hi" now' copy. i := 0. s do: [:c | i := i + 1. c = $" ifTrue: [s at: i put: $”]]. s` は `'say ”hi” now'` である。
+  - ブロックが文字列を書き換えたとき、文字を飛ばすか 2 度渡すかは規定しない。
+  - 合わせ直しは 1 回が O(n) だが、幅の変わる `at:put:` も 1 回が O(n) なので、全体の時間は書き換えにかかる時間の定数倍を超えない。UTF-8 として正しくないバイト列（`basicAt:put:` で作ったもの）では、継続バイトを 1 文字として読む位置ごとに合わせ直すので、O(n) を約束しない。
+  - ループは 64K 回ごとに safepoint を通る。レシーバのクラスで見つかる `at:` か `size` が Kernel の String のネイティブでなければ（利用者が上書きしたサブクラス）、ArrayedCollection の `do:` と同じく `size` と `at:` を送って回す。
 
 Dictionary と Set:
 
@@ -625,13 +630,15 @@ Character:
 - スロットは `collection position readLimit`（PositionableStream）と `writeLimit`（WriteStream）である（Kernel-Classes の表。これ以上足さない）。position、readLimit、writeLimit は要素（String では文字）の数である。position は読んだか書いた要素の数、readLimit は読める要素の数、writeLimit は collection の大きさ（書ける要素の数）である。
 - `on: aCollection` は、position を 0 に、readLimit と writeLimit を `aCollection size` にする。
 - `next` は、position が readLimit より小さければ position を 1 進め、`collection at: position` の答えを答える。そうでなければ nil を答える。
+- `position: anInteger` は、anInteger が SmallInteger でなければ `position: not an integer` で失敗する。負なら 0 に、readLimit と今の position の大きい方を超えれば、その値にする（頭打ちにし、失敗しない）。writeLimit までは進めない。ストリームが作った String の予備や、倍にした Array の空きを見せないためである（Squeak の `WriteStream>>position:` と同じ）。`(WriteStream on: String new) nextPutAll: 'abc'; position: 100; position` は 3 である。readLimit か position が SmallInteger でなければ 0 として扱う。
 - `nextPut:` は WriteStream（と ReadWriteStream）のメソッドである。PositionableStream は持たない。ReadStream の `nextPut:` は `shouldNotImplement` で失敗し、collection も position も変えない。`| s r | s := 'abc' copy. r := ReadStream on: s. r nextPut: $x` は評価エラーで、s は `'abc'` のままである。
 - WriteStream の `nextPut: anObject` は、collection の position + 1 番目を anObject にし、position を 1 進め、readLimit を position 以上にして、anObject を答える。書けなければ失敗し（§3.3）、collection の中身、position、readLimit を変えない。
-  - collection が Array で、position + 1 が大きさを超えるとき: 大きさを倍（それでも足りなければ position + 1）にした Array に写して collection を差し替え、writeLimit を新しい大きさにする。
-  - collection のクラスで見つかる `at:put:` が Kernel の `String>>at:put:` のネイティブなら: 下の「String への書き込み」。
-  - それ以外は `collection at: position + 1 put: anObject` を送る。position + 1 が `collection size` を超えれば `nextPut: past end` で失敗する。ただし、collection が String の系統（Symbol など）で、anObject が Character で、position が `collection size` に等しいときは、末尾に文字を足した新しい String に collection を差し替える。
+  - collection が Array で、position + 1 が大きさを超えるとき: 大きさを倍（それでも足りなければ position + 1）にした Array に写して collection を差し替え、writeLimit を新しい大きさにする。倍が 2^32 − 1 を超えるなら 2^32 − 1 にする。position + 1 が 2^32 − 1 を超えるなら（`instVarAt:put:` で position を書き換えたとき）、割り当てずに `out of memory` で中断する。
+  - collection のクラスで見つかる `at:put:` と `size` がどちらも Kernel の String のネイティブ（`String>>at:put:` と `String>>size`）なら: 下の「String への書き込み」。どちらかを上書きしたサブクラスは、次の場合に当たる。
+  - それ以外は `collection at: position + 1 put: anObject` を送る。position + 1 が `collection size` を超えれば `nextPut: past end` で失敗する。ただし、collection が String の系統で、anObject が Character で、position が `collection size` に等しいときは、末尾に文字を足した新しい String に collection を差し替える。新しい String のクラスは collection のクラスである（Symbol の系統なら String）。String のサブクラスを String に変えない。
 - `contents` の要素の数 k は、ReadStream（PositionableStream）では readLimit、WriteStream では position、ReadWriteStream では readLimit と position の大きい方である（Blue Book）。SmallInteger でない値と負の値は 0 とする。`| w | w := ReadWriteStream on: String new. w nextPutAll: 'abc'; reset. w contents` は `'abc'` である。
 - `contents` は、`collection at: 1` から `collection at: k` までを送って要素を取り出し、新しいコレクションに並べて答える。collection の物理スロットは写さない。k が collection の大きさを超えれば `at:` が失敗するので、`contents` も失敗する。答えの種類は collection で決まる。
+  - collection のクラスで見つかる `at:` が Kernel のネイティブで、k 番目の `at:` が失敗すると先にわかるときは、答えを割り当てる前に、`at:` と同じ理由で失敗する（`instVarAt:put:` で readLimit を 2^28 にしても、2 GB を割り当ててから失敗しない）。Array と ByteArray の系統（`ArrayedCollection>>at:`）は k が要素の数（basicSize − instSize）を超えれば `basicAt: index out of range`、OrderedCollection は k が `size` を超えれば `at: index out of range`、String（`String>>at:`）は k が文字数を超えれば `at: index out of range` である。
   - String の系統: collection と同じクラスの String。ただし Symbol（とそのサブクラス）なら String。collection のクラスで見つかる `at:` が Kernel の `String>>at:` のネイティブなら、`at:` を送らずに UTF-8 を先頭から 1 回だけたどり、k 文字目までのバイト列を写す（同じ文字列になる。長さ n で O(n)）。k 文字に満たなければ `at: index out of range` で失敗する。
   - ArrayedCollection の系統で可変長のクラス（Array、ByteArray とそのサブクラス）: collection と同じクラス。`basicNew:` と同じく、instSize のスロット（名前付き変数。nil のまま）と k 個の要素を割り当てる。`Array subclass: #PG instanceVariableNames: 'tag'` のインスタンスの `contents` は PG で、要素はずれない。
   - OrderedCollection の系統: OrderedCollection（Kernel のクラス）。
@@ -650,9 +657,10 @@ String への書き込み（WriteStream の `nextPut:`）:
 - 幅が違うか、位置が末尾なら:
   - position が readLimit 以上で、位置から書く文字の幅だけのバイトがどれも 1 バイトの文字（予備）なら、その場で書き、文字数を（幅 − 1）減らす。writeLimit も（幅 − 1）減る。
   - position が readLimit より小さければ（書いた文字の上書き。writeLimit が 0 以上の SmallInteger でないときも）、その 1 文字だけを置き換えた新しい String を作り、collection を差し替える。文字数は変わらない。
-  - それ以外（末尾、または予備が足りない）は、位置までのバイト列、書く文字、予備を並べた新しい String を作り、collection を差し替える。新しい String のバイト数は、位置までのバイト数と書く文字の幅の和の 2 倍（16 以上。8 の倍数に切り上げる）で、残りが予備である。writeLimit は新しい文字数になる。
+  - それ以外（末尾、または予備が足りない）は、位置までのバイト列、書く文字、予備を並べた新しい String を作り、collection を差し替える。新しい String のバイト数は、位置までのバイト数と書く文字の幅の和の 2 倍（16 以上。8 の倍数に切り上げる）で、残りが予備である。writeLimit は新しい文字数（position + 1 + 予備の文字数）になる。それが SmallInteger の最大値を超えるなら（`instVarAt:put:` で position を書き換えたとき）、超えない数まで予備を削る。writeLimit は SmallInteger のままで、文字数と等しい。
   - 新しい String のクラスは collection のクラスである。利用者が `on:` に渡した String は、差し替えたあとは書き換えない。
-- `| w | w := WriteStream on: (String new: 8). w nextPutAll: 'ééé'. w contents` は `'ééé'`、`w position` は 3 である。`WriteStream on: String new` に `nextPut:` を n 回送る時間は、書く文字によらず O(n) である。利用者が `on:` に渡した String の中を幅の違う文字で上書きするときは、1 文字ごとに String を作り直す（1 回が O(大きさ)）。
+- `| w | w := WriteStream on: (String new: 8). w nextPutAll: 'ééé'. w contents` は `'ééé'`、`w position` は 3 である。`WriteStream on: String new` に `nextPut:` を n 回送る時間は、書く文字によらず O(n) である。O(n) を約束するのは、この末尾への追記だけである。
+  - readLimit より前（書いた文字や、利用者が `on:` に渡した String の中）に書くときは、position より前に多バイト文字があれば、位置を先頭から数えるので 1 回が O(position) である。幅の違う文字で上書きするときは String を作り直すので 1 回が O(大きさ)である。`reset` してから多バイト文字を書き直すことを繰り返すと、全体は 2 乗の時間になる（`reset` して 'あ' を 4 万回書き直すと Release で 4 秒）。
 - 利用者が `on:` に渡した String を `at:put:` で書き換えても（幅が変わっても）、文字数は変わらないので、ストリームは正しい位置に書く。次のときに書く位置は規定しない（メモリの外は読み書きしない）: `basicAt:put:` で UTF-8 のバイト列を変えて文字数を変えたとき、ストリームが作った String を `instVarAt:` などで取り出して予備の文字の幅を変えたとき、`instVarAt:put:` で collection、position、readLimit、writeLimit を書き換えたとき（Kernel-Classes の既知の制約）。
 
 グローバル辞書:
@@ -1095,8 +1103,8 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `native_send_test`: `1 + 2`、`true ifTrue: []`、`#==`
 - `smallinteger_arith_test`: オーバーフローで LargeInteger へ
 - `kernel_numeric_test`: 数の混合演算と厳密な比較（NaN、±inf、LargeInteger）、Float への丸め、`bitShift:` の境界、Boolean の演算、Point と Rectangle のサブクラス、`asCharacter` の範囲、`to:do:` の終端、`=` と `hash` の契約
-- `collection_do_test`: Array/String/Dictionary の中核プロトコル。`select:` と `reject:` の述語は要素ごとに 1 回、String の `do:` の 1 パスと書き換え
-- `stream_test`: ストリームの `contents` の種類と要素の数（ByteArray、OrderedCollection、Array のサブクラス、Symbol、ReadWriteStream）、String への書き込み（多バイト文字、予備、上書き、差し替え、利用者の書き換え）、ReadStream の `nextPut:`、GC 圧下、性能
+- `collection_do_test`: Array/String/Dictionary の中核プロトコル。`select:` と `reject:` の述語は要素ごとに 1 回（Boolean でない答えは `mustBeBoolean`、作業領域の検査は述語の前）、`includes:` は `anObject = 要素` で `hash` を送らない、String の `do:` の 1 パスと書き換え（渡す文字は文字列にある文字）
+- `stream_test`: ストリームの `contents` の種類と要素の数（ByteArray、OrderedCollection、Array のサブクラス、Symbol、ReadWriteStream。割り当て前の範囲の検査）、String への書き込み（多バイト文字、予備、上書き、差し替え、利用者の書き換え、`size` を上書きしたサブクラス、クラスを保つ追記）、`position:` の上限、スロットを極端な値にした反射、ReadStream の `nextPut:`、GC 圧下、性能
 - `hashed_collection_test`: Dictionary と Set のハッシュ表（`=` と `hash` の送り方と失敗、nil、削除と拡張、再入、壊れた表、GC 圧下、性能、ホームの混ぜ方、満杯の表からの削除、`copy`）、classPool の配置と名前の並び（Symbol のキーだけ）と写し、Interval の刻みと終端の比較（NaN）と Integer の `size`、OrderedCollection の組の検査と `at:` の範囲
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
