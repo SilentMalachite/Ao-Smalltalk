@@ -4,9 +4,14 @@
 #include "ao/NativeMethod.hpp"
 #include "ao/WellKnown.hpp"
 
+#include <bit>
+
 namespace ao {
 namespace Hashed {
 namespace {
+
+// 2^64 / φ, rounded to odd (SPEC §3.6 ホーム).
+constexpr std::uint64_t kHomeMultiplier = 0x9E3779B97F4A7C15ULL;
 
 bool isPowerOfTwo(std::uint64_t n) { return n != 0 && (n & (n - 1)) == 0; }
 
@@ -51,7 +56,12 @@ Shape read(const Heap& heap, Oop coll, std::uint32_t width, Table* out) {
 }
 
 std::uint32_t home(std::int64_t hash, std::uint32_t capacity) {
-  return static_cast<std::uint32_t>(static_cast<std::uint64_t>(hash) & (capacity - 1));
+  // SPEC §3.6 ホーム: Fibonacci hashing. The top log2(capacity) bits of the product depend on every
+  // bit of hash, so hashes whose low bits agree (i * 4096, identity hashes below 65536 in a table
+  // of 131072) still spread over the table. capacity is a power of two >= 8, so the shift is <= 61.
+  const auto bits = static_cast<std::uint32_t>(std::countr_zero(capacity));
+  return static_cast<std::uint32_t>((static_cast<std::uint64_t>(hash) * kHomeMultiplier) >>
+                                    (64 - bits));
 }
 
 bool savedHashIs(const Heap& heap, Oop array, std::uint32_t width, std::uint32_t index,

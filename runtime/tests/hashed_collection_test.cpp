@@ -78,8 +78,9 @@ ao::Oop smi(std::int64_t v) { return ao::Oop::fromSmallInteger(v); }
 // 乱数で at:put: / removeKey:ifAbsent: / at:ifAbsent: / includesKey: を混ぜ、キーで引く Array
 // （参照モデル）と突き合わせる file-in のソース。B9Coll は = を k の値で比べ、hash が k \\ 16 の
 // 衝突の多いキーである。B9Random の dictionary は B9Coll と SmallInteger を混ぜ、identity は
-// IdentityDictionary に SmallInteger を 64 倍して入れる（identityHash は値そのものなので、下位ビットが
-// そろって長いクラスタになり、巡回する後方シフトを通る）。set は Set に B9Coll を入れる。
+// IdentityDictionary に SmallInteger を 64 倍して入れる（identityHash は値そのもので、下位ビットが
+// そろう。ホームは hash を混ぜて求めるので散らばる）。set は Set に B9Coll を入れる。巡回する後方
+// シフトは RemovalFromAFullTableMatchesAReferenceModel が通る。
 std::string randomProbeSource(int steps, int keys) {
   const std::string body = R"(| d ref seed ok key n v |
   d := %DICT% new. ref := Array new: %KEYS%. seed := 12345. ok := true.
@@ -508,6 +509,31 @@ void fillFullTable(Boot& b, ao::Root& d, const std::vector<std::int64_t>& keys) 
 
 }  // namespace
 
+// B9 review (Medium): ホームは hash に 0x9E3779B97F4A7C15 を掛けた上位ビットである（SPEC §3.6）。
+// 下位ビットのそろった hash でも表全体に散らばる。以前の `hash bitAnd: capacity - 1` では、4096 の
+// 倍数はすべてホーム 0、65535 以下の identityHash は容量 131072 の表の下半分だけに集まった。
+TEST(HashedHome, MixesTheHashBeforeTakingTheTopBits) {
+  const std::int64_t hashes[] = {0,  1,     7,       4096, -1, -4096, (std::int64_t{1} << 62) - 1,
+                                 -(std::int64_t{1} << 62)};
+  for (const std::int64_t h : hashes) {
+    for (const std::uint32_t bits : {3u, 6u, 17u}) {
+      const std::uint64_t mixed = static_cast<std::uint64_t>(h) * 0x9E3779B97F4A7C15ULL;
+      EXPECT_EQ(static_cast<std::uint32_t>(mixed >> (64 - bits)), ao::Hashed::home(h, 1u << bits))
+          << h << " in " << (1u << bits);
+    }
+  }
+  std::set<std::uint32_t> homes;
+  for (std::int64_t i = 0; i < 1024; ++i) {
+    homes.insert(ao::Hashed::home(i * 4096, 2048));
+  }
+  EXPECT_GT(homes.size(), 900u);
+  std::uint32_t upper = 0;
+  for (std::int64_t h = 1; h <= 65535; ++h) {
+    upper += ao::Hashed::home(h, 1u << 17) >= (1u << 16) ? 1 : 0;
+  }
+  EXPECT_GT(upper, 30000u);
+}
+
 // B9 review (Low): 空きの無い表（tally が嘘）からの削除でエントリを見失わない。後方シフトは容量 - 1
 // 歩で打ち切っていたので、回り込んで置かれたエントリがホームから届かなくなった（容量 8、キー
 // #(0 10 11 3 4 5 6 7) を hash bitAnd: 7 で置いた表で removeKey: 0 のあと at: 10 が nil）。
@@ -845,4 +871,55 @@ TEST(KernelBench, SetTenThousandAdd) {
   key.slot = ao::Str::fromUtf8(b.ctx, "element4321");
   EXPECT_TRUE(send1(b, s.slot, "includes:", key.slot).isTrue());
   EXPECT_LT(ms, 1000);
+}
+
+// B9 review (Medium): 下位 12 ビットが 0 のキー（i * 4096）4 万件の at:put:。ホームが
+// `hash bitAnd: capacity - 1` だったころは、容量 4096 以下ではすべて同じホームになり、長い
+// クラスタで 2 乗の時間が掛かった（1 万件で 30 倍）。
+TEST(KernelBench, DictionaryAlignedKeysAtPut) {
+  Boot b;
+  ao::Root d(b.roots, send0(b, b.wk.dictionaryClass, "new"));
+  const auto start = std::chrono::steady_clock::now();
+  for (std::int64_t i = 1; i <= 40000; ++i) {
+    send2(b, d.slot, "at:put:", smi(i * 4096), smi(i));
+  }
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - start)
+                      .count();
+  std::printf("B9 Dictionary 40000 aligned at:put: %lld ms\n", static_cast<long long>(ms));
+  EXPECT_EQ(smi(40000), send0(b, d.slot, "size"));
+  EXPECT_EQ(smi(4321), send1(b, d.slot, "at:", smi(4321 * 4096)));
+  EXPECT_LT(ms, 2000);
+}
+
+// B9 review (Medium): 9 万個の Object new を IdentitySet に add: し、全部を includes: で引く。
+// identityHash は 16 bit なので、`hash bitAnd: capacity - 1` では容量 131072 の表の下半分に集まり、
+// 長いクラスタができた（Release で 8 秒）。
+TEST(KernelBench, IdentitySetNinetyThousandObjects) {
+  Boot b;
+  constexpr std::int64_t kCount = 90000;
+  ao::Root objects(b.roots, send1(b, b.wk.arrayClass, "new:", smi(kCount)));
+  ASSERT_TRUE(objects.slot.isHeap());
+  for (std::int64_t i = 0; i < kCount; ++i) {
+    const ao::Oop o = send0(b, b.wk.objectClass, "new");
+    b.heap.slotAtPut(objects.slot, static_cast<std::uint32_t>(i), o);
+  }
+  ao::Root s(b.roots, send0(b, b.wk.identitySetClass, "new"));
+  const auto start = std::chrono::steady_clock::now();
+  for (std::int64_t i = 0; i < kCount; ++i) {
+    send1(b, s.slot, "add:", b.heap.slotAt(objects.slot, static_cast<std::uint32_t>(i)));
+  }
+  bool all = true;
+  for (std::int64_t i = 0; i < kCount; ++i) {
+    all = send1(b, s.slot, "includes:", b.heap.slotAt(objects.slot, static_cast<std::uint32_t>(i)))
+              .isTrue() &&
+          all;
+  }
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - start)
+                      .count();
+  std::printf("B9 IdentitySet 90000 add: + includes: %lld ms\n", static_cast<long long>(ms));
+  EXPECT_TRUE(all);
+  EXPECT_EQ(smi(kCount), send0(b, s.slot, "size"));
+  EXPECT_LT(ms, 2000);
 }

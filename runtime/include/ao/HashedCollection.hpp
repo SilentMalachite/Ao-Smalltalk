@@ -46,7 +46,8 @@ struct Table {
 // object of capacity * width slots, capacity a power of two >= kMinCapacity, and tally a
 // SmallInteger in [0, capacity]. Does not allocate.
 Shape read(const Heap& heap, Oop coll, std::uint32_t width, Table* out);
-// The entry the probe for hash starts at: hash bitAnd: capacity - 1.
+// The entry the probe for hash starts at, its home (SPEC §3.6): the top log2(capacity) bits of
+// hash * 0x9E3779B97F4A7C15 mod 2^64. capacity is a power of two >= kMinCapacity.
 std::uint32_t home(std::int64_t hash, std::uint32_t capacity);
 // Whether entry index saved hash. An entry whose saved hash is no SmallInteger matches no hash.
 bool savedHashIs(const Heap& heap, Oop array, std::uint32_t width, std::uint32_t index,
