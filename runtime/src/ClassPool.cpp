@@ -7,6 +7,7 @@
 #include "ao/Lookup.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Natives.hpp"
+#include "ao/Send.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -205,9 +206,15 @@ bool isBinding(const Heap& heap, const WellKnown& wk, Oop obj) {
 }
 
 Oop copy(CallContext& ctx, Oop pool) {
-  if (!isPointers(ctx.heap, pool, Hashed::kSlotArray + 1) ||
-      !isPointers(ctx.heap, ctx.heap.slotAt(pool, Hashed::kSlotArray), 0)) {
+  // SPEC §3.6: a slot without the Dictionary's tally and array (nil for a Kernel class) is
+  // answered as it is.
+  if (!isPointers(ctx.heap, pool, Hashed::kSlotArray + 1)) {
     return pool;
+  }
+  Hashed::Table t;
+  const Hashed::Shape shape = Hashed::read(ctx.heap, pool, kWidth, &t);
+  if (shape == Hashed::Shape::Damaged) {
+    return abortEvaluation(ctx, "damaged hashed collection");
   }
   Root from(ctx.roots, pool);
   const std::uint32_t dictSize = instSizeOf(ctx.heap, ctx.wk.dictionaryClass);
@@ -217,6 +224,10 @@ Oop copy(CallContext& ctx, Oop pool) {
   Root to(ctx.roots, allocateRetry(ctx, ctx.wk.dictionaryClass, dictSize, 0));
   if (!to.slot.isHeap()) {
     return Oop{};
+  }
+  if (shape == Hashed::Shape::Empty) {
+    // A nil array: a new empty Dictionary, as Dictionary new makes it, never the pool itself.
+    return Hashed::grow(ctx, to, kWidth) ? to.slot : Oop{};
   }
   const std::uint32_t n = ctx.heap.size(ctx.heap.slotAt(from.slot, Hashed::kSlotArray));
   const Oop array = allocateRetry(ctx, ctx.wk.arrayClass, n, 0);

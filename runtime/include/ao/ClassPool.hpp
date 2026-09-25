@@ -44,9 +44,10 @@ Oop visibleBinding(Heap& heap, const WellKnown& wk, Oop cls, std::string_view na
 bool isBinding(const Heap& heap, const WellKnown& wk, Oop obj);
 // SPEC §3.6: what Class>>classPool answers. A new Dictionary with pool's tally and a copy of its
 // array, so each name is bound to the same binding and at:put: on it leaves pool and every binding
-// as they are.
-// pool itself when it is no pool (nil for a Kernel class). May GC; empty Oop when an allocation
-// fails (the out-of-memory flag is then set).
+// as they are; a new empty Dictionary when pool's array is nil. Aborts with `damaged hashed
+// collection` when pool has the Dictionary's slots but a damaged table. pool itself when it has no
+// such slots (nil for a Kernel class). May GC; empty Oop when an allocation fails (the
+// out-of-memory flag is then set).
 Oop copy(CallContext& ctx, Oop pool);
 
 }  // namespace ClassPool

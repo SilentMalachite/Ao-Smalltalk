@@ -949,6 +949,30 @@ TEST_F(HashedCollection, ClassVariablesThroughTheHashedPool) {
   EXPECT_EQ("5", printIt("B9Pool new zeta"));
 }
 
+// B9 review (Low): array が nil の classPool の写しが本体を返した（`Foo instVarAt: 7 put:
+// Dictionary basicNew` のあと `Foo classPool == (Foo instVarAt: 7)` が true）。空の表なら新しい空の
+// Dictionary、壊れた表なら失敗、Dictionary の枠を持たなければ枠の値そのもの（SPEC §3.6 クラス変数）。
+TEST_F(HashedCollection, ClassPoolOfAnEmptyOrDamagedTable) {
+  acceptClass("Object", "B9NilPool", "", "Count");
+  EXPECT_EQ("true", printIt("B9NilPool instVarAt: 7 put: Dictionary basicNew. "
+                            "(B9NilPool classPool == (B9NilPool instVarAt: 7)) not"));
+  EXPECT_EQ("true", printIt("| p | p := B9NilPool classPool. (p class == Dictionary) & (p size = 0) & "
+                            "(p instVarAt: 2) notNil & (p ~~ B9NilPool classPool)"));
+  EXPECT_EQ("true", printIt("B9NilPool classPool at: #X put: 1. "
+                            "((B9NilPool instVarAt: 7) instVarAt: 2) isNil & "
+                            "((B9NilPool instVarAt: 7) size = 0)"));
+  EXPECT_EQ("<eval error: damaged hashed collection>",
+            printIt("B9NilPool instVarAt: 7 put: (Dictionary new instVarAt: 1 put: 99; yourself). "
+                    "B9NilPool classPool"));
+  EXPECT_EQ("<eval error: damaged hashed collection>",
+            printIt("B9NilPool instVarAt: 7 put: (Dictionary new instVarAt: 2 put: 'abc'; yourself). "
+                    "B9NilPool classPool"));
+  EXPECT_EQ("<eval error: damaged hashed collection>",
+            printIt("B9NilPool instVarAt: 7 put: #(1 2). B9NilPool classPool"));
+  EXPECT_EQ("3", printIt("B9NilPool instVarAt: 7 put: 3. B9NilPool classPool"));
+  EXPECT_EQ("nil", printIt("Object classPool"));
+}
+
 // 04 Medium: SmallInteger でない刻みの向きは step < 0 で決める。以前は負の Float の刻みを前向きと
 // して扱い、size が 0 になった。
 TEST_F(HashedCollection, IntervalStepDirectionIsSent) {
