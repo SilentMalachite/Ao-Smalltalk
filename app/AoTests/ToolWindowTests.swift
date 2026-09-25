@@ -88,6 +88,45 @@ final class ToolWindowTests: XCTestCase {
     XCTAssertEqual(font, NSFont.userFixedPitchFont(ofSize: 0))
   }
 
+  // SPEC §3.9 起動と同梱: AO_VENDOR_DIR when it is not empty, else the bundle's
+  // Contents/Resources/vendor. The current directory plays no part.
+  func testVendorDirectoryPrefersEnvironmentOverBundleResources() {
+    let resources = URL(fileURLWithPath: "/Applications/Ao.app/Contents/Resources", isDirectory: true)
+    let bundled = "/Applications/Ao.app/Contents/Resources/vendor"
+    XCTAssertEqual(
+      vendorDirectory(environment: ["AO_VENDOR_DIR": "/tmp/ao-vendor"], resources: resources).path,
+      "/tmp/ao-vendor"
+    )
+    XCTAssertEqual(vendorDirectory(environment: [:], resources: resources).path, bundled)
+    XCTAssertEqual(vendorDirectory(environment: ["AO_VENDOR_DIR": ""], resources: resources).path, bundled)
+  }
+
+  func testVendorFileInWritesLoadedLineAndDefinesTimespan() {
+    let launch = LaunchSet.make()
+    let vendor = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("image/vendor", isDirectory: true)
+    fileInVendor(at: vendor, transcript: launch.transcript)
+    XCTAssertEqual(launch.transcript.text, "vendor loaded: \(vendor.path)\n")
+    let source = "Smalltalk includesKey: #Timespan"
+    launch.workspace.replaceText(source)
+    launch.workspace.selectAll()
+    launch.workspace.printIt()
+    XCTAssertEqual(launch.workspace.text, source + "true")
+  }
+
+  func testMissingVendorWritesNotFoundLine() {
+    let launch = LaunchSet.make()
+    let empty = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-vendor-\(UUID().uuidString)", isDirectory: true)
+    XCTAssertNoThrow(try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true))
+    defer { try? FileManager.default.removeItem(at: empty) }
+    fileInVendor(at: empty, transcript: launch.transcript)
+    XCTAssertEqual(launch.transcript.text, "vendor not found: \(empty.path)\n")
+  }
+
   func testMainMenuListsToolsAndSmalltalkKeys() {
     let menu = MainMenu.build(actions: MainMenu.Actions())
     let titles = menuTitles(in: menu)
