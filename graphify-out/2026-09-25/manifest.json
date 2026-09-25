@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1790263957.1340466,
-    "seen": 1790266632.916757,
-    "ast_hash": "34f37e7b0820b7e303e619bc147d7e32",
+    "mtime": 1790270410.7290676,
+    "seen": 1790272670.9568708,
+    "ast_hash": "7b61d7a4f46c6ab8bcd1819e97a4b240",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -702,15 +702,15 @@
     "semantic_hash": ""
   },
   "runtime/include/ao/NativeMethod.hpp": {
-    "mtime": 1790265245.3515468,
-    "seen": 1790266632.916669,
-    "ast_hash": "8279ce3acf6728085fe4fd003d52a367",
+    "mtime": 1790270599.6232338,
+    "seen": 1790272670.956788,
+    "ast_hash": "2b2fc70d9fd8d43b1c037a7bb29fb098",
     "semantic_hash": ""
   },
   "runtime/src/NativeMethod.cpp": {
-    "mtime": 1790262316.3525684,
-    "seen": 1790266632.916687,
-    "ast_hash": "32dcf090ab8e442967593e244ef4bf76",
+    "mtime": 1790270612.3335476,
+    "seen": 1790272670.956807,
+    "ast_hash": "2a3109dfd03d3f1f7fcf8fd2bb0432fe",
     "semantic_hash": ""
   },
   "runtime/tests/native_method_test.cpp": {
@@ -732,9 +732,9 @@
     "semantic_hash": ""
   },
   "runtime/include/ao/Natives.hpp": {
-    "mtime": 1790265257.2165167,
-    "seen": 1790266632.916669,
-    "ast_hash": "0aecb26009208ce13a8ac2b63b7cb32a",
+    "mtime": 1790270629.3744807,
+    "seen": 1790272670.956789,
+    "ast_hash": "3bccd8d9ab624ebfa373c1194ce9e1db",
     "semantic_hash": ""
   },
   "runtime/src/Lookup.cpp": {
@@ -846,26 +846,26 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Float.cpp": {
-    "mtime": 1790265277.4571269,
-    "seen": 1790266632.916703,
-    "ast_hash": "8eb413c43eeae78db98702e318072bf7",
+    "mtime": 1790270436.8739088,
+    "seen": 1790272670.956824,
+    "ast_hash": "c496bf632a0a72b00284a5c005e372a1",
     "semantic_hash": ""
   },
   "runtime/src/kernel/LargeInteger.cpp": {
-    "mtime": 1790265257.2163267,
-    "seen": 1790266632.9167051,
-    "ast_hash": "57c2c35e12f1d4680b7a564bd0948ef5",
+    "mtime": 1790271126.5732684,
+    "seen": 1790272670.9568262,
+    "ast_hash": "b854c1c434a949a356230d225c2ff81a",
     "semantic_hash": ""
   },
   "runtime/src/kernel/Magnitude.cpp": {
-    "mtime": 1790264789.6883843,
-    "seen": 1790266632.916706,
+    "mtime": 1790270524.7780006,
+    "seen": 1790272670.956827,
     "ast_hash": "deb39c1ce46132225241e4a308ce5b59",
     "semantic_hash": ""
   },
   "runtime/src/kernel/SmallInteger.cpp": {
-    "mtime": 1790266122.6270926,
-    "seen": 1790266632.916708,
+    "mtime": 1790270521.591103,
+    "seen": 1790272670.9568288,
     "ast_hash": "2f60c4a154dbe76541df4bdea5b0dc2d",
     "semantic_hash": ""
   },
@@ -876,9 +876,9 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Array.cpp": {
-    "mtime": 1790265305.2779925,
-    "seen": 1790266632.9166982,
-    "ast_hash": "f7c91a6aa32650c02bd5bac42e3aeb6b",
+    "mtime": 1790272420.7119813,
+    "seen": 1790272670.9568179,
+    "ast_hash": "81e6d4c04a969baebbdd3776d49e9884",
     "semantic_hash": ""
   },
   "runtime/src/kernel/Collection.cpp": {
@@ -936,9 +936,9 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Geometry.cpp": {
-    "mtime": 1790265738.2589712,
-    "seen": 1790266632.916704,
-    "ast_hash": "6dffb0b19b29ab74fe08eee7c48d1588",
+    "mtime": 1790270875.0983844,
+    "seen": 1790272670.956825,
+    "ast_hash": "e63414d4ed381d84851bc7f5f96a6447",
     "semantic_hash": ""
   },
   "runtime/tests/geometry_test.cpp": {
@@ -1476,9 +1476,9 @@
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-09-23-review-fixes.md": {
-    "mtime": 1790266449.0774322,
-    "seen": 1790266632.91682,
-    "ast_hash": "48a9a41b3eed4ed958ebdc55687b54da",
+    "mtime": 1790271336.4853337,
+    "seen": 1790272670.956933,
+    "ast_hash": "dd577b9aa0157a63710d5dd1b45b51ef",
     "semantic_hash": ""
   },
   "runtime/include/ao/HandleScope.hpp": {
@@ -1542,9 +1542,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/kernel_numeric_test.cpp": {
-    "mtime": 1790266100.2291913,
-    "seen": 1790266632.916726,
-    "ast_hash": "600d8b4ca6902d8f9f45935fc810a136",
+    "mtime": 1790271074.6873968,
+    "seen": 1790272670.9568472,
+    "ast_hash": "9aea55ccbfd68ed59703425f2c967a1c",
     "semantic_hash": ""
   }
 }
