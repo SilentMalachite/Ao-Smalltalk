@@ -1188,6 +1188,43 @@ TEST_F(SessionAbi, EvalResultReadableWhileBusyAndRefusedEvalKeepsIt) {
   ao_set_transcript_hook(nullptr, nullptr);
 }
 
+// SPEC §3.10 再入, 評価結果: busy with a result kept from before. ao_accept_class sends the
+// subclass-creation message, and B11Base's class-side override of it writes to the Transcript, so
+// the hook runs while the runtime is busy outside ao_eval. There the earlier Print it's 42 is
+// readable, an ao_eval is refused, and the refused call leaves the 42 as it was.
+TEST_F(SessionAbi, KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B11Base\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'B11-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B11Base", 1,
+                                    "subclass: n instanceVariableNames: i classVariableNames: c "
+                                    "poolDictionaries: p category: k\n"
+                                    "  Transcript show: 'sub'.\n"
+                                    "  ^super subclass: n instanceVariableNames: i "
+                                    "classVariableNames: c poolDictionaries: p category: k\n",
+                                    &err))
+      << err.message;
+  char out[64];
+  ASSERT_EQ(AO_OK, evalPrint("42", out, 64, &err)) << err.message;
+  ASSERT_EQ("42", wholeEvalResult());
+  BusyRead seen;
+  ao_set_transcript_hook(readResultAndReenter, &seen);
+  const int accepted = ao_accept_class("B11Base subclass: #B11Sub\n  instanceVariableNames: ''\n"
+                                       "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                       "  category: 'B11-Test'\n",
+                                       &err);
+  ao_set_transcript_hook(nullptr, nullptr);
+  ASSERT_EQ(AO_OK, accepted) << err.message;
+  EXPECT_EQ((std::vector<int>{2, 2}), seen.lengths);
+  EXPECT_EQ(std::vector<std::string>{"42"}, seen.copies);
+  EXPECT_EQ(std::vector<int>{AO_ERR}, seen.evalCodes);
+  EXPECT_EQ("42", wholeEvalResult());
+}
+
 // 07 Low / SPEC §3.10: the inspect hook gets print_len, the byte count of print_utf8 (NUL bytes
 // included), and a NUL after it; the Inspect it result is the same string.
 TEST_F(SessionAbi, InspectHookGetsPrintLengthWithNul) {
