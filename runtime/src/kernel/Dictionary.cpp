@@ -968,7 +968,7 @@ bool intervalDirection(CallContext& ctx, Root& step, int* out) {
 }
 
 // SPEC §3.6 Interval: calls visit with each element (a rooted slot) of iv, which is not all
-// SmallIntegers: `element > stop` (forward) or `element < stop` (backward) ends it, and
+// SmallIntegers, while `element <= stop` (forward) or `element >= stop` (backward) answers true;
 // `element + step` is the next. No cap on the count: a safepoint every 64K elements, and the
 // block's abort or unwind stops it. False when a comparison answers no Boolean, a step fails, the
 // frames unwind, or visit answers false.
@@ -985,15 +985,17 @@ bool intervalWalk(CallContext& ctx, Root& iv, Visit visit) {
     return true;
   }
   // Selectors are used across sends; a full GC's compaction moves Symbols too, so they are rooted.
-  Root past(ctx.roots, ctx.wk.intern(direction > 0 ? ">" : "<"));
+  // The walk goes on while `element <= stop` (forward) or `element >= stop` (backward) answers
+  // true: a comparison with NaN is false, so a NaN bound ends it at once.
+  Root within(ctx.roots, ctx.wk.intern(direction > 0 ? "<=" : ">="));
   Root add(ctx.roots, ctx.wk.intern("+"));
   Gc gc(ctx.heap, ctx.roots);
   for (std::uint64_t n = 1;; ++n) {
-    const Oop over = send(ctx, cur.slot, past.slot, &stop.slot, 1, nullptr);
-    if (unwinding(ctx) || !isBoolean(over)) {
+    const Oop inside = send(ctx, cur.slot, within.slot, &stop.slot, 1, nullptr);
+    if (unwinding(ctx) || !isBoolean(inside)) {
       return false;
     }
-    if (over.isTrue()) {
+    if (inside.isFalse()) {
       return true;
     }
     if (!visit(cur)) {

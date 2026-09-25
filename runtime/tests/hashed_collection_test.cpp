@@ -1078,8 +1078,10 @@ TEST_F(HashedCollection, IntervalComparisonsMustAnswerBooleans) {
   acceptMethod("B9Step2", "< x\n  ^false\n");
   acceptMethod("B9Step2", "> x\n  ^nil\n");
   acceptClass("Object", "B9Mag", "");
-  acceptMethod("B9Mag", "> x\n  ^3\n");
+  acceptMethod("B9Mag", "<= x\n  ^3\n");
   acceptMethod("B9Mag", "+ x\n  ^self\n");
+  acceptClass("Object", "B9MagBack", "");
+  acceptMethod("B9MagBack", ">= x\n  ^nil\n");
   EXPECT_EQ("<eval error: failed: #size>", printIt("(Interval from: 1 to: 5 by: B9Step new) size"));
   EXPECT_EQ("<eval error: failed: #do:>",
             printIt("(Interval from: 1 to: 5 by: B9Step new) do: [:x | x]"));
@@ -1087,8 +1089,29 @@ TEST_F(HashedCollection, IntervalComparisonsMustAnswerBooleans) {
   EXPECT_EQ("<eval error: failed: #size>", printIt("(Interval from: B9Mag new to: 5 by: 1) size"));
   EXPECT_EQ("<eval error: failed: #do:>",
             printIt("| n | n := 0. (Interval from: B9Mag new to: 5 by: 1) do: [:x | n := n + 1]"));
+  EXPECT_EQ("<eval error: failed: #size>",
+            printIt("(Interval from: B9MagBack new to: 5 by: -1) size"));
   EXPECT_EQ("<eval error: doesNotUnderstand: #<>",
             printIt("(Interval from: 1 to: (1 bitShift: 70) by: nil) size"));
+}
+
+// B9 review (Medium): 端点が NaN の Interval が終わらなかった。「`要素 > stop` が true なら終わる」
+// という否定形だったので、いつも false の NaN との比較で永久に回った。続ける条件を肯定形（前向きは
+// `要素 <= stop`、後ろ向きは `要素 >= stop`）にしたので、要素は無い（SPEC §3.6 Interval）。
+TEST_F(HashedCollection, IntervalWithANaNBoundHasNoElements) {
+  ASSERT_EQ("true", printIt("nan9 := 0.0 / 0.0. (nan9 = nan9) not"));
+  EXPECT_EQ("0", printIt("(Interval from: 1 to: nan9 by: 1) size"));
+  EXPECT_EQ("0", printIt("| n | n := 0. (Interval from: 1 to: nan9 by: 1) do: [:x | n := n + 1]. n"));
+  EXPECT_EQ("0", printIt("(Interval from: nan9 to: 5 by: 1) size"));
+  EXPECT_EQ("0", printIt("| n | n := 0. (Interval from: nan9 to: 5 by: 1) do: [:x | n := n + 1]. n"));
+  EXPECT_EQ("0", printIt("(Interval from: 5 to: nan9 by: -1) size"));
+  EXPECT_EQ("0", printIt("| n | n := 0. (Interval from: 5 to: nan9 by: -1) do: [:x | n := n + 1]. n"));
+  EXPECT_EQ("0", printIt("(Interval from: nan9 to: 1 by: -0.5) size"));
+  EXPECT_EQ("0", printIt("(Interval from: 1 to: 5 by: nan9) size"));
+  EXPECT_EQ("#()", printIt("(Interval from: 1 to: nan9 by: 1) collect: [:x | x]"));
+  // Ordinary bounds keep their inclusive end.
+  EXPECT_EQ("#(1 2 3)", printIt("(Interval from: 1 to: 3.0 by: 1) collect: [:x | x]"));
+  EXPECT_EQ("3", printIt("(Interval from: 3 to: 1.0 by: -1) size"));
 }
 
 // 04 Medium: 2^20+1 要素で黙って打ち切る上限は無い。ブロックの abort でループは止まる。
