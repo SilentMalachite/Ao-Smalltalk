@@ -131,6 +131,11 @@ case "$CASE" in
     printf '\001' | dd of=v1.aoimage bs=1 seek=4 conv=notrunc 2>/dev/null
     run 1 "$AO" image load v1.aoimage
     stderr_is 'ao: image load failed: unsupported image version 1'
+    # SPEC §3.11: version 2 (before the hashed Dictionary and Set) is refused the same way.
+    cp deferred.aoimage v2.aoimage
+    printf '\002' | dd of=v2.aoimage bs=1 seek=4 conv=notrunc 2>/dev/null
+    run 1 "$AO" image load v2.aoimage
+    stderr_is 'ao: image load failed: unsupported image version 2'
     printf 'not an image' >garbage.aoimage
     run 1 "$AO" image load garbage.aoimage
     stderr_is 'ao: image load failed: not an Ao image'

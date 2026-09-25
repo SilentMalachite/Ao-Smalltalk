@@ -209,3 +209,25 @@ TEST(ArrayString, SymbolAtPutDoesNotMutateInternedBytes) {
   EXPECT_EQ("shouldNotImplement", takeAbortReason(b));
   EXPECT_EQ("foo", ao::Str::toUtf8(b.heap, sym.slot));
 }
+
+// docs/claude-review/04 Low: Symbol の copy は、intern されていない同じ綴りの Symbol を作り、それは
+// セレクタとして使えなかった。SPEC §3.6: Symbol の copy と shallowCopy は self を答える。
+TEST(ArrayString, SymbolCopyAnswersTheSymbolItself) {
+  Boot b;
+  ao::Root sym(b.roots, b.wk.intern("printString"));
+  EXPECT_EQ(sym.slot, send0(b, sym.slot, "copy"));
+  EXPECT_EQ(sym.slot, send0(b, sym.slot, "shallowCopy"));
+  ao::Root copied(b.roots, send0(b, sym.slot, "copy"));
+  ao::Root printed(b.roots, send1(b, ao::Oop::fromSmallInteger(3), "perform:", copied.slot));
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  ASSERT_TRUE(printed.slot.isHeap());
+  EXPECT_EQ("3", ao::Str::toUtf8(b.heap, printed.slot));
+  ao::Root copyMethod(b.roots, send1(b, b.wk.symbolClass, "compiledMethodAt:", b.wk.intern("copy")));
+  EXPECT_EQ("ao_Symbol_copy", ao::NativeMethod::nameBytes(b.heap, copyMethod.slot));
+  // String の copy は今までどおり新しい String を作る。
+  ao::Root s(b.roots, ao::Str::fromUtf8(b.ctx, "abc"));
+  ao::Root sc(b.roots, send0(b, s.slot, "copy"));
+  EXPECT_NE(s.slot, sc.slot);
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(sc.slot));
+  EXPECT_EQ("abc", ao::Str::toUtf8(b.heap, sc.slot));
+}

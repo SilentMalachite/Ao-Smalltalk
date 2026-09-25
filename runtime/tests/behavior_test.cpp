@@ -1,9 +1,15 @@
 #include "test_support.hpp"
 
+#include "ao/Compile.hpp"
+#include "ao/Compiler.hpp"
 #include "ao/Globals.hpp"
+#include "ao/HandleScope.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/NativeMethod.hpp"
 
 #include <gtest/gtest.h>
+
+#include <string>
 
 static ao::Oop makeSubclass(Boot& b, const char* name) {
   auto n = b.wk.intern(name);
@@ -67,6 +73,59 @@ TEST(Behavior, BasicNewColonAllocatesIndexableSlots) {
   ASSERT_TRUE(bytes.isHeap());
   EXPECT_EQ(4u, b.heap.size(bytes));
   EXPECT_NE(0, b.heap.flags(bytes) & ao::kFlagBytes);
+}
+
+// docs/claude-review/04 Low: バイト列クラスの basicNew: は大きさを下位 32 ビットに切り詰め、
+// (String new: 4294967299) size が 3 になった。SPEC §3.6: 2^32 − 1 を超える大きさは、ポインタの
+// クラスと同じく割り当てずに失敗する。
+TEST(Behavior, BasicNewColonRefusesSizesPastUint32) {
+  Boot b;
+  for (ao::Oop cls : {b.wk.stringClass, b.wk.byteArrayClass, b.wk.arrayClass}) {
+    for (std::int64_t n : {std::int64_t{4294967296}, std::int64_t{4294967299},
+                           std::int64_t{1} << 40}) {
+      SCOPED_TRACE(n);
+      EXPECT_TRUE(send1(b, cls, "basicNew:", ao::Oop::fromSmallInteger(n)).isEmpty());
+      EXPECT_TRUE(send1(b, cls, "new:", ao::Oop::fromSmallInteger(n)).isEmpty());
+      EXPECT_FALSE(b.heap.outOfMemory());
+    }
+  }
+  auto img = ao::compiler::compileMethod("doIt\n  ^(String new: 4294967299) size");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  const ao::Oop r =
+      ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("failed: #new:", takeAbortReason(b));
+  ao::Root ok(b.roots, send1(b, b.wk.stringClass, "new:", ao::Oop::fromSmallInteger(3)));
+  ASSERT_TRUE(ok.slot.isHeap());
+  EXPECT_EQ(3u, b.heap.size(ok.slot));
+}
+
+// SPEC §3.6 basicNew:: 2^32 − 1 は上限以内だが old に入らないので out of memory。負の数と
+// LargeInteger は SmallInteger の 0 以上でないので failed: #basicNew:（new: から送れば failed: #new:）。
+TEST(Behavior, BasicNewColonAtTheBoundAndOddSizes) {
+  Boot b;
+  auto run = [&](const std::string& expr) {
+    // Each run is its own evaluation: ao_eval clears the out-of-memory flag the same way.
+    b.heap.clearOutOfMemory();
+    auto img = ao::compiler::compileMethod("doIt\n  ^" + expr);
+    EXPECT_TRUE(img.ok) << img.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+    const ao::Oop r =
+        ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+    return r.isEmpty() ? takeAbortReason(b) : std::string("<answered>");
+  };
+  for (const char* cls : {"Array", "ByteArray", "String"}) {
+    SCOPED_TRACE(cls);
+    EXPECT_EQ("out of memory", run(std::string(cls) + " basicNew: 4294967295"));
+    EXPECT_EQ("out of memory", run(std::string(cls) + " new: 4294967295"));
+    EXPECT_EQ("failed: #basicNew:", run(std::string(cls) + " basicNew: -1"));
+    EXPECT_EQ("failed: #new:", run(std::string(cls) + " new: -1"));
+    EXPECT_EQ("failed: #basicNew:", run(std::string(cls) + " basicNew: (1 bitShift: 70)"));
+    EXPECT_EQ("failed: #basicNew:", run(std::string(cls) + " basicNew: 3.0"));
+    // The heap is usable afterwards.
+    EXPECT_EQ("<answered>", run(std::string(cls) + " new: 4"));
+  }
 }
 
 TEST(Behavior, InstSizeAndFormatBitsArrayVsObject) {

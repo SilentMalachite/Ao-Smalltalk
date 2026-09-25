@@ -650,7 +650,7 @@ std::pair<std::string, std::string> methodHoldingDropped(CallContext& ctx, Oop c
   std::vector<std::string> names;
   const Oop pool = ctx.heap.slotAt(cls, kClassSlotClassPool);
   for (const std::string& name : dropped) {
-    const Oop binding = ClassPool::bindingAt(ctx.heap, pool, name);
+    const Oop binding = ClassPool::bindingAt(ctx.heap, ctx.wk, pool, name);
     if (binding.isHeap()) {
       bindings.push_back(binding);
       names.push_back(name);
@@ -721,7 +721,7 @@ bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction&
                        std::vector<FileInError>& errors) {
   const std::vector<std::string> classVars = definedClassVarNames(action.classVars);
   const std::vector<std::string> current =
-      ClassPool::names(ctx.heap, ctx.heap.slotAt(cls.slot, kClassSlotClassPool));
+      ClassPool::names(ctx.heap, ctx.wk, ctx.heap.slotAt(cls.slot, kClassSlotClassPool));
   // SPEC §3.9: a dropped name whose binding a method holds would leave that method reading and
   // writing a variable the classPool no longer has. Checked before anything changes.
   std::vector<std::string> dropped;
@@ -743,16 +743,20 @@ bool recategorizeClass(CallContext& ctx, Root& cls, const compiler::ChunkAction&
     addError(errors, {action.span, "class definition allocation failed: " + action.className});
     return false;
   }
-  // A kept name keeps its binding (adopt does not collect); a new one gets a fresh binding.
+  // A kept name keeps its binding (adopt does not collect); a new one gets a fresh binding. The
+  // names compare as sets: ClassPool::names lists them in byte order (SPEC §3.6), whatever order
+  // the definition writes them in.
   Root pool(ctx.roots, Oop::nil());
-  const bool poolChanges = classVars != current;
+  std::vector<std::string> wanted = classVars;
+  std::sort(wanted.begin(), wanted.end());
+  const bool poolChanges = wanted != current;
   if (poolChanges) {
     pool.slot = ClassPool::make(ctx, classVars);
     if (!pool.slot.isHeap()) {
       addError(errors, {action.span, "class definition allocation failed: " + action.className});
       return false;
     }
-    ClassPool::adopt(ctx.heap, pool.slot, ctx.heap.slotAt(cls.slot, kClassSlotClassPool));
+    ClassPool::adopt(ctx.heap, ctx.wk, pool.slot, ctx.heap.slotAt(cls.slot, kClassSlotClassPool));
   }
   // subclass: puts the category on the class and on its metaclass.
   ctx.heap.slotAtPut(cls.slot, kClassSlotCategory, cat.slot);
@@ -992,17 +996,17 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
   // SPEC §3.9: a name the old classPool has keeps its entry in the new class, so its value and the
   // old class's methods stay shared, and the moved methods box that binding. adopt does not
   // collect.
-  const std::vector<std::string> poolNames = ClassPool::names(ctx.heap, pool.slot);
+  const std::vector<std::string> poolNames = ClassPool::names(ctx.heap, ctx.wk, pool.slot);
   if (std::any_of(poolNames.begin(), poolNames.end(), [&](const std::string& name) {
-        return !ClassPool::bindingAt(ctx.heap, ctx.heap.slotAt(old.slot, kClassSlotClassPool), name)
+        return !ClassPool::bindingAt(ctx.heap, ctx.wk, ctx.heap.slotAt(old.slot, kClassSlotClassPool), name)
                     .isEmpty();
       })) {
     const Oop copy = ClassPool::make(ctx, poolNames);
     if (!copy.isHeap()) {
       return putBack(failed + action.className + " classPool allocation failed");
     }
-    ClassPool::adopt(ctx.heap, copy, pool.slot);
-    ClassPool::adopt(ctx.heap, copy, ctx.heap.slotAt(old.slot, kClassSlotClassPool));
+    ClassPool::adopt(ctx.heap, ctx.wk, copy, pool.slot);
+    ClassPool::adopt(ctx.heap, ctx.wk, copy, ctx.heap.slotAt(old.slot, kClassSlotClassPool));
     ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, copy);
   }
   // SPEC §3.6: a moved method must find a binding for each class variable it names, in the pool

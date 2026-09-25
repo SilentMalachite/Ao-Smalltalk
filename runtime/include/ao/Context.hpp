@@ -70,6 +70,15 @@ Oop fromUtf8(CallContext& ctx, std::string_view utf8);
 std::string toUtf8(Heap& heap, Oop str);
 std::uint32_t codePointCount(Heap& heap, Oop str);
 Oop at(Heap& heap, Oop str, std::int64_t oneBased);
+// The UTF-8 of a Unicode scalar value in out: 1 to 4 bytes, 0 for a surrogate or past U+10FFFF.
+std::uint32_t encodeUtf8(char32_t cp, unsigned char out[4]);
+// The bytes of the character at p (remaining > 0) as String>>at: decodes it: 1 to 4, and 1 for a
+// byte that starts no valid sequence.
+std::uint32_t charBytes(const unsigned char* p, std::uint32_t remaining);
+// The byte offset where character chars + 1 starts in the n bytes at p, decoding as String>>at:
+// does (n when there are exactly chars characters), or -1 when there are fewer. One pass over the
+// bytes it skips.
+std::int64_t byteOffsetOfChar(const unsigned char* p, std::uint32_t n, std::int64_t chars);
 }
 
 namespace Arr {

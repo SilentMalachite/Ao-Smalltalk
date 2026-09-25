@@ -2,9 +2,11 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
+#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
+#include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 
 #include <cstring>
@@ -148,6 +150,35 @@ Oop at(Heap& heap, Oop str, std::int64_t oneBased) {
   return Oop{};
 }
 
+std::uint32_t encodeUtf8(char32_t cp, unsigned char out[4]) { return ao::encodeUtf8(cp, out); }
+
+std::uint32_t charBytes(const unsigned char* p, std::uint32_t remaining) {
+  return decodeUtf8(p, remaining).nbytes;
+}
+
+std::int64_t byteOffsetOfChar(const unsigned char* p, std::uint32_t n, std::int64_t chars) {
+  std::uint32_t i = 0;
+  std::int64_t seen = 0;
+  while (seen < chars) {
+    if (i >= n) {
+      return -1;
+    }
+    // A run of 8 ASCII bytes is 8 characters: skip it whole when that many are still wanted.
+    if (chars - seen >= 8 && n - i >= 8) {
+      std::uint64_t word = 0;
+      std::memcpy(&word, p + i, 8);
+      if ((word & 0x8080808080808080ull) == 0) {
+        i += 8;
+        seen += 8;
+        continue;
+      }
+    }
+    i += decodeUtf8(p + i, n - i).nbytes;
+    ++seen;
+  }
+  return i;
+}
+
 }  // namespace Str
 
 Oop ao_String_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
@@ -216,6 +247,82 @@ Oop ao_String_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args, st
     ++idx;
   }
   return fail(ctx, receiver, "at:put: index out of range");
+}
+
+bool findsNative(CallContext& ctx, Oop klass, Oop selector, NativeFn fn) {
+  Oop method = ctx.cache != nullptr ? ctx.cache->probe(ctx.heap, klass, selector) : Oop{};
+  if (!method.isHeap()) {
+    method = lookup(ctx.heap, klass, selector);
+  }
+  return method.isHeap() && NativeMethod::functionOf(ctx.heap, ctx.wk, method) == fn;
+}
+
+namespace {
+
+// SPEC §3.6: whether byte i of the n bytes at p lies inside a character that starts before it, as
+// at: decodes them: the nearest byte before i that is no continuation byte, at most 3 back, starts
+// a valid sequence reaching past i. A stray continuation byte is a character by itself. O(1).
+bool insideCharacter(const unsigned char* p, std::uint32_t n, std::uint32_t i) {
+  for (std::uint32_t back = 1; back <= 3 && back <= i && i < n; ++back) {
+    const std::uint32_t j = i - back;
+    if ((p[j] & 0xC0) != 0x80) {
+      return decodeUtf8(p + j, n - j).nbytes > back;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
+// SPEC §3.6: walks the UTF-8 once from the start and calls the block with each character. The
+// block may write the string: after each call the size is read again from the rooted receiver, and
+// when it changed or the next read lies inside a character, the walk moves to the character after
+// the ones passed (a character may then be skipped or seen twice, but never one the string lacks).
+// A subclass that overrides at: or size gets ArrayedCollection's do:, which sends them.
+Oop ao_String_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  const Oop klass = ctx.wk.classOf(receiver);
+  if (!isBytes(ctx.heap, receiver) || !findsNative(ctx, klass, ctx.wk.selAt_, ao_String_at_) ||
+      !findsNative(ctx, klass, ctx.wk.selSize, ao_String_size)) {
+    return ao_ArrayedCollection_do_(ctx, receiver, args, argc);
+  }
+  Gc gc(ctx.heap, ctx.roots);
+  std::uint64_t visited = 0;
+  std::int64_t passed = 0;  // characters handed to the block so far
+  std::uint32_t i = 0;
+  for (;;) {
+    // receiver and args[0] are rooted slots: after the block they are where the GC moved them.
+    const std::uint32_t n = ctx.heap.size(receiver);
+    if (i >= n) {
+      return receiver;
+    }
+    const Utf8Step step = decodeUtf8(bytePayload(ctx.heap, receiver) + i, n - i);
+    const Oop ch = Oop::fromCharacter(step.cp);
+    Oop ignored;
+    if (!callBlock(ctx, args[0], &ch, 1, &ignored)) {
+      return Oop{};
+    }
+    ++passed;
+    i += step.nbytes;
+    // SPEC §3.6: when the block changed the byte count, or i now lies inside a multibyte character,
+    // the character after the ones passed starts elsewhere: find it as at: counts (O(n), which only
+    // a write by the block causes, and the width-changing at:put: also costs). Never pass a byte
+    // from inside a character; a stray continuation byte is one and needs no resync.
+    const std::uint32_t now = ctx.heap.size(receiver);
+    const unsigned char* p = bytePayload(ctx.heap, receiver);
+    if (now != n || insideCharacter(p, now, i)) {
+      const std::int64_t at = Str::byteOffsetOfChar(p, now, passed);
+      if (at < 0) {
+        return receiver;
+      }
+      i = static_cast<std::uint32_t>(at);
+    }
+    if ((++visited & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
+  }
 }
 
 Oop ao_String_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
@@ -295,6 +402,22 @@ Oop ao_Symbol_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop*, st
   return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
 }
 
+// SPEC §3.6: an interned Symbol is the only one of its spelling and selectors are looked up by
+// identity, so a copy of a Symbol is the Symbol itself.
+Oop ao_Symbol_copy(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  return receiver;
+}
+
+Oop ao_Symbol_shallowCopy(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  return receiver;
+}
+
 Oop ao_String_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
@@ -324,6 +447,7 @@ void installString(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, str, "size", 0, "ao_String_size", ao_String_size);
   putNative(heap, wk, str, "at:", 1, "ao_String_at_", ao_String_at_);
   putNative(heap, wk, str, "at:put:", 2, "ao_String_at_put_", ao_String_at_put_);
+  putNative(heap, wk, str, "do:", 1, "ao_String_do_", ao_String_do_);
   putNative(heap, wk, str, "=", 1, "ao_String_equals", ao_String_equals);
   putNative(heap, wk, str, "hash", 0, "ao_String_hash", ao_String_hash);
   putNative(heap, wk, str, "asSymbol", 0, "ao_String_asSymbol", ao_String_asSymbol);
@@ -332,6 +456,9 @@ void installString(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.symbolClass, "at:put:", 2, "ao_Symbol_at_put_", ao_Symbol_at_put_);
   putNative(heap, wk, wk.symbolClass, "basicAt:put:", 2, "ao_Symbol_basicAt_put_",
             ao_Symbol_basicAt_put_);
+  putNative(heap, wk, wk.symbolClass, "copy", 0, "ao_Symbol_copy", ao_Symbol_copy);
+  putNative(heap, wk, wk.symbolClass, "shallowCopy", 0, "ao_Symbol_shallowCopy",
+            ao_Symbol_shallowCopy);
 }
 
 }  // namespace kernel

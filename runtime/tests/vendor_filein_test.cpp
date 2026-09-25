@@ -92,7 +92,7 @@ TEST(VendorFileIn, TimeClassVariableMethodIsFiledIn) {
   ASSERT_TRUE(release.isHeap());
   EXPECT_EQ(b.wk.compiledMethodClass, b.heap.klass(release));
   ao::Root binding(b.roots, ao::ClassPool::bindingAt(
-                                b.heap, b.heap.slotAt(time.slot, ao::kClassSlotClassPool),
+                                b.heap, b.wk, b.heap.slotAt(time.slot, ao::kClassSlotClassPool),
                                 "MillisecondClockOffset"));
   ASSERT_TRUE(binding.slot.isHeap());
   b.heap.slotAtPut(binding.slot, ao::kAssocValue, ao::Oop::fromSmallInteger(5));

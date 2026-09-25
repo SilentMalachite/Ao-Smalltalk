@@ -148,7 +148,9 @@ bit 2:0 = 000      → ヒープオブジェクト。8 バイト整列ポイン�
 | class OOP | 64 | クラスへの tagged/heap OOP |
 | size | 32 | スロット数、またはバイト数 |
 | flags | 16 | ポインタオブジェクトか、弱参照か、旧世代か、不動か |
-| hash | 16 | identity hash の短縮形。不足時はサイドテーブル |
+| hash | 16 | identity hash。作るたびに 1 から順に振り、65535 の次は 1 に戻る。衝突は許容し、サイドテーブルは持たない |
+
+identity hash は 16 bit なので、65535 個を超えるオブジェクトでは必ず衝突する。`IdentityDictionary` や `IdentitySet`（§3.6）は衝突しても正しく引けるが、衝突が多いと探索は遅くなる。
 
 可変長オブジェクト（Array, String, ByteArray, CompiledMethod）はヘッダ直後にペイロードを置く。
 
@@ -371,6 +373,12 @@ Boolean の演算（Blue Book）:
 - 利用者のオブジェクトを経由する循環（利用者の `hash` が、自分を要素に持つ Array の `hash` を送る）は打ち切らない。再帰はスタックガード（§3.4）に当たり、評価は `stack overflow` で中断する。
 - Character は即値なので、同一性の `=` と `identityHash`（スカラー値）で足りる。`=` を上書きしない Kernel クラス（Interval、Association、Rectangle、OrderedCollection、Dictionary、Set、ByteArray など）は、同一性の `=` と `hash`（`identityHash`）のままである。
 
+`copy` と `shallowCopy`:
+
+- `Object>>shallowCopy` と `Object>>copy` は、レシーバと同じクラス・同じ大きさの新しいオブジェクトに、スロット（バイト列ならバイト）をそのまま写して答える。即値はレシーバをそのまま答える。
+- Symbol の `copy` と `shallowCopy` は、レシーバそのものを答える。intern した Symbol は綴りごとに 1 つで、セレクタの探索は同一性で比べるからである。`#printString copy == #printString` は true、`3 perform: #printString copy` は `'3'` である。
+- Dictionary と Set（サブクラスを含む）の `copy` は、`array` も写す（Collections の「Dictionary と Set」）。写しとレシーバは表を共有しない。`shallowCopy` は Blue Book どおり浅く、`array` をレシーバと共有する。
+
 #### Kernel-Classes
 
 - `Behavior`
@@ -385,6 +393,12 @@ Boolean の演算（Blue Book）:
 `Class`: `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:`, `name`, `category`, `classPool`
 
 `Metaclass`: `thisClass`, `name`, クラス側 `new` の禁止または制御
+
+`basicNew:`:
+
+- `basicNew: n` は、n が 0 以上の SmallInteger でなければ失敗する（§3.3）。可変長でないクラスは、n によらず instSize だけのスロットを割り当てる。可変長のポインタのクラスは instSize + n のスロットを、バイト列のクラスは n バイトを割り当てる。
+- スロットの数とバイト数は 2^32 − 1 以下である。超えれば割り当てずに失敗する（理由は `failed: #basicNew:`。`new:` から送ったときは `failed: #new:`）。下位 32 ビットに切り詰めない。`(String new: 4294967299) size` は評価エラーである。
+- 上限以内でも、GC をしても old に入らなければ（old の上限。§3.2）、評価を `out of memory` で中断する。`Array new: 4294967295` はこれに当たる。
 
 メタクラス循環は Blue Book ルール 6–10 を満たすこと。
 
@@ -434,11 +448,18 @@ Boolean の演算（Blue Book）:
 - Kernel クラスが足したスロットは、コンパイルしたコードからは読み取り専用である。読みは今までどおりインスタンス変数として読む（`Association>>probeKey ^key` は key を読む）。代入はコンパイルエラーで、理由は `cannot assign to Kernel instance variable <名前>` である（§3.8）。ネイティブは、これらのスロットに決まった種類の値（`OrderedCollection` の `array` なら Array）があるものとして読み書きするので、ソースから別の値を入れるとネイティブが壊れるからである。
   - 読み取り専用のスロットは、メソッドのクラスのスーパークラス鎖（そのクラス自身を含む）でいちばん近い Kernel クラスの instSize までの、先頭のスロットである。サブクラスが継承したスロットも含む。クラス側のメソッドでは、鎖でいちばん近いのは Kernel クラスのメタクラス（`Object class` など）なので、Behavior の 8 つの枠（`superclass methodDict format name thisClass category classPool instVarNames`）が読み取り専用になる。vendor のスタブ（§3.12）は Kernel クラスに数えない。
   - 既知の制約（v1）: `instVarAt:put:` はこの制限を受けない。Kernel クラスのスロットに `instVarAt:put:` で合わない値を入れると、ネイティブは壊れうる。
+  - classPool（Behavior の `classPool`）を壊れた表にしたとき（`tally` を容量より大きくする、`array` を配置に合わない値にするなど。Collections の「壊れた表」）は、ランタイムはそのクラスに classPool が無いものとして扱う。その名前はクラス変数として解決されず（§3.8）、Browser の定義テキスト（§3.10）にも並ばない。すでにコンパイルしたメソッドは束縛を持ち続け、読み書きできる。`classPool` の答えは下の「クラス変数」に書く。
 
 クラス変数:
 
-- `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` は、classVariableNames を空白で区切った名前ごとにクラス変数を作り、作ったクラスの classPool（`kClassSlotClassPool`）に置く。classPool は Kernel の `Dictionary` で、名前（intern した Symbol）から束縛への辞書である。束縛は `Association` で、キーは同じ Symbol、値はクラス変数の値（最初は nil）である。名前は書いた順に並ぶ。同じ名前を 2 度書いても束縛は 1 つである。クラス変数が無くても、classPool は空の `Dictionary` である。
-- `Class>>classPool` はその辞書の写しを答える。写しは新しい `Dictionary` で、classPool と同じ名前を同じ順に、同じ束縛（Association そのもの）に結ぶ。`Foo classPool at: #Count` は束縛で、その `value` がクラス変数の値である。`(Foo classPool at: #Count) value: 5` はクラス変数の値を変える。写しへの `at:put:` はクラスの classPool も束縛も変えない。メソッドのリテラルは classPool の束縛そのもので、再 Accept の検査（§3.9）もそれを前提にするので、束縛を別の値に差し替えさせないためである。送るたびに新しい写しを答える。classPool の枠が辞書でなければ（Kernel クラスの nil など）、枠の値をそのまま答える。
+- `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` は、classVariableNames を空白で区切った名前ごとにクラス変数を作り、作ったクラスの classPool（`kClassSlotClassPool`）に置く。classPool は Kernel の `Dictionary` で、名前（intern した Symbol）から束縛への辞書である。束縛は `Association` で、キーは同じ Symbol、値はクラス変数の値（最初は nil）である。同じ名前を 2 度書いても束縛は 1 つである。クラス変数が無くても、classPool は空の `Dictionary` である。
+- classPool は、ほかの `Dictionary` と同じハッシュ表の配置（Collections の「Dictionary と Set」）を持つ。ランタイムが classPool を作るときは、キーに `hash` を送らず、同じ値（`#名前 hash`。String と Symbol の値ベースの hash）を C++ で求めて入れる。したがって `Foo classPool at: #Count` も `Foo classPool at: 'Count'` も同じ束縛を引く。
+- classPool の名前は、キーのうち Symbol のものだけである。Symbol でないキー（String、LargeInteger、ByteArray、Float など。`instVarAt:` で取り出した classPool に `at:put:` したとき）は名前にならない。クラス変数として解決せず（§3.8）、Browser の定義テキスト（§3.10）にも並べない。
+- classPool の名前を並べるとき（Browser の定義テキスト、§3.10）は、名前のバイト列の昇順に並べる。ハッシュ表は書いた順を保たないからである。
+- `Class>>classPool` はその辞書の写しを答える。写しは新しい `Dictionary` で、classPool の `tally` と配列の中身をそのまま写すので、同じ名前を同じ束縛（Association そのもの）に結ぶ。`Foo classPool at: #Count` は束縛で、その `value` がクラス変数の値である。`(Foo classPool at: #Count) value: 5` はクラス変数の値を変える。写しへの `at:put:` はクラスの classPool も束縛も変えない。メソッドのリテラルは classPool の束縛そのもので、再 Accept の検査（§3.9）もそれを前提にするので、束縛を別の値に差し替えさせないためである。送るたびに新しい写しを答える。
+  - classPool の `array` が nil（空の表。`Foo instVarAt: 7 put: Dictionary basicNew` のあとなど）なら、新しい空の `Dictionary`（`Dictionary new` と同じ）を答える。枠の値そのものは答えない。
+  - classPool が壊れた表なら（枠が `tally array` のスロットを持つポインタのオブジェクトで、Collections の「壊れた表」に当たるとき）、`damaged hashed collection` で失敗する。
+  - classPool の枠がそれ以外（Kernel クラスの nil、SmallInteger、スロットが 2 つに満たないオブジェクトなど）なら、枠の値をそのまま答える。
 - classPool のある名前の値が束縛（`Association`）でないとき（クラス側のメソッドがインスタンス変数 `classPool` を読んで `at:put:` した、`instVarAt:` で classPool そのものを取り出して書き換えた、など）、その名前をクラス変数として読むか代入するメソッドは入れない。Accept と file-in では、コンパイルエラーで、理由は `class variable <名前> is not bound to an Association` である。形の変更での移し替え（§3.9）では、送信のあとの検査と同じく、どのクラスも変えずに名前を旧クラスに戻して `AO_ERR_COMPILE` を返す。理由は同じ文の前に `shape change refused: <Class>>><selector>: ` を付けたものである。
 - Kernel クラスはクラス変数を持たない（classPool は nil）。メタクラスの classPool の枠も nil である。
 - メソッドから見えるクラス変数は、そのクラス（クラス側のメソッドなら、メタクラスの thisClass）とそのスーパークラス鎖のクラスの classPool にある名前である。近いクラスの名前が、遠いクラスの同じ名前を隠す。サブクラスのメソッドも、クラス側のメソッドも、同じ束縛を読み書きする。コンパイラの名前の解決順は §3.8 に書く。
@@ -479,6 +500,82 @@ Boolean の演算（Blue Book）:
 - `Association`
 
 `Bag`, `LinkedList`, `MappedCollection` は P4 ではスタブ可。P9 までに `Collection` プロトコルの中核（`do:`, `collect:`, `select:`, `reject:`, `detect:ifNone:`, `inject:into:`, `includes:`, `size`, `isEmpty`）をネイティブまたは確実な転送で実装する。
+
+Collection の列挙:
+
+- `select:` と `reject:` は、レシーバに `do:` を 1 回だけ送り、述語のブロックを要素ごとに 1 回だけ呼ぶ。`select:` は答えが true の要素を、`reject:` は答えが false の要素を、渡された順に並べた Array を答える。レシーバの種類によらず（OrderedCollection、String、Set、Interval でも）答えは Array である。述語の答えが Boolean でなければ、§3.5 の分岐と同じく答えに `mustBeBoolean` を送り、その答えで決める。それも Boolean でなければ `NonBoolean receiver` で中断する（`Object>>mustBeBoolean` の既定も同じ理由で中断する）。`#(1 2 3) select: [:x | nil]` は評価エラーである。集めた要素は、`do:` に渡すネイティブのブロック（§3.11）のスロットにある Array に入れ、足りなくなれば大きさを倍にした Array に写す。述語に副作用があっても、答えは要素ごとに 1 回の評価どおりである。`#(1 2 3) select: [:x | Transcript show: x printString. true]` は 1 2 3 を 1 回だけ出す。`| oc | oc := OrderedCollection new. #(1 2 3) select: [:x | oc add: x. oc size <= 3]` は `#(1 2 3)` である。
+  - そのブロックのスロット（集めた数と Array）は、ブロックを受け取った `do:` から書き換えられる。数が 0 以上その Array の大きさ以下の SmallInteger でないか、Array が Kernel の Array でなければ、`select: count out of range`（`reject:` では `reject: count out of range`）で失敗する。スロットは、ブロックが呼ばれるたびに、述語を呼ぶ前と、述語から戻って要素を入れる前に確かめる。述語を呼ぶ前に壊れていれば、述語は呼ばない。
+- `detect: aBlock ifNone: exceptionBlock` も、述語の答えが Boolean でなければ `select:` と同じく `mustBeBoolean` を送る。
+- `includes: anObject` は、`do:` で要素を順に見て、`anObject = 要素` が true になったところで true を答える（Blue Book。`=` は anObject に送る）。要素が anObject と同一なら、`=` を送らずに true とする。`=` の答えが Boolean でなければ失敗する（§3.3。理由は `failed: #includes:`）。`hash` は送らない。Dictionary の `includes:`（値を比べる）と同じ規則である。空のコレクションは何も送らずに false を答える。
+- String の `do:` は、UTF-8 のバイト列を先頭から 1 回だけたどり、文字ごとにブロックを呼ぶ（`at:` を送らない。長さ n の文字列で O(n)）。渡した文字の数 k を数える。ブロックから戻るたびにレシーバのバイト数を読み直し、バイト数が変わったか、次に読む位置が多バイト文字の途中なら、そのときの文字列の k + 1 文字目の位置に合わせ直す（`at:` と同じ数え方で先頭から数える。k 文字に満たなければ終わる）。したがって、渡す文字はどれも、渡した時点の文字列に `at:` で読める文字である。文字列に無い文字（多バイト文字の途中の継続バイトなど）は渡さない。
+  - 「多バイト文字の途中」は、次に読む位置の直前 3 バイト以内で、いちばん近い継続バイト（0x80〜0xBF）でないバイトから始まる正しい UTF-8 の列が、その位置を覆うことである（見るのは高々 3 バイト）。どの列にも覆われない継続バイト（はぐれた継続バイト）は、`at:` と同じくそれ自体が 1 文字なので、合わせ直さない。`| s i | s := 'say "hi" now' copy. i := 0. s do: [:c | i := i + 1. c = $" ifTrue: [s at: i put: $”]]. s` は `'say ”hi” now'` である。
+  - ブロックが文字列を書き換えたとき、文字を飛ばすか 2 度渡すかは規定しない。
+  - ブロックが文字列を書き換えなければ、UTF-8 として正しくないバイト列（`basicAt:put:` で書いたもの、UTF-8 でないソースの文字列リテラルから作ったものなど）でも O(n) である。ブロックが書き換えたときは、合わせ直すたびに O(n) かかることがある。幅の変わる `at:put:` は 1 回が O(n) なので、それで書き換えるなら全体の時間は書き換えにかかる時間の定数倍を超えない。`basicAt:put:` の書き換えは 1 回が O(1) なので、毎回合わせ直させると全体は O(n²) になりうる（`String new: 40000` の do: の中で毎回 2 バイトを多バイト文字に書き換えるなど）。
+  - ループは 64K 回ごとに safepoint を通る。レシーバのクラスで見つかる `at:` か `size` が Kernel の String のネイティブでなければ（利用者が上書きしたサブクラス）、ArrayedCollection の `do:` と同じく `size` と `at:` を送って回す。
+
+Dictionary と Set:
+
+- `Dictionary`、`IdentityDictionary`、`Set`、`IdentitySet` は、開番地法（線形プローブ）のハッシュ表である。スロットは `tally array`（Kernel-Classes の表）で、`tally` は要素の数、`array` はエントリを並べた Array である。
+- エントリの幅は、Dictionary と IdentityDictionary が 3 スロット（`key value hash`）、Set と IdentitySet が 2 スロット（`element hash`）である。`hash` は、キー（Set では要素）のハッシュ値を保存した SmallInteger である。キー（要素）が nil のエントリは空きである。
+- 容量（エントリの数）は 8 以上の 2 のべき乗で、`array` の大きさは容量×幅 + 1 である。エントリは先頭から並び、最後の 1 スロットは表の世代番号（SmallInteger）である。`new` は容量 8、世代番号 0 の空の表を作る。
+- 世代番号: ネイティブがエントリを足すか消すたびに（挿入、削除）1 増やし、SmallInteger の最大値の次は 0 に戻す。値の置き換え（`at:put:` で既にあるキーに結ぶ）はエントリを動かさないので変えない。拡張は新しい `array` に替えるので、世代番号は 0 から始める。世代番号は再入の検出（下の「再入」）だけに使う。
+- ハッシュ値:
+  - Dictionary と Set は、1 回の操作でキーに `hash` を 1 回だけ送る。送り方（入れ子の数の扱い）は、Array の `hash` が要素に送るときと同じである（Kernel-Objects の「`=` と `hash`」）。答えが Integer でなければ失敗する（§3.3）。答えが LargeInteger なら、その `hash` の値を保存する。送った先で巻き戻しが始まったら、表に触れずに直ちに空 OOP を返す（§3.4）。
+  - IdentityDictionary と IdentitySet は送信しない。`identityHash` と同じ値を使う。
+- ホーム: 容量を c = 2^k とすると、hash のホーム（探索を始めるエントリ）は、hash を 64 ビットの符号なし整数として `0x9E3779B97F4A7C15` を掛け（2^64 を法とする）、上位 k ビットを取った値 `(hash × 0x9E3779B97F4A7C15 mod 2^64) >> (64 − k)` である。下位ビットのそろった hash（`i * 4096` の SmallInteger や、65535 以下の identityHash を容量 131072 の表に入れたとき）でも、ホームが表全体に散らばるようにするためである。混ぜるのはホームを求めるときだけで、エントリに保存する hash は混ぜる前の値である。拡張と削除は、保存した hash からホームを求め直す。classPool（Kernel-Classes のクラス変数）も同じホームを使う。
+- 探索: キーの hash のホームのエントリから始めて 1 つずつ後ろへ見る（最後の次は先頭）。空きに当たれば、キーは無い。保存した hash がキーの hash と等しいエントリだけを比べる。
+  - Dictionary と Set は、エントリのキーがキーと同一（`==`）なら一致とし、そうでなければキーに `=` を送る（`キー = エントリのキー`）。答えが Boolean でなければ失敗する（§3.3）。
+  - IdentityDictionary と IdentitySet は `==` だけで比べる。
+- 挿入: キーが無ければ、入れたあとの要素の数が容量の 3/4 を超えるとき、先に容量を 2 倍にする（拡張）。そのあと、キーの hash の位置から探した最初の空きに入れる。
+- 拡張は新しい配列を作り、各エントリを保存した hash で入れ直し、`tally` を入れ直した数にしてから `array` を差し替える。削除は後方シフトで行い、空きの印を残さない。空いた場所を i として、その後ろのエントリを、空きに当たるか、見る場所が i に戻るまで順に見る（i に戻るのは、`tally` が実際の数と違って空きの無い表から消すときだけである）。エントリのホームが、巡回した順で i より後ろ、そのエントリ以前にあれば動かさない。そうでなければ、そのエントリを i へ移し、移したもとの場所を新しい i とする。終わったら i を空きにする。どちらで終わっても、残ったエントリはどれも、ホームから空きを通らずに届く。拡張も削除も `hash` と `=` を送らない。利用者のコードが走らないので、途中で失敗も巻き戻しも起きない。
+- 再入: `hash` と `=` は利用者のメソッドでもよく、その中で同じ表を書き換えうる（`at:put:`、`removeKey:`、拡張による `array` の差し替え、`instVarAt:put:`）。ネイティブは送信から戻るたびに、レシーバから表を読み直す。`array` が差し替わったか、世代番号が変わっていれば、求めた hash のまま初めから探し直す（`hash` は送り直さない）。削除と再挿入で元の見かけ（同じ `array`、同じ `tally`、同じ位置の同じキー）に戻しても、世代番号で見つける。世代番号は表ごとなので、ほかの表を書き換える `=`（ログやキャッシュ）では探し直さない。同じ表でも、値の置き換えだけなら探し直さない。`instVarAt:put:` や `array` への直接の `at:put:` で、世代番号を通さずにエントリや `tally` を書き換えたときの結果は規定しない（Kernel-Classes の既知の制約。メモリの安全だけを保つ）。どの書き換えのあとも、配列の範囲外は読み書きしない。探し直しの回数に上限は無い。`=` が送られるたびに表を書き換えれば、探索は終わらない（利用者のループと同じく、停止は保証しない）。探し直しても、`hash` は 1 回の操作で 1 回しか送らない。
+- 壊れた表:
+  - `array` が nil なら空の表として扱う（`Dictionary basicNew` など）。`size` は 0 で、最初の挿入で容量 8 の配列を作り、`tally` を 0 から数える。
+  - `array` がポインタのオブジェクトでないか、大きさが「8 以上の 2 のべき乗×幅 + 1」でないか、最後のスロット（世代番号）が SmallInteger でないか、`tally` が 0 以上容量以下の SmallInteger でなければ（`instVarAt:put:` で壊したときなど）、Dictionary と Set のネイティブはどれも失敗する。理由は `damaged hashed collection` である。
+  - `tally` が実際の数と違うだけなら、探索、挿入、削除、列挙は失敗しない。挿入で空きが見つからなければ拡張し、拡張は `tally` を数え直す。削除は `tally` を 1 減らす（0 より小さくしない）。ただし `size` は `tally` を答え、`tally` を使うネイティブ（Dictionary の `collect:` と、`size` を送る Collection の `collect:`）は `tally` を信じる。`tally` が実際の数より小さければ `collect:` は失敗しうる。大きければ、答えの Array の末尾に nil が残る。`tally` を実際と違う値にできるのは `instVarAt:put:` だけである（Kernel-Classes の既知の制約）。保存した hash が SmallInteger でないエントリは、どのキーとも一致せず、拡張と削除では hash を 0 として扱う。
+- 列挙（`do:`、`keysDo:`、`associationsDo:`、`keysAndValuesDo:`、`collect:`、値の `includes:`）は、`array` を先頭から順に見る。順序は規定しない。ブロック（`includes:` では `=`）が表を書き換えても、ネイティブはエントリごとに表を読み直し、そのときの `array` の大きさの範囲で続ける。そのとき要素を飛ばしたり 2 度渡したりすることがあるが、どうなるかは規定しない。列挙のループも、空きを含めてエントリを 64K 個見るごとに safepoint を通る（疎な大きい表でも通る）。
+
+Dictionary のプロトコル（Blue Book）。IdentityDictionary は、キーを探すセレクタ（`at:`、`at:put:`、`at:ifAbsent:`、`includesKey:`、`removeKey:`、`removeKey:ifAbsent:`）を同一性版で持ち、ほかは Dictionary のものを使う。
+
+| セレクタ | 動作 |
+|---|---|
+| `at: key` | key の値。無ければ nil |
+| `at: key put: value` | key を value に結び、value を答える。key が nil なら失敗し、理由は `key must not be nil` |
+| `at: key ifAbsent: aBlock` | key の値。無ければ `aBlock value` の答え |
+| `includesKey: key` | key があれば true |
+| `removeKey: key` | key のエントリを消し、その値を答える。無ければ失敗し、理由は `key not found` |
+| `removeKey: key ifAbsent: aBlock` | key のエントリを消し、その値を答える。無ければ `aBlock value` の答え |
+| `includes: anObject` | 値のどれかについて `anObject = 値` が true なら true（同一なら送らない）。`hash` は送らない。`=` の答えが Boolean でなければ失敗する |
+| `do: aBlock` | 値ごとに `aBlock value: 値`。Association は渡さない |
+| `keysDo: aBlock` | キーごとに `aBlock value: キー` |
+| `associationsDo: aBlock` | エントリごとに、キーと値を持つ新しい Association を作って渡す。それを書き換えても表は変わらない |
+| `keysAndValuesDo: aBlock` | エントリごとに `aBlock value: キー value: 値` |
+| `collect: aBlock` | 値ごとの `aBlock value: 値` の答えを並べた Array。大きさは送ったときの `tally` である（`tally` が実際の数と違うときは「壊れた表」）。ブロックが表を書き換えたときの答えは規定しない（失敗することもある） |
+| `size` | `tally` |
+| `copy` | レシーバと同じクラスの新しいオブジェクトに、スロットをそのまま写したもの。ただし `array` がヒープのオブジェクトなら、それも同じクラス・同じ大きさの新しいオブジェクトに写して入れる（壊れた表でも失敗しない）。写しとレシーバは表を共有しないので、`e := d copy. e at: 2 put: 2` のあとも `d at: 2` は nil のままである。`shallowCopy` は浅く、`array` を共有する |
+
+Set と IdentitySet のプロトコルは `add:`、`includes:`、`do:`（要素ごと）、`size`、`copy`（Dictionary と同じく `array` も写す）である。`add: anObject` は、anObject が無ければ入れ、anObject を答える。anObject が nil なら失敗し、理由は `element must not be nil` である。
+
+- nil はキーにも要素にもならない。nil には `hash` を送らない。`at: nil` は nil、`includesKey: nil` と Set の `includes: nil` は false、`at: nil ifAbsent:` と `removeKey: nil ifAbsent:` はブロックの答えである。`removeKey: nil` は `key not found` で失敗する。
+- Dictionary の `do:` は値を渡すので、`do:` を通る Collection のネイティブ（`select:`、`reject:`、`detect:ifNone:`、`inject:into:`）も値を受ける。
+
+Interval:
+
+- `Interval from: start to: stop by: step` の要素は、start、start + step、start + step + step と続き、終端を越えたところで終わる。`do:` はこの順に要素を渡し、`size` は要素の数を答える。
+- start、stop、step がどれも Integer（SmallInteger、LargePositiveInteger、LargeNegativeInteger）なら、`size` は送信せずに厳密に求める。step が 0 なら 0 である。step が正で stop < start のときと、負で stop > start のときも 0 である。それ以外は `(stop - start) // step + 1` である。答えは SmallInteger に収まれば SmallInteger、収まらなければ LargeInteger である（`(1 to: (1 bitShift: 70)) size` は `1 bitShift: 70`）。どれも SmallInteger なら、`do:` も送信せずに数える。
+- そうでなければ（`do:` では、どれかが SmallInteger でなければ）、まず刻みの向きを決める。step が SmallInteger ならその符号で決める。そうでなければ `step < 0` を送り、true なら後ろ向きである。false なら `step > 0` を送り、true なら前向き、false なら要素は無い（刻み 0 と同じ）。どちらも答えが Boolean でなければ失敗する（§3.3）。
+- 前向きは `要素 <= stop`、後ろ向きは `要素 >= stop` を送り、答えが true の間だけ続け、false になったところで終わる。答えが Boolean でなければ失敗する。次の要素は `要素 + step` を送って求める。それが失敗すれば失敗する。比べられない値（NaN）との比較は false なので、端点が NaN なら要素は無い。`nan := 0.0 / 0.0` として、`(Interval from: 1 to: nan by: 1)` と `(Interval from: nan to: 5 by: 1)` の `size` は 0 で、`do:` はブロックを呼ばない。
+- 要素の数に上限は無い。`size` は数えた数が SmallInteger を超えれば LargeInteger を答える。ループはネイティブのループの規則（Kernel-Methods。64K 回ごとに safepoint）に従い、ブロックの abort や巻き戻しで止まる。
+- `(Interval from: 2.0 to: 1.0 by: -0.5) size` は 3 で、`collect:` は 3 要素の Array を答える。`(Interval from: 1 to: 2 by: 0.5) do: aBlock` は 1、1.5、2 で aBlock を呼ぶ。Fraction の刻みも同じである（`(Interval from: 0 to: 1 by: 1/2) size` は 3）。
+- `collect:`（Collection の `collect:`）は、`size` を送って答えの Array を作ってから、`do:` で要素を集める。どれかが SmallInteger でなければ、`do:` は比較と `+` を送り、Integer でなければ `size` も送る。それらに副作用があって、`size` と `do:` の要素の数が食い違うときの `collect:` の答えは規定しない（失敗することもある）。`size` が大きすぎれば、Array を作る `basicNew:` で失敗する。
+
+OrderedCollection:
+
+- スロット `array firstIndex lastIndex`（Kernel-Classes の表）は、要素が `array` の firstIndex 番目から lastIndex 番目にあることを表す。`size` は lastIndex − firstIndex + 1 である。
+- `array` が nil なら空である（`basicNew` のあとなど）。`size` は 0 で、最初の `add:` が大きさ 8 の Array を作り、firstIndex を 1、lastIndex を 0 にしてから入れる。
+- そうでなければ、`array` が Kernel の Array で、firstIndex と lastIndex が SmallInteger で、`1 <= firstIndex <= lastIndex + 1 <= (array の大きさ) + 1` が成り立たなければ（`instVarAt:put:` で壊したとき）、`size`、`do:`、`add:`、`at:` はどれも失敗する。理由は `damaged ordered collection` である。Array の範囲の外は読み書きしない。
+- `at: index` は、index が 1 以上 `size` 以下の SmallInteger でなければ失敗する（§3.3）。理由は String の `at:` と同じ `at: index out of range` である。組が壊れていれば、index によらず `damaged ordered collection` で失敗する。
+- `do:` は、送ったときの firstIndex から lastIndex までの添字の要素を順に渡す（Blue Book）。ブロックを呼ぶ前に毎回組を読み直し、壊れていれば失敗する。次の添字がそのときの firstIndex から lastIndex の外なら、そこで終わる。ループは 64K 回ごとに safepoint を通る。
 
 #### Magnitude
 
@@ -529,6 +626,44 @@ Character:
 - `Stream`, `PositionableStream`, `ReadStream`, `WriteStream`, `ReadWriteStream`
 - `Transcript` モデル（実際の出力先はホストウィンドウ）
 - `SmalltalkImage`（グローバル辞書のホスト。クラシック `Smalltalk`）
+
+ストリーム:
+
+- スロットは `collection position readLimit`（PositionableStream）と `writeLimit`（WriteStream）である（Kernel-Classes の表。これ以上足さない）。position、readLimit、writeLimit は要素（String では文字）の数である。position は読んだか書いた要素の数、readLimit は読める要素の数、writeLimit は collection の大きさ（書ける要素の数）である。
+- `on: aCollection` は、position を 0 に、readLimit と writeLimit を `aCollection size` にする。
+- `next` は、position が readLimit より小さければ position を 1 進め、`collection at: position` の答えを答える。そうでなければ nil を答える。
+- `position: anInteger` は、anInteger が SmallInteger でなければ `position: not an integer` で失敗する。負なら 0 に、readLimit と今の position の大きい方を超えれば、その値にする（頭打ちにし、失敗しない）。writeLimit までは進めない。ストリームが作った String の予備や、倍にした Array の空きを見せないためである（Squeak の `WriteStream>>position:` と同じ）。`(WriteStream on: String new) nextPutAll: 'abc'; position: 100; position` は 3 である。readLimit か position が SmallInteger でなければ 0 として扱う。
+- `nextPut:` は WriteStream（と ReadWriteStream）のメソッドである。PositionableStream は持たない。ReadStream の `nextPut:` は `shouldNotImplement` で失敗し、collection も position も変えない。`| s r | s := 'abc' copy. r := ReadStream on: s. r nextPut: $x` は評価エラーで、s は `'abc'` のままである。
+- WriteStream の `nextPut: anObject` は、collection の position + 1 番目を anObject にし、position を 1 進め、readLimit を position 以上にして、anObject を答える。書けなければ失敗し（§3.3）、collection の中身、position、readLimit を変えない。
+  - collection が Array で、position + 1 が大きさを超えるとき: 大きさを倍（それでも足りなければ position + 1）にした Array に写して collection を差し替え、writeLimit を新しい大きさにする。倍が 2^32 − 1 を超えるなら 2^32 − 1 にする。position + 1 が 2^32 − 1 を超えるなら（`instVarAt:put:` で position を書き換えたとき）、割り当てずに `out of memory` で中断する。
+  - collection のクラスで見つかる `at:put:` と `size` がどちらも Kernel の String のネイティブ（`String>>at:put:` と `String>>size`）なら: 下の「String への書き込み」。どちらかを上書きしたサブクラスは、次の場合に当たる。
+  - それ以外は `collection at: position + 1 put: anObject` を送る。position + 1 が `collection size` を超えれば `nextPut: past end` で失敗する。ただし、collection が String の系統で、anObject が Character で、position が `collection size` に等しいときは、末尾に文字を足した新しい String に collection を差し替える。新しい String のクラスは collection のクラスである（Symbol の系統なら String）。String のサブクラスを String に変えない。
+- `contents` の要素の数 k は、ReadStream（PositionableStream）では readLimit、WriteStream では position、ReadWriteStream では readLimit と position の大きい方である（Blue Book）。SmallInteger でない値と負の値は 0 とする。`| w | w := ReadWriteStream on: String new. w nextPutAll: 'abc'; reset. w contents` は `'abc'` である。
+- `contents` は、`collection at: 1` から `collection at: k` までを送って要素を取り出し、新しいコレクションに並べて答える。collection の物理スロットは写さない。k が collection の大きさを超えれば `at:` が失敗するので、`contents` も失敗する。答えの種類は collection で決まる。
+  - collection のクラスで見つかる `at:` が Kernel のネイティブで、k 番目の `at:` が失敗すると先にわかるときは、答えを割り当てる前に、`at:` と同じ理由で失敗する（`instVarAt:put:` で readLimit を 2^28 にしても、2 GB を割り当ててから失敗しない）。Array と ByteArray の系統（`ArrayedCollection>>at:`）は k が要素の数（basicSize − instSize）を超えれば `basicAt: index out of range`、OrderedCollection は k が `size` を超えれば `at: index out of range`、String（`String>>at:`）は k が文字数を超えれば `at: index out of range` である。
+  - String の系統: collection と同じクラスの String。ただし Symbol（とそのサブクラス）なら String。collection のクラスで見つかる `at:` が Kernel の `String>>at:` のネイティブなら、`at:` を送らずに UTF-8 を先頭から 1 回だけたどり、k 文字目までのバイト列を写す（同じ文字列になる。長さ n で O(n)）。k 文字に満たなければ `at: index out of range` で失敗する。
+  - ArrayedCollection の系統で可変長のクラス（Array、ByteArray とそのサブクラス）: collection と同じクラス。`basicNew:` と同じく、instSize のスロット（名前付き変数。nil のまま）と k 個の要素を割り当てる。`Array subclass: #PG instanceVariableNames: 'tag'` のインスタンスの `contents` は PG で、要素はずれない。
+  - OrderedCollection の系統: OrderedCollection（Kernel のクラス）。
+  - それ以外（利用者のコレクションなど）: Array。`at:` を持たないコレクション（Kernel の Interval など）は `doesNotUnderstand: #at:` で失敗する。
+  - 取り出した要素が答えに入らないとき（String に Character でないもの、ByteArray に 0 以上 255 以下の SmallInteger でないもの）は、`contents: element out of range` で失敗する。
+
+String への書き込み（WriteStream の `nextPut:`）:
+
+- `at:put:` を送らずに、collection の UTF-8 のバイト列を直接書き換える。anObject が Character でなければ `nextPut: value out of range` で失敗する。
+- writeLimit は collection の文字数である。ストリームは、collection の後ろに予備（容量）を持つことがある。予備は readLimit + 1 文字目から writeLimit 文字目までで、どれも 1 バイトの文字（NUL）である。`on:` のあと、readLimit と writeLimit は等しいので、利用者が `on:` に渡した String は予備を持たない。予備は、ストリームが作った String にだけある。
+- 書く文字の位置（position + 1 文字目のバイト位置）は、次の順に求める。1 と 2 は、collection の文字数が writeLimit であることを前提にする。
+  1. collection のバイト数が writeLimit に等しいなら、どの文字も 1 バイトなので、position がそのままバイト位置である。
+  2. position が readLimit 以上なら、position より後ろは予備で、どの文字も 1 バイトなので、バイト数 − (writeLimit − position) がバイト位置である。位置が 0 以上バイト数以下で、末尾でなければそのバイトが 1 バイトの文字で、その直前で文字が切れていることを確かめる。
+  3. 1 と 2 が当てはまらないか、2 の確かめが合わないなら、先頭から文字を数える（遅いが正しい）。position より文字が少なければ `nextPut: past end` で失敗する。
+- 位置に文字があり、書く文字と UTF-8 の幅が同じなら、その場で書き換える（`at:put:` と同じ。collection は差し替えない）。
+- 幅が違うか、位置が末尾なら:
+  - position が readLimit 以上で、位置から書く文字の幅だけのバイトがどれも 1 バイトの文字（予備）なら、その場で書き、文字数を（幅 − 1）減らす。writeLimit も（幅 − 1）減る。
+  - position が readLimit より小さければ（書いた文字の上書き。writeLimit が 0 以上の SmallInteger でないときも）、その 1 文字だけを置き換えた新しい String を作り、collection を差し替える。文字数は変わらない。
+  - それ以外（末尾、または予備が足りない）は、位置までのバイト列、書く文字、予備を並べた新しい String を作り、collection を差し替える。新しい String のバイト数は、位置までのバイト数と書く文字の幅の和の 2 倍（16 以上。8 の倍数に切り上げる）で、残りが予備である。writeLimit は新しい文字数（position + 1 + 予備の文字数）になる。それが SmallInteger の最大値を超えるなら（`instVarAt:put:` で position を書き換えたとき）、超えない数まで予備を削る。writeLimit は SmallInteger のままで、文字数と等しい。
+  - 新しい String のクラスは collection のクラスである。利用者が `on:` に渡した String は、差し替えたあとは書き換えない。
+- `| w | w := WriteStream on: (String new: 8). w nextPutAll: 'ééé'. w contents` は `'ééé'`、`w position` は 3 である。`WriteStream on: String new` に `nextPut:` を n 回送る時間は、書く文字によらず O(n) である。O(n) を約束するのは、この末尾への追記だけである。
+  - readLimit より前（書いた文字や、利用者が `on:` に渡した String の中）に書くときは、position より前に多バイト文字があれば、位置を先頭から数えるので 1 回が O(position) である。幅の違う文字で上書きするときは String を作り直すので 1 回が O(大きさ)である。`reset` してから多バイト文字を書き直すことを繰り返すと、全体は 2 乗の時間になる（`reset` して 'あ' を 4 万回書き直すと Release で 4 秒）。
+- 利用者が `on:` に渡した String を `at:put:` で書き換えても（幅が変わっても）、文字数は変わらないので、ストリームは正しい位置に書く。次のときに書く位置は規定しない（メモリの外は読み書きしない）: `basicAt:put:` で UTF-8 のバイト列を変えて文字数を変えたとき、ストリームが作った String を `instVarAt:` などで取り出して予備の文字の幅を変えたとき、`instVarAt:put:` で collection、position、readLimit、writeLimit を書き換えたとき（Kernel-Classes の既知の制約）。
 
 グローバル辞書:
 
@@ -791,7 +926,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 #### プロトコルとカテゴリ
 
-プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列を文字列リテラルにしたもの。定義テキストはチャンクとして Accept し直すので、`'` を `''` に、`!` を `!!` に二重にする（§3.8 チャンク形式）。表示した定義を Accept し直しても、カテゴリは変わらない。定義テキストの classVariableNames は、そのクラスの classPool の名前（§3.6。スーパークラスのものは含めない）を並んだ順に空白 1 つで区切ったもの。poolDictionaries は常に空文字 `''`。表示した定義を Accept し直しても、クラス変数は変わらない（§3.9）。
+プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列を文字列リテラルにしたもの。定義テキストはチャンクとして Accept し直すので、`'` を `''` に、`!` を `!!` に二重にする（§3.8 チャンク形式）。表示した定義を Accept し直しても、カテゴリは変わらない。定義テキストの classVariableNames は、そのクラスの classPool の名前（§3.6。スーパークラスのものは含めない）を、名前のバイト列の昇順に空白 1 つで区切ったもの。poolDictionaries は常に空文字 `''`。表示した定義を Accept し直しても、クラス変数は変わらない（§3.9）。
 
 #### Transcript のクラス側転送
 
@@ -828,7 +963,7 @@ LargeInteger とそれ以外はクラス名のまま。
 
 ### 3.11 イメージ形式 `.aoimage`
 
-- マジック `AOIM`、バージョン（2）、ポインタサイズ、エンディアン
+- マジック `AOIM`、バージョン（3）、ポインタサイズ、エンディアン
 - well-known 表
 - ヒープダンプ（直接ポインタはファイル内オフセットに再配置）
 - グローバル辞書（`Smalltalk` の中身としてヒープダンプに入る）
@@ -839,7 +974,7 @@ LargeInteger とそれ以外はクラス名のまま。
 
 ネイティブのブロック（`makeNativeBlock` が作る thunk。`nextPutAll:` や `collect:` などのネイティブが、内部で `do:` に渡す BlockContext）も、NativeMethod を 1 つ持つ。その名前は、thunk の関数を Kernel のインストールで登録した名前（例: `ao_Stream_nextPutAll_each`、`ao_Collection_collect_fill`）である。thunk が捕捉する状態（ストリーム、数え上げ、結果の配列など）はすべてブロックのスロットにあり、関数はランタイムの静的な関数なので、ヒープに逃げた thunk（利用者の `do:` がブロックを保持した場合）は、ロードで名前から結び直せば保存したときと同じに動く。名前を登録していない関数の thunk（テストの関数など）の名前は `ao_NativeBlock_thunk` で、これは結び直せない。
 
-形式の版は 2 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。ロードは版 1 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 2 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
+形式の版は 3 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。版 2 は、Dictionary と Set がハッシュ表（§3.6 Collections）になる前の形式で、`array` にキーと値（Set では要素）を先頭から詰めていた。版 3 の Dictionary と Set の `array` は、末尾に世代番号のスロットを持つ（§3.6。版 3 は世代番号を足す前に公開していないので、版は上げない）。新しいネイティブはその配置を引けない。ロードは版 1 と版 2 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1`、`unsupported image version 2` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 3 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
 
 ロードが拒否するときの理由は次のとおりである。`ao_image_load`（§3.10）と CLI の `ao image load` はこれを出す。
 
@@ -847,12 +982,12 @@ LargeInteger とそれ以外はクラス名のまま。
 |---|---|
 | ファイルが読めない | `cannot read image file` |
 | ヘッダより短い、マジックが `AOIM` でない | `not an Ao image` |
-| 版が 2 でない | `unsupported image version <版>` |
+| 版が 3 でない | `unsupported image version <版>` |
 | ポインタサイズ、エンディアン、ヘッダ長が違う | `unsupported image format` |
 | heapBytes が old の上限を超える | `image heap exceeds the old space limit` |
 | それ以外（予約欄、レコード、ヒープ、グローバルの照合などが合わない） | `damaged image` |
 
-グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。辞書より前に保存した旧イメージ（`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つもの）は版 1 なので、ヘッダの段階で拒否する。版 2 で `Smalltalk` がグローバル辞書でないイメージと、extra のレコードを持つイメージは、壊れたイメージとして拒否する。
+グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。辞書より前に保存した旧イメージ（`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つもの）は版 1 なので、ヘッダの段階で拒否する。版 3 で `Smalltalk` がグローバル辞書でないイメージと、extra のレコードを持つイメージは、壊れたイメージとして拒否する。
 
 ヘッダの `heapBytes` は old の上限以下とする。上限を超えるヒープは保存せず、そのようなイメージのロードは拒否する。
 
@@ -970,7 +1105,9 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `native_send_test`: `1 + 2`、`true ifTrue: []`、`#==`
 - `smallinteger_arith_test`: オーバーフローで LargeInteger へ
 - `kernel_numeric_test`: 数の混合演算と厳密な比較（NaN、±inf、LargeInteger）、Float への丸め、`bitShift:` の境界、Boolean の演算、Point と Rectangle のサブクラス、`asCharacter` の範囲、`to:do:` の終端、`=` と `hash` の契約
-- `collection_do_test`: Array/String/Dictionary の中核プロトコル
+- `collection_do_test`: Array/String/Dictionary の中核プロトコル。`select:` と `reject:` の述語は要素ごとに 1 回（Boolean でない答えは `mustBeBoolean`、作業領域の検査は述語の前）、`includes:` は `anObject = 要素` で `hash` を送らない、String の `do:` の 1 パスと書き換え（渡す文字は文字列にある文字）
+- `stream_test`: ストリームの `contents` の種類と要素の数（ByteArray、OrderedCollection、Array のサブクラス、Symbol、ReadWriteStream。割り当て前の範囲の検査）、String への書き込み（多バイト文字、予備、上書き、差し替え、利用者の書き換え、`size` を上書きしたサブクラス、クラスを保つ追記）、`position:` の上限、スロットを極端な値にした反射、ReadStream の `nextPut:`、GC 圧下、性能
+- `hashed_collection_test`: Dictionary と Set のハッシュ表（`=` と `hash` の送り方と失敗、nil、削除と拡張、再入、壊れた表、GC 圧下、性能、ホームの混ぜ方、満杯の表からの削除、`copy`、世代番号による再入の検出）、classPool の配置と名前の並び（Symbol のキーだけ）と写し、Interval の刻みと終端の比較（NaN）と Integer の `size`、OrderedCollection の組の検査と `at:` の範囲
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき

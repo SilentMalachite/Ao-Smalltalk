@@ -214,9 +214,8 @@ TEST(ImageRegistry, RememberSymbolRegistersWithoutAllocating) {
 TEST(ImageRegistry, KernelThunkFunctionsHaveNames) {
   Boot b;
   for (const char* name :
-       {"ao_Stream_nextPutAll_each", "ao_Collection_collect_fill", "ao_Collection_filter_count",
-        "ao_Collection_filter_fill", "ao_Collection_detect_scan", "ao_Collection_inject_scan",
-        "ao_Collection_includes_scan"}) {
+       {"ao_Stream_nextPutAll_each", "ao_Collection_collect_fill", "ao_Collection_filter_scan",
+        "ao_Collection_detect_scan", "ao_Collection_inject_scan", "ao_Collection_includes_scan"}) {
     std::uint32_t idx = 0;
     EXPECT_TRUE(ao::NativeRegistry::findName(name, &idx)) << name;
   }

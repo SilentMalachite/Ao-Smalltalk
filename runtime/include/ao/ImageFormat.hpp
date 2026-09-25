@@ -10,8 +10,9 @@ namespace ao {
 
 struct ImageFormat {
   // SPEC §3.11: version 1 is the format before B4 (Symbol class names, Kernel instVarNames, the
-  // global dictionary, classPools). It is refused, not repaired.
-  static constexpr std::uint16_t kImageVersion = 2;
+  // global dictionary, classPools); version 2 the one before B9, whose Dictionaries and Sets pack
+  // their pairs from the front instead of hashing them. Both are refused, not repaired.
+  static constexpr std::uint16_t kImageVersion = 3;
   static constexpr std::uint16_t kImageEndianLittle = 1;
   static constexpr std::uint16_t kImagePointerBits = 64;
   static constexpr std::uint16_t kImageHeaderBytes = 48;

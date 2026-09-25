@@ -9,6 +9,7 @@
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -21,6 +22,11 @@ constexpr std::uint32_t kStreamPosition   = 1;
 constexpr std::uint32_t kStreamReadLimit  = 2;
 constexpr std::uint32_t kStreamWriteLimit = 3;
 
+// SPEC §3.6 Kernel-Classes: OrderedCollection's `array firstIndex lastIndex`.
+constexpr std::uint32_t kOcArray = 0;
+constexpr std::uint32_t kOcFirst = 1;
+constexpr std::uint32_t kOcLast = 2;
+
 // receiver はルート済みスロット。メッセージの割り当てで GC が走っても正しい。
 Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
   Oop s = Str::fromUtf8(ctx, msg);
@@ -29,6 +35,10 @@ Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
 
 bool isBytes(const Heap& heap, Oop obj) {
   return obj.isHeap() && (heap.flags(obj) & kFlagBytes) != 0;
+}
+
+const unsigned char* payload(const Heap& heap, Oop bytes) {
+  return reinterpret_cast<const unsigned char*>(heap.header(bytes) + 1);
 }
 
 bool isArray(CallContext& ctx, Oop obj) {
@@ -61,47 +71,23 @@ void noteWrite(Heap& heap, Oop stream, std::int64_t neu) {
   }
 }
 
-std::uint32_t encodeUtf8(char32_t cp, unsigned char out[4]) {
-  if (cp <= 0x7F) {
-    out[0] = static_cast<unsigned char>(cp);
-    return 1;
-  }
-  if (cp <= 0x7FF) {
-    out[0] = static_cast<unsigned char>(0xC0 | (cp >> 6));
-    out[1] = static_cast<unsigned char>(0x80 | (cp & 0x3F));
-    return 2;
-  }
-  if (cp <= 0xFFFF) {
-    if (cp >= 0xD800 && cp <= 0xDFFF) {
-      return 0;
-    }
-    out[0] = static_cast<unsigned char>(0xE0 | (cp >> 12));
-    out[1] = static_cast<unsigned char>(0x80 | ((cp >> 6) & 0x3F));
-    out[2] = static_cast<unsigned char>(0x80 | (cp & 0x3F));
-    return 3;
-  }
-  if (cp <= 0x10FFFF) {
-    out[0] = static_cast<unsigned char>(0xF0 | (cp >> 18));
-    out[1] = static_cast<unsigned char>(0x80 | ((cp >> 12) & 0x3F));
-    out[2] = static_cast<unsigned char>(0x80 | ((cp >> 6) & 0x3F));
-    out[3] = static_cast<unsigned char>(0x80 | (cp & 0x3F));
-    return 4;
-  }
-  return 0;
-}
-
 std::int64_t collectionSize(CallContext& ctx, Root& coll) {
   const Oop n = send(ctx, coll.slot, ctx.wk.selSize, nullptr, 0, nullptr);
   return smiOr(n, 0);
 }
 
-Oop growArray(CallContext& ctx, Root& arr, std::uint32_t minSize) {
-  const std::uint32_t old = arr.slot.isHeap() ? ctx.heap.size(arr.slot) : 0;
-  std::uint32_t neu = old == 0 ? 1u : old * 2u;
-  if (neu < minSize) {
-    neu = minSize;
+// SPEC §3.6: an Array of twice arr's size (at least minSize, at most 2^32 - 1 slots) holding its
+// elements. Past 2^32 - 1 slots nothing is allocated: out of memory. May GC.
+Oop growArray(CallContext& ctx, Root& arr, std::int64_t minSize) {
+  if (minSize > static_cast<std::int64_t>(UINT32_MAX)) {
+    ctx.heap.setOutOfMemory();
+    return Oop{};
   }
-  Oop n = allocateRetry(ctx, ctx.wk.arrayClass, neu, 0);
+  const std::uint32_t old = arr.slot.isHeap() ? ctx.heap.size(arr.slot) : 0;
+  const std::uint64_t doubled = old == 0 ? 1u : std::uint64_t{old} * 2u;
+  const std::uint64_t neu = std::min<std::uint64_t>(
+      std::max<std::uint64_t>(doubled, static_cast<std::uint64_t>(minSize)), UINT32_MAX);
+  Oop n = allocateRetry(ctx, ctx.wk.arrayClass, static_cast<std::uint32_t>(neu), 0);
   if (!n.isHeap()) {
     return Oop{};
   }
@@ -111,14 +97,23 @@ Oop growArray(CallContext& ctx, Root& arr, std::uint32_t minSize) {
   return n;
 }
 
+// SPEC §3.6: str's bytes and cp's UTF-8 in a new String of str's class (String for a Symbol, which
+// is interned and must not grow). A bytes class has no named slots. May GC: str is a Root.
 Oop stringAppendChar(CallContext& ctx, Root& str, char32_t cp) {
   unsigned char enc[4];
-  const auto n = encodeUtf8(cp, enc);
+  const auto n = Str::encodeUtf8(cp, enc);
   if (n == 0 || !isBytes(ctx.heap, str.slot)) {
     return Oop{};
   }
   const auto old = ctx.heap.size(str.slot);
-  Oop neu = allocateRetry(ctx, ctx.wk.stringClass, old + n, kFlagBytes);
+  if (std::uint64_t{old} + n > UINT32_MAX) {
+    ctx.heap.setOutOfMemory();
+    return Oop{};
+  }
+  const Oop cls = ctx.wk.classOf(str.slot);
+  Root answerClass(ctx.roots,
+                   chainIncludes(ctx.heap, cls, ctx.wk.symbolClass) ? ctx.wk.stringClass : cls);
+  Oop neu = allocateRetry(ctx, answerClass.slot, old + n, kFlagBytes);
   if (!neu.isHeap()) {
     return Oop{};
   }
@@ -129,47 +124,287 @@ Oop stringAppendChar(CallContext& ctx, Root& str, char32_t cp) {
   return neu;
 }
 
-Oop copyPrefix(CallContext& ctx, Root& coll, std::int64_t n) {
-  if (n < 0) {
-    n = 0;
+// SPEC §3.6 String への書き込み, case 2: the cheap check before trusting the byte offset the
+// reserve gives. Inside the n bytes, the character at `at` is one byte, and one ends right
+// before it.
+bool reserveOffsetLooksSound(const unsigned char* p, std::uint32_t n, std::int64_t at) {
+  if (at < 0 || at > static_cast<std::int64_t>(n)) {
+    return false;
   }
-  if (isStringy(ctx, coll.slot)) {
-    std::string out;
-    for (std::int64_t i = 1; i <= n; ++i) {
-      const Oop ch = Str::at(ctx.heap, coll.slot, i);
-      if (!ch.isCharacter()) {
-        break;
-      }
-      unsigned char enc[4];
-      const auto k = encodeUtf8(ch.characterValue(), enc);
-      if (k == 0) {
-        break;
-      }
-      out.append(reinterpret_cast<char*>(enc), k);
+  if (at < static_cast<std::int64_t>(n) && p[at] >= 0x80) {
+    return false;
+  }
+  if (at == 0) {
+    return true;
+  }
+  std::int64_t start = at - 1;
+  while (start > 0 && at - start < 4 && (p[start] & 0xC0) == 0x80) {
+    --start;
+  }
+  return start + Str::charBytes(p + start, n - static_cast<std::uint32_t>(start)) == at;
+}
+
+void setWriteLimit(Heap& heap, Oop stream, std::int64_t limit) {
+  if (hasWriteLimit(heap, stream)) {
+    heap.slotAtPut(stream, kStreamWriteLimit, Oop::fromSmallInteger(limit));
+  }
+}
+
+// A new String of coll's class: its bytes before `at`, then enc (w bytes), then `tail` bytes
+// taken from coll at `from`, then `pad` NUL bytes (reserve). Replaces the stream's collection.
+bool replaceString(CallContext& ctx, Root& self, Root& coll, std::uint32_t at,
+                   const unsigned char* enc, std::uint32_t w, std::uint32_t from,
+                   std::uint32_t tail, std::uint64_t pad) {
+  const std::uint64_t size = std::uint64_t{at} + w + tail + pad;
+  if (size > UINT32_MAX) {
+    ctx.heap.setOutOfMemory();
+    return false;
+  }
+  Root cls(ctx.roots, ctx.wk.classOf(coll.slot));
+  const Oop s = allocateRetry(ctx, cls.slot, static_cast<std::uint32_t>(size), kFlagBytes);
+  if (!s.isHeap()) {
+    return false;
+  }
+  auto* out = reinterpret_cast<unsigned char*>(ctx.heap.bytes(s));
+  const unsigned char* in = payload(ctx.heap, coll.slot);
+  std::memcpy(out, in, at);
+  std::memcpy(out + at, enc, w);
+  std::memcpy(out + at + w, in + from, tail);
+  std::memset(out + at + w + tail, 0, static_cast<std::size_t>(pad));
+  coll.slot = s;
+  ctx.heap.slotAtPut(self.slot, kStreamCollection, s);
+  return true;
+}
+
+// SPEC §3.6 String への書き込み: nextPut: of val at position pos (0 <= pos < SmallInteger max) into
+// the stream's String collection, whose class finds the Kernel String>>at:put:. Writes the UTF-8
+// in place when the widths agree or a wide character fits the one-byte reserve; otherwise
+// replaces the collection with a new String (one character replaced, or the bytes up to the
+// position, the character and a doubled reserve).
+Oop stringNextPut(CallContext& ctx, Root& self, Root& coll, Root& val, std::int64_t pos) {
+  unsigned char enc[4];
+  const std::uint32_t w = val.slot.isCharacter() ? Str::encodeUtf8(val.slot.characterValue(), enc)
+                                                 : 0;
+  if (w == 0) {
+    return fail(ctx, self.slot, "nextPut: value out of range");
+  }
+  const std::int64_t readLimit = smiOr(ctx.heap.slotAt(self.slot, kStreamReadLimit), 0);
+  const Oop limitOop =
+      hasWriteLimit(ctx.heap, self.slot) ? ctx.heap.slotAt(self.slot, kStreamWriteLimit) : Oop{};
+  const bool limitKnown = limitOop.isSmallInteger() && limitOop.smallIntegerValue() >= 0;
+  const std::int64_t limit = limitKnown ? limitOop.smallIntegerValue() : 0;
+  // Past readLimit, while writeLimit is the character count, every character is reserve.
+  const bool inReserve = limitKnown && pos >= readLimit;
+  const std::uint32_t total = ctx.heap.size(coll.slot);
+  const unsigned char* p = payload(ctx.heap, coll.slot);
+  std::int64_t at = -1;
+  if (limitKnown && pos <= limit) {
+    if (total == limit) {
+      at = pos;  // every character is one byte
+    } else if (inReserve && limit - pos <= total &&
+               reserveOffsetLooksSound(p, total, total - (limit - pos))) {
+      at = total - (limit - pos);
     }
-    const auto bytes = static_cast<std::uint32_t>(out.size());
-    Oop s = allocateRetry(ctx, ctx.wk.stringClass, bytes, kFlagBytes);
+  }
+  if (at < 0) {
+    at = Str::byteOffsetOfChar(p, total, pos);
+    if (at < 0) {
+      return fail(ctx, self.slot, "nextPut: past end");
+    }
+  }
+  const auto byteAt = static_cast<std::uint32_t>(at);
+  const bool atEnd = byteAt == total;
+  const std::uint32_t old = atEnd ? 0 : Str::charBytes(p + byteAt, total - byteAt);
+  std::int64_t newLimit = limit;
+  if (!atEnd && old == w) {
+    std::memcpy(ctx.heap.bytes(coll.slot) + byteAt, enc, w);
+  } else if (!atEnd && !inReserve) {
+    // Overwrites a written character with one of another width: the count stays.
+    if (!replaceString(ctx, self, coll, byteAt, enc, w, byteAt + old, total - byteAt - old, 0)) {
+      return Oop{};
+    }
+  } else if (!atEnd && std::uint64_t{byteAt} + w <= total &&
+             std::all_of(p + byteAt, p + byteAt + w, [](unsigned char b) { return b < 0x80; })) {
+    // A wide character takes w one-byte reserve characters: w - 1 fewer characters.
+    std::memcpy(ctx.heap.bytes(coll.slot) + byteAt, enc, w);
+    newLimit = limit - (w - 1);
+  } else {
+    // At the end, or the reserve is short: the bytes up to here, the character, a new reserve.
+    const std::uint64_t used = std::uint64_t{byteAt} + w;
+    std::uint64_t capacity = used * 2 < 16 ? 16 : used * 2;
+    capacity = (capacity + 7) & ~std::uint64_t{7};
+    // SPEC §3.6: writeLimit = pos + 1 + reserve stays a SmallInteger (pos < kSmiMax here): a
+    // position written by reflection cuts the reserve instead.
+    const auto room = static_cast<std::uint64_t>(kSmiMax - (pos + 1));
+    const std::uint64_t reserve = std::min(capacity - used, room);
+    if (!replaceString(ctx, self, coll, byteAt, enc, w, 0, 0, reserve)) {
+      return Oop{};
+    }
+    newLimit = pos + 1 + static_cast<std::int64_t>(reserve);
+  }
+  noteWrite(ctx.heap, self.slot, pos + 1);
+  if (limitKnown || newLimit != limit) {
+    setWriteLimit(ctx.heap, self.slot, newLimit < pos + 1 ? pos + 1 : newLimit);
+  }
+  return val.slot;
+}
+
+Oop classFormat(const Heap& heap, Oop cls) {
+  return cls.isHeap() ? heap.slotAt(cls, kClassSlotFormat) : Oop{};
+}
+
+// Sends at: i to coll. Empty Oop when the frames unwind (the send failed or aborted).
+Oop sendAt(CallContext& ctx, Root& coll, std::int64_t i) {
+  Oop idx = Oop::fromSmallInteger(i);
+  const Oop e = send(ctx, coll.slot, ctx.wk.selAt_, &idx, 1, nullptr);
+  return unwinding(ctx) ? Oop{} : e;
+}
+
+// SPEC §3.6: String contents. With the Kernel String>>at:, the first k characters' bytes in one
+// pass; otherwise at: 1..k, each a Character. The class is coll's, or String for a Symbol.
+Oop stringPrefix(CallContext& ctx, Root& self, Root& coll, std::int64_t k) {
+  const Oop cls = ctx.wk.classOf(coll.slot);
+  Root answerClass(ctx.roots, chainIncludes(ctx.heap, cls, ctx.wk.symbolClass) ? ctx.wk.stringClass
+                                                                                 : cls);
+  if (isBytes(ctx.heap, coll.slot) && findsNative(ctx, cls, ctx.wk.selAt_, ao_String_at_)) {
+    const std::int64_t n =
+        Str::byteOffsetOfChar(payload(ctx.heap, coll.slot), ctx.heap.size(coll.slot), k);
+    if (n < 0) {
+      return fail(ctx, self.slot, "at: index out of range");
+    }
+    const Oop s = allocateRetry(ctx, answerClass.slot, static_cast<std::uint32_t>(n), kFlagBytes);
     if (!s.isHeap()) {
       return Oop{};
     }
-    if (bytes != 0) {
-      std::memcpy(ctx.heap.bytes(s), out.data(), bytes);
+    if (n != 0) {
+      std::memcpy(ctx.heap.bytes(s), payload(ctx.heap, coll.slot), static_cast<std::size_t>(n));
     }
     return s;
   }
-  const auto un = static_cast<std::uint32_t>(n);
-  Oop a = allocateRetry(ctx, ctx.wk.arrayClass, un, 0);
-  if (!a.isHeap()) {
+  std::string out;
+  for (std::int64_t i = 1; i <= k; ++i) {
+    const Oop e = sendAt(ctx, coll, i);
+    if (e.isEmpty()) {
+      return Oop{};
+    }
+    unsigned char enc[4];
+    const std::uint32_t w = e.isCharacter() ? Str::encodeUtf8(e.characterValue(), enc) : 0;
+    if (w == 0 || out.size() + w > UINT32_MAX) {
+      return fail(ctx, self.slot, "contents: element out of range");
+    }
+    out.append(reinterpret_cast<const char*>(enc), w);
+  }
+  const auto n = static_cast<std::uint32_t>(out.size());
+  const Oop s = allocateRetry(ctx, answerClass.slot, n, kFlagBytes);
+  if (s.isHeap() && n != 0) {
+    std::memcpy(ctx.heap.bytes(s), out.data(), n);
+  }
+  return s;
+}
+
+// at: 1..k of coll into the indexable part of answer (its first index after inst named slots, or
+// its bytes). A byte must be a SmallInteger from 0 to 255.
+Oop fillFromAt(CallContext& ctx, Root& self, Root& coll, Root& answer, std::int64_t k,
+               std::int64_t inst, bool bytes) {
+  for (std::int64_t i = 1; i <= k; ++i) {
+    const Oop e = sendAt(ctx, coll, i);
+    if (e.isEmpty()) {
+      return Oop{};
+    }
+    const auto at = static_cast<std::uint32_t>(inst + i - 1);
+    if (!bytes) {
+      ctx.heap.slotAtPut(answer.slot, at, e);
+      continue;
+    }
+    if (!e.isSmallInteger() || e.smallIntegerValue() < 0 || e.smallIntegerValue() > 255) {
+      return fail(ctx, self.slot, "contents: element out of range");
+    }
+    ctx.heap.bytes(answer.slot)[at] =
+        static_cast<std::byte>(static_cast<unsigned char>(e.smallIntegerValue()));
+  }
+  return answer.slot;
+}
+
+// SPEC §3.6: when coll's class finds a Kernel at: that is known to fail at k (ArrayedCollection>>at:
+// past the indexable part, OrderedCollection>>at: past its size), fails as that at: would, before
+// anything is allocated for k elements. True after failing.
+bool refuseBeyondNativeAt(CallContext& ctx, Root& self, Root& coll, Root& cls, std::int64_t k) {
+  if (k <= 0) {
+    return false;
+  }
+  if (findsNative(ctx, cls.slot, ctx.wk.selAt_, ao_ArrayedCollection_at_)) {
+    // basicAt:'s range: the bytes, or the slots after the class's instSize.
+    const Oop fmt = classFormat(ctx.heap, cls.slot);
+    std::int64_t count = 0;
+    if (coll.slot.isHeap() && Format::isIndexable(fmt)) {
+      const auto n = static_cast<std::int64_t>(ctx.heap.size(coll.slot));
+      count = Format::isBytes(fmt) ? n : std::max<std::int64_t>(0, n - Format::instSize(fmt));
+    }
+    if (k > count) {
+      fail(ctx, self.slot, "basicAt: index out of range");
+      return true;
+    }
+    return false;
+  }
+  if (findsNative(ctx, cls.slot, ctx.wk.selAt_, ao_OrderedCollection_at_)) {
+    const Oop n = ao_OrderedCollection_size(ctx, coll.slot, nullptr, 0);
+    if (n.isEmpty()) {
+      return true;  // a damaged OrderedCollection: size has failed as at: would
+    }
+    if (n.isSmallInteger() && k > n.smallIntegerValue()) {
+      fail(ctx, self.slot, "at: index out of range");
+      return true;
+    }
+  }
+  return false;
+}
+
+// SPEC §3.6: the first k elements of the stream's collection, taken with at:, in a new collection
+// of its kind: a String (String for a Symbol); the same class for an indexable ArrayedCollection
+// (instSize named slots left nil); an OrderedCollection; otherwise an Array. self is the stream.
+Oop copyPrefix(CallContext& ctx, Root& self, Root& coll, std::int64_t k) {
+  if (k < 0) {
+    k = 0;
+  }
+  if (isStringy(ctx, coll.slot)) {
+    return stringPrefix(ctx, self, coll, k);
+  }
+  Root cls(ctx.roots, ctx.wk.classOf(coll.slot));
+  const Oop fmt = classFormat(ctx.heap, cls.slot);
+  const bool arrayed = chainIncludes(ctx.heap, cls.slot, ctx.wk.arrayedCollectionClass) &&
+                       Format::isIndexable(fmt);
+  const std::int64_t inst = arrayed && !Format::isBytes(fmt) ? Format::instSize(fmt) : 0;
+  if (refuseBeyondNativeAt(ctx, self, coll, cls, k)) {
     return Oop{};
   }
-  Root dst(ctx.roots, a);
-  const std::uint32_t avail =
-      coll.slot.isHeap() && !isBytes(ctx.heap, coll.slot) ? ctx.heap.size(coll.slot) : 0;
-  const std::uint32_t copyN = un < avail ? un : avail;
-  for (std::uint32_t i = 0; i < copyN; ++i) {
-    ctx.heap.slotAtPut(dst.slot, i, ctx.heap.slotAt(coll.slot, i));
+  if (k > static_cast<std::int64_t>(UINT32_MAX) - inst) {
+    ctx.heap.setOutOfMemory();
+    return Oop{};
   }
-  return dst.slot;
+  if (arrayed) {
+    const bool bytes = Format::isBytes(fmt);
+    Root answer(ctx.roots, allocateRetry(ctx, cls.slot, static_cast<std::uint32_t>(inst + k),
+                                         bytes ? kFlagBytes : 0));
+    if (!answer.slot.isHeap()) {
+      return Oop{};
+    }
+    return fillFromAt(ctx, self, coll, answer, k, inst, bytes);
+  }
+  Root arr(ctx.roots, allocateRetry(ctx, ctx.wk.arrayClass, static_cast<std::uint32_t>(k), 0));
+  if (!arr.slot.isHeap() || fillFromAt(ctx, self, coll, arr, k, 0, false).isEmpty()) {
+    return Oop{};
+  }
+  if (!chainIncludes(ctx.heap, cls.slot, ctx.wk.orderedCollectionClass)) {
+    return arr.slot;
+  }
+  const Oop oc = allocateInstance(ctx, ctx.wk.orderedCollectionClass, 3);
+  if (!oc.isHeap()) {
+    return Oop{};
+  }
+  ctx.heap.slotAtPut(oc, kOcArray, arr.slot);
+  ctx.heap.slotAtPut(oc, kOcFirst, Oop::fromSmallInteger(1));
+  ctx.heap.slotAtPut(oc, kOcLast, Oop::fromSmallInteger(k));
+  return oc;
 }
 
 // SPEC §3.6: a global's name is a Symbol or a String. False when key is neither.
@@ -313,8 +548,11 @@ Oop ao_PositionableStream_next(CallContext& ctx, const Oop& receiver, const Oop*
   return send(ctx, coll.slot, ctx.wk.selAt_, &idx, 1, nullptr);
 }
 
-Oop ao_PositionableStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
-                                   std::uint32_t argc) {
+// SPEC §3.6: writes the position + 1st element, then advances position and raises readLimit. A
+// String whose class finds the Kernel String>>at:put: is written as UTF-8 (stringNextPut); an Array
+// grows by doubling; anything else gets at:put:.
+Oop ao_WriteStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                            std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
@@ -329,6 +567,15 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, const Oop& receiver, const 
   if (pos >= kSmiMax) {
     return fail(ctx, self.slot, "nextPut: position out of range");
   }
+  // SPEC §3.6: the UTF-8 writes stand in for at:put: and size, so both must be the Kernel String's.
+  if (isBytes(ctx.heap, coll.slot) &&
+      findsNative(ctx, ctx.wk.classOf(coll.slot), ctx.wk.selAt_put_, ao_String_at_put_) &&
+      findsNative(ctx, ctx.wk.classOf(coll.slot), ctx.wk.selSize, ao_String_size)) {
+    if (pos < 0) {
+      return fail(ctx, self.slot, "nextPut: position out of range");
+    }
+    return stringNextPut(ctx, self, coll, val, pos);
+  }
   const auto neu = pos + 1;
   const auto n = collectionSize(ctx, coll);
   if (unwinding(ctx)) {
@@ -336,7 +583,7 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, const Oop& receiver, const 
   }
   if (neu > n) {
     if (isArray(ctx, coll.slot)) {
-      coll.slot = growArray(ctx, coll, static_cast<std::uint32_t>(neu));
+      coll.slot = growArray(ctx, coll, neu);
       if (!coll.slot.isHeap()) {
         return Oop{};
       }
@@ -346,10 +593,12 @@ Oop ao_PositionableStream_nextPut_(CallContext& ctx, const Oop& receiver, const 
                            Oop::fromSmallInteger(static_cast<std::int64_t>(ctx.heap.size(coll.slot))));
       }
     } else if (isStringy(ctx, coll.slot) && val.slot.isCharacter() && neu == n + 1) {
-      coll.slot = stringAppendChar(ctx, coll, val.slot.characterValue());
-      if (!coll.slot.isHeap()) {
-        return fail(ctx, self.slot, "nextPut: value out of range");
+      const Oop grown = stringAppendChar(ctx, coll, val.slot.characterValue());
+      if (!grown.isHeap()) {
+        // No room is out of memory (the empty Oop says so); otherwise no UTF-8 for the value.
+        return ctx.heap.outOfMemory() ? Oop{} : fail(ctx, self.slot, "nextPut: value out of range");
       }
+      coll.slot = grown;
       ctx.heap.slotAtPut(self.slot, kStreamCollection, coll.slot);
       noteWrite(ctx.heap, self.slot, neu);
       return val.slot;
@@ -374,6 +623,8 @@ Oop ao_PositionableStream_position(CallContext& ctx, const Oop& receiver, const 
   return ctx.heap.slotAt(receiver, kStreamPosition);
 }
 
+// SPEC §3.6: clamps to [0, max(readLimit, position)], never into the reserve a stream-made String
+// or a doubled Array carries past readLimit (Squeak's WriteStream>>position:).
 Oop ao_PositionableStream_position_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                     std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
@@ -386,9 +637,8 @@ Oop ao_PositionableStream_position_(CallContext& ctx, const Oop& receiver, const
   if (v < 0) {
     v = 0;
   }
-  const auto limit = hasWriteLimit(ctx.heap, receiver)
-                         ? smiOr(ctx.heap.slotAt(receiver, kStreamWriteLimit), 0)
-                         : smiOr(ctx.heap.slotAt(receiver, kStreamReadLimit), 0);
+  const auto limit = std::max(smiOr(ctx.heap.slotAt(receiver, kStreamReadLimit), 0),
+                              smiOr(ctx.heap.slotAt(receiver, kStreamPosition), 0));
   if (v > limit) {
     v = limit;
   }
@@ -413,7 +663,7 @@ Oop ao_PositionableStream_contents(CallContext& ctx, const Oop& receiver, const 
   Root self(ctx.roots, receiver);
   Root coll(ctx.roots, ctx.heap.slotAt(self.slot, kStreamCollection));
   const auto n = smiOr(ctx.heap.slotAt(self.slot, kStreamReadLimit), 0);
-  return copyPrefix(ctx, coll, n);
+  return copyPrefix(ctx, self, coll, n);
 }
 
 Oop ao_WriteStream_contents(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
@@ -423,7 +673,29 @@ Oop ao_WriteStream_contents(CallContext& ctx, const Oop& receiver, const Oop*, s
   Root self(ctx.roots, receiver);
   Root coll(ctx.roots, ctx.heap.slotAt(self.slot, kStreamCollection));
   const auto n = smiOr(ctx.heap.slotAt(self.slot, kStreamPosition), 0);
-  return copyPrefix(ctx, coll, n);
+  return copyPrefix(ctx, self, coll, n);
+}
+
+// SPEC §3.6: up to the larger of readLimit and position (Blue Book), so a reset stream still
+// answers what was written.
+Oop ao_ReadWriteStream_contents(CallContext& ctx, const Oop& receiver, const Oop*,
+                                std::uint32_t argc) {
+  if (argc != 0 || !receiver.isHeap()) {
+    return Oop{};
+  }
+  Root self(ctx.roots, receiver);
+  Root coll(ctx.roots, ctx.heap.slotAt(self.slot, kStreamCollection));
+  const auto read = smiOr(ctx.heap.slotAt(self.slot, kStreamReadLimit), 0);
+  const auto pos = smiOr(ctx.heap.slotAt(self.slot, kStreamPosition), 0);
+  return copyPrefix(ctx, self, coll, read > pos ? read : pos);
+}
+
+// SPEC §3.6: a ReadStream does not write its collection.
+Oop ao_ReadStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
 }
 
 Oop ao_Transcript_nextPut_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
@@ -583,8 +855,6 @@ void installStream(Heap& heap, WellKnown& wk) {
             ao_PositionableStream_on_);
   putNative(heap, wk, wk.positionableStreamClass, "next", 0, "ao_PositionableStream_next",
             ao_PositionableStream_next);
-  putNative(heap, wk, wk.positionableStreamClass, "nextPut:", 1, "ao_PositionableStream_nextPut_",
-            ao_PositionableStream_nextPut_);
   putNative(heap, wk, wk.positionableStreamClass, "position", 0, "ao_PositionableStream_position",
             ao_PositionableStream_position);
   putNative(heap, wk, wk.positionableStreamClass, "position:", 1, "ao_PositionableStream_position_",
@@ -594,8 +864,15 @@ void installStream(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.positionableStreamClass, "contents", 0, "ao_PositionableStream_contents",
             ao_PositionableStream_contents);
 
+  // SPEC §3.6: nextPut: is WriteStream's (ReadWriteStream inherits it); a ReadStream refuses it.
+  putNative(heap, wk, wk.readStreamClass, "nextPut:", 1, "ao_ReadStream_nextPut_",
+            ao_ReadStream_nextPut_);
+  putNative(heap, wk, wk.writeStreamClass, "nextPut:", 1, "ao_WriteStream_nextPut_",
+            ao_WriteStream_nextPut_);
   putNative(heap, wk, wk.writeStreamClass, "contents", 0, "ao_WriteStream_contents",
             ao_WriteStream_contents);
+  putNative(heap, wk, wk.readWriteStreamClass, "contents", 0, "ao_ReadWriteStream_contents",
+            ao_ReadWriteStream_contents);
 
   putNative(heap, wk, wk.transcriptClass, "nextPut:", 1, "ao_Transcript_nextPut_",
             ao_Transcript_nextPut_);

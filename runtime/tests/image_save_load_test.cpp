@@ -832,12 +832,23 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
   std::vector<char> bytes = readAll(path);
   ASSERT_GT(bytes.size(), 6u);
-  EXPECT_EQ(2, bytes[4]);
+  EXPECT_EQ(3, bytes[4]);
   EXPECT_EQ(0, bytes[5]);
   {
     Loaded current;
     std::string reason = "unchanged";
     ASSERT_TRUE(ao::Image::load(current.heap, current.roots, current.wk, path.string(), &reason));
+  }
+  // B9 / SPEC §3.11: version 2 has the flat Dictionary and Set pairs the hashed natives cannot
+  // read, so it is refused at the header like version 1.
+  bytes[4] = 2;
+  ASSERT_TRUE(writeAll(path, bytes));
+  {
+    Loaded old;
+    std::string reason;
+    EXPECT_FALSE(ao::Image::load(old.heap, old.roots, old.wk, path.string(), &reason));
+    EXPECT_EQ("unsupported image version 2", reason);
+    EXPECT_EQ(0u, old.heap.oldUsed());
   }
   bytes[4] = 1;
   ASSERT_TRUE(writeAll(path, bytes));
@@ -872,6 +883,10 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ASSERT_EQ(AO_OK, ao_eval("b4keep + 1", 10, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
   EXPECT_STREQ("42", out);
   bytes[4] = 2;
+  ASSERT_TRUE(writeAll(path, bytes));
+  EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str(), &err));
+  EXPECT_STREQ("unsupported image version 2", err.message);
+  bytes[4] = 3;
   ASSERT_TRUE(writeAll(path, bytes));
   EXPECT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err));
   EXPECT_STREQ("", err.message);
@@ -1667,10 +1682,9 @@ TEST(ImageRegistry, KernelThunksCarryTheNameOfTheirFunction) {
     EXPECT_EQ(index.smallIntegerValue(), static_cast<std::int64_t>(found)) << name;
     names.insert(name);
   }
-  EXPECT_EQ((std::set<std::string>{"ao_Collection_collect_fill", "ao_Collection_filter_count",
-                                   "ao_Collection_filter_fill", "ao_Collection_detect_scan",
-                                   "ao_Collection_inject_scan", "ao_Collection_includes_scan",
-                                   "ao_Stream_nextPutAll_each"}),
+  EXPECT_EQ((std::set<std::string>{"ao_Collection_collect_fill", "ao_Collection_filter_scan",
+                                   "ao_Collection_detect_scan", "ao_Collection_inject_scan",
+                                   "ao_Collection_includes_scan", "ao_Stream_nextPutAll_each"}),
             names);
 }
 
@@ -1707,16 +1721,30 @@ TEST(ImageSaveLoad, EscapedCollectionThunksRunAfterSaveAndLoad) {
     ASSERT_EQ(AO_OK, eval(send)) << send << ": " << err.message;
   }
   ASSERT_EQ(AO_OK, eval("(B6Keeper kept select: [:e | e notNil]) size")) << err.message;
-  EXPECT_STREQ("9", out);  // select: and reject: pass two thunks each.
+  EXPECT_STREQ("7", out);  // one thunk each (SPEC §3.6: select: and reject: send do: once).
 
   ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
   ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
-  for (int i = 1; i <= 9; ++i) {
+  for (int i = 1; i <= 7; ++i) {
     const int rc = eval("(B6Keeper kept at: " + std::to_string(i) + ") value: 5");
     EXPECT_TRUE(rc == AO_OK || rc == AO_ERR_EVAL) << i << ": " << rc;
   }
-  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 7) value: 5")) << err.message;  // inject:into:
+  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 5) value: 5")) << err.message;  // inject:into:
   EXPECT_STREQ("13", out);  // 3, then 8 above, then 13
+  // B9: the select: and reject: thunks keep their buffer (slot 7) and count (slot 2) across the
+  // image: select: kept 2 before the save and 5 above, reject: kept 1 before the save.
+  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 2) value: 7. (B6Keeper kept at: 2) instVarAt: 2"))
+      << err.message;
+  EXPECT_STREQ("3", out);
+  ASSERT_EQ(AO_OK, eval("| t | t := B6Keeper kept at: 2. ((t instVarAt: 7) at: 1) * 100 + "
+                        "(((t instVarAt: 7) at: 2) * 10) + ((t instVarAt: 7) at: 3)"))
+      << err.message;
+  EXPECT_STREQ("257", out);
+  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 3) value: 0. (B6Keeper kept at: 3) instVarAt: 2"))
+      << err.message;
+  EXPECT_STREQ("2", out);
+  ASSERT_EQ(AO_OK, eval("((B6Keeper kept at: 3) instVarAt: 7) at: 2")) << err.message;
+  EXPECT_STREQ("0", out);
   ASSERT_EQ(AO_OK, eval("1 + 2")) << err.message;
   EXPECT_STREQ("3", out);
   ao_runtime_shutdown();
