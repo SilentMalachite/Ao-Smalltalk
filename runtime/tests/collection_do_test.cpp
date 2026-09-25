@@ -647,33 +647,55 @@ TEST(CollectionDo, SelectGrowsItsBufferWithFullNursery) {
   }
 }
 
-// B8 レビュー / SPEC §3.6: includes: は hash の答えを捨てていた。答えが Integer でなければ失敗し、
-// hash が中断すればその理由のまま中断する。
-TEST(CollectionDo, IncludesFailsWhenHashAnswersNoInteger) {
+// B9 review (Medium) / B8 レビュー: Collection>>includes: は hash を送って答えを捨て、`要素 = anObject`
+// を送っていた。SPEC §3.6: Dictionary>>includes: と同じく `anObject = 要素`（Blue Book）を送り、同一の
+// 要素には送らずに true、`=` の答えが Boolean でなければ失敗し、hash は送らない。
+TEST(CollectionDo, IncludesSendsEqualsToTheArgumentAndNoHash) {
   Boot b;
   std::vector<ao::compiler::CompileError> errs;
   ASSERT_TRUE(ao::fileInString(b.ctx,
-                               "!Object subclass: #B9OddHash\n"
+                               "!Object subclass: #B9Needle\n"
                                "  instanceVariableNames: 'answer'\n"
                                "  classVariableNames: ''\n"
                                "  poolDictionaries: ''\n"
                                "  category: 'B9-Test'!\n"
-                               "!B9OddHash methodsFor: 'comparing'!\n"
+                               "!B9Needle methodsFor: 'comparing'!\n"
                                "answer: x\n"
                                "  answer := x!\n"
                                "hash\n"
+                               "  Smalltalk at: #B9Hashes put: (Smalltalk at: #B9Hashes) + 1.\n"
+                               "  ^self error: 'hash sent'!\n"
+                               "= other\n"
+                               "  Smalltalk at: #B9Equals put: (Smalltalk at: #B9Equals) + 1.\n"
                                "  answer == #boom ifTrue: [^self error: 'boom'].\n"
                                "  ^answer! !\n",
                                errs))
       << (errs.empty() ? "" : errs[0].message);
+  const std::string reset = "Smalltalk at: #B9Hashes put: 0. Smalltalk at: #B9Equals put: 0.\n";
+  // = goes to the argument: an element never answers true for 1 = aNeedle, the needle does.
+  EXPECT_EQ("true", printOf(b, reset + "^#(1 2) includes: (B9Needle new answer: true)"));
+  EXPECT_EQ("1", printOf(b, "^Smalltalk at: #B9Equals"));
+  EXPECT_EQ("false", printOf(b, reset + "^#(1 2) includes: (B9Needle new answer: false)"));
+  EXPECT_EQ("2", printOf(b, "^Smalltalk at: #B9Equals"));
+  EXPECT_EQ("0", printOf(b, "^Smalltalk at: #B9Hashes"));
+  // A non-Boolean answer fails; an abort in = keeps its reason.
   EXPECT_EQ("<abort: failed: #includes:>",
-            printOf(b, "^#(1 2) includes: (B9OddHash new answer: nil)"));
+            printOf(b, "^#(1 2) includes: (B9Needle new answer: nil)"));
   EXPECT_EQ("<abort: failed: #includes:>",
-            printOf(b, "^#(1 2) includes: (B9OddHash new answer: 1.5)"));
-  EXPECT_EQ("<abort: boom>", printOf(b, "^#(1 2) includes: (B9OddHash new answer: #boom)"));
-  EXPECT_EQ("false", printOf(b, "^#(1 2) includes: (B9OddHash new answer: 7)"));
-  EXPECT_EQ("false",
-            printOf(b, "^#(1 2) includes: (B9OddHash new answer: 1000000000000000000000)"));
+            printOf(b, "^#(1 2) includes: (B9Needle new answer: 3)"));
+  EXPECT_EQ("<abort: boom>", printOf(b, "^#(1 2) includes: (B9Needle new answer: #boom)"));
+  // An identical element is found without a send; an empty collection sends nothing.
+  EXPECT_EQ("true", printOf(b, "| n a | " + reset + "n := B9Needle new answer: #boom. "
+                                "a := Array new: 2. a at: 1 put: n. ^a includes: n"));
+  EXPECT_EQ("0", printOf(b, "^Smalltalk at: #B9Equals"));
+  EXPECT_EQ("false", printOf(b, reset + "^(Array new: 0) includes: (B9Needle new answer: #boom)"));
+  EXPECT_EQ("0", printOf(b, "^(Smalltalk at: #B9Equals) + (Smalltalk at: #B9Hashes)"));
+  // The same through do: of other collections.
+  EXPECT_EQ("true", printOf(b, "^(OrderedCollection new add: 1; add: 2; yourself) includes: 2"));
+  EXPECT_EQ("true", printOf(b, "^(Interval from: 1 to: 5 by: 1) includes: 3"));
+  EXPECT_EQ("false", printOf(b, "^'abc' includes: $z"));
+  EXPECT_EQ("true", printOf(b, "^'abc' includes: $b"));
+  EXPECT_EQ("true", printOf(b, "^#(1 2) includes: (B9Needle new answer: true)"));
   EXPECT_EQ("true", printOf(b, "^#(1 2) includes: 2"));
 }
 

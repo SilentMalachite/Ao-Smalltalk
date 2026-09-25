@@ -183,6 +183,9 @@ Oop ao_Collection_inject_scan(CallContext& ctx, const Oop& receiver, const Oop* 
   return next.slot;
 }
 
+// SPEC §3.6: the thunk includes: passes to do:. Until found (kCtxPc true), an element identical to
+// the argument (kBlockHome) is found without a send; otherwise `argument = element` (kCtxSender
+// holds =) must answer a Boolean, or includes: fails.
 Oop ao_Collection_includes_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
                                 std::uint32_t argc) {
   if (argc != 1) {
@@ -194,10 +197,17 @@ Oop ao_Collection_includes_scan(CallContext& ctx, const Oop& receiver, const Oop
   }
   Root elt(ctx.roots, args[0]);
   Root needle(ctx.roots, ctx.heap.slotAt(self.slot, kBlockHome));
+  if (needle.slot == elt.slot) {
+    ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::true_());
+    return Oop::true_();
+  }
   const Oop sel = ctx.heap.slotAt(self.slot, kCtxSender);
-  const Oop eq = send(ctx, elt.slot, sel, &needle.slot, 1, nullptr);
+  const Oop eq = send(ctx, needle.slot, sel, &elt.slot, 1, nullptr);
   if (unwinding(ctx)) {
     return Oop{};
+  }
+  if (!eq.isTrue() && !eq.isFalse()) {
+    return abortFailedSend(ctx, ctx.wk.intern("includes:"));
   }
   if (eq.isTrue()) {
     ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::true_());
@@ -367,11 +377,8 @@ Oop ao_Collection_includes_(CallContext& ctx, const Oop& receiver, const Oop* ar
   }
   Root rcvr(ctx.roots, receiver);
   Root needle(ctx.roots, args[0]);
-  // SPEC §3.6: hash is sent once, as Dictionary and Set send it; a non-Integer answer fails.
-  std::int64_t ignored = 0;
-  if (!sendHash(ctx, needle.slot, &ignored)) {
-    return Oop{};
-  }
+  // SPEC §3.6: `anObject = element` through do: (Blue Book), as Dictionary>>includes: compares
+  // values. No hash is sent.
   Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_includes_scan, 1));
   if (!thunk.slot.isHeap()) {
     return Oop::false_();
