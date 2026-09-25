@@ -860,6 +860,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - フォントは可変幅可。等幅設定を用意する。
 - 起動時に 1 枚開く。閉じてもオブジェクトは生き、再表示できる。
 - 出力は差分で足し、全文を置き換えない。末尾へのスクロールは、評価のあとで 1 回だけ行う。
+- 文字はシステムの文字色（`NSColor.textColor`）で描き、ダークモードでも読めるようにする。等幅の設定を切り替えても色は変わらない。
 
 #### Workspace
 
@@ -1274,7 +1275,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
-- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）。評価結果（§3.10）: `out` を超える Print it の全体と、副作用が 1 回であること（`EvalResultLengthGivesWholePrintStringPastOut`）、NUL を含む結果（`EvalResultCopyKeepsNulBytes`）、切り詰めと `AO_ERR` の規則（`EvalResultCopyCutsLikeOtherBuffers`）、Do it と失敗のあとの空文字（`EvalResultEmptyAfterDoItAndFailures`）、shutdown・boot・ロードとの関係（`EvalResultFollowsSessionLifetime`）、busy の間の読み出しと、拒まれた評価が結果に触れないこと（`EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`）、inspect フックの `print_len`（`InspectHookGetsPrintLengthWithNul`）
+- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）。評価結果（§3.10）: `out` を超える Print it の全体と、副作用が 1 回であること（`EvalResultLengthGivesWholePrintStringPastOut`）、NUL を含む結果（`EvalResultCopyKeepsNulBytes`）、切り詰めと `AO_ERR` の規則（`EvalResultCopyCutsLikeOtherBuffers`）、Do it と失敗のあとの空文字（`EvalResultEmptyAfterDoItAndFailures`）、shutdown・boot・ロードとの関係（`EvalResultFollowsSessionLifetime`）、busy の間の読み出しと、拒まれた評価が結果に触れないこと（`EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`）、`ao_accept_class` の送信から呼ばれたフックでも、前の評価の結果 `42` が読め、拒まれた評価のあとも残ること（`KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt`）、inspect フックの `print_len`（`InspectHookGetsPrintLengthWithNul`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
 - `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる
@@ -1296,7 +1297,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - Workspace の結果（§3.9、§3.10）: 64 KiB を超える Print it の全体の挿入と、副作用が 1 回であること（`testPrintItInsertsWholeResultPast64KiBAndRunsOnce`）、NUL を含む結果の挿入（`testPrintItInsertsResultWithNulBytes`）、NUL を含む Inspect it で窓が 1 枚で全文が出ること（`testInspectItWithNulOpensOneInspectorWithWholeText`）
 - Inspector: 閉じた窓を捨て、次の Inspect it が新しい窓を開いて前面に出す（`testClosedInspectorIsDroppedAndNextInspectItOpensNewWindow`）
 - 日本語とエラーの区間（§3.8、§3.9）: 日本語と絵文字の選択のあとの Print it の挿入位置（`testPrintItAfterJapaneseAndEmojiSelectionInsertsRightAfterIt`）、UTF-8 の区間から UTF-16 への換算（`testUtf8SpanMapsToUtf16AcrossEmojiAndRoundsInsideScalar`）、コンパイルエラーの区間の選択（`testCompileErrorSelectsSpanAfterJapaneseWithoutChangingText`）、Accept の失敗の区間の選択（`testFailedAcceptSelectsErrorSpanAfterJapaneseComment`）
-- Transcript: 2 万行の出力が 10 秒以内に終わり、末尾が見える（`testTwentyThousandTranscriptLinesFinishWithinTenSecondsAndShowTheEnd`）
+- Transcript: 2 万行の出力が 10 秒以内に終わり、末尾が見える（`testTwentyThousandTranscriptLinesFinishWithinTenSecondsAndShowTheEnd`）、足した文字がシステムの文字色と今のフォントを持ち、等幅を切り替えても色が残る（`testTranscriptTextUsesSystemTextColorAfterAppendAndFixedPitchToggle`）
 - 起動と同梱（§3.9）: vendor の場所の選び方（`testVendorDirectoryPrefersEnvironmentOverBundleResources`）、読み込んだ行とクラス（`testVendorFileInWritesLoadedLineAndDefinesTimespan`）、見つからない行（`testMissingVendorWritesNotFoundLine`）
 - Tools メニュー: Tools → Browser で System Browser が開く（`testToolsBrowserMenuItemOpensSystemBrowser`）
 - ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
@@ -1304,11 +1305,11 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 `scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。
 
 1. 通常の ctest と swift test を回す。
-2. `scripts/package-app.sh` で `build/Ao.app` を作る。
+2. `build/Ao.app` が既に動いていれば、止めずに exit 1 で終わる。次の手順でバンドルを作り直すからである。動いていなければ、`scripts/package-app.sh` で `build/Ao.app` を作る。
 3. `codesign --verify --strict build/Ao.app` が通ることを確かめる。
-4. `open -n -g --stderr <一時ファイル> build/Ao.app` で起動する。`open` はシェルの環境を渡さないので、バンドルの vendor の経路を確かめられる。
+4. `open -n -g --env AO_VENDOR_DIR= --stderr <一時ファイル> build/Ao.app` で起動する。`open` で起動したアプリは環境変数を継承するので、`--env AO_VENDOR_DIR=` で変数を空にする。空の `AO_VENDOR_DIR` は無視されるので、開発環境で変数を設定していても、バンドルの `Contents/Resources/vendor` を確かめられる。
 5. 30 秒以内に標準エラーに `ao: vendor loaded: <root>/build/Ao.app/Contents/Resources/vendor` が出れば成功とする。
-6. 起動したプロセスを止める。
+6. 起動したプロセスを止める。止めるのは、`open` のあとに見つけたこのアプリのプロセスだけである。
 
 ### 4.4 ゴールデン評価（P6 以降常時）
 
