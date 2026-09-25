@@ -43,11 +43,16 @@ struct ClassMethodCache {
 void invalidateMethodCache(ClassMethodCache* cache, Oop selector);
 
 struct CallContext;
+class Scheduler;
 
 using HostOopHook = void (*)(CallContext& ctx, Oop value);
 // Finds or makes the workspace binding (an Association) for name; empty Oop on failure.
 using BindingHook = Oop (*)(CallContext& ctx, std::string_view name);
 
+// One per process (SPEC §3.4): the base process runs on the session's, each fiber on its own. A
+// fiber's copies the heap, roots, wk, cache, scheduler and hooks from the base; keeps its own
+// unwinding state, depth, stack guard and hashNesting; and folds its counters (interpreted*,
+// testFailures) into the base's when it is left.
 struct CallContext {
   Heap& heap;
   Roots& roots;
@@ -73,15 +78,23 @@ struct CallContext {
   bool aborting = false;
   const char* abortReason = nullptr;
   std::uint32_t abortReasonHandle = kNoAbortReasonHandle;
-  // Stack guard (SPEC §3.4) of the thread that last applied a method: a method may be applied
-  // at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them, and
-  // every outermost entry refreshes them too (a new thread may reuse an old thread's stack).
+  // Stack guard (SPEC §3.4) of the thread (or fiber) that last applied a method: a method may be
+  // applied at a frame address in [stackLimit, stackHigh]. Outside it, applyMethod refreshes them,
+  // and every outermost entry refreshes them too (a new thread may reuse an old thread's stack).
   // While an ensure: cleanup runs (cleanupDepth > 0) the lower stackCleanupLimit applies, so a
   // cleanup still runs during a stack overflow abort.
   std::uintptr_t stackLimit = 0;
   std::uintptr_t stackHigh = 0;
   std::uintptr_t stackCleanupLimit = 0;
   std::uint32_t cleanupDepth = 0;
+  // The stack a fiber runs this context on, [fiberStackLow, fiberStackHigh). Both 0: the thread's
+  // own stack. refreshStackLimit takes the guard from it.
+  std::uintptr_t fiberStackLow = 0;
+  std::uintptr_t fiberStackHigh = 0;
+  // Interpreter::run activations on this context's stack. 0 at an outermost entry (SPEC §3.4).
+  int depth = 0;
+  // The session's cooperative scheduler (SPEC §3.4). Null outside one.
+  Scheduler* scheduler = nullptr;
   // Boxes LitKind::Binding literals (SPEC §3.10). Null outside a session: such literals fail.
   BindingHook bindingHook = nullptr;
   // SPEC §3.6 = と hash: how many Array and Point hash natives are sending hash to their elements

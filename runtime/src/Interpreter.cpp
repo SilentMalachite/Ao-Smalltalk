@@ -217,8 +217,6 @@ struct DepthGuard {
   DepthGuard& operator=(const DepthGuard&) = delete;
 };
 
-thread_local int gInterpreterDepth = 0;
-
 struct Leave {
   bool leave = false;
   Oop value{};
@@ -498,7 +496,7 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
   for (std::uint32_t i = 0; i < argc; ++i) {
     argHold.ptr()[i] = args[i];
   }
-  DepthGuard depth(gInterpreterDepth);
+  DepthGuard depth(ctx.depth);
   if (depth.outermost) {
     // The stack range may belong to an earlier thread whose stack this one now reuses.
     refreshStackLimit(ctx);
@@ -899,9 +897,13 @@ Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std
 }
 
 void refreshStackLimit(CallContext& ctx) {
-  pthread_t self = pthread_self();
-  const auto high = reinterpret_cast<std::uintptr_t>(pthread_get_stackaddr_np(self));
-  const std::size_t size = pthread_get_stacksize_np(self);
+  std::uintptr_t high = ctx.fiberStackHigh;
+  std::size_t size = high - ctx.fiberStackLow;
+  if (high == 0) {
+    pthread_t self = pthread_self();
+    high = reinterpret_cast<std::uintptr_t>(pthread_get_stackaddr_np(self));
+    size = pthread_get_stacksize_np(self);
+  }
   const std::size_t reserve = std::min<std::size_t>(std::size_t{512} * 1024, size / 4);
   ctx.stackHigh = high;
   ctx.stackLimit = high - size + reserve;
@@ -909,6 +911,6 @@ void refreshStackLimit(CallContext& ctx) {
   ctx.stackCleanupLimit = high - size + reserve / 2;
 }
 
-bool interpreterRunning() { return gInterpreterDepth > 0; }
+bool interpreterRunning(const CallContext& base) { return base.depth > 0; }
 
 }  // namespace ao

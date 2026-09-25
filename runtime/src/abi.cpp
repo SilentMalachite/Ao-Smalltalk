@@ -24,20 +24,32 @@ int guarded(int failed, Body&& body) noexcept {
   }
 }
 
-// 1 while an ABI entry runs, else 0. A refused call does not touch it.
+// 1 while an ABI entry runs, else 0. A refused call leaves it as it found it.
 std::atomic<int> g_entered{0};
+
+// SPEC §3.10: the runtime is busy while the interpreter runs on the session's base context (a
+// native calls back). Read only with the entry taken, so no other entry replaces the session
+// meanwhile. No session: not busy.
+bool runtimeBusy() {
+  const ao::Session* s = ao::session();
+  return s != nullptr && s->ctx != nullptr && ao::interpreterRunning(*s->ctx);
+}
 
 // Marks the ABI entries that run Smalltalk, call a hook or replace the session: boot, shutdown,
 // save, load, filein, workspace reset, eval, accept. SPEC §3.10: the runtime is busy while one of
-// them runs (a host hook calls back) or the interpreter runs (a native calls back); then
-// entered() is false and the call answers AO_ERR without touching the session. The test and the
-// taking are one compare_exchange (0 to 1), so of two threads that enter at once only one gets
-// in. This constructor is the one place for the test: B10 adds "a process is running" here.
+// them runs (a host hook calls back) or runtimeBusy says so; then entered() is false and the call
+// answers AO_ERR without touching the session. The taking is one compare_exchange (0 to 1), so of
+// two threads that enter at once only one gets in; the one that got in gives the entry back when
+// runtimeBusy. This constructor is the one place for the test.
 class AbiEntry {
  public:
   AbiEntry() {
     int idle = 0;
-    entered_ = !ao::interpreterRunning() && g_entered.compare_exchange_strong(idle, 1);
+    entered_ = g_entered.compare_exchange_strong(idle, 1);
+    if (entered_ && runtimeBusy()) {
+      g_entered.store(0);
+      entered_ = false;
+    }
   }
   ~AbiEntry() {
     if (entered_) {

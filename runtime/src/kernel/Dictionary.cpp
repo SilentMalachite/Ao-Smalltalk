@@ -536,17 +536,33 @@ Oop failDamagedOc(CallContext& ctx, const Oop& oc) {
   return fail(ctx, oc, "damaged ordered collection");
 }
 
-// Gives a sound oc an Array of twice the size (kDefaultCap at least) holding its elements from 1.
-// May GC: oc is a Root. False when the Array cannot be allocated or oc is not sound.
+// Makes room after the last element of a sound oc, its elements then starting at 1. When twice
+// the elements fit in its Array, slides them to the front in place (B10: the ready queue's FIFO
+// use must not grow it without bound); else gives it an Array of twice the size (kDefaultCap at
+// least). May GC: oc is a Root. False when the Array cannot be allocated or oc is not sound.
 bool ocGrow(CallContext& ctx, Root& oc) {
   OcSlots s;
   if (ocRead(ctx.heap, ctx.wk, oc.slot, &s) != OcShape::Sound) {
     return false;
   }
   const std::int64_t used = s.last - s.first + 1;
-  const std::uint64_t next =
-      std::max({std::uint64_t{kDefaultCap}, std::uint64_t{ctx.heap.size(s.array)} * 2,
-                static_cast<std::uint64_t>(used) + 1});
+  const std::uint32_t size = ctx.heap.size(s.array);
+  if (s.first > 1 && static_cast<std::uint64_t>(used) * 2 <= size) {
+    // Room at the front: slide the elements there and nil the rest, so the Array holds nothing
+    // it no longer contains. A FIFO use (add: at the end, removal at the front) stays this size.
+    for (std::int64_t i = 0; i < used; ++i) {
+      ctx.heap.slotAtPut(s.array, static_cast<std::uint32_t>(i),
+                         ctx.heap.slotAt(s.array, static_cast<std::uint32_t>(s.first - 1 + i)));
+    }
+    for (auto i = static_cast<std::uint32_t>(used); i < size; ++i) {
+      ctx.heap.slotAtPut(s.array, i, Oop::nil());
+    }
+    ctx.heap.slotAtPut(oc.slot, kOcFirst, Oop::fromSmallInteger(1));
+    ctx.heap.slotAtPut(oc.slot, kOcLast, Oop::fromSmallInteger(used));
+    return true;
+  }
+  const std::uint64_t next = std::max(
+      {std::uint64_t{kDefaultCap}, std::uint64_t{size} * 2, static_cast<std::uint64_t>(used) + 1});
   if (next > UINT32_MAX) {
     ctx.heap.setOutOfMemory();
     return false;

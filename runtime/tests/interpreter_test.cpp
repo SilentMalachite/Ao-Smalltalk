@@ -395,3 +395,38 @@ TEST(Interpreter, SendSpecialComparisonsAnswerBooleans) {
     }
   }
 }
+
+// B10 / SPEC §3.4: Interpreter::run の段の数はスレッドではなく CallContext（プロセスごと）が持つ。
+// interpreterRunning は渡されたコンテキストを見る。同じヒープの別のコンテキストは自分の段を数え、
+// 最初のコンテキストは 0 のまま。
+TEST(Interpreter, DepthCountsActivationsOnTheContext) {
+  Boot b;
+  static std::vector<int> depths;
+  static std::vector<int> baseDepths;
+  static ao::CallContext* base;
+  depths.clear();
+  baseDepths.clear();
+  base = &b.ctx;
+  const ao::HostOopHook hook = [](ao::CallContext& ctx, ao::Oop) {
+    depths.push_back(ao::interpreterRunning(ctx) ? ctx.depth : -1);
+    baseDepths.push_back(base->depth);
+  };
+  b.ctx.inspectHook = hook;
+  ao::Root cm(b.roots, compileObjectMethod(b, "foo\n  3 inspect.\n  ^[4 inspect. 5] value"));
+  ASSERT_TRUE(cm.slot.isHeap());
+  EXPECT_EQ(smallInt(5),
+            ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil()));
+  EXPECT_EQ((std::vector<int>{1, 2}), depths);
+  EXPECT_EQ(0, b.ctx.depth);
+  EXPECT_FALSE(ao::interpreterRunning(b.ctx));
+
+  ao::CallContext other{b.heap, b.roots, b.wk, &b.cache};
+  other.inspectHook = hook;
+  depths.clear();
+  baseDepths.clear();
+  EXPECT_EQ(smallInt(5),
+            ao::Interpreter::run(other, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil()));
+  EXPECT_EQ((std::vector<int>{1, 2}), depths);
+  EXPECT_EQ((std::vector<int>{0, 0}), baseDepths);
+  EXPECT_EQ(0, other.depth);
+}

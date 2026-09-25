@@ -1021,6 +1021,71 @@ TEST(BlockAbort, EnsureCleanupRunsNearStackLimit) {
   EXPECT_LE(levels - enter, 1);
 }
 
+// B10 / SPEC §3.4: ファイバは自分のスタックで動く。fiberStackHigh が 0 でなければ、ガードはその範囲を
+// 取り、予約分はスレッドと同じ式（min(512 KiB, size / 4)、後始末はその半分）で決める。0 に戻せば
+// スレッドのスタックに戻る。
+TEST(BlockAbort, RefreshStackLimitUsesTheFiberStackRange) {
+  Boot b;
+  const std::uintptr_t low = std::uintptr_t{1} << 32;
+  b.ctx.fiberStackLow = low;
+  b.ctx.fiberStackHigh = low + (std::uintptr_t{8} << 20);
+  ao::refreshStackLimit(b.ctx);
+  EXPECT_EQ(low + (std::uintptr_t{8} << 20), b.ctx.stackHigh);
+  EXPECT_EQ(low + 512 * 1024, b.ctx.stackLimit);
+  EXPECT_EQ(low + 256 * 1024, b.ctx.stackCleanupLimit);
+
+  b.ctx.fiberStackHigh = low + (std::uintptr_t{1} << 20);
+  ao::refreshStackLimit(b.ctx);
+  EXPECT_EQ(low + (std::uintptr_t{1} << 20), b.ctx.stackHigh);
+  EXPECT_EQ(low + 256 * 1024, b.ctx.stackLimit);
+  EXPECT_EQ(low + 128 * 1024, b.ctx.stackCleanupLimit);
+
+  b.ctx.fiberStackLow = 0;
+  b.ctx.fiberStackHigh = 0;
+  ao::refreshStackLimit(b.ctx);
+  EXPECT_EQ(reinterpret_cast<std::uintptr_t>(pthread_get_stackaddr_np(pthread_self())),
+            b.ctx.stackHigh);
+}
+
+// B10 / SPEC §3.4: ファイバの範囲を持つコンテキストでは、スレッドのスタックがもっと大きくても、ガードは
+// その範囲の中で当たる。最外の入口と applyMethod の取り直しが、どちらもファイバの範囲を使う。
+TEST(BlockAbort, StackGuardUsesTheFiberStackRange) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #R10Deep\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B10-Test'!\n"
+                               "!R10Deep methodsFor: 'r'!\n"
+                               "recur: n\n"
+                               "  ^self recur: n + 1! !\n",
+                               errs));
+  ao::Root obj(b.roots, send0(b, b.wk.named("R10Deep"), "new"));
+  ao::Oop got = ao::Oop::fromSmallInteger(0);
+  std::uintptr_t high = 0;
+  std::uintptr_t low = 0;
+  runOnSmallStack(
+      [&] {
+        // この関数のフレームから下の 1 MiB を、ファイバのスタックに見立てる。
+        high = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0)) & ~std::uintptr_t{15};
+        low = high - (std::uintptr_t{1} << 20);
+        b.ctx.fiberStackLow = low;
+        b.ctx.fiberStackHigh = high;
+        got = send1(b, obj.slot, "recur:", ao::Oop::fromSmallInteger(0));
+      },
+      std::size_t{8} << 20);
+  b.ctx.fiberStackLow = 0;
+  b.ctx.fiberStackHigh = 0;
+  EXPECT_TRUE(got.isEmpty());
+  ASSERT_TRUE(b.ctx.aborting);
+  EXPECT_EQ(std::string("stack overflow"), b.ctx.abortReason);
+  EXPECT_EQ(high, b.ctx.stackHigh);
+  EXPECT_EQ(low + 256 * 1024, b.ctx.stackLimit);
+  ao::clearUnwinding(b.ctx);
+}
+
 namespace {
 
 // 送った先で「NonBoolean receiver」の abort を始めるクラス（SPEC §3.4）。R2Sour はキーや座標や
