@@ -941,6 +941,31 @@ Oop intervalSizeSmi(CallContext& ctx, std::int64_t start, std::int64_t stop, std
   return boxed.isEmpty() ? boxed : LargeInteger::add(ctx, boxed, Oop::fromSmallInteger(1));
 }
 
+// SPEC §3.6 Interval: the exact number of elements when start, stop and step are Integers, not
+// all SmallIntegers: 0 for a zero step, or when stop lies before start in the step's direction;
+// otherwise (stop - start) // step + 1. Sends nothing. iv is a rooted slot, read again after each
+// LargeInteger operation (they read their operands before they allocate, and may GC). Empty Oop
+// when an allocation fails.
+Oop intervalSizeInteger(CallContext& ctx, const Oop& iv) {
+  const Oop zero = Oop::fromSmallInteger(0);
+  const int sign = LargeInteger::compare(ctx.heap, ctx.wk, ctx.heap.slotAt(iv, kIvStep), zero);
+  const int order = LargeInteger::compare(ctx.heap, ctx.wk, ctx.heap.slotAt(iv, kIvStop),
+                                          ctx.heap.slotAt(iv, kIvStart));
+  if (sign == 0 || (sign > 0 && order < 0) || (sign < 0 && order > 0)) {
+    return zero;
+  }
+  Root diff(ctx.roots, LargeInteger::sub(ctx, ctx.heap.slotAt(iv, kIvStop),
+                                         ctx.heap.slotAt(iv, kIvStart)));
+  if (diff.slot.isEmpty()) {
+    return Oop{};
+  }
+  Root quotient(ctx.roots, LargeInteger::floorDiv(ctx, diff.slot, ctx.heap.slotAt(iv, kIvStep)));
+  if (quotient.slot.isEmpty()) {
+    return Oop{};
+  }
+  return LargeInteger::add(ctx, quotient.slot, Oop::fromSmallInteger(1));
+}
+
 // SPEC §3.6 Interval: the direction of a step, 1 forward, -1 backward, 0 none. A SmallInteger
 // step goes by its sign; any other gets `step < 0`, then `step > 0`. False when the frames unwind
 // or an answer is no Boolean.
@@ -1023,6 +1048,10 @@ Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uin
   if (start.isSmallInteger() && stop.isSmallInteger() && step.isSmallInteger()) {
     return intervalSizeSmi(ctx, start.smallIntegerValue(), stop.smallIntegerValue(),
                            step.smallIntegerValue());
+  }
+  if (LargeInteger::isInteger(ctx.wk, start) && LargeInteger::isInteger(ctx.wk, stop) &&
+      LargeInteger::isInteger(ctx.wk, step)) {
+    return intervalSizeInteger(ctx, receiver);
   }
   Root iv(ctx.roots, receiver);
   std::int64_t count = 0;

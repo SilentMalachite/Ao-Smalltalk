@@ -1114,6 +1114,36 @@ TEST_F(HashedCollection, IntervalWithANaNBoundHasNoElements) {
   EXPECT_EQ("3", printIt("(Interval from: 3 to: 1.0 by: -1) size"));
 }
 
+// B9 review (Medium): 端点が SmallInteger でない Interval の size は要素を 1 つずつ数えたので、
+// `(1 to: (1 bitShift: 70)) size` が返らなかった（abort の手段も無い）。start、stop、step がすべて
+// Integer なら、LargeInteger の演算で送信せずに `(stop - start) // step + 1` か 0 を求める。
+TEST_F(HashedCollection, IntegerIntervalSizeIsExact) {
+  EXPECT_EQ("true", printIt("(1 to: (1 bitShift: 70)) size = (1 bitShift: 70)"));
+  EXPECT_EQ("true", printIt("(Interval from: (1 bitShift: 70) to: 1 by: -1) size = (1 bitShift: 70)"));
+  EXPECT_EQ("3", printIt("(Interval from: 0 to: (1 bitShift: 70) by: (1 bitShift: 69)) size"));
+  EXPECT_EQ("2", printIt("(Interval from: 0 to: (1 bitShift: 70) - 1 by: (1 bitShift: 69)) size"));
+  EXPECT_EQ("0", printIt("(Interval from: (1 bitShift: 70) to: 1 by: 1) size"));
+  EXPECT_EQ("0", printIt("(Interval from: 1 to: (1 bitShift: 70) by: -1) size"));
+  EXPECT_EQ("0", printIt("(Interval from: 1 to: (1 bitShift: 70) by: 0) size"));
+  EXPECT_EQ("1", printIt("(Interval from: (1 bitShift: 70) to: (1 bitShift: 70) by: (1 bitShift: 80)) "
+                         "size"));
+  EXPECT_EQ("true", printIt("(Interval from: 0 - (1 bitShift: 70) to: (1 bitShift: 70) by: 3) size = "
+                            "((2 * (1 bitShift: 70)) // 3 + 1)"));
+  EXPECT_EQ("true", printIt("(Interval from: (1 bitShift: 70) to: 0 - (1 bitShift: 70) by: -7) size = "
+                            "((2 * (1 bitShift: 70)) // 7 + 1)"));
+  EXPECT_EQ("true", printIt("(Interval from: 5 to: 100 by: (1 bitShift: 70)) size = 1"));
+  // The answer is a SmallInteger when it fits.
+  EXPECT_EQ("true", printIt("(Interval from: (1 bitShift: 70) to: (1 bitShift: 70) + 9 by: 1) size "
+                            "class == SmallInteger"));
+  EXPECT_EQ("10", printIt("(Interval from: (1 bitShift: 70) to: (1 bitShift: 70) + 9 by: 1) size"));
+  // do: still takes its elements from + and <=, so collect: of a few elements works, and the
+  // collect: of too many fails where the Array is made (basicNew:).
+  EXPECT_EQ("#(0 1 2)", printIt("(Interval from: (1 bitShift: 70) to: (1 bitShift: 70) + 2 by: 1) "
+                                "collect: [:x | x - (1 bitShift: 70)]"));
+  EXPECT_EQ("<eval error: failed: #collect:>",
+            printIt("(1 to: (1 bitShift: 70)) collect: [:x | x]"));
+}
+
 // 04 Medium: 2^20+1 要素で黙って打ち切る上限は無い。ブロックの abort でループは止まる。
 TEST_F(HashedCollection, IntervalHasNoElementCap) {
   EXPECT_EQ("1048600", printIt("(Interval from: 1 to: 1048600.0 by: 1) size"));
