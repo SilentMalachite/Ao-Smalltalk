@@ -604,9 +604,8 @@ TEST(CollectionDo, SelectWithSideEffectsSeesEachElementOnce) {
   EXPECT_EQ("3", printOf(b, "| n | n := 0. #(1 2 3) reject: [:x | n := n + 1. false]. ^n"));
 }
 
-// SPEC §3.6: 集める Array は倍々に伸びる。順序は do: の順で、Boolean でない答えの要素はどちらにも
-// 入らない。
-TEST(CollectionDo, SelectGrowsItsBufferInOrderAndSkipsNonBooleans) {
+// SPEC §3.6: 集める Array は倍々に伸びる。順序は do: の順である。
+TEST(CollectionDo, SelectGrowsItsBufferInOrder) {
   Boot b;
   const std::string setup =
       "| a | a := Array new: 100. 1 to: 100 do: [:i | a at: i put: i].\n";
@@ -615,8 +614,79 @@ TEST(CollectionDo, SelectGrowsItsBufferInOrderAndSkipsNonBooleans) {
             printOf(b, setup + "^(a select: [:x | x \\\\ 3 = 0]) inject: 0 into: [:s :x | s + x]"));
   EXPECT_EQ("99", printOf(b, setup + "^(a select: [:x | x \\\\ 3 = 0]) at: 33"));
   EXPECT_EQ("67", printOf(b, setup + "^(a reject: [:x | x \\\\ 3 = 0]) size"));
-  EXPECT_EQ("#()", printOf(b, "^#(1 2 3) select: [:x | nil]"));
-  EXPECT_EQ("#()", printOf(b, "^#(1 2 3) reject: [:x | 3]"));
+}
+
+// B9 review (Medium): select:・reject:・detect:ifNone: は Boolean でない答えの要素を黙って捨てた。
+// SPEC §3.6: to:do: と同じく答えに mustBeBoolean を送る（既定は NonBoolean receiver で中断）。
+TEST(CollectionDo, NonBooleanPredicateAnswersGetMustBeBoolean) {
+  Boot b;
+  EXPECT_EQ("<abort: NonBoolean receiver>", printOf(b, "^#(1 2 3) select: [:x | nil]"));
+  EXPECT_EQ("<abort: NonBoolean receiver>", printOf(b, "^#(1 2 3) reject: [:x | 3]"));
+  EXPECT_EQ("<abort: NonBoolean receiver>",
+            printOf(b, "^#(1 2 3) detect: [:x | 'yes'] ifNone: [0]"));
+  EXPECT_EQ("<abort: NonBoolean receiver>",
+            printOf(b, "^(OrderedCollection new add: 1; yourself) select: [:x | x]"));
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #B9Truthy\n"
+                               "  instanceVariableNames: 'truth'\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B9-Test'!\n"
+                               "!B9Truthy methodsFor: 'testing'!\n"
+                               "truth: x\n"
+                               "  truth := x!\n"
+                               "mustBeBoolean\n"
+                               "  ^truth! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  // mustBeBoolean's Boolean answer decides.
+  EXPECT_EQ("#(2)", printOf(b, "^#(1 2 3) select: [:x | B9Truthy new truth: x = 2]"));
+  EXPECT_EQ("#(1 3)", printOf(b, "^#(1 2 3) reject: [:x | B9Truthy new truth: x = 2]"));
+  EXPECT_EQ("3", printOf(b, "^#(1 2 3) detect: [:x | B9Truthy new truth: x > 2] ifNone: [0]"));
+  EXPECT_EQ("<abort: NonBoolean receiver>",
+            printOf(b, "^#(1 2 3) select: [:x | B9Truthy new truth: 7]"));
+}
+
+// B9 review (Low): 作業領域（ブロックのスロットの Array と件数）が壊れていても、述語を呼んでから
+// 失敗していた。SPEC §3.6: 述語を呼ぶ前にも確かめ、壊れていれば述語を呼ばずに失敗する。
+TEST(CollectionDo, SelectChecksItsBufferBeforeThePredicate) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Collection subclass: #B9Corrupt\n"
+                               "  instanceVariableNames: 'slot value'\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B9-Test'!\n"
+                               "!B9Corrupt methodsFor: 'enumerating'!\n"
+                               "slot: i value: v\n"
+                               "  slot := i. value := v!\n"
+                               "size\n"
+                               "  ^1!\n"
+                               "do: aBlock\n"
+                               "  aBlock instVarAt: slot put: value.\n"
+                               "  aBlock value: 1! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  // Slot 7 holds the Array (kBlockHome), slot 2 the count (kCtxPc).
+  const char* damages[] = {"7 value: 3", "7 value: (OrderedCollection new)", "7 value: nil",
+                           "2 value: -1", "2 value: nil", "2 value: 100", "2 value: 1.5"};
+  for (const char* damage : damages) {
+    for (const char* sel : {"select:", "reject:"}) {
+      SCOPED_TRACE(std::string(damage) + " " + sel);
+      const std::string reason = std::string(sel) == "select:" ? "select: count out of range"
+                                                               : "reject: count out of range";
+      EXPECT_EQ("<abort: " + reason + ">",
+                printOf(b, "Smalltalk at: #B9Calls put: 0.\n^(B9Corrupt new slot: " +
+                               std::string(damage) + ") " + sel +
+                               " [:x | Smalltalk at: #B9Calls put: (Smalltalk at: #B9Calls) + 1. "
+                               "true]"));
+      EXPECT_EQ("0", printOf(b, "^Smalltalk at: #B9Calls"));
+    }
+  }
+  // A sound count and Array: the predicate runs.
+  EXPECT_EQ("#(1)", printOf(b, "^(B9Corrupt new slot: 2 value: 0) select: [:x | true]"));
 }
 
 // GC 圧下: nursery を満杯にしてから、集める Array が 8 → 16 → 32 → 64 と伸びる select: を送る。

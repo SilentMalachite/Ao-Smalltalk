@@ -102,7 +102,10 @@ Oop ao_Collection_filter_scan(CallContext& ctx, const Oop& receiver, const Oop* 
   Root self(ctx.roots, receiver);
   Root elt(ctx.roots, args[0]);
   const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();
-  if (counterAtMax(ctx.heap, self.slot)) {
+  // SPEC §3.6: the do: that got the thunk may have written its slots; check them before the
+  // predicate runs, so a damaged buffer or count never costs a call.
+  std::int64_t n = 0;
+  if (!filterBuffer(ctx, self.slot, &n).isHeap()) {
     return fail(ctx, self.slot, filterCountMessage(keepTrue));
   }
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
@@ -110,12 +113,15 @@ Oop ao_Collection_filter_scan(CallContext& ctx, const Oop& receiver, const Oop* 
   if (!callBlock(ctx, user, &elt.slot, 1, &pred.slot)) {
     return Oop{};
   }
-  const bool keep = keepTrue ? pred.slot.isTrue() : pred.slot.isFalse();
-  if (!keep) {
+  // SPEC §3.6: an answer that is no Boolean gets mustBeBoolean, as a branch does (§3.5).
+  bool truth = false;
+  if (!truthOf(ctx, pred.slot, &truth)) {
+    return Oop{};
+  }
+  if (truth != keepTrue) {
     return pred.slot;
   }
-  // The block may have written the thunk's slots: read them again.
-  std::int64_t n = 0;
+  // The block (and mustBeBoolean) may have written the thunk's slots: read them again.
   Root buf(ctx.roots, filterBuffer(ctx, self.slot, &n));
   if (!buf.slot.isHeap()) {
     return fail(ctx, self.slot, filterCountMessage(keepTrue));
@@ -153,15 +159,20 @@ Oop ao_Collection_detect_scan(CallContext& ctx, const Oop& receiver, const Oop* 
   }
   Root elt(ctx.roots, args[0]);
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
-  Oop pred;
-  if (!callBlock(ctx, user, &elt.slot, 1, &pred)) {
+  Root pred(ctx.roots);
+  if (!callBlock(ctx, user, &elt.slot, 1, &pred.slot)) {
     return Oop{};
   }
-  if (pred.isTrue()) {
+  // SPEC §3.6: an answer that is no Boolean gets mustBeBoolean, as select: does.
+  bool truth = false;
+  if (!truthOf(ctx, pred.slot, &truth)) {
+    return Oop{};
+  }
+  if (truth) {
     ctx.heap.slotAtPut(self.slot, kBlockHome, elt.slot);
     ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::true_());
   }
-  return pred;
+  return pred.slot;
 }
 
 Oop ao_Collection_inject_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
