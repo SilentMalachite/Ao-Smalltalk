@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1790324066.0529253,
-    "seen": 1790324930.192517,
-    "ast_hash": "be7c6f0aad37db850030d35e8363840b",
+    "mtime": 1790328189.275433,
+    "seen": 1790329614.056097,
+    "ast_hash": "5c0f03468ec31732e7a167166fbcf44b",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -900,9 +900,9 @@
     "semantic_hash": ""
   },
   "runtime/src/kernel/Dictionary.cpp": {
-    "mtime": 1790319103.8774428,
-    "seen": 1790324930.192459,
-    "ast_hash": "00128c8db22e9d5b71811ed12669d3a3",
+    "mtime": 1790328511.176023,
+    "seen": 1790329614.056046,
+    "ast_hash": "bb14ceca6a6defe898f0f8425f86d23b",
     "semantic_hash": ""
   },
   "runtime/tests/collection_do_test.cpp": {
@@ -1548,21 +1548,21 @@
     "semantic_hash": ""
   },
   "runtime/include/ao/HashedCollection.hpp": {
-    "mtime": 1790317942.5385687,
-    "seen": 1790324930.1924129,
-    "ast_hash": "7228b8f67a1050f3c3e85a6b93c5962f",
+    "mtime": 1790328253.8605762,
+    "seen": 1790329614.056004,
+    "ast_hash": "3772acdeaaa8e97e2ee1b129081f2ba6",
     "semantic_hash": ""
   },
   "runtime/src/HashedCollection.cpp": {
-    "mtime": 1790317942.4411328,
-    "seen": 1790324930.1924338,
-    "ast_hash": "b60e925f6a3ea3f6ee759f86b7dd9487",
+    "mtime": 1790328241.9259648,
+    "seen": 1790329614.056024,
+    "ast_hash": "0ddf41982f4a052f26784bf711634138",
     "semantic_hash": ""
   },
   "runtime/tests/hashed_collection_test.cpp": {
-    "mtime": 1790319103.8777835,
-    "seen": 1790324930.192485,
-    "ast_hash": "e46780f258849dc40381e37ad5fab023",
+    "mtime": 1790328511.5016105,
+    "seen": 1790329614.056065,
+    "ast_hash": "73d5e24664247f0b1c9c4444969b6c92",
     "semantic_hash": ""
   },
   "runtime/tests/stream_test.cpp": {
