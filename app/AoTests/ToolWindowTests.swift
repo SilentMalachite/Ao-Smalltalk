@@ -7,7 +7,10 @@ final class ToolWindowTests: XCTestCase {
   override func tearDown() {
     UserDefaults.standard.removeObject(forKey: "AoTranscriptFixedPitch")
     // tearDown is nonisolated; XCTest calls it on the main thread.
-    MainActor.assumeIsolated { Self.closeVisibleWindows() }
+    MainActor.assumeIsolated {
+      Self.closeVisibleWindows()
+      Self.dropMainMenu()
+    }
     ao_set_transcript_hook(nil, nil)
     ao_set_inspect_hook(nil, nil)
     ao_runtime_shutdown()
@@ -26,6 +29,16 @@ final class ToolWindowTests: XCTestCase {
       window.isReleasedWhenClosed = false
       window.close()
     }
+  }
+
+  // A menu built by AoApp holds the AoApp in its closures, and the AoApp its LaunchSet, whose
+  // deinit removes the transcript hook. Windows listed in the Window menu keep the menu alive
+  // after mainMenu = nil, so its items go too; then the AoApp goes now, not in a later test.
+  private static func dropMainMenu() {
+    let menu = NSApplication.shared.mainMenu
+    NSApplication.shared.mainMenu = nil
+    NSApplication.shared.windowsMenu = nil
+    menu?.removeAllItems()
   }
 
   func testTranscriptAppendsAndSurvivesClose() {
@@ -148,6 +161,24 @@ final class ToolWindowTests: XCTestCase {
       menu.items.map(\.title),
       ["Ao", "File", "Edit", "Smalltalk", "Tools", "Window", "Help"]
     )
+  }
+
+  // The launch path's own menu: Tools → Browser opens the System Browser. tearDown drops the
+  // main menu, whose closures hold the AoApp and so its LaunchSet.
+  func testToolsBrowserMenuItemOpensSystemBrowser() {
+    let app = AoApp()
+    app.applicationWillFinishLaunching(
+      Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApplication.shared)
+    )
+    guard let item = NSApplication.shared.mainMenu?.item(withTitle: "Tools")?.submenu?.item(withTitle: "Browser"),
+          let action = item.action else {
+      XCTFail("missing Tools → Browser")
+      return
+    }
+    let browsers = { NSApplication.shared.windows.filter { $0.title == "System Browser" && $0.isVisible } }
+    XCTAssertEqual(browsers().count, 0)
+    XCTAssertTrue(NSApplication.shared.sendAction(action, to: item.target, from: item))
+    XCTAssertEqual(browsers().count, 1)
   }
 
   func testTypedQuotesAndDashesStayPlainInWorkspaceAndBrowser() {
