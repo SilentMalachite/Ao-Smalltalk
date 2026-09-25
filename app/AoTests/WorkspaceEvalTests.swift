@@ -107,15 +107,45 @@ final class WorkspaceEvalTests: XCTestCase {
       XCTFail("missing inspector")
       return
     }
-    inspector.close()
+    // Hidden, not closed: a closed Inspector is dropped (SPEC §3.9), a hidden one is reused.
+    inspector.orderOut(nil)
     workspace.orderFront()
     XCTAssertFalse(inspector.isVisible)
     workspace.selectAll()
     workspace.inspectIt()
     XCTAssertEqual(workspace.inspectorCount, 1)
+    XCTAssertTrue(workspace.inspectorWindow === inspector)
     XCTAssertTrue(inspector.isVisible)
     let orderedFront = NSApplication.shared.orderedWindows.first === inspector
     XCTAssertTrue(inspector.isKeyWindow || orderedFront)
+  }
+
+  // SPEC §3.9: a closed Inspector is dropped; the next Inspect it opens another window in front.
+  func testClosedInspectorIsDroppedAndNextInspectItOpensNewWindow() {
+    let workspace = workspace("1 + 2")
+    workspace.selectAll()
+    workspace.inspectIt()
+    XCTAssertEqual(workspace.inspectorCount, 1)
+    guard let first = workspace.inspectorWindow else {
+      XCTFail("missing inspector")
+      return
+    }
+    first.close()
+    XCTAssertEqual(workspace.inspectorCount, 0)
+    workspace.orderFront()
+    workspace.selectAll()
+    workspace.inspectIt()
+    XCTAssertEqual(workspace.inspectorCount, 1)
+    guard let second = workspace.inspectorWindow else {
+      XCTFail("missing second inspector")
+      return
+    }
+    XCTAssertFalse(second === first)
+    XCTAssertFalse(first.isVisible)
+    XCTAssertTrue(second.isVisible)
+    XCTAssertEqual(workspace.inspectorText, "SmallInteger\n3")
+    let orderedFront = NSApplication.shared.orderedWindows.first === second
+    XCTAssertTrue(second.isKeyWindow || orderedFront)
   }
 
   func testEmptySelectionPrintItEvaluatesCaretLine() {

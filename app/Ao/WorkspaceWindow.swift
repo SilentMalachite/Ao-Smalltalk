@@ -273,7 +273,12 @@ final class WorkspaceWindow {
       existing.window.makeKeyAndOrderFront(nil)
       return
     }
-    inspectors.append(InspectorWindow(className: className, printString: printString))
+    // SPEC §3.9: a closed Inspector leaves the array, so the next Inspect it opens a new window.
+    // Weak: the close may come after this Workspace is gone (a test's tearDown closes every window).
+    let inspector = InspectorWindow(className: className, printString: printString) { [weak self] closed in
+      self?.inspectors.removeAll { $0 === closed }
+    }
+    inspectors.append(inspector)
   }
 
   private func evaluate(_ source: String, mode: Int32) -> (status: Int32, output: String, message: String) {
