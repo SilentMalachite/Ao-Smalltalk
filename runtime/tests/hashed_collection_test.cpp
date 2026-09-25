@@ -12,6 +12,7 @@
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/HashedCollection.hpp"
+#include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 
 #include <algorithm>
@@ -1230,6 +1231,26 @@ TEST_F(HashedCollection, IntegerIntervalSizeIsExact) {
                                 "collect: [:x | x - (1 bitShift: 70)]"));
   EXPECT_EQ("<eval error: failed: #collect:>",
             printIt("(1 to: (1 bitShift: 70)) collect: [:x | x]"));
+}
+
+// PR #10 Codex review (Low): 端点が Integer でない Interval の size は、数えた数が kSmiMax に届くと
+// 失敗した（`++count < kSmiMax`）。SPEC §3.6: 上限は無く、SmallInteger を超えれば LargeInteger を
+// 答える。2^62 回は回せないので、数えた数を答えに変える境界（LargeInteger::fromInt64）を見る。
+TEST(HashedCollectionInterval, CountPastSmallIntegerIsALargeInteger) {
+  Boot b;
+  EXPECT_EQ(smi(ao::kSmiMax), ao::LargeInteger::fromInt64(b.ctx, ao::kSmiMax));
+  ao::Root past(b.roots, ao::LargeInteger::fromInt64(b.ctx, ao::kSmiMax + 1));
+  ASSERT_TRUE(past.slot.isHeap());
+  EXPECT_EQ(b.wk.largePositiveIntegerClass, b.heap.klass(past.slot));
+  ao::Root expected(b.roots, send1(b, smi(1), "bitShift:", smi(62)));
+  EXPECT_TRUE(send1(b, past.slot, "=", expected.slot).isTrue());
+  // The walk itself still counts: a Fraction start, a SmallInteger answer.
+  ao::Root half(b.roots, send1(b, smi(1), "/", smi(2)));
+  ao::Root iv(b.roots, ao::Oop{});
+  ao::Oop args[3] = {half.slot, smi(10), smi(1)};
+  iv.slot = ao::send(b.ctx, b.wk.intervalClass, b.wk.intern("from:to:by:"), args, 3, nullptr);
+  ASSERT_TRUE(iv.slot.isHeap());
+  EXPECT_EQ(smi(10), send0(b, iv.slot, "size"));
 }
 
 // 04 Medium: 2^20+1 要素で黙って打ち切る上限は無い。ブロックの abort でループは止まる。

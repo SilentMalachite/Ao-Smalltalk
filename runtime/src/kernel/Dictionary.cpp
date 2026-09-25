@@ -1107,9 +1107,14 @@ Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uin
     return intervalSizeInteger(ctx, receiver);
   }
   Root iv(ctx.roots, receiver);
+  // SPEC §3.6: no cap on the count. Past SmallInteger it is boxed as a LargeInteger (which may GC;
+  // nothing else is held across it). int64 would take 2^63 elements to overflow.
   std::int64_t count = 0;
-  const bool done = intervalWalk(ctx, iv, [&](Root&) { return ++count < kSmiMax; });
-  return done ? Oop::fromSmallInteger(count) : Oop{};
+  const bool done = intervalWalk(ctx, iv, [&](Root&) {
+    ++count;
+    return true;
+  });
+  return done ? LargeInteger::fromInt64(ctx, count) : Oop{};
 }
 
 Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
