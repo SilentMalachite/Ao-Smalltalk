@@ -1,9 +1,15 @@
 #include "test_support.hpp"
 
+#include "ao/Compile.hpp"
+#include "ao/Compiler.hpp"
 #include "ao/Globals.hpp"
+#include "ao/HandleScope.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/NativeMethod.hpp"
 
 #include <gtest/gtest.h>
+
+#include <string>
 
 static ao::Oop makeSubclass(Boot& b, const char* name) {
   auto n = b.wk.intern(name);
@@ -67,6 +73,32 @@ TEST(Behavior, BasicNewColonAllocatesIndexableSlots) {
   ASSERT_TRUE(bytes.isHeap());
   EXPECT_EQ(4u, b.heap.size(bytes));
   EXPECT_NE(0, b.heap.flags(bytes) & ao::kFlagBytes);
+}
+
+// docs/claude-review/04 Low: バイト列クラスの basicNew: は大きさを下位 32 ビットに切り詰め、
+// (String new: 4294967299) size が 3 になった。SPEC §3.6: 2^32 − 1 を超える大きさは、ポインタの
+// クラスと同じく割り当てずに失敗する。
+TEST(Behavior, BasicNewColonRefusesSizesPastUint32) {
+  Boot b;
+  for (ao::Oop cls : {b.wk.stringClass, b.wk.byteArrayClass, b.wk.arrayClass}) {
+    for (std::int64_t n : {std::int64_t{4294967296}, std::int64_t{4294967299},
+                           std::int64_t{1} << 40}) {
+      SCOPED_TRACE(n);
+      EXPECT_TRUE(send1(b, cls, "basicNew:", ao::Oop::fromSmallInteger(n)).isEmpty());
+      EXPECT_TRUE(send1(b, cls, "new:", ao::Oop::fromSmallInteger(n)).isEmpty());
+      EXPECT_FALSE(b.heap.outOfMemory());
+    }
+  }
+  auto img = ao::compiler::compileMethod("doIt\n  ^(String new: 4294967299) size");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  const ao::Oop r =
+      ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("failed: #new:", takeAbortReason(b));
+  ao::Root ok(b.roots, send1(b, b.wk.stringClass, "new:", ao::Oop::fromSmallInteger(3)));
+  ASSERT_TRUE(ok.slot.isHeap());
+  EXPECT_EQ(3u, b.heap.size(ok.slot));
 }
 
 TEST(Behavior, InstSizeAndFormatBitsArrayVsObject) {

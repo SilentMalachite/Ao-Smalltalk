@@ -87,6 +87,10 @@ Oop ao_Behavior_basicNew_(CallContext& ctx, const Oop& receiver, const Oop* args
     return allocateRetry(ctx, receiver, static_cast<std::uint32_t>(inst), 0);
   }
   if (Format::isBytes(fmt)) {
+    // SPEC §3.6: as for pointers, a size past 2^32 - 1 fails instead of being cut to 32 bits.
+    if (n > static_cast<std::int64_t>(UINT32_MAX)) {
+      return Oop{};
+    }
     return allocateRetry(ctx, receiver, static_cast<std::uint32_t>(n), kFlagBytes);
   }
   const auto total = inst + n;
