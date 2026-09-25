@@ -6,6 +6,8 @@
 #include "ao/Interpreter.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <cstdint>
 #include <string>
 #include <gtest/gtest.h>
@@ -671,4 +673,90 @@ TEST(CollectionDo, IncludesFailsWhenHashAnswersNoInteger) {
   EXPECT_EQ("false",
             printOf(b, "^#(1 2) includes: (B9OddHash new answer: 1000000000000000000000)"));
   EXPECT_EQ("true", printOf(b, "^#(1 2) includes: 2"));
+}
+
+namespace {
+
+std::vector<char32_t>& seenChars() {
+  static std::vector<char32_t> seen;
+  return seen;
+}
+
+}  // namespace
+
+// docs/claude-review/04 Medium: String の do: は at: を 1 から n まで送り、at: は毎回 UTF-8 を先頭から
+// 数えていた（O(n²)）。SPEC §3.6: String の do: は UTF-8 を先頭から 1 回たどり、文字ごとに呼ぶ。
+TEST(CollectionDo, StringDoWalksTheUtf8Once) {
+  Boot b;
+  ao::Root s(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "a\xC3\xA9\xE3\x81\x82\xF0\x9D\x84\x9Ez"));
+  auto record = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    if (args[0].isCharacter()) {
+      seenChars().push_back(args[0].characterValue());
+    }
+    return args[0];
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, record, 1));
+  seenChars().clear();
+  EXPECT_EQ(s.slot, send1(b, s.slot, "do:", blk.slot));
+  EXPECT_EQ((std::vector<char32_t>{U'a', U'\u00E9', U'\u3042', U'\U0001D11E', U'z'}), seenChars());
+  // Symbol は String の do: を継ぐ。
+  ao::Root sym(b.roots, b.wk.intern("ab"));
+  seenChars().clear();
+  EXPECT_EQ(sym.slot, send1(b, sym.slot, "do:", blk.slot));
+  EXPECT_EQ((std::vector<char32_t>{U'a', U'b'}), seenChars());
+  ao::Root method(b.roots, send1(b, b.wk.stringClass, "compiledMethodAt:", b.wk.intern("do:")));
+  EXPECT_EQ("ao_String_do_", ao::NativeMethod::nameBytes(b.heap, method.slot));
+}
+
+// SPEC §3.6: ブロックが文字列を書き換えても落ちない（大きさを読み直し、その範囲で続ける）。飛ばすか
+// 2 度渡すかは規定しないので、回数は元の文字数の前後にあることだけを見る。
+TEST(CollectionDo, StringDoSurvivesTheBlockWritingTheString) {
+  Boot b;
+  for (const char* body :
+       {"| s n | s := 'abcdefg' copy. n := 0.\n"
+        "s do: [:c | n := n + 1. n = 1 ifTrue: [s at: 1 put: $\xC3\xA9]]. ^n",
+        "| s n | s := '\xC3\xA9\xC3\xA9\xC3\xA9\xC3\xA9' copy. n := 0.\n"
+        "s do: [:c | n := n + 1. s at: 1 put: $a]. ^n",
+        "| s n | s := 'ab\xC3\xA9\xC3\xA9\xC3\xA9\xC3\xA9x' copy. n := 0.\n"
+        "s do: [:c | n := n + 1. n <= 4 ifTrue: [s at: n put: $z]]. ^n"}) {
+    SCOPED_TRACE(body);
+    const std::string printed = printOf(b, body);
+    ASSERT_FALSE(printed.empty());
+    ASSERT_NE('<', printed[0]) << printed;
+    const int n = std::stoi(printed);
+    EXPECT_GE(n, 1);
+    EXPECT_LE(n, 12);
+  }
+}
+
+// SPEC §3.6: at: か size を上書きしたサブクラスは、size と at: を送って回す。
+TEST(CollectionDo, StringDoSendsAtWhenASubclassOverridesIt) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!String subclass: #B9Masked\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B9-Test'!\n"
+                               "!B9Masked methodsFor: 'accessing'!\n"
+                               "at: i\n"
+                               "  ^$*! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  EXPECT_EQ("3", printOf(b, "| n | n := 0. (B9Masked new: 3) do: [:c | c == $* ifTrue: [n := n + 1]]. ^n"));
+}
+
+// docs/claude-review/04 Medium の計測: (String new: 40000) inject: 0 into: [...] は 6.7 秒かかった
+// （Debug）。1 パスの do: で 1 秒未満。上限はゆるく取る。
+TEST(KernelBench, StringInjectFortyThousandCharacters) {
+  Boot b;
+  const auto start = std::chrono::steady_clock::now();
+  const std::string printed = printOf(b, "^(String new: 40000) inject: 0 into: [:a :c | a + 1]");
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - start)
+                      .count();
+  std::printf("B9 (String new: 40000) inject:into: %lld ms\n", static_cast<long long>(ms));
+  EXPECT_EQ("40000", printed);
+  EXPECT_LT(ms, 1000);
 }

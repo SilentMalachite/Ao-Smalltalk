@@ -152,6 +152,17 @@ Oop ao_Magnitude_lessOrEqual(CallContext& ctx, const Oop& receiver, const Oop* a
 Oop ao_Magnitude_greaterOrEqual(CallContext& ctx, const Oop& receiver, const Oop* args,
                                 std::uint32_t argc);
 
+// True when the method klass finds for selector (method cache, then lookup) is the native fn. A
+// Kernel shortcut that bypasses a send (String>>do:, stream contents and nextPut: on a String)
+// takes it only then, so a subclass that overrides the method still gets its send (SPEC §3.6).
+bool findsNative(CallContext& ctx, Oop klass, Oop selector, NativeFn fn);
+
+Oop ao_ArrayedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc);
+Oop ao_String_size(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
+Oop ao_String_at_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
+Oop ao_String_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
+
 Oop ao_Character_printString(CallContext& ctx, const Oop& receiver, const Oop* args,
                              std::uint32_t argc);
 Oop ao_String_printString(CallContext& ctx, const Oop& receiver, const Oop* args,

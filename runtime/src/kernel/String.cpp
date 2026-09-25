@@ -2,9 +2,11 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
+#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
+#include "ao/Send.hpp"
 #include "ao/Symbol.hpp"
 
 #include <cstring>
@@ -218,6 +220,49 @@ Oop ao_String_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args, st
   return fail(ctx, receiver, "at:put: index out of range");
 }
 
+bool findsNative(CallContext& ctx, Oop klass, Oop selector, NativeFn fn) {
+  Oop method = ctx.cache != nullptr ? ctx.cache->probe(ctx.heap, klass, selector) : Oop{};
+  if (!method.isHeap()) {
+    method = lookup(ctx.heap, klass, selector);
+  }
+  return method.isHeap() && NativeMethod::functionOf(ctx.heap, ctx.wk, method) == fn;
+}
+
+// SPEC §3.6: walks the UTF-8 once from the start and calls the block with each character. The
+// block may write the string: after each call the size is read again from the rooted receiver and
+// the walk stays inside it (a character may then be skipped or seen twice). A subclass that
+// overrides at: or size gets ArrayedCollection's do:, which sends them.
+Oop ao_String_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
+  if (argc != 1) {
+    return Oop{};
+  }
+  const Oop klass = ctx.wk.classOf(receiver);
+  if (!isBytes(ctx.heap, receiver) || !findsNative(ctx, klass, ctx.wk.selAt_, ao_String_at_) ||
+      !findsNative(ctx, klass, ctx.wk.selSize, ao_String_size)) {
+    return ao_ArrayedCollection_do_(ctx, receiver, args, argc);
+  }
+  Gc gc(ctx.heap, ctx.roots);
+  std::uint64_t visited = 0;
+  std::uint32_t i = 0;
+  for (;;) {
+    // receiver and args[0] are rooted slots: after the block they are where the GC moved them.
+    const std::uint32_t n = ctx.heap.size(receiver);
+    if (i >= n) {
+      return receiver;
+    }
+    const Utf8Step step = decodeUtf8(bytePayload(ctx.heap, receiver) + i, n - i);
+    const Oop ch = Oop::fromCharacter(step.cp);
+    Oop ignored;
+    if (!callBlock(ctx, args[0], &ch, 1, &ignored)) {
+      return Oop{};
+    }
+    i += step.nbytes;
+    if ((++visited & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
+  }
+}
+
 Oop ao_String_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
@@ -324,6 +369,7 @@ void installString(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, str, "size", 0, "ao_String_size", ao_String_size);
   putNative(heap, wk, str, "at:", 1, "ao_String_at_", ao_String_at_);
   putNative(heap, wk, str, "at:put:", 2, "ao_String_at_put_", ao_String_at_put_);
+  putNative(heap, wk, str, "do:", 1, "ao_String_do_", ao_String_do_);
   putNative(heap, wk, str, "=", 1, "ao_String_equals", ao_String_equals);
   putNative(heap, wk, str, "hash", 0, "ao_String_hash", ao_String_hash);
   putNative(heap, wk, str, "asSymbol", 0, "ao_String_asSymbol", ao_String_asSymbol);
