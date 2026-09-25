@@ -42,15 +42,36 @@ std::int64_t ocSize(Heap& heap, Oop oc) {
   return l < f ? 0 : l - f + 1;
 }
 
-// Sends add: (the Kernel native). May collect; unwinding afterwards when it failed.
+// Sends add: (the Kernel native). May collect; unwinding afterwards when it failed, and then the
+// collection is as it was.
 Oop ocAdd(CallContext& ctx, Oop oc, Oop value) {
   Root list(ctx.roots, oc);
   Root v(ctx.roots, value);
-  Oop sel = ctx.wk.intern("add:");
-  if (!sel.isHeap()) {
+  Root sel(ctx.roots, ctx.wk.intern("add:"));
+  if (!sel.slot.isHeap()) {
     return abortEvaluation(ctx, "out of memory");
   }
-  return send(ctx, list.slot, sel, &v.slot, 1, nullptr);
+  const Oop added = send(ctx, list.slot, sel.slot, &v.slot, 1, nullptr);
+  // A native that fails answers the empty Oop without an abort (an Array that cannot grow: out
+  // of memory). Here that is a failed send too (SPEC §3.3), so the caller sees it unwinding.
+  if (added.isEmpty() && !unwinding(ctx)) {
+    return abortFailedSend(ctx, sel.slot);
+  }
+  return added;
+}
+
+// The first element, left in place; nil when there is none. Does not collect.
+Oop ocFirst(Heap& heap, Oop oc) {
+  if (ocSize(heap, oc) == 0) {
+    return Oop::nil();
+  }
+  const auto f = heap.slotAt(oc, kOcFirst).smallIntegerValue();
+  const Oop arr = heap.slotAt(oc, kOcArray);
+  if (f < 1 || !arr.isHeap() || (heap.flags(arr) & kFlagBytes) != 0 ||
+      static_cast<std::uint64_t>(f) > heap.size(arr)) {
+    return Oop::nil();
+  }
+  return heap.slotAt(arr, static_cast<std::uint32_t>(f - 1));
 }
 
 // The first element, taken out; nil when there is none. Does not collect.
@@ -80,6 +101,27 @@ Oop ocRemoveFirst(Heap& heap, Oop oc) {
   heap.slotAtPut(arr, idx, Oop::nil());
   heap.slotAtPut(oc, kOcFirst, Oop::fromSmallInteger(f + 1));
   return value;
+}
+
+// Takes the last element out: undoes an add: when what came after it failed. Does not collect.
+void ocRemoveLast(Heap& heap, Oop oc) {
+  if (!hasSlots(heap, oc, kOcLast)) {
+    return;
+  }
+  const Oop first = heap.slotAt(oc, kOcFirst);
+  const Oop last = heap.slotAt(oc, kOcLast);
+  if (!first.isSmallInteger() || !last.isSmallInteger()) {
+    return;
+  }
+  const auto f = first.smallIntegerValue();
+  const auto l = last.smallIntegerValue();
+  const Oop arr = heap.slotAt(oc, kOcArray);
+  if (l < f || l < 1 || !arr.isHeap() || (heap.flags(arr) & kFlagBytes) != 0 ||
+      static_cast<std::uint64_t>(l) > heap.size(arr)) {
+    return;
+  }
+  heap.slotAtPut(arr, static_cast<std::uint32_t>(l - 1), Oop::nil());
+  heap.slotAtPut(oc, kOcLast, Oop::fromSmallInteger(l - 1));
 }
 
 // Takes the first element identical to target out, closing the gap. Does not collect.
@@ -204,6 +246,7 @@ struct Scheduler::Record {
   bool terminated = false;          // ends by terminate: not a failure
   bool abandon = false;             // ends without cleanups (SPEC §3.4 abandon)
   bool deadlockPending = false;     // the base: abort its blocked operation when it runs next
+  bool outOfMemory = false;         // its out-of-memory mark while it does not run (SPEC §3.4)
   Record* resumeTo = nullptr;       // who it goes back to when it next switches away
   bool isBase() const { return ownCtx == nullptr; }
 };
@@ -391,18 +434,23 @@ bool Scheduler::signal(CallContext& ctx, Oop semaphore) {
   if (!hasSlots(heap, sem.slot, kSemaphoreSlotList)) {
     return false;
   }
-  const Oop list = heap.slotAt(sem.slot, kSemaphoreSlotList);
-  for (auto n = ocSize(heap, list); n > 0; --n) {
-    const Oop waiter = ocRemoveFirst(heap, list);
+  for (auto n = ocSize(heap, heap.slotAt(sem.slot, kSemaphoreSlotList)); n > 0; --n) {
+    const Oop list = heap.slotAt(sem.slot, kSemaphoreSlotList);
+    const Oop waiter = ocFirst(heap, list);
     Record* r = find(waiter);
     if (r != nullptr && r->state == State::Waiting && r->waitingOn == sem.slot) {
+      // Ready at the end of the queue; the signaller goes on (SPEC §3.4). The queue takes it
+      // first: when it cannot (out of memory), the waiter still waits and nothing changed.
+      if (!enqueue(ctx, *r)) {
+        return false;
+      }
+      ocRemoveIdentity(heap, heap.slotAt(sem.slot, kSemaphoreSlotList), r->process);
       r->waitingOn = Oop::nil();
       r->signaledBy = sem.slot;
-      r->state = State::Suspended;
-      // Ready at the end of the queue; the signaller goes on (SPEC §3.4).
-      return enqueue(ctx, *r);
+      return true;
     }
     // SPEC §3.4, §3.11: a waiter that cannot run is dropped.
+    ocRemoveFirst(heap, list);
     if (hasSlots(heap, waiter, kProcessSlotMyList) &&
         heap.slotAt(waiter, kProcessSlotMyList) == list) {
       setMyList(heap, waiter, Oop::nil());
@@ -496,7 +544,8 @@ bool Scheduler::nextPut(CallContext& ctx, Oop queue, Oop value) {
   Heap& heap = ctx.heap;
   Root q(ctx.roots, queue);
   Root v(ctx.roots, value);
-  if (!hasSlots(heap, q.slot, kSharedQueueSlotWrite)) {
+  if (!hasSlots(heap, q.slot, kSharedQueueSlotWrite) ||
+      !hasSlots(heap, heap.slotAt(q.slot, kSharedQueueSlotRead), kSemaphoreSlotList)) {
     return false;
   }
   Root contents(ctx.roots, ensureOc(ctx, q, kSharedQueueSlotContents));
@@ -507,12 +556,14 @@ bool Scheduler::nextPut(CallContext& ctx, Oop queue, Oop value) {
   if (unwinding(ctx)) {
     return false;
   }
-  // SPEC §3.4: never waits (writeSynch is not used); wakes one reader, if any.
+  // SPEC §3.4: never waits (writeSynch is not used); wakes one reader, if any. When that fails,
+  // the element goes out again: the failed nextPut: adds nothing.
   const Oop read = heap.slotAt(q.slot, kSharedQueueSlotRead);
-  if (!hasSlots(heap, read, kSemaphoreSlotList)) {
+  if (!hasSlots(heap, read, kSemaphoreSlotList) || !signal(ctx, read)) {
+    ocRemoveLast(heap, contents.slot);
     return false;
   }
-  return signal(ctx, read);
+  return true;
 }
 
 Oop Scheduler::next(CallContext& ctx, Oop queue) {
@@ -521,15 +572,21 @@ Oop Scheduler::next(CallContext& ctx, Oop queue) {
   if (!hasSlots(heap, q.slot, kSharedQueueSlotWrite)) {
     return Oop{};
   }
-  const Oop read = heap.slotAt(q.slot, kSharedQueueSlotRead);
-  if (!hasSlots(heap, read, kSemaphoreSlotList)) {
-    return Oop{};
+  for (;;) {
+    const Oop read = heap.slotAt(q.slot, kSharedQueueSlotRead);
+    if (!hasSlots(heap, read, kSemaphoreSlotList)) {
+      return Oop{};
+    }
+    if (!wait(ctx, read)) {
+      return Oop{};
+    }
+    // Other processes ran: read the queue again. A waiter resumed without a signal (suspend and
+    // resume, SPEC §3.4) takes an element when there is one, and waits again when it is empty.
+    const Oop contents = heap.slotAt(q.slot, kSharedQueueSlotContents);
+    if (ocSize(heap, contents) > 0) {
+      return ocRemoveFirst(heap, contents);
+    }
   }
-  if (!wait(ctx, read)) {
-    return Oop{};
-  }
-  // Other processes ran: read the queue again. Nil when a waiter resumed without a signal.
-  return ocRemoveFirst(heap, heap.slotAt(q.slot, kSharedQueueSlotContents));
 }
 
 void Scheduler::drain(int rounds) {
@@ -547,25 +604,38 @@ void Scheduler::drain(int rounds) {
 
 void Scheduler::terminateAll(bool abandon) {
   assert(current_ == &base() && "terminateAll runs on the base process");
-  if (!abandon) {
+  // SPEC §4.4: each live process not terminated yet is terminated (its cleanups run on it). A
+  // cleanup that switched left it ready or blocked, and may have forked others: the drain lets
+  // the ready ones go on, and the next pass terminates what the cleanups forked. The passes stop
+  // once one neither terminates nor ends a process, or after kDrainRounds of them.
+  for (int pass = 0; !abandon && pass < kDrainRounds; ++pass) {
+    const std::size_t liveBefore = liveFibers();
     std::vector<std::uint64_t> ids;
     for (const auto& r : records_) {
-      if (!r->isBase() && r->state != State::Dead) {
+      if (!r->isBase() && r->state != State::Dead && !r->terminated) {
         ids.push_back(r->id);
       }
     }
+    bool terminatedOne = false;
     for (const std::uint64_t id : ids) {
       Record* r = findId(id);
-      if (r == nullptr || r->state == State::Dead) {
+      if (r == nullptr || r->state == State::Dead || r->terminated) {
         continue;
       }
       terminate(base_, r->process);
       if (unwinding(base_)) {
         clearUnwinding(base_);
       }
+      r = findId(id);
+      terminatedOne = terminatedOne || r == nullptr || r->state == State::Dead || r->terminated;
+    }
+    drain(kDrainRounds);
+    const std::size_t liveAfter = liveFibers();
+    if (liveAfter == 0 || (!terminatedOne && liveAfter >= liveBefore)) {
+      break;
     }
   }
-  // What a cleanup left blocked, forked, or everything when abandoning.
+  // What a cleanup left blocked or the passes did not finish, or everything when abandoning.
   abandonAll();
   if (unwinding(base_)) {
     clearUnwinding(base_);
@@ -606,19 +676,27 @@ void Scheduler::runFiber(Record& me) {
     clearUnwinding(ctx);
     refreshStackLimit(ctx);
     const Oop result = send(ctx, me.block, base_.wk.selValue, nullptr, 0, nullptr);
-    if (result.isEmpty() && !me.terminated && !me.abandon) {
-      // Not an abort: a ^ whose home is in another process came back to the body (SPEC §3.4).
-      recordFailure(ctx.aborting ? abortReasonText(ctx)
-                                 : std::string("non-local return to another process"));
+    if (!me.terminated && !me.abandon) {
+      if (result.isEmpty() && ctx.aborting) {
+        recordFailure(abortReasonText(ctx));
+      } else if (base_.heap.outOfMemory()) {
+        // SPEC §3.4: an allocation failed, yet the body ran to its end without an abort.
+        recordFailure("out of memory");
+      } else if (result.isEmpty()) {
+        // Not an abort: a ^ whose home is in another process came back to the body (SPEC §3.4).
+        recordFailure("non-local return to another process");
+      }
     }
   } catch (...) {
-    // No exception crosses a fiber's entry (Fiber.hpp).
+    // SPEC §3.4 プロセスの失敗: no exception crosses a fiber's entry (Fiber.hpp). The native
+    // frames on the way were popped as it unwound.
     if (!me.terminated && !me.abandon) {
       recordFailure("internal error");
     }
   }
   clearUnwinding(ctx);
   ctx.abandoning = false;
+  base_.heap.clearOutOfMemory();
   assert(base_.roots.runningStack().empty() && "a fiber ends with no LIFO roots");
 }
 
@@ -804,6 +882,14 @@ void Scheduler::switchTo(Record& to) {
     heap.slotAtPut(base_.wk.processor, kSchedulerSlotActive, to.process);
   }
   setMyList(heap, to.process, Oop::nil());
+  // SPEC §3.4: the out-of-memory mark is each process's own, like its abort. The heap holds the
+  // running one's.
+  from.outOfMemory = heap.outOfMemory();
+  if (to.outOfMemory) {
+    heap.setOutOfMemory();
+  } else {
+    heap.clearOutOfMemory();
+  }
   // Back from its wait (or unwinding): a signal it took is its own now.
   to.signaledBy = Oop::nil();
   to.state = State::Running;

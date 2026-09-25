@@ -972,3 +972,40 @@ TEST_F(SessionAbi, BaseDeadlockFailsEvalBaseStays) {
   ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == base", out, 64, &err)) << err.message;
   EXPECT_STREQ("true", out);
 }
+
+// SPEC §3.4 プロセスの失敗, §3.10: a C++ exception in a forked process (a transcript hook that
+// throws, called in the drain) ends that process as a failure, internal error. It does not leave
+// the fiber: the native frames on the way are popped, ao_eval answers what it had, and the session
+// goes on.
+TEST_F(SessionAbi, ExceptionInsideForkIsProcessFailure) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao_set_transcript_hook([](const char*, int, int, void*) { throw std::runtime_error("host bug"); },
+                         nullptr);
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("[Transcript show: 'x'] fork. 3", out, 64, &err)) << err.message;
+  EXPECT_STREQ("3", out);
+  ao::Session* session = ao::session();
+  EXPECT_EQ(1u, session->scheduler->processFailures());
+  EXPECT_EQ("internal error", session->scheduler->lastFailureReason());
+  EXPECT_EQ(0u, session->scheduler->liveFibers());
+  EXPECT_TRUE(session->roots.runningStack().empty());
+  ao_set_transcript_hook(nullptr, nullptr);
+  ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+}
+
+// SPEC §3.4: the out-of-memory mark is the process's own. A fork that cannot allocate fails alone;
+// the base's Print it, which allocated fine, answers its value.
+TEST_F(SessionAbi, ForkOutOfMemoryKeepsBaseAnswer) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("[Array new: 600000000] fork. Processor yield. 7", out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("7", out);
+  EXPECT_EQ(1u, ao::session()->scheduler->processFailures());
+  EXPECT_EQ("out of memory", ao::session()->scheduler->lastFailureReason());
+  ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+}

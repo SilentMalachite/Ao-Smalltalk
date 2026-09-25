@@ -1038,3 +1038,155 @@ TEST(Process, ReadyQueueArrayStaysSmall) {
   EXPECT_LE(arraySize(send1(b, at(b, env.slot, 1), "instVarAt:", smi(2))), 64u);
   EXPECT_LE(arraySize(send1(b, at(b, env.slot, 2), "instVarAt:", smi(2))), 64u);
 }
+
+// ---- Codex review of B10 ----
+
+// SPEC §3.4 SharedQueue next: a reader that returns from wait without a signal (suspend and
+// resume) takes an element when there is one, and waits again when the queue is empty. The queue
+// stays in step with readSynch: a later next on the empty queue waits (here the base deadlocks)
+// instead of answering nil.
+TEST(Process, SharedQueueNextAfterSuspendResumeWaitsWhenEmpty) {
+  Boot b;
+  ao::Root env(b.roots, newEnv(b, 1));
+  EXPECT_EQ("deadlock: no runnable process", runAbort(b,
+                                                      "doIt: env\n"
+                                                      "  | q p log |\n"
+                                                      "  q := SharedQueue new.\n"
+                                                      "  log := OrderedCollection new.\n"
+                                                      "  env at: 1 put: log.\n"
+                                                      "  p := [log add: q next] fork.\n"
+                                                      "  Processor yield.\n"
+                                                      "  p suspend.\n"
+                                                      "  q nextPut: 42.\n"
+                                                      "  p resume.\n"
+                                                      "  Processor yield.\n"
+                                                      "  log add: q next.\n"
+                                                      "  ^log",
+                                                      env.slot));
+  EXPECT_EQ("42", itemsOf(b, at(b, env.slot, 1)));
+  // Resumed while the queue is empty, it waits again and takes the next element put.
+  EXPECT_EQ("0 7", runItems(b,
+                            "doIt\n"
+                            "  | q p log |\n"
+                            "  q := SharedQueue new.\n"
+                            "  log := OrderedCollection new.\n"
+                            "  p := [log add: q next] fork.\n"
+                            "  Processor yield.\n"
+                            "  p suspend.\n"
+                            "  p resume.\n"
+                            "  Processor yield.\n"
+                            "  log add: log size.\n"
+                            "  q nextPut: 7.\n"
+                            "  Processor yield.\n"
+                            "  ^log"));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_EQ(0u, b.scheduler.processFailures());
+}
+
+// SPEC §3.4: the out-of-memory mark is each process's own. A fork that cannot allocate fails
+// alone, and the base, which allocated fine, does not see the mark. A fork whose body ends without
+// an abort after an allocation failed (the hook stands for one) fails with the same reason.
+TEST(Process, OutOfMemoryMarkIsPerProcess) {
+  Boot b;
+  EXPECT_EQ(smi(7), run(b, "doIt\n  [Array new: 600000000] fork.\n  Processor yield.\n  ^7"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_FALSE(b.heap.outOfMemory());
+  EXPECT_EQ(1u, b.scheduler.processFailures());
+  EXPECT_EQ("out of memory", b.scheduler.lastFailureReason());
+  b.ctx.inspectHook = [](ao::CallContext& ctx, ao::Oop) { ctx.heap.setOutOfMemory(); };
+  ao::Root env(b.roots, newEnv(b, 1));
+  EXPECT_EQ(smi(7), run(b,
+                        "doIt: env\n"
+                        "  | log |\n"
+                        "  log := OrderedCollection new.\n"
+                        "  env at: 1 put: log.\n"
+                        "  [3 inspect. log add: 1] fork.\n"
+                        "  Processor yield.\n"
+                        "  log add: 2.\n"
+                        "  ^7",
+                        env.slot));
+  b.ctx.inspectHook = nullptr;
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_FALSE(b.heap.outOfMemory());
+  EXPECT_EQ("1 2", itemsOf(b, at(b, env.slot, 1)));
+  EXPECT_EQ(2u, b.scheduler.processFailures());
+  EXPECT_EQ("out of memory", b.scheduler.lastFailureReason());
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}
+
+// SPEC §4.4: terminateAll(false) drains after the terminates, so a cleanup that yielded goes on to
+// its end, and a process that a cleanup forked is terminated in turn (its cleanup runs too). Only
+// what stays blocked would be abandoned.
+TEST(Process, TerminateAllFinishesCleanupsThatYieldOrFork) {
+  Boot b;
+  ao::Root env(b.roots, newEnv(b, 1));
+  run(b,
+      "doIt: env\n"
+      "  | s log |\n"
+      "  s := Semaphore new.\n"
+      "  log := OrderedCollection new.\n"
+      "  env at: 1 put: log.\n"
+      "  [[s wait] ensure: [[nil] fork. log add: 1. Processor yield. log add: 2]] fork.\n"
+      "  [[s wait] ensure: [[[s wait] ensure: [log add: 4]] fork. log add: 3]] fork.\n"
+      "  Processor yield",
+      env.slot);
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  b.scheduler.drain(ao::Scheduler::kDrainRounds);
+  EXPECT_EQ(2u, b.scheduler.liveFibers());
+  b.scheduler.terminateAll(false);
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_EQ(0u, b.scheduler.processFailures());
+  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_EQ("1 3 2 4", itemsOf(b, at(b, env.slot, 1)));
+}
+
+// SPEC §3.4 signal, nextPut:: when the ready queue cannot take the waiter (its Array cannot double
+// under old's max, SPEC §3.2), the operation fails with out of memory and changes nothing: the
+// waiter still waits in its linkedList, and the SharedQueue has no new element. Once the queue can
+// take it, the next signal wakes it.
+TEST(Process, WakeThatCannotEnqueueChangesNothing) {
+  Boot b(1 << 20, 1 << 20, 8 << 20);  // old は 8 MiB で頭打ち
+  ao::Root env(b.roots, newEnv(b, 4));
+  run(b,
+      "doIt: env\n"
+      "  | s q log |\n"
+      "  s := Semaphore new.\n"
+      "  q := SharedQueue new.\n"
+      "  log := OrderedCollection new.\n"
+      "  env at: 1 put: s; at: 2 put: q; at: 3 put: log.\n"
+      "  [s wait. log add: 1] fork.\n"
+      "  [log add: q next] fork.\n"
+      "  Processor yield",
+      env.slot);
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  ASSERT_EQ(2u, b.scheduler.liveFibers());
+  // Processor's ready queue becomes a full OrderedCollection whose Array is too big to double.
+  run(b,
+      "doIt: env\n"
+      "  | full |\n"
+      "  full := OrderedCollection new.\n"
+      "  full instVarAt: 1 put: (Array new: 600000); instVarAt: 3 put: 600000.\n"
+      "  env at: 4 put: (Processor instVarAt: 1).\n"
+      "  Processor instVarAt: 1 put: full",
+      env.slot);
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ("out of memory", runAbort(b, "doIt: env\n  (env at: 1) signal", env.slot));
+  EXPECT_EQ("out of memory", runAbort(b, "doIt: env\n  (env at: 2) nextPut: 5", env.slot));
+  b.heap.clearOutOfMemory();
+  ao::Root sem(b.roots, at(b, env.slot, 1));
+  EXPECT_EQ(1, sizeOf(b, send1(b, sem.slot, "instVarAt:", smi(2))));
+  EXPECT_EQ(smi(0), send1(b, sem.slot, "instVarAt:", smi(1)));
+  ao::Root q(b.roots, at(b, env.slot, 2));
+  EXPECT_EQ(0, sizeOf(b, send1(b, q.slot, "instVarAt:", smi(1))));
+  run(b,
+      "doIt: env\n"
+      "  Processor instVarAt: 1 put: (env at: 4).\n"
+      "  (env at: 1) signal.\n"
+      "  (env at: 2) nextPut: 6.\n"
+      "  Processor yield",
+      env.slot);
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ("1 6", itemsOf(b, at(b, env.slot, 3)));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_EQ(0u, b.scheduler.processFailures());
+}

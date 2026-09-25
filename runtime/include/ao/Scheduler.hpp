@@ -81,8 +81,9 @@ class Scheduler {
   // Ends every process but the base, from the base, which is left not unwinding. abandon (SPEC
   // §3.4 abandon): no ensure:/ifCurtailed: cleanup, no Smalltalk code and no hook runs, and
   // nothing counts as a failure; each fiber's C++ frames still unwind, so its roots go. Otherwise
-  // each is terminated (its cleanups run on it), and one that a cleanup left blocked is then
-  // abandoned, so none remains.
+  // (SPEC §4.4) each is terminated (its cleanups run on it) and the ready queue drained, again for
+  // what the cleanups forked, while that makes progress (at most kDrainRounds passes); one that a
+  // cleanup left blocked is then abandoned, so none remains.
   void terminateAll(bool abandon);
 
   // SPEC §3.4 プロセスの失敗: how many processes ended in an abort (not by terminate), and the
