@@ -622,7 +622,7 @@ Character:
   - String の系統: collection と同じクラスの String。ただし Symbol（とそのサブクラス）なら String。collection のクラスで見つかる `at:` が Kernel の `String>>at:` のネイティブなら、`at:` を送らずに UTF-8 を先頭から 1 回だけたどり、k 文字目までのバイト列を写す（同じ文字列になる。長さ n で O(n)）。k 文字に満たなければ `at: index out of range` で失敗する。
   - ArrayedCollection の系統で可変長のクラス（Array、ByteArray とそのサブクラス）: collection と同じクラス。`basicNew:` と同じく、instSize のスロット（名前付き変数。nil のまま）と k 個の要素を割り当てる。`Array subclass: #PG instanceVariableNames: 'tag'` のインスタンスの `contents` は PG で、要素はずれない。
   - OrderedCollection の系統: OrderedCollection（Kernel のクラス）。
-  - それ以外（Interval、Dictionary、利用者のコレクションなど）: Array。
+  - それ以外（利用者のコレクションなど）: Array。`at:` を持たないコレクション（Kernel の Interval など）は `doesNotUnderstand: #at:` で失敗する。
   - 取り出した要素が答えに入らないとき（String に Character でないもの、ByteArray に 0 以上 255 以下の SmallInteger でないもの）は、`contents: element out of range` で失敗する。
 
 String への書き込み（WriteStream の `nextPut:`）:
@@ -636,10 +636,10 @@ String への書き込み（WriteStream の `nextPut:`）:
 - 位置に文字があり、書く文字と UTF-8 の幅が同じなら、その場で書き換える（`at:put:` と同じ。collection は差し替えない）。
 - 幅が違うか、位置が末尾なら:
   - position が readLimit 以上で、位置から書く文字の幅だけのバイトがどれも 1 バイトの文字（予備）なら、その場で書き、文字数を（幅 − 1）減らす。writeLimit も（幅 − 1）減る。
-  - position が readLimit より小さければ（書いた文字の上書き）、その 1 文字だけを置き換えた新しい String を作り、collection を差し替える。文字数は変わらない。
+  - position が readLimit より小さければ（書いた文字の上書き。writeLimit が 0 以上の SmallInteger でないときも）、その 1 文字だけを置き換えた新しい String を作り、collection を差し替える。文字数は変わらない。
   - それ以外（末尾、または予備が足りない）は、位置までのバイト列、書く文字、予備を並べた新しい String を作り、collection を差し替える。新しい String のバイト数は、位置までのバイト数と書く文字の幅の和の 2 倍（16 以上。8 の倍数に切り上げる）で、残りが予備である。writeLimit は新しい文字数になる。
   - 新しい String のクラスは collection のクラスである。利用者が `on:` に渡した String は、差し替えたあとは書き換えない。
-- `| w | w := WriteStream on: (String new: 8). w nextPutAll: 'ééé'. w contents` は `'ééé'`、`w position` は 3 である。`nextPut:` を n 回送る時間は、書く文字によらず O(n) である。
+- `| w | w := WriteStream on: (String new: 8). w nextPutAll: 'ééé'. w contents` は `'ééé'`、`w position` は 3 である。`WriteStream on: String new` に `nextPut:` を n 回送る時間は、書く文字によらず O(n) である。利用者が `on:` に渡した String の中を幅の違う文字で上書きするときは、1 文字ごとに String を作り直す（1 回が O(大きさ)）。
 - 利用者が `on:` に渡した String を `at:put:` で書き換えても（幅が変わっても）、文字数は変わらないので、ストリームは正しい位置に書く。次のときに書く位置は規定しない（メモリの外は読み書きしない）: `basicAt:put:` で UTF-8 のバイト列を変えて文字数を変えたとき、ストリームが作った String を `instVarAt:` などで取り出して予備の文字の幅を変えたとき、`instVarAt:put:` で collection、position、readLimit、writeLimit を書き換えたとき（Kernel-Classes の既知の制約）。
 
 グローバル辞書:
