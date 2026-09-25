@@ -325,9 +325,6 @@ Oop fillFromAt(CallContext& ctx, Root& self, Root& coll, Root& answer, std::int6
   return answer.slot;
 }
 
-// SPEC §3.6: the first k elements of the stream's collection, taken with at:, in a new collection
-// of its kind: a String (String for a Symbol); the same class for an indexable ArrayedCollection
-// (instSize named slots left nil); an OrderedCollection; otherwise an Array. self is the stream.
 // SPEC §3.6: when coll's class finds a Kernel at: that is known to fail at k (ArrayedCollection>>at:
 // past the indexable part, OrderedCollection>>at: past its size), fails as that at: would, before
 // anything is allocated for k elements. True after failing.
@@ -362,6 +359,9 @@ bool refuseBeyondNativeAt(CallContext& ctx, Root& self, Root& coll, Root& cls, s
   return false;
 }
 
+// SPEC §3.6: the first k elements of the stream's collection, taken with at:, in a new collection
+// of its kind: a String (String for a Symbol); the same class for an indexable ArrayedCollection
+// (instSize named slots left nil); an OrderedCollection; otherwise an Array. self is the stream.
 Oop copyPrefix(CallContext& ctx, Root& self, Root& coll, std::int64_t k) {
   if (k < 0) {
     k = 0;
