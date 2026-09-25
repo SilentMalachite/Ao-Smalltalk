@@ -510,14 +510,15 @@ Collection の列挙:
 - String の `do:` は、UTF-8 のバイト列を先頭から 1 回だけたどり、文字ごとにブロックを呼ぶ（`at:` を送らない。長さ n の文字列で O(n)）。渡した文字の数 k を数える。ブロックから戻るたびにレシーバのバイト数を読み直し、バイト数が変わったか、次に読む位置が多バイト文字の途中なら、そのときの文字列の k + 1 文字目の位置に合わせ直す（`at:` と同じ数え方で先頭から数える。k 文字に満たなければ終わる）。したがって、渡す文字はどれも、渡した時点の文字列に `at:` で読める文字である。文字列に無い文字（多バイト文字の途中の継続バイトなど）は渡さない。
   - 「多バイト文字の途中」は、次に読む位置の直前 3 バイト以内で、いちばん近い継続バイト（0x80〜0xBF）でないバイトから始まる正しい UTF-8 の列が、その位置を覆うことである（見るのは高々 3 バイト）。どの列にも覆われない継続バイト（はぐれた継続バイト）は、`at:` と同じくそれ自体が 1 文字なので、合わせ直さない。`| s i | s := 'say "hi" now' copy. i := 0. s do: [:c | i := i + 1. c = $" ifTrue: [s at: i put: $”]]. s` は `'say ”hi” now'` である。
   - ブロックが文字列を書き換えたとき、文字を飛ばすか 2 度渡すかは規定しない。
-  - 合わせ直しは 1 回が O(n) だが、合わせ直すのはブロックが文字列を書き換えたときだけで、幅の変わる `at:put:` も 1 回が O(n) なので、全体の時間は書き換えにかかる時間の定数倍を超えない。書き換えなければ、UTF-8 として正しくないバイト列（`basicAt:put:` で書いたもの、UTF-8 でないソースの文字列リテラルから作ったものなど）でも O(n) である。
+  - ブロックが文字列を書き換えなければ、UTF-8 として正しくないバイト列（`basicAt:put:` で書いたもの、UTF-8 でないソースの文字列リテラルから作ったものなど）でも O(n) である。ブロックが書き換えたときは、合わせ直すたびに O(n) かかることがある。幅の変わる `at:put:` は 1 回が O(n) なので、それで書き換えるなら全体の時間は書き換えにかかる時間の定数倍を超えない。`basicAt:put:` の書き換えは 1 回が O(1) なので、毎回合わせ直させると全体は O(n²) になりうる（`String new: 40000` の do: の中で毎回 2 バイトを多バイト文字に書き換えるなど）。
   - ループは 64K 回ごとに safepoint を通る。レシーバのクラスで見つかる `at:` か `size` が Kernel の String のネイティブでなければ（利用者が上書きしたサブクラス）、ArrayedCollection の `do:` と同じく `size` と `at:` を送って回す。
 
 Dictionary と Set:
 
 - `Dictionary`、`IdentityDictionary`、`Set`、`IdentitySet` は、開番地法（線形プローブ）のハッシュ表である。スロットは `tally array`（Kernel-Classes の表）で、`tally` は要素の数、`array` はエントリを並べた Array である。
 - エントリの幅は、Dictionary と IdentityDictionary が 3 スロット（`key value hash`）、Set と IdentitySet が 2 スロット（`element hash`）である。`hash` は、キー（Set では要素）のハッシュ値を保存した SmallInteger である。キー（要素）が nil のエントリは空きである。
-- 容量（エントリの数）は 8 以上の 2 のべき乗で、`array` の大きさは容量×幅である。`new` は容量 8 の空の表を作る。
+- 容量（エントリの数）は 8 以上の 2 のべき乗で、`array` の大きさは容量×幅 + 1 である。エントリは先頭から並び、最後の 1 スロットは表の世代番号（SmallInteger）である。`new` は容量 8、世代番号 0 の空の表を作る。
+- 世代番号: ネイティブがエントリを足すか消すたびに（挿入、削除）1 増やし、SmallInteger の最大値の次は 0 に戻す。値の置き換え（`at:put:` で既にあるキーに結ぶ）はエントリを動かさないので変えない。拡張は新しい `array` に替えるので、世代番号は 0 から始める。世代番号は再入の検出（下の「再入」）だけに使う。
 - ハッシュ値:
   - Dictionary と Set は、1 回の操作でキーに `hash` を 1 回だけ送る。送り方（入れ子の数の扱い）は、Array の `hash` が要素に送るときと同じである（Kernel-Objects の「`=` と `hash`」）。答えが Integer でなければ失敗する（§3.3）。答えが LargeInteger なら、その `hash` の値を保存する。送った先で巻き戻しが始まったら、表に触れずに直ちに空 OOP を返す（§3.4）。
   - IdentityDictionary と IdentitySet は送信しない。`identityHash` と同じ値を使う。
@@ -527,12 +528,12 @@ Dictionary と Set:
   - IdentityDictionary と IdentitySet は `==` だけで比べる。
 - 挿入: キーが無ければ、入れたあとの要素の数が容量の 3/4 を超えるとき、先に容量を 2 倍にする（拡張）。そのあと、キーの hash の位置から探した最初の空きに入れる。
 - 拡張は新しい配列を作り、各エントリを保存した hash で入れ直し、`tally` を入れ直した数にしてから `array` を差し替える。削除は後方シフトで行い、空きの印を残さない。空いた場所を i として、その後ろのエントリを、空きに当たるか、見る場所が i に戻るまで順に見る（i に戻るのは、`tally` が実際の数と違って空きの無い表から消すときだけである）。エントリのホームが、巡回した順で i より後ろ、そのエントリ以前にあれば動かさない。そうでなければ、そのエントリを i へ移し、移したもとの場所を新しい i とする。終わったら i を空きにする。どちらで終わっても、残ったエントリはどれも、ホームから空きを通らずに届く。拡張も削除も `hash` と `=` を送らない。利用者のコードが走らないので、途中で失敗も巻き戻しも起きない。
-- 再入: `hash` と `=` は利用者のメソッドでもよく、その中で同じ表を書き換えうる（`at:put:`、`removeKey:`、拡張による `array` の差し替え、`instVarAt:put:`）。ネイティブは送信から戻るたびに、レシーバから表を読み直す。`array` が差し替わったか、`tally` か比べていたエントリのキーが変わっていれば、求めた hash のまま初めから探し直す（`hash` は送り直さない）。どの書き換えのあとも、配列の範囲外は読み書きしない。探し直しの回数に上限は無い。`=` が送られるたびに表を書き換えれば、探索は終わらない（利用者のループと同じく、停止は保証しない）。探し直しても、`hash` は 1 回の操作で 1 回しか送らない。
+- 再入: `hash` と `=` は利用者のメソッドでもよく、その中で同じ表を書き換えうる（`at:put:`、`removeKey:`、拡張による `array` の差し替え、`instVarAt:put:`）。ネイティブは送信から戻るたびに、レシーバから表を読み直す。`array` が差し替わったか、世代番号が変わっていれば、求めた hash のまま初めから探し直す（`hash` は送り直さない）。削除と再挿入で元の見かけ（同じ `array`、同じ `tally`、同じ位置の同じキー）に戻しても、世代番号で見つける。世代番号は表ごとなので、ほかの表を書き換える `=`（ログやキャッシュ）では探し直さない。同じ表でも、値の置き換えだけなら探し直さない。`instVarAt:put:` や `array` への直接の `at:put:` で、世代番号を通さずにエントリや `tally` を書き換えたときの結果は規定しない（Kernel-Classes の既知の制約。メモリの安全だけを保つ）。どの書き換えのあとも、配列の範囲外は読み書きしない。探し直しの回数に上限は無い。`=` が送られるたびに表を書き換えれば、探索は終わらない（利用者のループと同じく、停止は保証しない）。探し直しても、`hash` は 1 回の操作で 1 回しか送らない。
 - 壊れた表:
   - `array` が nil なら空の表として扱う（`Dictionary basicNew` など）。`size` は 0 で、最初の挿入で容量 8 の配列を作り、`tally` を 0 から数える。
-  - `array` がポインタのオブジェクトでないか、大きさが「8 以上の 2 のべき乗×幅」でないか、`tally` が 0 以上容量以下の SmallInteger でなければ（`instVarAt:put:` で壊したときなど）、Dictionary と Set のネイティブはどれも失敗する。理由は `damaged hashed collection` である。
+  - `array` がポインタのオブジェクトでないか、大きさが「8 以上の 2 のべき乗×幅 + 1」でないか、最後のスロット（世代番号）が SmallInteger でないか、`tally` が 0 以上容量以下の SmallInteger でなければ（`instVarAt:put:` で壊したときなど）、Dictionary と Set のネイティブはどれも失敗する。理由は `damaged hashed collection` である。
   - `tally` が実際の数と違うだけなら、探索、挿入、削除、列挙は失敗しない。挿入で空きが見つからなければ拡張し、拡張は `tally` を数え直す。削除は `tally` を 1 減らす（0 より小さくしない）。ただし `size` は `tally` を答え、`tally` を使うネイティブ（Dictionary の `collect:` と、`size` を送る Collection の `collect:`）は `tally` を信じる。`tally` が実際の数より小さければ `collect:` は失敗しうる。大きければ、答えの Array の末尾に nil が残る。`tally` を実際と違う値にできるのは `instVarAt:put:` だけである（Kernel-Classes の既知の制約）。保存した hash が SmallInteger でないエントリは、どのキーとも一致せず、拡張と削除では hash を 0 として扱う。
-- 列挙（`do:`、`keysDo:`、`associationsDo:`、`keysAndValuesDo:`、`collect:`、値の `includes:`）は、`array` を先頭から順に見る。順序は規定しない。ブロック（`includes:` では `=`）が表を書き換えても、ネイティブはエントリごとに表を読み直し、そのときの `array` の大きさの範囲で続ける。そのとき要素を飛ばしたり 2 度渡したりすることがあるが、どうなるかは規定しない。列挙のループも 64K 回ごとに safepoint を通る。
+- 列挙（`do:`、`keysDo:`、`associationsDo:`、`keysAndValuesDo:`、`collect:`、値の `includes:`）は、`array` を先頭から順に見る。順序は規定しない。ブロック（`includes:` では `=`）が表を書き換えても、ネイティブはエントリごとに表を読み直し、そのときの `array` の大きさの範囲で続ける。そのとき要素を飛ばしたり 2 度渡したりすることがあるが、どうなるかは規定しない。列挙のループも、空きを含めてエントリを 64K 個見るごとに safepoint を通る（疎な大きい表でも通る）。
 
 Dictionary のプロトコル（Blue Book）。IdentityDictionary は、キーを探すセレクタ（`at:`、`at:put:`、`at:ifAbsent:`、`includesKey:`、`removeKey:`、`removeKey:ifAbsent:`）を同一性版で持ち、ほかは Dictionary のものを使う。
 
@@ -564,7 +565,7 @@ Interval:
 - start、stop、step がどれも Integer（SmallInteger、LargePositiveInteger、LargeNegativeInteger）なら、`size` は送信せずに厳密に求める。step が 0 なら 0 である。step が正で stop < start のときと、負で stop > start のときも 0 である。それ以外は `(stop - start) // step + 1` である。答えは SmallInteger に収まれば SmallInteger、収まらなければ LargeInteger である（`(1 to: (1 bitShift: 70)) size` は `1 bitShift: 70`）。どれも SmallInteger なら、`do:` も送信せずに数える。
 - そうでなければ（`do:` では、どれかが SmallInteger でなければ）、まず刻みの向きを決める。step が SmallInteger ならその符号で決める。そうでなければ `step < 0` を送り、true なら後ろ向きである。false なら `step > 0` を送り、true なら前向き、false なら要素は無い（刻み 0 と同じ）。どちらも答えが Boolean でなければ失敗する（§3.3）。
 - 前向きは `要素 <= stop`、後ろ向きは `要素 >= stop` を送り、答えが true の間だけ続け、false になったところで終わる。答えが Boolean でなければ失敗する。次の要素は `要素 + step` を送って求める。それが失敗すれば失敗する。比べられない値（NaN）との比較は false なので、端点が NaN なら要素は無い。`nan := 0.0 / 0.0` として、`(Interval from: 1 to: nan by: 1)` と `(Interval from: nan to: 5 by: 1)` の `size` は 0 で、`do:` はブロックを呼ばない。
-- 要素の数に上限は無い。ループはネイティブのループの規則（Kernel-Methods。64K 回ごとに safepoint）に従い、ブロックの abort や巻き戻しで止まる。
+- 要素の数に上限は無い。`size` は数えた数が SmallInteger を超えれば LargeInteger を答える。ループはネイティブのループの規則（Kernel-Methods。64K 回ごとに safepoint）に従い、ブロックの abort や巻き戻しで止まる。
 - `(Interval from: 2.0 to: 1.0 by: -0.5) size` は 3 で、`collect:` は 3 要素の Array を答える。`(Interval from: 1 to: 2 by: 0.5) do: aBlock` は 1、1.5、2 で aBlock を呼ぶ。Fraction の刻みも同じである（`(Interval from: 0 to: 1 by: 1/2) size` は 3）。
 - `collect:`（Collection の `collect:`）は、`size` を送って答えの Array を作ってから、`do:` で要素を集める。どれかが SmallInteger でなければ、`do:` は比較と `+` を送り、Integer でなければ `size` も送る。それらに副作用があって、`size` と `do:` の要素の数が食い違うときの `collect:` の答えは規定しない（失敗することもある）。`size` が大きすぎれば、Array を作る `basicNew:` で失敗する。
 
@@ -973,7 +974,7 @@ LargeInteger とそれ以外はクラス名のまま。
 
 ネイティブのブロック（`makeNativeBlock` が作る thunk。`nextPutAll:` や `collect:` などのネイティブが、内部で `do:` に渡す BlockContext）も、NativeMethod を 1 つ持つ。その名前は、thunk の関数を Kernel のインストールで登録した名前（例: `ao_Stream_nextPutAll_each`、`ao_Collection_collect_fill`）である。thunk が捕捉する状態（ストリーム、数え上げ、結果の配列など）はすべてブロックのスロットにあり、関数はランタイムの静的な関数なので、ヒープに逃げた thunk（利用者の `do:` がブロックを保持した場合）は、ロードで名前から結び直せば保存したときと同じに動く。名前を登録していない関数の thunk（テストの関数など）の名前は `ao_NativeBlock_thunk` で、これは結び直せない。
 
-形式の版は 3 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。版 2 は、Dictionary と Set がハッシュ表（§3.6 Collections）になる前の形式で、`array` にキーと値（Set では要素）を先頭から詰めていた。新しいネイティブはその配置を引けない。ロードは版 1 と版 2 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1`、`unsupported image version 2` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 3 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
+形式の版は 3 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。版 2 は、Dictionary と Set がハッシュ表（§3.6 Collections）になる前の形式で、`array` にキーと値（Set では要素）を先頭から詰めていた。版 3 の Dictionary と Set の `array` は、末尾に世代番号のスロットを持つ（§3.6。版 3 は世代番号を足す前に公開していないので、版は上げない）。新しいネイティブはその配置を引けない。ロードは版 1 と版 2 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1`、`unsupported image version 2` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 3 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
 
 ロードが拒否するときの理由は次のとおりである。`ao_image_load`（§3.10）と CLI の `ao image load` はこれを出す。
 
@@ -1106,7 +1107,7 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `kernel_numeric_test`: 数の混合演算と厳密な比較（NaN、±inf、LargeInteger）、Float への丸め、`bitShift:` の境界、Boolean の演算、Point と Rectangle のサブクラス、`asCharacter` の範囲、`to:do:` の終端、`=` と `hash` の契約
 - `collection_do_test`: Array/String/Dictionary の中核プロトコル。`select:` と `reject:` の述語は要素ごとに 1 回（Boolean でない答えは `mustBeBoolean`、作業領域の検査は述語の前）、`includes:` は `anObject = 要素` で `hash` を送らない、String の `do:` の 1 パスと書き換え（渡す文字は文字列にある文字）
 - `stream_test`: ストリームの `contents` の種類と要素の数（ByteArray、OrderedCollection、Array のサブクラス、Symbol、ReadWriteStream。割り当て前の範囲の検査）、String への書き込み（多バイト文字、予備、上書き、差し替え、利用者の書き換え、`size` を上書きしたサブクラス、クラスを保つ追記）、`position:` の上限、スロットを極端な値にした反射、ReadStream の `nextPut:`、GC 圧下、性能
-- `hashed_collection_test`: Dictionary と Set のハッシュ表（`=` と `hash` の送り方と失敗、nil、削除と拡張、再入、壊れた表、GC 圧下、性能、ホームの混ぜ方、満杯の表からの削除、`copy`）、classPool の配置と名前の並び（Symbol のキーだけ）と写し、Interval の刻みと終端の比較（NaN）と Integer の `size`、OrderedCollection の組の検査と `at:` の範囲
+- `hashed_collection_test`: Dictionary と Set のハッシュ表（`=` と `hash` の送り方と失敗、nil、削除と拡張、再入、壊れた表、GC 圧下、性能、ホームの混ぜ方、満杯の表からの削除、`copy`、世代番号による再入の検出）、classPool の配置と名前の並び（Symbol のキーだけ）と写し、Interval の刻みと終端の比較（NaN）と Integer の `size`、OrderedCollection の組の検査と `at:` の範囲
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
