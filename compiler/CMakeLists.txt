@@ -4,7 +4,7 @@ target_include_directories(ao_compiler
   PUBLIC
     ${CMAKE_SOURCE_DIR}/compiler/include
 )
-target_compile_options(ao_compiler PRIVATE -Wall -Wextra -Werror)
+target_compile_options(ao_compiler PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>")
 
 add_executable(ao_compiler_tests tests/smoke_test.cpp tests/scanner_test.cpp tests/parser_test.cpp
   tests/bytecode_isa_test.cpp tests/codegen_snapshot_test.cpp tests/workspace_temp_test.cpp
