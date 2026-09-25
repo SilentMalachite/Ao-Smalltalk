@@ -334,6 +334,41 @@ TEST_F(Streams, ExtremeSlotValuesStayInRange) {
                               ". w nextPut: 1; nextPut: 2. w contents"));
 }
 
+// B9 review (Low): size を上書きした String のサブクラスでも、at:put: が Kernel のものなら高速路を
+// 通り、size を無視して別の位置に書いた。高速路は size もネイティブのときだけで、ほかは size と
+// at:put: を送る（SPEC §3.6）。
+TEST_F(Streams, StringSubclassOverridingSizeGetsSizeSent) {
+  acceptClass("String", "B9Sized", "");
+  acceptMethod("B9Sized", "size\n  Smalltalk at: #B9Sizes put: (Smalltalk at: #B9Sizes) + 1.\n"
+                          "  ^super size\n");
+  ASSERT_EQ("0", printIt("Smalltalk at: #B9Sizes put: 0"));
+  EXPECT_EQ("true", printIt("| w | w := WriteStream on: (B9Sized new: 2). Smalltalk at: #B9Sizes "
+                            "put: 0. w nextPut: $a; nextPut: $b. w contents = 'ab'"));
+  EXPECT_EQ("2", printIt("Smalltalk at: #B9Sizes"));
+  // A size larger than the characters: at: 3 put: fails in the String, as the generic path says.
+  acceptClass("String", "B9Tall", "");
+  acceptMethod("B9Tall", "size\n  ^super size * 2\n");
+  EXPECT_EQ("<eval error: at:put: index out of range>",
+            printIt("| w | w := WriteStream on: ((B9Tall new: 2) at: 1 put: $a; at: 2 put: $b; "
+                    "yourself). w position: 2. w nextPut: $x"));
+}
+
+// B9 review (Low): 汎用の経路で末尾に足すと、String のサブクラスが素の String に変わった。
+// collection のクラスを保つ（Symbol の系統だけ String。SPEC §3.6）。
+TEST_F(Streams, AppendingKeepsTheStringSubclass) {
+  acceptClass("String", "B9Loud", "");
+  acceptMethod("B9Loud", "at: i put: c\n  ^super at: i put: c\n");
+  EXPECT_EQ("'B9Loud'",
+            printIt("| w | w := WriteStream on: (B9Loud new: 0). w nextPut: $a; nextPut: $\xC3\xA9. "
+                    "(w instVarAt: 1) class name asString"));
+  EXPECT_EQ("true", printIt("| w | w := WriteStream on: (B9Loud new: 0). w nextPut: $a; "
+                            "nextPut: $\xC3\xA9. w contents = 'a\xC3\xA9'"));
+  EXPECT_EQ("true", printIt("| w | w := WriteStream on: (B9Loud new: 0). w nextPut: $a. "
+                            "w contents class == B9Loud"));
+  EXPECT_EQ("true", printIt("| w | w := WriteStream on: #ab. w position: 2. w nextPut: $c. "
+                            "(w instVarAt: 1) class == String"));
+}
+
 // Symbol の系統は at:put: が Kernel の String のものでないので、at:put: を送る（shouldNotImplement）。
 // 末尾の次の文字は、新しい String に足す。
 TEST_F(Streams, SymbolCollectionsSendAtPut) {

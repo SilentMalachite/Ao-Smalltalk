@@ -97,6 +97,8 @@ Oop growArray(CallContext& ctx, Root& arr, std::int64_t minSize) {
   return n;
 }
 
+// SPEC §3.6: str's bytes and cp's UTF-8 in a new String of str's class (String for a Symbol, which
+// is interned and must not grow). A bytes class has no named slots. May GC: str is a Root.
 Oop stringAppendChar(CallContext& ctx, Root& str, char32_t cp) {
   unsigned char enc[4];
   const auto n = Str::encodeUtf8(cp, enc);
@@ -104,7 +106,14 @@ Oop stringAppendChar(CallContext& ctx, Root& str, char32_t cp) {
     return Oop{};
   }
   const auto old = ctx.heap.size(str.slot);
-  Oop neu = allocateRetry(ctx, ctx.wk.stringClass, old + n, kFlagBytes);
+  if (std::uint64_t{old} + n > UINT32_MAX) {
+    ctx.heap.setOutOfMemory();
+    return Oop{};
+  }
+  const Oop cls = ctx.wk.classOf(str.slot);
+  Root answerClass(ctx.roots,
+                   chainIncludes(ctx.heap, cls, ctx.wk.symbolClass) ? ctx.wk.stringClass : cls);
+  Oop neu = allocateRetry(ctx, answerClass.slot, old + n, kFlagBytes);
   if (!neu.isHeap()) {
     return Oop{};
   }
@@ -521,8 +530,10 @@ Oop ao_WriteStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* ar
   if (pos >= kSmiMax) {
     return fail(ctx, self.slot, "nextPut: position out of range");
   }
+  // SPEC §3.6: the UTF-8 writes stand in for at:put: and size, so both must be the Kernel String's.
   if (isBytes(ctx.heap, coll.slot) &&
-      findsNative(ctx, ctx.wk.classOf(coll.slot), ctx.wk.selAt_put_, ao_String_at_put_)) {
+      findsNative(ctx, ctx.wk.classOf(coll.slot), ctx.wk.selAt_put_, ao_String_at_put_) &&
+      findsNative(ctx, ctx.wk.classOf(coll.slot), ctx.wk.selSize, ao_String_size)) {
     if (pos < 0) {
       return fail(ctx, self.slot, "nextPut: position out of range");
     }
@@ -545,10 +556,12 @@ Oop ao_WriteStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* ar
                            Oop::fromSmallInteger(static_cast<std::int64_t>(ctx.heap.size(coll.slot))));
       }
     } else if (isStringy(ctx, coll.slot) && val.slot.isCharacter() && neu == n + 1) {
-      coll.slot = stringAppendChar(ctx, coll, val.slot.characterValue());
-      if (!coll.slot.isHeap()) {
-        return fail(ctx, self.slot, "nextPut: value out of range");
+      const Oop grown = stringAppendChar(ctx, coll, val.slot.characterValue());
+      if (!grown.isHeap()) {
+        // No room is out of memory (the empty Oop says so); otherwise no UTF-8 for the value.
+        return ctx.heap.outOfMemory() ? Oop{} : fail(ctx, self.slot, "nextPut: value out of range");
       }
+      coll.slot = grown;
       ctx.heap.slotAtPut(self.slot, kStreamCollection, coll.slot);
       noteWrite(ctx.heap, self.slot, neu);
       return val.slot;
