@@ -424,6 +424,30 @@ B8 の実施結果（計画からの逸脱と、実装時に決めたこと）:
 - `Dictionary` の内部スロット位置を共有ヘッダの定数にする（00 Low）。
 - identity hash のサイドテーブルは実装せず、SPEC §3.1 を「16 bit、衝突は許容」に改める（01 Low）。
 
+B9 の実施結果（計画からの逸脱と、実装時に決めたこと）:
+
+- ハッシュ表の配置: エントリごとにキーの hash を保存する（Dictionary は `key value hash` の 3 スロット、Set は `element hash` の 2 スロット）。拡張と削除は保存した hash を使い、`hash` も `=` も送らない。途中で利用者のコードが走らないので、巻き戻しで表が半端な状態に残らない。削除は tombstone を使わない後方シフトにした。容量は 8 以上の 2 のべき乗で、挿入後の数が容量の 3/4 を超える前に 2 倍にする。配置と送信しないヘルパーは `runtime/include/ao/HashedCollection.hpp`（`ao::Hashed`）に置き、`Dictionary.cpp` と `ClassPool.cpp` が共有する（00 Low。`Session.cpp` の直書きは B9 の前に無くなっていた）。
+- 探索の開始位置は hash を混ぜて求める（`hash × 0x9E3779B97F4A7C15` の上位ビット）。B9 レビューで、混ぜないと 2 のべき乗にそろったキーで約 30 倍、9 万個の IdentitySet で 8 秒（Release）かかることが分かったため。
+- 比べ方: 保存した hash が等しいエントリだけ比べる。同一なら `=` を送らない（NaN のキーも引ける）。`hash` が Integer 以外、`=` が Boolean 以外なら失敗する。Identity 版は送信せず identityHash と `==` で比べる。`consumeHash` は廃止し、`hash` を送る処理は `sendHash`（B8 の入れ子の規則つき）にまとめた。
+- `Collection>>includes:` は、計画の「hash の答えを検査する」をやめ、hash を送らないことにした。線形探索では hash の値を使わず、`Dictionary>>includes:` も送らないからである（B9 レビューで判明）。送るのは Blue Book どおり `anObject = 要素` で、同一の要素には送らず true、答えが Boolean でなければ失敗する。
+- nil のキーと要素は失敗する（`key must not be nil`、`element must not be nil`）。`Dictionary>>at:` は、キーが無ければ今までどおり nil を答える（Blue Book の失敗には変えていない）。
+- 壊れた表（array の形が合わない、tally が範囲外）は `damaged hashed collection` で失敗する。tally が実際の数と違うだけなら、探索・挿入・削除・列挙は失敗しない。`size` と `collect:` は tally を信じる。
+- Dictionary と Set の `copy` は array も写す（以前から array を共有していた。B9 レビューで判明）。`shallowCopy` は浅いまま。
+- classPool: ハッシュ表では書いた順を保てないので、名前の並びはバイト順にした（Squeak のクラス定義もソート済み）。再 Accept は名前を集合として比べる。名前として扱うのは Symbol のキーだけである。
+- イメージの形式を版 3 に上げ、版 2 は `unsupported image version 2` で拒否する（v2 の辞書は先頭から詰めた配置で、新しいネイティブでは引けない）。
+- Interval: 刻みの向きは `step < 0` と `step > 0` を送って決める（どちらも false なら 0 要素）。続ける条件は肯定形（前向きは `要素 <= stop`）にし、端点が NaN なら 0 要素にした（B9 レビューで判明）。2^20 での打ち切りは外した。端点と刻みがすべて Integer なら、size を送信なしに LargeInteger 演算で求める。
+- OrderedCollection: 範囲外の `at:` は `at: index out of range`。firstIndex・lastIndex・array の組が壊れていれば、`size`・`do:`・`add:`・`at:` は `damaged ordered collection` で失敗する（B9 レビューで判明。`do:` が Heap の assert で落ちていた）。
+- `select:`・`reject:` は 1 パスにした。`select:`・`reject:`・`detect:ifNone:` の述語の答えは、`to:do:` と同じく `mustBeBoolean` を通す（今までは Boolean 以外を黙って捨てていた）。thunk 名 `ao_Collection_filter_count` と `ao_Collection_filter_fill` は `ao_Collection_filter_scan` にまとめた。版 3 は未リリースなので旧名を残していない。
+- Stream:
+  - `contents` は `at:` で要素を取り出す。答えの種類は、String の系統は同じクラス（Symbol は String）、可変長の ArrayedCollection は同じクラス、OrderedCollection の系統は OrderedCollection、それ以外は Array にした。Kernel の Interval は `at:` を持たないので、`contents` は DNU になる。
+  - String への書き込みでは、writeLimit を collection の文字数（容量）にし、readLimit の後ろに NUL の予備を置いて倍々で伸ばす。スロットは増やしていない。`position:` は readLimit と今の position の大きい方で頭打ちにし、予備を見せない。
+  - O(n) を約束するのは末尾への追記だけにした。readLimit より前への書き込みは、前に多バイト文字があれば 1 回 O(position) かかる。幅の違う上書きは String を作り直すので O(大きさ) である。
+- `String>>do:` は UTF-8 を 1 回たどる。ブロックが文字の幅を変えたら、渡した文字の数から位置を合わせ直す。文字列に無い文字を渡すことはない（B9 レビューで判明）。
+- 残る懸念（後続で扱う）:
+  - String 上の ReadStream の `next` は、`at:` を送るので 1 回 O(i) かかる（5 万文字で約 10 秒）。
+  - readLimit より前への多バイト文字の上書きを繰り返すと 2 乗になる。
+  - `ocGrow` は、使っている数によらず配列を倍にする（B9 より前からの動作）。そのため、`add:` と先頭からの取り出しを繰り返す FIFO 的な使い方では、配列が際限なく大きくなる（10 万回で size 0、配列 65536）。`Processor yield` の ready キューもこの使い方なので、B10 で「使っている数の 2 倍が配列に収まるなら、その場で詰める」ように直す。
+
 ## B10 協調スケジューラ（02 High）
 
 前提: B2（共有 temp、`ensure:`、起動ごとのアクティベーション、スタックガード）、B3（failure による巻き戻し）、B6（再入ガード）が入っていること。
