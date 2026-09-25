@@ -4,7 +4,8 @@ import AppKit
 final class InspectorWindow {
   let window: NSWindow
   private let textView: NSTextView
-  private var closeObserver: (any NSObjectProtocol)?
+  // nonisolated(unsafe): deinit, which is nonisolated, reads it once nothing else can.
+  nonisolated(unsafe) private var closeObserver: (any NSObjectProtocol)?
 
   static func lines(className: String, printString: String) -> String {
     className + "\n" + printString
@@ -39,6 +40,14 @@ final class InspectorWindow {
       }
     }
     window.makeKeyAndOrderFront(nil)
+  }
+
+  // Gone before its window closed (its Workspace went first): the observer goes too, or the
+  // center would keep the registration. removeObserver may be called from any thread.
+  deinit {
+    if let closeObserver {
+      NotificationCenter.default.removeObserver(closeObserver)
+    }
   }
 
   private func windowWillClose(_ onClose: @MainActor (InspectorWindow) -> Void) {
