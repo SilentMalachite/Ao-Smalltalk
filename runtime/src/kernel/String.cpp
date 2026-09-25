@@ -369,6 +369,22 @@ Oop ao_Symbol_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop*, st
   return ao_Object_shouldNotImplement(ctx, receiver, nullptr, 0);
 }
 
+// SPEC §3.6: an interned Symbol is the only one of its spelling and selectors are looked up by
+// identity, so a copy of a Symbol is the Symbol itself.
+Oop ao_Symbol_copy(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  return receiver;
+}
+
+Oop ao_Symbol_shallowCopy(CallContext&, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0) {
+    return Oop{};
+  }
+  return receiver;
+}
+
 Oop ao_String_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) {
     return Oop{};
@@ -407,6 +423,9 @@ void installString(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, wk.symbolClass, "at:put:", 2, "ao_Symbol_at_put_", ao_Symbol_at_put_);
   putNative(heap, wk, wk.symbolClass, "basicAt:put:", 2, "ao_Symbol_basicAt_put_",
             ao_Symbol_basicAt_put_);
+  putNative(heap, wk, wk.symbolClass, "copy", 0, "ao_Symbol_copy", ao_Symbol_copy);
+  putNative(heap, wk, wk.symbolClass, "shallowCopy", 0, "ao_Symbol_shallowCopy",
+            ao_Symbol_shallowCopy);
 }
 
 }  // namespace kernel
