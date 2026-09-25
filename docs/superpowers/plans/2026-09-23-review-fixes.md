@@ -566,6 +566,35 @@ AArch64 のコンテキスト切り替えを自前で書く。
 - `yield` しない無限ループはアプリを止める（B11 で SPEC に明記する）。
 - 対象は arm64 だけ。arm64e のポインタ認証を有効にすると、lr の差し替えが壊れる。
 
+B10 の実施結果（計画からの逸脱と、実装時に決めたこと）:
+
+- 着手時に見つけた計画の穴:
+  - Roots の LIFO 部分（ネイティブ呼び出しのフレームと `RootedArray` の範囲）は、ファイバをまたぐと積み順が交錯する。そこでこの部分を `Roots::Stack` にまとめ、プロセスごとに持たせて切り替えのたびに差し替える。GC は、走っている分と駐車中の分をちょうど 1 回ずつたどる。`add` / `remove` のスロットとハンドル表は共有のままにした。
+  - スタックガードは、スレッドのスタックしか知らなかった。ファイバの上では即座に stack overflow になるので、`CallContext` にファイバのスタックの範囲を持たせた。
+  - abandon でスタックを解放するだけだと、Roots にファイバのスタックを指すエントリが残る。そこで abandon は、後始末ブロックを走らせない terminate とした。ファイバに切り替え、C++ のフレームを正常に巻き戻す（`ctx.abandoning`）。
+- 実行可能キューの正本は C++ の deque にした。`quiescentProcesses`、myList、activeProcess は、切り替えのたびにそれへ合わせる。状態から NotStarted は外し、`started` の印で表す（まだ始まっていないプロセスは、実行可能か止まっているかのどちらかである）。
+- `SharedQueue>>nextPut:` は待たない（Blue Book どおり上限なし）。writeSynch は形だけ残して使わない。今までの実装は writeSynch を wait していたので、wait が本当にブロックするようになると、ベースで 2 回続けて送った時点でデッドロックしていた。
+- 走れないプロセスは、ベースでもこのセッションで fork したものでもない Process（`Process new` やイメージにあったもの）と、終わったプロセスである。`resume` は `process cannot run` で失敗し、`signal` は捨てる。
+- terminate の決定:
+  - ベースへの terminate は `process terminated` で失敗する。
+  - 後始末が yield / wait / suspend したら、送ったプロセスに戻る。
+  - signal を受けてまだ `wait` から戻っていないプロセスを terminate すると、その signal をセマフォに返す（取りこぼし防止）。
+- busy は `interpreterRunning(base)` の 1 か所で判定する。ベースの `ctx.depth > 0` か、ベース以外のプロセスが走っているときである。`AbiEntry` は先に `g_entered` を取り、そのあとでセッションを読む（差し替え中のセッションを読まないため）。
+- drain は `ao_eval` と `ao --test` だけで行う。ワークスペースの作成、探針、accept、file-in で fork したプロセスは、次の eval に持ち越す。
+- `ao --test` は、ファイルごとに drain → terminate → drain を進展が無くなるまで（上限 1000 回）繰り返す。そのあとも後始末がブロックしたまま残ったものだけを abandon する。
+- B9 の積み残し（`ocGrow` が FIFO の使い方で際限なく伸びる）は、使っている数の 2 倍が配列に収まるなら先頭へ詰める形で直した。
+- Codex レビューで直したもの（すべて Medium と仮説 1 件）:
+  - `NativeMethod::invoke` のフレームの pop を RAII にした。ファイバ内の C++ 例外で Roots にフレームが残り、Debug の assert でホストが落ちていた。
+  - `SharedQueue>>next` は、`wait` から戻って中身が空なら待ち直す。suspend と resume を挟むと、要素数と excessSignals がずれていた。
+  - out of memory の印をプロセスごとの状態にした。ファイバの割り当て失敗が、ベースの正常な `ao_eval` を失敗にしていた。
+  - `terminateAll(false)` は、後始末が yield しただけのプロセスまで abandon していた。
+  - `signal` と `nextPut:` は、実行可能キューに入れられなければリストを変えない。`add:` の失敗は、空の答えのまま見過ごさず abort する。
+  - 修正コミットの再レビューで見つかった 1 件も直した。`enqueue` は C++ の deque に先に積む（拡張が例外を投げても何も変わらない）。`nextPut:` は、起こす途中の例外でも足した要素を外す。
+- 残る懸念（後続で扱う）:
+  - 保存するとき、駐車中のファイバがルートした値も、どこからも参照されないオブジェクトとしてイメージに入る（ロードの検査は通る）。
+  - `ctx.testFailures` は、失敗の行 1 つにつき 1 を数える。abort とプロセスの失敗が同じファイルで起きれば 2 である。
+  - `yield` しない無限ループはアプリを止める（B11 で SPEC に明記する）。
+
 ## B11 App とビルドの残り
 
 - Transcript は `textStorage.append` で差分だけを追加し、スクロールは評価の最後にまとめる（07 Medium）。
