@@ -37,26 +37,62 @@ if [ "$APP" -eq 0 ]; then
   exit 0
 fi
 
-# --app: package build/Ao.app, launch it through LaunchServices (so the
-# shell environment, AO_VENDOR_DIR included, is not passed) and wait for
-# the vendor line on its stderr.
-"$ROOT/scripts/package-app.sh"
+# --app: package build/Ao.app, launch it with open and wait for the vendor
+# line on its stderr. An app opened with open inherits the shell's
+# environment, so --env AO_VENDOR_DIR= empties the variable; the app ignores
+# an empty one and loads the bundle's Contents/Resources/vendor.
 BUNDLE="$ROOT/build/Ao.app"
-EXE="$BUNDLE/Contents/MacOS/Ao"
+EXE="$(cd "$ROOT" && pwd -P)/build/Ao.app/Contents/MacOS/Ao"
+# PIDs of the processes whose command line starts with the path $EXE
+# (compared as a string, not a pattern).
+app_pids() {
+  ps -axo pid=,args= | while read -r pid args; do
+    case "$args" in
+      "$EXE" | "$EXE "*) echo "$pid" ;;
+    esac
+  done
+}
+# package-app.sh deletes and rebuilds the bundle; never touch a running one.
+if [ -n "$(app_pids)" ]; then
+  echo "app: build/Ao.app is already running; quit it first" >&2
+  exit 1
+fi
+"$ROOT/scripts/package-app.sh"
 codesign --verify --strict "$BUNDLE"
 WANT="ao: vendor loaded: $(cd "$BUNDLE" && pwd -P)/Contents/Resources/vendor"
 LOG="$(mktemp "${TMPDIR:-/tmp}/ao-app-stderr.XXXXXX")"
-LAUNCHED=0
+PID=
 cleanup() {
-  if [ "$LAUNCHED" -eq 1 ]; then
-    pkill -n -f "$EXE" || true
+  # Stop only the process open started, and only while it still runs $EXE.
+  if [ -n "$PID" ] && app_pids | grep -qxF "$PID"; then
+    kill "$PID" 2>/dev/null || true
+    j=0
+    while [ "$j" -lt 5 ] && kill -0 "$PID" 2>/dev/null; do
+      sleep 1
+      j=$((j + 1))
+    done
   fi
   rm -f "$LOG"
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-LAUNCHED=1
-open -n -g --stderr "$LOG" "$BUNDLE"
+open -n -g --env AO_VENDOR_DIR= --stderr "$LOG" "$BUNDLE"
+# Nothing ran from build/Ao.app before the packaging, so the one process that
+# runs it now is the one open started. With none, or more than one, stop none.
+i=0
+while [ "$i" -lt 10 ]; do
+  pids="$(app_pids)"
+  if [ -n "$pids" ]; then
+    if [ "$(printf '%s\n' "$pids" | grep -c .)" -eq 1 ]; then
+      PID="$pids"
+    else
+      echo "app: warning: several processes run $EXE; stopping none" >&2
+    fi
+    break
+  fi
+  sleep 1
+  i=$((i + 1))
+done
 i=0
 until grep -qxF "$WANT" "$LOG"; do
   if [ "$i" -ge 30 ]; then
