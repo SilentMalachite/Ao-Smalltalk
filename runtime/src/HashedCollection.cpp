@@ -26,6 +26,15 @@ void copyEntry(Heap& heap, Oop from, std::uint32_t fromIndex, Oop to, std::uint3
   }
 }
 
+// SPEC §3.6 世代番号: one more after an insertion or a removal, 0 past the SmallInteger maximum.
+void bumpGeneration(Heap& heap, Oop array) {
+  const std::uint32_t at = heap.size(array) - 1;
+  const Oop now = heap.slotAt(array, at);
+  const std::int64_t next =
+      now.isSmallInteger() && now.smallIntegerValue() < kSmiMax ? now.smallIntegerValue() + 1 : 0;
+  heap.slotAtPut(array, at, Oop::fromSmallInteger(next));
+}
+
 }  // namespace
 
 Shape read(const Heap& heap, Oop coll, std::uint32_t width, Table* out) {
@@ -36,22 +45,25 @@ Shape read(const Heap& heap, Oop coll, std::uint32_t width, Table* out) {
   if (array.isNil()) {
     return Shape::Empty;
   }
-  if (!isPointers(heap, array)) {
+  if (!isPointers(heap, array) || heap.size(array) == 0) {
     return Shape::Damaged;
   }
-  const std::uint32_t slots = heap.size(array);
-  const std::uint32_t capacity = slots / width;
-  if (slots % width != 0 || capacity < kMinCapacity || !isPowerOfTwo(capacity)) {
+  // SPEC §3.6: capacity * width entry slots, then the generation.
+  const std::uint32_t entrySlots = heap.size(array) - 1;
+  const std::uint32_t capacity = entrySlots / width;
+  if (entrySlots % width != 0 || capacity < kMinCapacity || !isPowerOfTwo(capacity)) {
     return Shape::Damaged;
   }
+  const Oop generation = heap.slotAt(array, entrySlots);
   const Oop tally = heap.slotAt(coll, kSlotTally);
-  if (!tally.isSmallInteger() || tally.smallIntegerValue() < 0 ||
+  if (!generation.isSmallInteger() || !tally.isSmallInteger() || tally.smallIntegerValue() < 0 ||
       tally.smallIntegerValue() > static_cast<std::int64_t>(capacity)) {
     return Shape::Damaged;
   }
   out->array = array;
   out->capacity = capacity;
   out->tally = tally.smallIntegerValue();
+  out->generation = generation.smallIntegerValue();
   return Shape::Table;
 }
 
@@ -94,6 +106,7 @@ void putEntry(Heap& heap, Oop array, std::uint32_t width, std::uint32_t index, O
     heap.slotAtPut(array, index * width + kEntryValue, value);
   }
   heap.slotAtPut(array, index * width + width - 1, Oop::fromSmallInteger(hash));
+  bumpGeneration(heap, array);
 }
 
 void removeEntry(Heap& heap, Oop array, std::uint32_t capacity, std::uint32_t width,
@@ -118,6 +131,7 @@ void removeEntry(Heap& heap, Oop array, std::uint32_t capacity, std::uint32_t wi
   for (std::uint32_t s = 0; s < width; ++s) {
     heap.slotAtPut(array, hole * width + s, Oop::nil());
   }
+  bumpGeneration(heap, array);
 }
 
 std::uint64_t capacityFor(std::uint64_t count) {
@@ -133,12 +147,17 @@ bool mustGrow(const Table& t) {
 }
 
 Oop newArray(CallContext& ctx, std::uint64_t capacity, std::uint32_t width) {
-  const std::uint64_t slots = capacity * width;
+  // SPEC §3.6: capacity * width entry slots and the generation, which starts at 0.
+  const std::uint64_t slots = capacity * width + 1;
   if (slots > UINT32_MAX) {
     ctx.heap.setOutOfMemory();
     return Oop{};
   }
-  return allocateRetry(ctx, ctx.wk.arrayClass, static_cast<std::uint32_t>(slots), 0);
+  const Oop array = allocateRetry(ctx, ctx.wk.arrayClass, static_cast<std::uint32_t>(slots), 0);
+  if (array.isHeap()) {
+    ctx.heap.slotAtPut(array, static_cast<std::uint32_t>(slots - 1), Oop::fromSmallInteger(0));
+  }
+  return array;
 }
 
 bool grow(CallContext& ctx, Root& coll, std::uint32_t width) {
@@ -155,10 +174,10 @@ bool grow(CallContext& ctx, Root& coll, std::uint32_t width) {
     return false;
   }
   // Nothing below collects, so fresh stays where it is. No user code ran either: old is still
-  // coll's array.
+  // coll's array. The entries move without touching fresh's generation, which stays 0.
   std::int64_t count = 0;
   if (old.slot.isHeap()) {
-    const std::uint32_t oldCapacity = ctx.heap.size(old.slot) / width;
+    const std::uint32_t oldCapacity = t.capacity;
     for (std::uint32_t i = 0; i < oldCapacity; ++i) {
       if (ctx.heap.slotAt(old.slot, i * width + kEntryKey).isNil()) {
         continue;

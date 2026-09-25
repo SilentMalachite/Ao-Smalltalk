@@ -20,7 +20,10 @@ namespace Hashed {
 inline constexpr std::uint32_t kSlotTally = 0;
 inline constexpr std::uint32_t kSlotArray = 1;
 // An entry of array is `key value hash` in a Dictionary and `element hash` in a Set. hash is the
-// key's hash saved as a SmallInteger, in the entry's last slot. A nil key is a free entry.
+// key's hash saved as a SmallInteger, in the entry's last slot. A nil key is a free entry. After
+// the capacity * width entry slots, array's last slot holds the table's generation (SPEC §3.6
+// 世代番号), a SmallInteger that putEntry and removeEntry raise by one: a probe that finds the same
+// array and generation after a send knows no entry was added or removed meanwhile.
 inline constexpr std::uint32_t kDictionaryWidth = 3;
 inline constexpr std::uint32_t kSetWidth = 2;
 inline constexpr std::uint32_t kEntryKey = 0;
@@ -40,11 +43,12 @@ struct Table {
   Oop array{};
   std::uint32_t capacity = 0;
   std::int64_t tally = 0;
+  std::int64_t generation = 0;
 };
 
 // Reads coll's tally and array for entries width slots wide. Table only when array is a pointer
-// object of capacity * width slots, capacity a power of two >= kMinCapacity, and tally a
-// SmallInteger in [0, capacity]. Does not allocate.
+// object of capacity * width + 1 slots, capacity a power of two >= kMinCapacity, its last slot (the
+// generation) a SmallInteger, and tally a SmallInteger in [0, capacity]. Does not allocate.
 Shape read(const Heap& heap, Oop coll, std::uint32_t width, Table* out);
 // The entry the probe for hash starts at, its home (SPEC §3.6): the top log2(capacity) bits of
 // hash * 0x9E3779B97F4A7C15 mod 2^64. capacity is a power of two >= kMinCapacity.
@@ -59,20 +63,22 @@ std::int64_t savedHash(const Heap& heap, Oop array, std::uint32_t width, std::ui
 std::uint32_t freeEntry(const Heap& heap, Oop array, std::uint32_t capacity, std::uint32_t width,
                         std::int64_t hash);
 // Fills entry index with key, value (a Dictionary's; ignored for a Set) and hash, which must fit a
-// SmallInteger.
+// SmallInteger, and raises the generation. Replacing only a value moves no entry: write the value
+// slot directly and leave the generation alone.
 void putEntry(Heap& heap, Oop array, std::uint32_t width, std::uint32_t index, Oop key, Oop value,
               std::int64_t hash);
 // Frees entry index by backward shift (SPEC §3.6): each later entry of the run up to a free entry
 // (or, in a table without one, around to the hole) moves into the hole unless its home lies after
-// the hole and not after the entry, and its old place becomes the hole. Leaves the tally alone.
+// the hole and not after the entry, and its old place becomes the hole. Raises the generation;
+// leaves the tally alone.
 void removeEntry(Heap& heap, Oop array, std::uint32_t capacity, std::uint32_t width,
                  std::uint32_t index);
 // The smallest capacity that holds count entries without growing (count * 4 <= capacity * 3).
 std::uint64_t capacityFor(std::uint64_t count);
 // Whether putting one more entry in t goes past 3/4 of its capacity, so t grows first.
 bool mustGrow(const Table& t);
-// A new array of capacity free entries. May GC. Empty Oop when it cannot be allocated (the heap's
-// out-of-memory flag is then set).
+// A new array of capacity free entries and generation 0. May GC. Empty Oop when it cannot be
+// allocated (the heap's out-of-memory flag is then set).
 Oop newArray(CallContext& ctx, std::uint64_t capacity, std::uint32_t width);
 // Gives coll an array of twice its capacity (kMinCapacity when coll is an empty table) holding
 // the same entries, placed again by their saved hashes, and sets the tally to their number. Sends

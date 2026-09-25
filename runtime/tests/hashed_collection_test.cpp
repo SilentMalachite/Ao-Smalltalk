@@ -358,7 +358,8 @@ TEST_F(HashedCollection, ReentrantWritesDoNotBreakTheTable) {
   acceptMethod("B9EqShrink", "hash\n  ^5\n");
   acceptMethod("B9EqShrink",
                "= other\n  | d |\n  dict isNil ifFalse: [d := dict. dict := nil. "
-               "d instVarAt: 2 put: (Array new: 24); instVarAt: 1 put: 0].\n  ^false\n");
+               "d instVarAt: 2 put: ((Array new: 25) at: 25 put: 0; yourself); instVarAt: 1 put: 0].\n"
+               "  ^false\n");
   acceptClass("Object", "B9EqDamage", "dict");
   acceptMethod("B9EqDamage", "dict: d\n  dict := d\n");
   acceptMethod("B9EqDamage", "hash\n  ^5\n");
@@ -450,6 +451,86 @@ TEST_F(HashedCollection, ReprobingSendsHashOnce) {
   EXPECT_EQ("true", printIt("((d9 at: a9) = 11) & (d9 size > 40)"));
 }
 
+// PR #10 Codex review (Medium): = から戻ったときに array の同一性、tally、比べていたエントリのキー
+// しか見ていなかったので、削除と再挿入で元の見かけに戻す書き換え（ABA）を見落とし、同じキーが 2 件
+// 入った。SPEC §3.6: 表の世代番号（挿入と削除で 1 増える）が変われば探し直す。
+TEST_F(HashedCollection, EqualsThatRemovesAndReinsertsIsSeen) {
+  acceptClass("Object", "B9Aba", "dict first target");
+  acceptMethod("B9Aba", "dict: d first: a target: b\n  dict := d. first := a. target := b\n");
+  acceptMethod("B9Aba", "hash\n  ^0\n");
+  acceptMethod("B9Aba",
+               "= other\n  | d |\n  (dict notNil and: [other == target]) ifTrue: [\n"
+               "    d := dict. dict := nil.\n"
+               "    d removeKey: first. d removeKey: target. d at: self put: #inner. "
+               "d at: target put: #b].\n  ^self == other\n");
+  EXPECT_EQ("true", printIt("| d a b k | d := Dictionary new. a := B9Aba new. b := B9Aba new. "
+                            "d at: a put: #a; at: b put: #b. k := B9Aba new dict: d first: a target: b. "
+                            "d at: k put: #outer. "
+                            "(d size = 2) & ((d at: k) == #outer) & ((d at: b) == #b) & "
+                            "(d includesKey: a) not"));
+  EXPECT_EQ("1", printIt("| d a b k n | d := Dictionary new. a := B9Aba new. b := B9Aba new. "
+                         "d at: a put: #a; at: b put: #b. k := B9Aba new dict: d first: a target: b. "
+                         "d at: k put: #outer. n := 0. d keysDo: [:x | x == k ifTrue: [n := n + 1]]. n"));
+}
+
+// SPEC §3.6 世代番号: array の最後のスロット。new は 0、挿入と削除で 1 増え、値の置き換えでは
+// 変わらず、拡張で 0 に戻り、SmallInteger の最大値の次は 0 である。classPool も同じ配置を持つ。
+TEST_F(HashedCollection, GenerationCountsInsertionsAndRemovals) {
+  const std::string gen = "((d instVarAt: 2) at: (d instVarAt: 2) size)";
+  EXPECT_EQ("#(25 0 1 1 2 3)",
+            printIt("| d a | d := Dictionary new. a := Array new: 6. a at: 1 put: (d instVarAt: 2) "
+                    "size; at: 2 put: " + gen + ". d at: 1 put: 1. a at: 3 put: " + gen +
+                    ". d at: 1 put: 2. a at: 4 put: " + gen + ". d at: 2 put: 2. a at: 5 put: " +
+                    gen + ". d removeKey: 1. a at: 6 put: " + gen + ". a"));
+  EXPECT_EQ("#(17 1)", printIt("| s a | s := Set new. s add: 1; add: 1. a := Array new: 2. "
+                               "a at: 1 put: (s instVarAt: 2) size; at: 2 put: ((s instVarAt: 2) at: "
+                               "17). a"));
+  // Growth (the 7th entry of 8) starts the new array at 0; then one per insertion.
+  EXPECT_EQ("true", printIt("| d | d := Dictionary new. 1 to: 7 do: [:i | d at: i put: i]. "
+                            "((d instVarAt: 2) size = 49) & (" + gen + " = 1)"));
+  // Past the SmallInteger maximum it wraps to 0.
+  EXPECT_EQ("0", printIt("| d | d := Dictionary new. (d instVarAt: 2) at: 25 put: "
+                         "4611686018427387903. d at: 1 put: 1. " + gen));
+  EXPECT_EQ("true", printIt("| d e | d := Dictionary new. d at: 1 put: 1. e := d copy. "
+                            "((e instVarAt: 2) at: 25) = " + gen));
+  acceptClass("Object", "B9GenPool", "", "A B");
+  EXPECT_EQ("true", printIt("| p | p := B9GenPool instVarAt: 7. (p instVarAt: 2) size = 25 & "
+                            "(((p instVarAt: 2) at: 25) = 2) & (B9GenPool classPool size = 2)"));
+}
+
+// SPEC §3.6: 世代番号は表ごとなので、ほかの表を書き換える =（ログ、キャッシュ）では探し直さない。値の
+// 置き換えはエントリを動かさないので世代番号を変えず、同じ表への値のキャッシュでも探し直しは起きない。
+// = が送られる回数は、衝突したエントリの数のままである。
+TEST_F(HashedCollection, EqualsWritingOtherTablesDoesNotReprobe) {
+  acceptClass("Object", "B9Logger", "log");
+  acceptMethod("B9Logger", "log: d\n  log := d\n");
+  acceptMethod("B9Logger", "hash\n  ^0\n");
+  acceptMethod("B9Logger",
+               "= other\n  Smalltalk at: #B9Equals put: (Smalltalk at: #B9Equals) + 1.\n"
+               "  log isNil ifFalse: [log at: Object new put: other].\n  ^self == other\n");
+  acceptClass("Object", "B9Cacher", "cache key");
+  acceptMethod("B9Cacher", "cache: d key: k\n  cache := d. key := k\n");
+  acceptMethod("B9Cacher", "hash\n  ^0\n");
+  acceptMethod("B9Cacher",
+               "= other\n  Smalltalk at: #B9Equals put: (Smalltalk at: #B9Equals) + 1.\n"
+               "  cache isNil ifFalse: [cache at: key put: (Smalltalk at: #B9Equals)].\n"
+               "  ^self == other\n");
+  const std::string setup =
+      "| d log k | Smalltalk at: #B9Equals put: 0. d := Dictionary new. log := Dictionary new. "
+      "1 to: 5 do: [:i | d at: B9Logger new put: i]. Smalltalk at: #B9Equals put: 0. ";
+  // Five colliding entries: = goes to each once, with 5 new keys logged elsewhere.
+  EXPECT_EQ("true", printIt(setup + "k := B9Logger new log: log. d at: k put: 0. "
+                                    "((Smalltalk at: #B9Equals) = 5) & (log size = 5) & (d size = 6)"));
+  EXPECT_EQ("true", printIt(setup + "k := B9Logger new log: log. d at: k ifAbsent: [nil]. "
+                                    "(Smalltalk at: #B9Equals) = 5"));
+  // A = that caches a value under a key already in the same table: no reprobe, no livelock.
+  EXPECT_EQ("true", printIt("| d a k | Smalltalk at: #B9Equals put: 0. d := Dictionary new. "
+                            "a := B9Cacher new. d at: a put: 0. 1 to: 4 do: [:i | d at: B9Cacher new "
+                            "put: i]. Smalltalk at: #B9Equals put: 0. k := B9Cacher new cache: d key: a. "
+                            "d at: k put: 9. ((Smalltalk at: #B9Equals) = 5) & (d size = 6) & "
+                            "((d at: a) = 5)"));
+}
+
 // SPEC §3.6 再入: hash の中で表を壊す・nil にする・差し替える。= と hash の中で探しているキー自身を
 // 入れる。どれも範囲外を読み書きせず、キーは 1 つのエントリにだけ入る。
 TEST_F(HashedCollection, ReentrantHashAndEqualsRewriteTheTable) {
@@ -459,7 +540,8 @@ TEST_F(HashedCollection, ReentrantHashAndEqualsRewriteTheTable) {
                "hash\n  | d m |\n  d := dict. m := mode. mode := nil.\n"
                "  m == #damage ifTrue: [d instVarAt: 2 put: (Array new: 5)].\n"
                "  m == #nil ifTrue: [d instVarAt: 2 put: nil].\n"
-               "  (m isKindOf: SmallInteger) ifTrue: [d instVarAt: 2 put: (Array new: m); "
+               "  (m isKindOf: SmallInteger) ifTrue: [d instVarAt: 2 put: ((Array new: m) at: m put: 0; "
+               "yourself); "
                "instVarAt: 1 put: 0].\n"
                "  ^3\n");
   const char* ops[] = {"d at: k put: 1", "d at: k", "d at: k ifAbsent: [0]", "d includesKey: k",
@@ -473,12 +555,12 @@ TEST_F(HashedCollection, ReentrantHashAndEqualsRewriteTheTable) {
                             "dict: d mode: #nil. d at: k put: 2. (d size = 1) & ((d at: k) = 2) & "
                             "(d includesKey: 1) not"));
   EXPECT_EQ("true", printIt("| d k | d := Dictionary new. d at: 1 put: 1. k := B9HashWreck new "
-                            "dict: d mode: 48. d at: k put: 2. (d size = 1) & ((d at: k) = 2) & "
-                            "((d instVarAt: 2) size = 48)"));
+                            "dict: d mode: 49. d at: k put: 2. (d size = 1) & ((d at: k) = 2) & "
+                            "((d instVarAt: 2) size = 49)"));
   EXPECT_EQ("false", printIt("| d k | d := Dictionary new. d at: 1 put: 1. k := B9HashWreck new "
                              "dict: d mode: #nil. d includesKey: k"));
   EXPECT_EQ("true", printIt("| s k | s := Set new. s add: 1. k := B9HashWreck new dict: s mode: "
-                            "32. s add: k. (s size = 1) & (s includes: k) & (s includes: 1) not"));
+                            "33. s add: k. (s size = 1) & (s includes: k) & (s includes: 1) not"));
 
   // hash の中で、探しているキー自身を入れる。外側の at:put: は同じキーを見つけて値を上書きする。
   acceptClass("Object", "B9SelfPut", "dict");
@@ -642,9 +724,12 @@ TEST_F(HashedCollection, DamagedTablesFailInEveryNative) {
 // tally が実際の数と違うだけなら、探索は容量の回数で止まり、拡張が数え直す。
 TEST_F(HashedCollection, DamagedTallyOrArray) {
   const char* broken[] = {
-      "d instVarAt: 2 put: (Array new: 5)",   // 容量×幅でない
-      "d instVarAt: 2 put: (Array new: 12)",  // 容量 4
-      "d instVarAt: 2 put: (Array new: 72)",  // 容量 24（2 のべき乗でない）
+      "d instVarAt: 2 put: (Array new: 5)",   // 容量×幅 + 1 でない
+      "d instVarAt: 2 put: (Array new: 13)",  // 容量 4
+      "d instVarAt: 2 put: (Array new: 73)",  // 容量 24（2 のべき乗でない）
+      "d instVarAt: 2 put: (Array new: 24)",  // 世代番号の枠が無い（容量 8 の古い配置）
+      "d instVarAt: 2 put: (Array new: 25)",  // 世代番号が nil
+      "(d instVarAt: 2) at: 25 put: 'x'",     // 世代番号が SmallInteger でない
       "d instVarAt: 2 put: 'abcdefghijklmnopqrstuvwx'",
       "d instVarAt: 2 put: 3",
       "d instVarAt: 1 put: 9",   // 容量 8 を超える
@@ -662,7 +747,8 @@ TEST_F(HashedCollection, DamagedTallyOrArray) {
   }
   // Dictionary の配列（幅 3）は Set（幅 2）の配置に合わない。
   EXPECT_EQ("<eval error: damaged hashed collection>",
-            printIt("| s | s := Set new. s instVarAt: 2 put: (Array new: 24). s add: 1"));
+            printIt("| s | s := Set new. s instVarAt: 2 put: ((Array new: 25) at: 25 put: 0; "
+                    "yourself). s add: 1"));
   // nil の array は空の表。basicNew も同じ。
   EXPECT_EQ("0", printIt("| d | d := Dictionary new. d at: 1 put: 1. d instVarAt: 2 put: nil. d size"));
   EXPECT_EQ("true", printIt("| d | d := Dictionary new. d at: 1 put: 1. d instVarAt: 2 put: nil. "
@@ -673,8 +759,9 @@ TEST_F(HashedCollection, DamagedTallyOrArray) {
 
   // 空きの無い表（tally は 0 のまま）: 探索は 8 回で止まり、挿入は拡張して数え直す。
   const std::string full =
-      "| a d | a := Array new: 24. 0 to: 7 do: [:i | a at: 3 * i + 1 put: i; at: 3 * i + 2 put: i; "
-      "at: 3 * i + 3 put: i]. d := Dictionary new. d instVarAt: 2 put: a; instVarAt: 1 put: 0. ";
+      "| a d | a := Array new: 25. a at: 25 put: 0. 0 to: 7 do: [:i | a at: 3 * i + 1 put: i; "
+      "at: 3 * i + 2 put: i; at: 3 * i + 3 put: i]. d := Dictionary new. d instVarAt: 2 put: a; "
+      "instVarAt: 1 put: 0. ";
   EXPECT_EQ("nil", printIt(full + "d at: 99"));
   EXPECT_EQ("5", printIt(full + "d at: 5"));
   EXPECT_EQ("false", printIt(full + "d includesKey: 99"));
@@ -727,8 +814,9 @@ std::int64_t keyWithHome(std::uint32_t want, std::uint32_t capacity, std::set<st
 // keys[p]. The tally is 0, a lie that only instVarAt:put: can tell (SPEC §3.6 壊れた表).
 void fillFullTable(Boot& b, ao::Root& d, const std::vector<std::int64_t>& keys) {
   const auto capacity = static_cast<std::uint32_t>(keys.size());
-  ao::Root array(b.roots, send1(b, b.wk.arrayClass, "new:", smi(capacity * 3)));
+  ao::Root array(b.roots, send1(b, b.wk.arrayClass, "new:", smi(capacity * 3 + 1)));
   ASSERT_TRUE(array.slot.isHeap());
+  b.heap.slotAtPut(array.slot, capacity * 3, smi(0));  // the generation (SPEC §3.6)
   for (std::uint32_t p = 0; p < capacity; ++p) {
     b.heap.slotAtPut(array.slot, p * 3, smi(keys[p]));
     b.heap.slotAtPut(array.slot, p * 3 + 1, smi(keys[p] * 10));

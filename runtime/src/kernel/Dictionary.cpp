@@ -66,8 +66,8 @@ struct Probe {
 
 // SPEC §3.6 探索: from hash's home, compares the entries that saved hash, by == and then (unless
 // identity) by `key = entryKey`, which must answer a Boolean. SPEC §3.6 再入: = may write the
-// table, so after each send the table is read again from coll, and when the array, the tally or
-// the compared key changed, the probe starts over with the same hash. Failed when the frames
+// table, so after each send the table is read again from coll, and when the array, the generation
+// or the compared key changed, the probe starts over with the same hash. Failed when the frames
 // unwind, = answers no Boolean or the table is damaged (then it has aborted). coll and key are
 // rooted; nothing runs between an answer and the caller's use of the entry.
 Probe probe(CallContext& ctx, Root& coll, Root& key, std::int64_t hash, std::uint32_t width,
@@ -108,9 +108,12 @@ Probe probe(CallContext& ctx, Root& coll, Root& key, std::int64_t hash, std::uin
       if (unwinding(ctx) || !isBoolean(eq)) {
         return {Lookup::Failed, Hashed::kNoEntry};
       }
+      // SPEC §3.6 再入: another array or generation means entries were added or removed meanwhile,
+      // even when the table looks as before (ABA); a write to another table changes neither. The
+      // compared key is checked too, against writes that bypass the generation.
       Hashed::Table now;
       if (Hashed::read(ctx.heap, coll.slot, width, &now) != Hashed::Shape::Table ||
-          now.array != array.slot || now.tally != t.tally ||
+          now.array != array.slot || now.generation != t.generation ||
           ctx.heap.slotAt(array.slot, i * width + Hashed::kEntryKey) != candidate.slot) {
         again = true;
         break;
