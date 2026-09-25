@@ -76,13 +76,18 @@ std::int64_t collectionSize(CallContext& ctx, Root& coll) {
   return smiOr(n, 0);
 }
 
-Oop growArray(CallContext& ctx, Root& arr, std::uint32_t minSize) {
-  const std::uint32_t old = arr.slot.isHeap() ? ctx.heap.size(arr.slot) : 0;
-  std::uint32_t neu = old == 0 ? 1u : old * 2u;
-  if (neu < minSize) {
-    neu = minSize;
+// SPEC §3.6: an Array of twice arr's size (at least minSize, at most 2^32 - 1 slots) holding its
+// elements. Past 2^32 - 1 slots nothing is allocated: out of memory. May GC.
+Oop growArray(CallContext& ctx, Root& arr, std::int64_t minSize) {
+  if (minSize > static_cast<std::int64_t>(UINT32_MAX)) {
+    ctx.heap.setOutOfMemory();
+    return Oop{};
   }
-  Oop n = allocateRetry(ctx, ctx.wk.arrayClass, neu, 0);
+  const std::uint32_t old = arr.slot.isHeap() ? ctx.heap.size(arr.slot) : 0;
+  const std::uint64_t doubled = old == 0 ? 1u : std::uint64_t{old} * 2u;
+  const std::uint64_t neu = std::min<std::uint64_t>(
+      std::max<std::uint64_t>(doubled, static_cast<std::uint64_t>(minSize)), UINT32_MAX);
+  Oop n = allocateRetry(ctx, ctx.wk.arrayClass, static_cast<std::uint32_t>(neu), 0);
   if (!n.isHeap()) {
     return Oop{};
   }
@@ -219,10 +224,14 @@ Oop stringNextPut(CallContext& ctx, Root& self, Root& coll, Root& val, std::int6
     const std::uint64_t used = std::uint64_t{byteAt} + w;
     std::uint64_t capacity = used * 2 < 16 ? 16 : used * 2;
     capacity = (capacity + 7) & ~std::uint64_t{7};
-    if (!replaceString(ctx, self, coll, byteAt, enc, w, 0, 0, capacity - used)) {
+    // SPEC §3.6: writeLimit = pos + 1 + reserve stays a SmallInteger (pos < kSmiMax here): a
+    // position written by reflection cuts the reserve instead.
+    const auto room = static_cast<std::uint64_t>(kSmiMax - (pos + 1));
+    const std::uint64_t reserve = std::min(capacity - used, room);
+    if (!replaceString(ctx, self, coll, byteAt, enc, w, 0, 0, reserve)) {
       return Oop{};
     }
-    newLimit = pos + 1 + static_cast<std::int64_t>(capacity - used);
+    newLimit = pos + 1 + static_cast<std::int64_t>(reserve);
   }
   noteWrite(ctx.heap, self.slot, pos + 1);
   if (limitKnown || newLimit != limit) {
@@ -526,7 +535,7 @@ Oop ao_WriteStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* ar
   }
   if (neu > n) {
     if (isArray(ctx, coll.slot)) {
-      coll.slot = growArray(ctx, coll, static_cast<std::uint32_t>(neu));
+      coll.slot = growArray(ctx, coll, neu);
       if (!coll.slot.isHeap()) {
         return Oop{};
       }

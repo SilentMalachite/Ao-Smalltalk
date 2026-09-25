@@ -264,6 +264,51 @@ TEST_F(Streams, WideCharactersFillTheReserve) {
                     "at: 3 put: (c at: 3) asInteger; at: 4 put: (c at: 4); yourself"));
 }
 
+// B9 review (Medium): 予備を足した writeLimit（position + 1 + 予備）が SmallInteger を超え、Debug と
+// ASan は fromSmallInteger の assert、Release は負の writeLimit になった。予備を削って頭打ちにする。
+// ほかのスロットも極端な値にして、失敗か正しい値で終わることを見る（SPEC §3.6 ストリーム）。
+TEST_F(Streams, ExtremeSlotValuesStayInRange) {
+  const std::string big = "4611686018427387902";  // SmallInteger max - 1
+  const std::string max = "4611686018427387903";  // SmallInteger max
+  EXPECT_EQ("true",
+            printIt("| w | w := WriteStream on: String new. w instVarAt: 2 put: " + big +
+                    "; instVarAt: 4 put: " + big + ". w nextPut: $a. "
+                    "((w instVarAt: 4) = " + max + ") & ((w instVarAt: 2) = " + max + ") & "
+                    "((w instVarAt: 4) class == SmallInteger) & ((w instVarAt: 3) = " + max + ")"));
+  EXPECT_EQ("true", printIt("| w | w := WriteStream on: String new. w instVarAt: 2 put: " + big +
+                            "; instVarAt: 4 put: " + big + ". w nextPut: $\xE3\x81\x82. "
+                            "(w instVarAt: 4) = " + max));
+  // Without a matching writeLimit, the String has fewer characters than the position.
+  EXPECT_EQ("<eval error: nextPut: past end>",
+            printIt("| w | w := WriteStream on: String new. w instVarAt: 2 put: " + big +
+                    ". w nextPut: $a"));
+  EXPECT_EQ("<eval error: nextPut: position out of range>",
+            printIt("| w | w := WriteStream on: String new. w instVarAt: 2 put: " + max +
+                    ". w nextPut: $a"));
+  EXPECT_EQ("<eval error: nextPut: position out of range>",
+            printIt("| w | w := WriteStream on: (Array new: 2). w instVarAt: 2 put: " + max +
+                    ". w nextPut: 1"));
+  // An Array past 2^32 - 1 slots cannot be made: out of memory, and the stream is left alone.
+  EXPECT_EQ("<eval error: out of memory>",
+            printIt("| w | w := WriteStream on: (Array new: 2). w instVarAt: 2 put: 4294967296. "
+                    "w nextPut: 1"));
+  EXPECT_EQ("<eval error: out of memory>",
+            printIt("| w | w := WriteStream on: (Array new: 2). w instVarAt: 2 put: 4294967296. "
+                    "[w nextPut: 1] ensure: [Smalltalk at: #B9W put: w]"));
+  EXPECT_EQ("true", printIt("((B9W instVarAt: 1) size = 2) & ((B9W instVarAt: 2) = 4294967296)"));
+  // Huge or odd writeLimit and readLimit values do not break the writes that follow.
+  for (const std::string& limit : {max, std::string("-5"), std::string("nil"), std::string("'x'")}) {
+    SCOPED_TRACE(limit);
+    EXPECT_EQ("'ab\xE3\x81\x82'",
+              printIt("| w | w := WriteStream on: String new. w instVarAt: 4 put: " + limit +
+                      ". w nextPut: $a; nextPut: $b; nextPut: $\xE3\x81\x82. w contents"));
+    EXPECT_EQ("'ab'", printIt("| w | w := WriteStream on: String new. w instVarAt: 3 put: " + limit +
+                              ". w nextPut: $a; nextPut: $b. w contents"));
+  }
+  EXPECT_EQ("#(1 2)", printIt("| w | w := WriteStream on: (Array new: 0). w instVarAt: 4 put: " + max +
+                              ". w nextPut: 1; nextPut: 2. w contents"));
+}
+
 // Symbol の系統は at:put: が Kernel の String のものでないので、at:put: を送る（shouldNotImplement）。
 // 末尾の次の文字は、新しい String に足す。
 TEST_F(Streams, SymbolCollectionsSendAtPut) {
