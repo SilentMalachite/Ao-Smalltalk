@@ -331,16 +331,17 @@ TEST(CollectionDo, SetAddWithTallyAtSmiMaxFails) {
   EXPECT_EQ(smi(ao::kSmiMax), send1(b, set.slot, "instVarAt:", smi(1)));
 }
 
-// size は last - first + 1。first と last を両端にすると SmallInteger の範囲を超える。
+// size は last - first + 1。first と last を両端にすると SmallInteger の範囲を超えるが、そういう組は
+// array に収まらないので、壊れた組として失敗する（SPEC §3.6 OrderedCollection）。
 TEST(CollectionDo, OrderedCollectionSizeBeyondSmiMaxFails) {
   Boot b;
   ao::Root oc(b.roots, send0(b, b.wk.orderedCollectionClass, "new"));
   ASSERT_TRUE(oc.slot.isHeap());
   send2(b, oc.slot, "instVarAt:put:", smi(2), smi(0));
   send2(b, oc.slot, "instVarAt:put:", smi(3), smi(ao::kSmiMax));
-  expectFailAbort(b, send0(b, oc.slot, "size"), "size out of range");
+  expectFailAbort(b, send0(b, oc.slot, "size"), "damaged ordered collection");
   send2(b, oc.slot, "instVarAt:put:", smi(2), smi(ao::kSmiMin));
-  expectFailAbort(b, send0(b, oc.slot, "size"), "size out of range");
+  expectFailAbort(b, send0(b, oc.slot, "size"), "damaged ordered collection");
 }
 
 namespace {

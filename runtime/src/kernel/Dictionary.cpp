@@ -8,6 +8,8 @@
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
+#include <algorithm>
+
 namespace ao {
 namespace {
 
@@ -485,61 +487,74 @@ Oop setIncludes(CallContext& ctx, const Oop& receiver, const Oop* args, std::uin
   return p.result == Lookup::Found ? Oop::true_() : Oop::false_();
 }
 
-std::int64_t ocSize(Heap& heap, Oop oc) {
+// SPEC §3.6 OrderedCollection: what the slots `array firstIndex lastIndex` say.
+enum class OcShape {
+  Empty,    // array is nil (basicNew): no elements
+  Sound,    // the elements are array at firstIndex .. lastIndex
+  Damaged,  // they do not fit (instVarAt:put:): the natives fail
+};
+
+struct OcSlots {
+  Oop array{};
+  std::int64_t first = 1;
+  std::int64_t last = 0;
+};
+
+// Reads oc's slots. Sound when array is a Kernel Array and firstIndex and lastIndex are
+// SmallIntegers with 1 <= firstIndex <= lastIndex + 1 <= array size + 1. Does not allocate.
+OcShape ocRead(const Heap& heap, const WellKnown& wk, Oop oc, OcSlots* out) {
+  if (!oc.isHeap() || (heap.flags(oc) & kFlagBytes) != 0 || heap.size(oc) <= kOcLast) {
+    return OcShape::Damaged;
+  }
+  const Oop array = heap.slotAt(oc, kOcArray);
+  if (array.isNil()) {
+    return OcShape::Empty;
+  }
   const Oop first = heap.slotAt(oc, kOcFirst);
   const Oop last = heap.slotAt(oc, kOcLast);
-  if (!first.isSmallInteger() || !last.isSmallInteger()) {
-    return 0;
+  if (!array.isHeap() || heap.klass(array) != wk.arrayClass ||
+      (heap.flags(array) & kFlagBytes) != 0 || !first.isSmallInteger() || !last.isSmallInteger()) {
+    return OcShape::Damaged;
   }
-  const auto f = first.smallIntegerValue();
-  const auto l = last.smallIntegerValue();
-  if (l < f) {
-    return 0;
+  const std::int64_t f = first.smallIntegerValue();
+  const std::int64_t l = last.smallIntegerValue();
+  if (f < 1 || l < f - 1 || l > static_cast<std::int64_t>(heap.size(array))) {
+    return OcShape::Damaged;
   }
-  // first と last は Smalltalk から書き換えられる。両端だと l - f + 1 は int64 も超えるので、
-  // kSmiMax + 1 で頭打ちにする（size はこれを範囲外として失敗する）。
-  const std::int64_t span = l - f;
-  return span >= kSmiMax ? kSmiMax + 1 : span + 1;
+  out->array = array;
+  out->first = f;
+  out->last = l;
+  return OcShape::Sound;
 }
 
-bool ocEnsure(CallContext& ctx, Root& oc) {
-  Oop arr = ctx.heap.slotAt(oc.slot, kOcArray);
-  if (arr.isHeap()) {
-    return true;
-  }
-  arr = allocateRetry(ctx, ctx.wk.arrayClass, kDefaultCap, 0);
-  if (!arr.isHeap()) {
+Oop failDamagedOc(CallContext& ctx, const Oop& oc) {
+  return fail(ctx, oc, "damaged ordered collection");
+}
+
+// Gives a sound oc an Array of twice the size (kDefaultCap at least) holding its elements from 1.
+// May GC: oc is a Root. False when the Array cannot be allocated or oc is not sound.
+bool ocGrow(CallContext& ctx, Root& oc) {
+  OcSlots s;
+  if (ocRead(ctx.heap, ctx.wk, oc.slot, &s) != OcShape::Sound) {
     return false;
   }
-  ctx.heap.slotAtPut(oc.slot, kOcArray, arr);
-  if (!ctx.heap.slotAt(oc.slot, kOcFirst).isSmallInteger()) {
-    ctx.heap.slotAtPut(oc.slot, kOcFirst, Oop::fromSmallInteger(1));
+  const std::int64_t used = s.last - s.first + 1;
+  const std::uint64_t next =
+      std::max({std::uint64_t{kDefaultCap}, std::uint64_t{ctx.heap.size(s.array)} * 2,
+                static_cast<std::uint64_t>(used) + 1});
+  if (next > UINT32_MAX) {
+    ctx.heap.setOutOfMemory();
+    return false;
   }
-  if (!ctx.heap.slotAt(oc.slot, kOcLast).isSmallInteger()) {
-    ctx.heap.slotAtPut(oc.slot, kOcLast, Oop::fromSmallInteger(0));
-  }
-  return true;
-}
-
-bool ocGrow(CallContext& ctx, Root& oc) {
-  Root old(ctx.roots, ctx.heap.slotAt(oc.slot, kOcArray));
-  const auto first = ctx.heap.slotAt(oc.slot, kOcFirst).smallIntegerValue();
-  const auto last = ctx.heap.slotAt(oc.slot, kOcLast).smallIntegerValue();
-  const auto used = last < first ? 0 : last - first + 1;
-  const std::uint32_t n = old.slot.isHeap() ? ctx.heap.size(old.slot) : 0;
-  std::uint32_t next = n == 0 ? kDefaultCap : n * 2;
-  if (next < static_cast<std::uint32_t>(used) + 1) {
-    next = static_cast<std::uint32_t>(used) + 1;
-  }
-  Oop grown = allocateRetry(ctx, ctx.wk.arrayClass, next, 0);
+  Root old(ctx.roots, s.array);
+  const Oop grown = allocateRetry(ctx, ctx.wk.arrayClass, static_cast<std::uint32_t>(next), 0);
   if (!grown.isHeap()) {
     return false;
   }
-  if (old.slot.isHeap() && used > 0) {
-    for (std::int64_t i = 0; i < used; ++i) {
-      ctx.heap.slotAtPut(grown, static_cast<std::uint32_t>(i),
-                         ctx.heap.slotAt(old.slot, static_cast<std::uint32_t>(first - 1 + i)));
-    }
+  // No user code ran, so first and last are as read and old is still oc's array.
+  for (std::int64_t i = 0; i < used; ++i) {
+    ctx.heap.slotAtPut(grown, static_cast<std::uint32_t>(i),
+                       ctx.heap.slotAt(old.slot, static_cast<std::uint32_t>(s.first - 1 + i)));
   }
   ctx.heap.slotAtPut(oc.slot, kOcArray, grown);
   ctx.heap.slotAtPut(oc.slot, kOcFirst, Oop::fromSmallInteger(1));
@@ -772,11 +787,16 @@ Oop ao_OrderedCollection_size(CallContext& ctx, const Oop& receiver, const Oop*,
   if (argc != 0 || !receiver.isHeap()) {
     return Oop{};
   }
-  const auto n = ocSize(ctx.heap, receiver);
-  if (n > kSmiMax) {
-    return fail(ctx, receiver, "size out of range");
+  OcSlots s;
+  switch (ocRead(ctx.heap, ctx.wk, receiver, &s)) {
+    case OcShape::Damaged:
+      return failDamagedOc(ctx, receiver);
+    case OcShape::Empty:
+      return Oop::fromSmallInteger(0);
+    case OcShape::Sound:
+      return Oop::fromSmallInteger(s.last - s.first + 1);
   }
-  return Oop::fromSmallInteger(n);
+  return Oop{};
 }
 
 Oop ao_OrderedCollection_add_(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -786,22 +806,32 @@ Oop ao_OrderedCollection_add_(CallContext& ctx, const Oop& receiver, const Oop* 
   }
   Root oc(ctx.roots, receiver);
   Root value(ctx.roots, args[0]);
-  if (!ocEnsure(ctx, oc)) {
-    return Oop{};
+  OcSlots s;
+  const OcShape shape = ocRead(ctx.heap, ctx.wk, oc.slot, &s);
+  if (shape == OcShape::Damaged) {
+    return failDamagedOc(ctx, oc.slot);
   }
-  const Oop arr = ctx.heap.slotAt(oc.slot, kOcArray);
-  const auto n = static_cast<std::int64_t>(ctx.heap.size(arr));
-  auto last = ctx.heap.slotAt(oc.slot, kOcLast).smallIntegerValue();
-  if (last >= n) {
+  if (shape == OcShape::Empty) {
+    // SPEC §3.6: the first add: makes an Array of kDefaultCap and starts at 1.
+    const Oop arr = allocateRetry(ctx, ctx.wk.arrayClass, kDefaultCap, 0);
+    if (!arr.isHeap()) {
+      return Oop{};
+    }
+    ctx.heap.slotAtPut(oc.slot, kOcArray, arr);
+    ctx.heap.slotAtPut(oc.slot, kOcFirst, Oop::fromSmallInteger(1));
+    ctx.heap.slotAtPut(oc.slot, kOcLast, Oop::fromSmallInteger(0));
+  } else if (s.last == static_cast<std::int64_t>(ctx.heap.size(s.array))) {
     if (!ocGrow(ctx, oc)) {
       return Oop{};
     }
-    last = ctx.heap.slotAt(oc.slot, kOcLast).smallIntegerValue();
   }
-  last += 1;
-  ctx.heap.slotAtPut(oc.slot, kOcLast, Oop::fromSmallInteger(last));
-  ctx.heap.slotAtPut(ctx.heap.slotAt(oc.slot, kOcArray), static_cast<std::uint32_t>(last - 1),
-                     value.slot);
+  // Read again: an allocation above may have moved the array.
+  if (ocRead(ctx.heap, ctx.wk, oc.slot, &s) != OcShape::Sound) {
+    return failDamagedOc(ctx, oc.slot);
+  }
+  s.last += 1;
+  ctx.heap.slotAtPut(s.array, static_cast<std::uint32_t>(s.last - 1), value.slot);
+  ctx.heap.slotAtPut(oc.slot, kOcLast, Oop::fromSmallInteger(s.last));
   return value.slot;
 }
 
@@ -813,16 +843,16 @@ Oop ao_OrderedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* a
   if (argc != 1 || !receiver.isHeap()) {
     return Oop{};
   }
-  const Oop arr = ctx.heap.slotAt(receiver, kOcArray);
-  const Oop first = ctx.heap.slotAt(receiver, kOcFirst);
-  if (args[0].isSmallInteger() && first.isSmallInteger() && arr.isHeap() &&
-      (ctx.heap.flags(arr) & kFlagBytes) == 0) {
+  OcSlots s;
+  const OcShape shape = ocRead(ctx.heap, ctx.wk, receiver, &s);
+  if (shape == OcShape::Damaged) {
+    return failDamagedOc(ctx, receiver);
+  }
+  if (shape == OcShape::Sound && args[0].isSmallInteger()) {
     const auto index = args[0].smallIntegerValue();
-    if (index >= 1 && index <= ocSize(ctx.heap, receiver)) {
-      const __int128 slot = static_cast<__int128>(first.smallIntegerValue()) + index - 2;
-      if (slot >= 0 && slot < ctx.heap.size(arr)) {
-        return ctx.heap.slotAt(arr, static_cast<std::uint32_t>(slot));
-      }
+    if (index >= 1 && index <= s.last - s.first + 1) {
+      // A sound shape keeps first + index - 1 within the array (1-based).
+      return ctx.heap.slotAt(s.array, static_cast<std::uint32_t>(s.first + index - 2));
     }
   }
   return fail(ctx, receiver, "at: index out of range");
@@ -835,18 +865,36 @@ Oop ao_OrderedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* a
   }
   Root oc(ctx.roots, receiver);
   Root blk(ctx.roots, args[0]);
-  if (!ocEnsure(ctx, oc)) {
+  OcSlots s;
+  const OcShape shape = ocRead(ctx.heap, ctx.wk, oc.slot, &s);
+  if (shape == OcShape::Damaged) {
+    return failDamagedOc(ctx, oc.slot);
+  }
+  if (shape == OcShape::Empty) {
     return oc.slot;
   }
-  const auto first = ctx.heap.slotAt(oc.slot, kOcFirst).smallIntegerValue();
-  const auto last = ctx.heap.slotAt(oc.slot, kOcLast).smallIntegerValue();
+  // SPEC §3.6: the indexes do: started with (Blue Book). The block may write the collection, so
+  // its slots are read again before each element: damaged fails, an index outside them ends it.
+  const std::int64_t first = s.first;
+  const std::int64_t last = s.last;
   Root elt(ctx.roots);
+  Gc gc(ctx.heap, ctx.roots);
+  std::uint64_t visited = 0;
   for (std::int64_t i = first; i <= last; ++i) {
-    const Oop arr = ctx.heap.slotAt(oc.slot, kOcArray);
-    elt.slot = ctx.heap.slotAt(arr, static_cast<std::uint32_t>(i - 1));
+    const OcShape now = ocRead(ctx.heap, ctx.wk, oc.slot, &s);
+    if (now == OcShape::Damaged) {
+      return failDamagedOc(ctx, oc.slot);
+    }
+    if (now == OcShape::Empty || i < s.first || i > s.last) {
+      break;
+    }
+    elt.slot = ctx.heap.slotAt(s.array, static_cast<std::uint32_t>(i - 1));
     Oop ignored;
     if (!callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
       return Oop{};
+    }
+    if ((++visited & 0xFFFF) == 0) {
+      gc.safepoint();
     }
   }
   return oc.slot;

@@ -1164,13 +1164,73 @@ TEST_F(HashedCollection, OrderedCollectionAtOutOfRangeFails) {
     SCOPED_TRACE(index);
     EXPECT_EQ("<eval error: at: index out of range>", printIt(std::string("oc9 at: ") + index));
   }
-  // lastIndex を配列の外へ書き換えても、配列の外は読まない。
-  EXPECT_EQ("<eval error: at: index out of range>",
+  // lastIndex を配列の外へ書き換えると、組が壊れているので添字によらず失敗する（配列の外は読まない）。
+  EXPECT_EQ("<eval error: damaged ordered collection>",
             printIt("| oc | oc := OrderedCollection new. oc add: 1. oc instVarAt: 3 put: 100. "
                     "oc at: 50"));
   EXPECT_EQ("<eval error: at: index out of range>",
             printIt("| oc | oc := OrderedCollection new. oc add: 1. oc instVarAt: 1 put: nil. "
                     "oc at: 1"));
+}
+
+// B9 review (Low): OrderedCollection の do:・add:・ocGrow は firstIndex・lastIndex・array の組を
+// 確かめなかった。`oc instVarAt: 3 put: 100. oc do: [...]` は Debug で Heap の assert、Release で
+// 範囲外読みになった。組が壊れていれば size・do:・add:・at: は `damaged ordered collection` で
+// 失敗する（SPEC §3.6 OrderedCollection）。
+TEST_F(HashedCollection, DamagedOrderedCollectionFails) {
+  const char* damages[] = {
+      "oc instVarAt: 3 put: 100",                        // lastIndex past the array
+      "oc instVarAt: 3 put: -5",                         // lastIndex before firstIndex - 1
+      "oc instVarAt: 2 put: 0",                          // firstIndex below 1
+      "oc instVarAt: 2 put: 5",                          // firstIndex past lastIndex + 1
+      "oc instVarAt: 2 put: nil",
+      "oc instVarAt: 3 put: 'x'",
+      "oc instVarAt: 3 put: (1 bitShift: 70)",
+      "oc instVarAt: 1 put: 'abcdefgh'",                 // array a String
+      "oc instVarAt: 1 put: (ByteArray new: 8)",
+      "oc instVarAt: 1 put: 3",
+      "oc instVarAt: 1 put: (OrderedCollection new)",    // a pointer object that is no Array
+      "oc instVarAt: 1 put: (Array new: 1)",             // shorter than lastIndex
+  };
+  const char* sends[] = {"oc size", "oc do: [:x | x]", "oc add: 3", "oc at: 1"};
+  for (const char* damage : damages) {
+    for (const char* s : sends) {
+      const std::string src =
+          std::string("| oc | oc := OrderedCollection new. oc add: 1; add: 2. ") + damage + ". " + s;
+      SCOPED_TRACE(src);
+      EXPECT_EQ("<eval error: damaged ordered collection>", printIt(src));
+    }
+  }
+  // A nil array is empty (basicNew); the first add: makes the array and resets the indexes.
+  EXPECT_EQ("true", printIt("| oc | oc := OrderedCollection basicNew. oc add: 1; add: 2. "
+                            "(oc size = 2) & ((oc at: 2) = 2)"));
+  EXPECT_EQ("true", printIt("| oc n | oc := OrderedCollection new. oc add: 1; add: 2. "
+                            "oc instVarAt: 1 put: nil; instVarAt: 2 put: 5. n := 0. "
+                            "oc do: [:x | n := n + 1]. (oc size = 0) & (n = 0)"));
+  EXPECT_EQ("true", printIt("| oc | oc := OrderedCollection new. oc add: 1. oc instVarAt: 1 put: nil. "
+                            "oc add: 5. (oc size = 1) & ((oc at: 1) = 5) & ((oc instVarAt: 2) = 1)"));
+  EXPECT_EQ("<eval error: at: index out of range>",
+            printIt("| oc | oc := OrderedCollection new. oc add: 1. oc instVarAt: 1 put: nil. "
+                    "oc at: 1"));
+  // Sound shapes that no native makes still work: firstIndex past 1, and an empty collection at
+  // the end of its array (the next add: grows it).
+  EXPECT_EQ("true", printIt("| oc s | oc := OrderedCollection new. oc add: 1; add: 2; add: 3. "
+                            "oc instVarAt: 2 put: 2. s := 0. oc do: [:x | s := s + x]. "
+                            "(oc size = 2) & (s = 5) & ((oc at: 1) = 2)"));
+  EXPECT_EQ("true", printIt("| oc | oc := OrderedCollection new. oc instVarAt: 2 put: 9; "
+                            "instVarAt: 3 put: 8. oc size = 0"));
+  EXPECT_EQ("true", printIt("| oc | oc := OrderedCollection new. oc instVarAt: 2 put: 9; "
+                            "instVarAt: 3 put: 8. oc add: 7. (oc size = 1) & ((oc at: 1) = 7)"));
+  // A block that damages the collection makes do: fail; one that moves lastIndex back ends it;
+  // elements added during do: are not visited (Blue Book), and growth moves no index under it.
+  EXPECT_EQ("<eval error: damaged ordered collection>",
+            printIt("| oc | oc := OrderedCollection new. oc add: 1; add: 2; add: 3. "
+                    "oc do: [:x | oc instVarAt: 1 put: (Array new: 0)]"));
+  EXPECT_EQ("1", printIt("| oc n | oc := OrderedCollection new. oc add: 1; add: 2; add: 3. n := 0. "
+                         "oc do: [:x | n := n + 1. oc instVarAt: 3 put: 1]. n"));
+  EXPECT_EQ("true", printIt("| oc s | oc := OrderedCollection new. oc add: 1; add: 2; add: 3. s := 0. "
+                            "oc do: [:x | s := s + x. 1 to: 10 do: [:i | oc add: 100]]. "
+                            "(s = 6) & (oc size = 33)"));
 }
 
 namespace {
