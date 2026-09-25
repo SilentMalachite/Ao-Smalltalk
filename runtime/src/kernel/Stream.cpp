@@ -573,6 +573,8 @@ Oop ao_PositionableStream_position(CallContext& ctx, const Oop& receiver, const 
   return ctx.heap.slotAt(receiver, kStreamPosition);
 }
 
+// SPEC §3.6: clamps to [0, max(readLimit, position)], never into the reserve a stream-made String
+// or a doubled Array carries past readLimit (Squeak's WriteStream>>position:).
 Oop ao_PositionableStream_position_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                     std::uint32_t argc) {
   if (argc != 1 || !receiver.isHeap()) {
@@ -585,9 +587,8 @@ Oop ao_PositionableStream_position_(CallContext& ctx, const Oop& receiver, const
   if (v < 0) {
     v = 0;
   }
-  const auto limit = hasWriteLimit(ctx.heap, receiver)
-                         ? smiOr(ctx.heap.slotAt(receiver, kStreamWriteLimit), 0)
-                         : smiOr(ctx.heap.slotAt(receiver, kStreamReadLimit), 0);
+  const auto limit = std::max(smiOr(ctx.heap.slotAt(receiver, kStreamReadLimit), 0),
+                              smiOr(ctx.heap.slotAt(receiver, kStreamPosition), 0));
   if (v > limit) {
     v = limit;
   }

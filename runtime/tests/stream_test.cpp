@@ -256,12 +256,37 @@ TEST_F(Streams, WideCharactersFillTheReserve) {
                             "(w instVarAt: 1) size = (w instVarAt: 4)"));
   EXPECT_EQ("200", printIt("| w | w := WriteStream on: String new. 100 timesRepeat: "
                            "[w nextPut: $\xF0\x9D\x84\x9E. w nextPut: $a]. w contents size"));
-  // position: で予備の中へ進めてから書く。間の予備は NUL の文字として contents に入る。
-  EXPECT_EQ("#(4 0 0 $z)",
-            printIt("| w c | w := WriteStream on: String new. w nextPut: $a. w position: 3. "
-                    "w nextPut: $z. c := w contents. "
-                    "(Array new: 4) at: 1 put: c size; at: 2 put: (c at: 2) asInteger; "
-                    "at: 3 put: (c at: 3) asInteger; at: 4 put: (c at: 4); yourself"));
+  // position: は予備の中へ進まない（readLimit で頭打ち）ので、次の文字は書いた文字のすぐ後ろに入る。
+  EXPECT_EQ("'az'", printIt("| w | w := WriteStream on: String new. w nextPut: $a. w position: 3. "
+                            "w nextPut: $z. w contents"));
+}
+
+// B9 review (Low): position: の上限が writeLimit だったので、予備（ストリームが作った String の NUL や、
+// 倍にした Array の空き）が見えた。`nextPutAll: 'abc'; position: 100; position` は 16、`position: 10`
+// のあとの contents には NUL が 7 個入った。上限は readLimit と今の position の大きい方（SPEC §3.6）。
+TEST_F(Streams, PositionDoesNotRevealTheReserve) {
+  EXPECT_EQ("3", printIt("(WriteStream on: String new) nextPutAll: 'abc'; position: 100; position"));
+  EXPECT_EQ("'abc'", printIt("| w | w := WriteStream on: String new. w nextPutAll: 'abc'. "
+                             "w position: 10. w contents"));
+  EXPECT_EQ("#(1 2 3)", printIt("| w | w := WriteStream on: (Array new: 0). w nextPut: 1; nextPut: 2; "
+                                "nextPut: 3. w position: 10. w contents"));
+  EXPECT_EQ("true", printIt("| w | w := WriteStream on: (Array new: 0). w nextPut: 1; nextPut: 2; "
+                            "nextPut: 3. w position: 10. (w position = 3) & ((w instVarAt: 4) = 4)"));
+  // Backwards is fine, and back up to what was written.
+  EXPECT_EQ("#(1 3)", printIt("| w a | w := ReadWriteStream on: String new. w nextPutAll: 'abc'. "
+                              "a := Array new: 2. w position: 1. a at: 1 put: w position. "
+                              "w position: 50. a at: 2 put: w position. a"));
+  EXPECT_EQ("0", printIt("| w | w := WriteStream on: String new. w nextPutAll: 'abc'. w position: -4. "
+                         "w position"));
+  EXPECT_EQ("<eval error: position: not an integer>",
+            printIt("(WriteStream on: String new) position: 1.5"));
+  // A ReadStream reads up to readLimit; a user String passed to on: shows all of it.
+  EXPECT_EQ("2", printIt("| r | r := ReadStream on: 'ab'. r position: 9. r position"));
+  EXPECT_EQ("5", printIt("| w | w := WriteStream on: (String new: 5). w position: 9. w position"));
+  // A position past readLimit (only reflection makes one) is kept as the bound.
+  EXPECT_EQ("#(7 5)", printIt("| w a | w := WriteStream on: String new. w nextPutAll: 'ab'. "
+                              "w instVarAt: 2 put: 7. a := Array new: 2. w position: 9. "
+                              "a at: 1 put: w position. w position: 5. a at: 2 put: w position. a"));
 }
 
 // B9 review (Medium): 予備を足した writeLimit（position + 1 + 予備）が SmallInteger を超え、Debug と
