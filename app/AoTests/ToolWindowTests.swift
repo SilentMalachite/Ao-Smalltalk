@@ -50,6 +50,44 @@ final class ToolWindowTests: XCTestCase {
     XCTAssertTrue(launch.transcript.text.contains("from a fork"))
   }
 
+  // SPEC §3.9: the Transcript appends each chunk and scrolls to the end once after the eval.
+  // 20000 lines are 40000 hook calls; they finish within 10 s, under ASan too. Fixed pitch makes
+  // the font of an appended chunk differ from the text system's default.
+  func testTwentyThousandTranscriptLinesFinishWithinTenSecondsAndShowTheEnd() {
+    let launch = LaunchSet.make()
+    launch.transcript.useFixedPitch = true
+    launch.workspace.replaceText("1 to: 20000 do: [:i | Transcript show: i printString; cr]")
+    launch.workspace.selectAll()
+    let started = Date()
+    launch.workspace.doIt()
+    let elapsed = Date().timeIntervalSince(started)
+    XCTAssertLessThanOrEqual(elapsed, 10, "Do it took \(elapsed) s")
+    let expected = (1...20000).map { "\($0)\n" }.joined()
+    let text = launch.transcript.text
+    XCTAssertTrue(text == expected, "transcript has \(text.count) characters, ends \(text.suffix(12).debugDescription)")
+    XCTAssertTrue(text.hasSuffix("20000\n"))
+
+    let windows = NSApplication.shared.windows.filter { $0.title == "Transcript" && $0.isVisible }
+    XCTAssertEqual(windows.count, 1)
+    guard let window = windows.first,
+          let view = (window.contentView as? NSScrollView)?.documentView as? NSTextView,
+          let storage = view.textStorage,
+          storage.length == (expected as NSString).length else {
+      XCTFail("missing Transcript text view or its text")
+      return
+    }
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+    let visible = view.visibleRect
+    XCTAssertGreaterThan(visible.height, 0)
+    XCTAssertLessThan(visible.height, view.bounds.height)
+    // The last line, "20000", in the text view's coordinates.
+    let screen = view.firstRect(forCharacterRange: NSRange(location: storage.length - 6, length: 5), actualRange: nil)
+    let last = view.convert(window.convertFromScreen(screen), from: nil)
+    XCTAssertTrue(visible.contains(last), "the end of the Transcript is not visible: \(last) in \(visible)")
+    let font = storage.attribute(.font, at: storage.length - 1, effectiveRange: nil) as? NSFont
+    XCTAssertEqual(font, NSFont.userFixedPitchFont(ofSize: 0))
+  }
+
   func testMainMenuListsToolsAndSmalltalkKeys() {
     let menu = MainMenu.build(actions: MainMenu.Actions())
     let titles = menuTitles(in: menu)
