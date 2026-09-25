@@ -407,6 +407,198 @@ TEST_F(HashedCollection, ReentrantWritesDoNotBreakTheTable) {
                     "d do: [:v | d instVarAt: 2 put: (Array new: 3)]"));
 }
 
+// B9 review (Low): 探し直しに上限は無いが、hash は 1 回の操作で 1 回しか送らない（SPEC §3.6 再入）。
+// B9Recount の = は、表に 10 件足してから false を答える。tally が変わるので、どの探索
+// （at:put:、at:、at:ifAbsent:、includesKey:、removeKey:、removeKey:ifAbsent:、Set の add: と
+// includes:）も探し直しを通る。数えた hash の回数と答えを確かめる。
+TEST_F(HashedCollection, ReprobingSendsHashOnce) {
+  acceptClass("Object", "B9Recount", "dict");
+  acceptMethod("B9Recount", "dict: d\n  dict := d\n");
+  acceptMethod("B9Recount",
+               "hash\n  Smalltalk at: #B9Hashes put: (Smalltalk at: #B9Hashes) + 1.\n  ^5\n");
+  acceptMethod("B9Recount",
+               "= other\n  | d |\n  dict isNil ifFalse: [d := dict. dict := nil. 1 to: 10 do: [:i | "
+               "(d isKindOf: Dictionary) ifTrue: [d at: Object new put: i] "
+               "ifFalse: [d add: Object new]]].\n  ^false\n");
+  ASSERT_EQ("true", printIt("Smalltalk at: #B9Hashes put: 0. d9 := Dictionary new. "
+                            "a9 := B9Recount new. d9 at: a9 put: 11. s9 := Set new. "
+                            "s9 add: B9Recount new. true"));
+  struct Case {
+    const char* expr;  // b is a fresh B9Recount whose = adds to the table once
+    const char* answer;
+    const char* hashes;
+  };
+  const Case cases[] = {
+      {"d9 at: b put: 22", "22", "1"},
+      {"d9 at: b", "nil", "1"},
+      {"d9 at: b ifAbsent: [0]", "0", "1"},
+      {"d9 includesKey: b", "false", "1"},
+      {"d9 removeKey: b ifAbsent: [0]", "0", "1"},
+      // at:put: sends hash once, removeKey: once more.
+      {"d9 at: b put: 22. b dict: d9. d9 removeKey: b", "22", "2"},
+      {"d9 at: a9 ifAbsent: [0]", "11", "1"},
+      {"b dict: s9. s9 add: b. s9 size", "12", "1"},
+      {"b dict: s9. s9 includes: b", "false", "1"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.expr);
+    EXPECT_EQ(c.answer, printIt(std::string("| b | b := B9Recount new dict: d9. Smalltalk at: "
+                                            "#B9Hashes put: 0. ") +
+                                c.expr));
+    EXPECT_EQ(c.hashes, printIt("Smalltalk at: #B9Hashes"));
+  }
+  EXPECT_EQ("true", printIt("((d9 at: a9) = 11) & (d9 size > 40)"));
+}
+
+// SPEC §3.6 再入: hash の中で表を壊す・nil にする・差し替える。= と hash の中で探しているキー自身を
+// 入れる。どれも範囲外を読み書きせず、キーは 1 つのエントリにだけ入る。
+TEST_F(HashedCollection, ReentrantHashAndEqualsRewriteTheTable) {
+  acceptClass("Object", "B9HashWreck", "dict mode");
+  acceptMethod("B9HashWreck", "dict: d mode: m\n  dict := d. mode := m\n");
+  acceptMethod("B9HashWreck",
+               "hash\n  | d m |\n  d := dict. m := mode. mode := nil.\n"
+               "  m == #damage ifTrue: [d instVarAt: 2 put: (Array new: 5)].\n"
+               "  m == #nil ifTrue: [d instVarAt: 2 put: nil].\n"
+               "  (m isKindOf: SmallInteger) ifTrue: [d instVarAt: 2 put: (Array new: m); "
+               "instVarAt: 1 put: 0].\n"
+               "  ^3\n");
+  const char* ops[] = {"d at: k put: 1", "d at: k", "d at: k ifAbsent: [0]", "d includesKey: k",
+                       "d removeKey: k ifAbsent: [0]"};
+  for (const char* op : ops) {
+    SCOPED_TRACE(op);
+    const std::string setup = "| d k | d := Dictionary new. d at: 1 put: 1. k := B9HashWreck new dict: d mode: ";
+    EXPECT_EQ("<eval error: damaged hashed collection>", printIt(setup + "#damage. " + op));
+  }
+  EXPECT_EQ("true", printIt("| d k | d := Dictionary new. d at: 1 put: 1. k := B9HashWreck new "
+                            "dict: d mode: #nil. d at: k put: 2. (d size = 1) & ((d at: k) = 2) & "
+                            "(d includesKey: 1) not"));
+  EXPECT_EQ("true", printIt("| d k | d := Dictionary new. d at: 1 put: 1. k := B9HashWreck new "
+                            "dict: d mode: 48. d at: k put: 2. (d size = 1) & ((d at: k) = 2) & "
+                            "((d instVarAt: 2) size = 48)"));
+  EXPECT_EQ("false", printIt("| d k | d := Dictionary new. d at: 1 put: 1. k := B9HashWreck new "
+                             "dict: d mode: #nil. d includesKey: k"));
+  EXPECT_EQ("true", printIt("| s k | s := Set new. s add: 1. k := B9HashWreck new dict: s mode: "
+                            "32. s add: k. (s size = 1) & (s includes: k) & (s includes: 1) not"));
+
+  // hash の中で、探しているキー自身を入れる。外側の at:put: は同じキーを見つけて値を上書きする。
+  acceptClass("Object", "B9SelfPut", "dict");
+  acceptMethod("B9SelfPut", "dict: d\n  dict := d\n");
+  acceptMethod("B9SelfPut", "hash\n  | d |\n  dict isNil ifFalse: [d := dict. dict := nil. "
+                            "d at: self put: #inner].\n  ^9\n");
+  EXPECT_EQ("true", printIt("| d k n | d := Dictionary new. k := B9SelfPut new dict: d. "
+                            "d at: k put: #outer. n := 0. d keysDo: [:x | x == k ifTrue: [n := n + 1]]. "
+                            "(n = 1) & (d size = 1) & ((d at: k) == #outer)"));
+  // = の中で、探しているキー自身を入れる。tally が変わるので探し直し、同一のキーとして見つける。
+  acceptClass("Object", "B9SelfEq", "dict");
+  acceptMethod("B9SelfEq", "dict: d\n  dict := d\n");
+  acceptMethod("B9SelfEq", "hash\n  ^9\n");
+  acceptMethod("B9SelfEq", "= other\n  | d |\n  dict isNil ifFalse: [d := dict. dict := nil. "
+                           "(d isKindOf: Dictionary) ifTrue: [d at: self put: #inner] "
+                           "ifFalse: [d add: self]].\n  ^false\n");
+  EXPECT_EQ("true", printIt("| d a k n | d := Dictionary new. a := B9SelfEq new. d at: a put: #a. "
+                            "k := B9SelfEq new dict: d. d at: k put: #outer. n := 0. "
+                            "d keysDo: [:x | x == k ifTrue: [n := n + 1]]. "
+                            "(n = 1) & (d size = 2) & ((d at: k) == #outer) & ((d at: a) == #a)"));
+  EXPECT_EQ("true", printIt("| s a k n | s := Set new. a := B9SelfEq new. s add: a. "
+                            "k := B9SelfEq new dict: s. s add: k. n := 0. "
+                            "s do: [:x | x == k ifTrue: [n := n + 1]]. (n = 1) & (s size = 2)"));
+}
+
+// identityHash の即値（Character、true、false、負の SmallInteger）と、利用者の負の hash、負の
+// LargeInteger の hash。ホームは符号なしの 64 ビットとして混ぜるので、負の値でも表の中に入る。
+TEST_F(HashedCollection, ImmediateAndNegativeHashes) {
+  EXPECT_EQ("true", printIt(
+      "| d keys ok | d := IdentityDictionary new. keys := Array new: 8. keys at: 1 put: $a; "
+      "at: 2 put: $Z; at: 3 put: true; at: 4 put: false; at: 5 put: -5; "
+      "at: 6 put: 0 - (1 bitShift: 61); at: 7 put: 0; at: 8 put: (1 bitShift: 61). "
+      "1 to: 8 do: [:i | d at: (keys at: i) put: i]. ok := d size = 8. "
+      "1 to: 8 do: [:i | (d at: (keys at: i)) = i ifFalse: [ok := false]]. "
+      "(d removeKey: true) = 3 ifFalse: [ok := false]. "
+      "((d at: false) = 4) & (d includesKey: true) not & (d size = 7) & ok"));
+  EXPECT_EQ("true", printIt(
+      "| s | s := IdentitySet new. s add: $a; add: true; add: false; add: -5; add: $a; add: -5. "
+      "(s size = 4) & (s includes: $a) & (s includes: false) & (s includes: -5) & "
+      "(s includes: -6) not & (s includes: nil) not"));
+  EXPECT_EQ("true", printIt(
+      "| d | d := Dictionary new. d at: $a put: 1; at: -7 put: 2; at: true put: 3. "
+      "((d at: $a) = 1) & ((d at: -7) = 2) & ((d at: true) = 3) & (d at: $b) isNil"));
+
+  acceptClass("Object", "B9NegHash", "k");
+  acceptMethod("B9NegHash", "k: v\n  k := v\n");
+  acceptMethod("B9NegHash", "k\n  ^k\n");
+  acceptMethod("B9NegHash", "= other\n  ^(other isKindOf: B9NegHash) and: [k = other k]\n");
+  acceptMethod("B9NegHash", "hash\n  ^k \\\\ 2 = 1 ifTrue: [-7] ifFalse: [0 - (1 bitShift: 70)]\n");
+  // 20 件で 2 回拡張し、保存した hash（負の SmallInteger と、負の LargeInteger の hash）で入れ直す。
+  EXPECT_EQ("true", printIt(
+      "| d ok | d := Dictionary new. 1 to: 20 do: [:i | d at: (B9NegHash new k: i) put: i]. "
+      "ok := d size = 20. 1 to: 20 do: [:i | (d at: (B9NegHash new k: i)) = i ifFalse: [ok := false]]. "
+      "(d removeKey: (B9NegHash new k: 4)) = 4 ifFalse: [ok := false]. "
+      "ok & (d size = 19) & (d includesKey: (B9NegHash new k: 4)) not & "
+      "((d at: (B9NegHash new k: 5)) = 5)"));
+}
+
+// keysDo: と associationsDo: からの非局所リターン。ensure: の後始末は走り、表はそのまま使える。
+TEST_F(HashedCollection, EnumerationUnwindsThroughNonLocalReturn) {
+  acceptClass("Object", "B9Nlr", "");
+  acceptMethod("B9Nlr", "firstKeyIn: d\n  d keysDo: [:k | ^k].\n  ^nil\n");
+  acceptMethod("B9Nlr", "firstKeyIn: d log: log\n"
+                        "  [d associationsDo: [:a | ^a key]] ensure: [log add: #ensured].\n  ^nil\n");
+  acceptMethod("B9Nlr", "valueIn: d log: log\n"
+                        "  [d keysAndValuesDo: [:k :v | ^v]] ensure: [log add: #ensured].\n  ^nil\n");
+  ASSERT_EQ("3", printIt("d9 := Dictionary new. d9 at: #a put: 1; at: #b put: 2; at: #c put: 3. "
+                         "d9 size"));
+  EXPECT_EQ("true", printIt("| k | k := B9Nlr new firstKeyIn: d9. (d9 includesKey: k)"));
+  EXPECT_EQ("true", printIt("| log k | log := OrderedCollection new. "
+                            "k := B9Nlr new firstKeyIn: d9 log: log. "
+                            "(d9 includesKey: k) & (log size = 1) & ((log at: 1) == #ensured)"));
+  EXPECT_EQ("true", printIt("| log v | log := OrderedCollection new. "
+                            "v := B9Nlr new valueIn: d9 log: log. (d9 includes: v) & (log size = 1)"));
+  EXPECT_EQ("<eval error: doesNotUnderstand: #foo>",
+            printIt("log9 := OrderedCollection new. "
+                    "[d9 keysDo: [:k | nil foo]] ensure: [log9 add: #ensured]"));
+  EXPECT_EQ("1", printIt("log9 size"));
+  EXPECT_EQ("true", printIt("| n | n := 0. d9 keysDo: [:k | n := n + 1]. (n = 3) & (d9 size = 3) & "
+                            "((d9 at: #b) = 2)"));
+}
+
+// SPEC §3.6 壊れた表: 前のテストで見ていないネイティブも、壊れた表では失敗する。
+TEST_F(HashedCollection, DamagedTablesFailInEveryNative) {
+  const char* damages[] = {
+      "c instVarAt: 2 put: (ByteArray new: 24)",
+      "c instVarAt: 2 put: (Array new: 0)",
+      "c instVarAt: 1 put: (1 bitShift: 70)",
+      "c instVarAt: 1 put: nil",
+  };
+  struct Target {
+    const char* make;
+    std::vector<const char*> sends;
+  };
+  const Target targets[] = {
+      {"Dictionary new at: 1 put: 1; yourself",
+       {"c at: 1 ifAbsent: [0]", "c includesKey: 1", "c removeKey: 1 ifAbsent: [0]", "c includes: 1",
+        "c keysDo: [:k | k]", "c associationsDo: [:a | a]", "c keysAndValuesDo: [:k :v | k]",
+        "c collect: [:v | v]"}},
+      {"IdentityDictionary new at: 1 put: 1; yourself",
+       {"c at: 1", "c at: 2 put: 2", "c at: 1 ifAbsent: [0]", "c includesKey: 1", "c removeKey: 1",
+        "c removeKey: 1 ifAbsent: [0]", "c do: [:v | v]", "c size"}},
+      {"Set new add: 1; yourself",
+       {"c add: 2", "c includes: 1", "c do: [:e | e]", "c size", "c collect: [:e | e]"}},
+      {"IdentitySet new add: 1; yourself",
+       {"c add: 2", "c includes: 1", "c do: [:e | e]", "c size"}},
+  };
+  for (const Target& t : targets) {
+    for (const char* damage : damages) {
+      // A Set's array holds 2 slots an entry, so 24 slots are 12 entries (not a power of two)
+      // and 0 slots are no table either way.
+      for (const char* s : t.sends) {
+        const std::string src = std::string("| c | c := ") + t.make + ". " + damage + ". " + s;
+        SCOPED_TRACE(src);
+        EXPECT_EQ("<eval error: damaged hashed collection>", printIt(src));
+      }
+    }
+  }
+}
+
 // SPEC §3.6 壊れた表: 配置に合わない tally や array は失敗し、nil の array は空の表である。
 // tally が実際の数と違うだけなら、探索は容量の回数で止まり、拡張が数え直す。
 TEST_F(HashedCollection, DamagedTallyOrArray) {
@@ -599,6 +791,41 @@ TEST_F(HashedCollection, TablesSurviveImageSaveAndLoad) {
                             "(B9D size = 23) & ((B9I at: B9K) = 4) & (B9S includes: 'x' copy) & "
                             "(B9S includes: 3.5)"));
   EXPECT_EQ("24", printIt("B9D at: 'new' put: 0. B9D removeKey: 5. B9D at: 'more' put: 1. B9D size"));
+  std::filesystem::remove(path);
+}
+
+// イメージの往復: Object>>hash（identityHash）で入れた Dictionary と Set、IdentitySet、Character・
+// Fraction・Point・Array・Class のキー。identityHash はヘッダにあり、値の hash は内容から決まるので、
+// 読み直した表はホームを求め直してもそのまま引ける。
+TEST_F(HashedCollection, IdentityAndValueKeysSurviveImageSaveAndLoad) {
+  ASSERT_EQ("true", printIt(
+      "| k d s i | k := Object new. d := Dictionary new. d at: k put: 1; at: $a put: 2; "
+      "at: 1/3 put: 3; at: (Point x: 1 y: 2) put: 4; at: #(1 $b 'c') put: 5; at: Object put: 6; "
+      "at: -9 put: 7. 1 to: 30 do: [:n | d at: Object new put: n]. "
+      "s := Set new. s add: k; add: $a; add: 1/3; add: (Point x: 1 y: 2); add: #(1 $b 'c'); "
+      "add: Object. i := IdentitySet new. i add: k; add: Object; add: $z; add: -5. "
+      "1 to: 30 do: [:n | i add: Object new]. Smalltalk at: #B9RK put: k; at: #B9RD put: d; "
+      "at: #B9RS put: s; at: #B9RI put: i. true"));
+  const auto path = std::filesystem::path(testing::TempDir()) / "b9-identity-keys.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  EXPECT_EQ("true", printIt(
+      "((B9RD at: B9RK) = 1) & ((B9RD at: $a) = 2) & ((B9RD at: 2/6) = 3) & "
+      "((B9RD at: (Point x: 1 y: 2)) = 4) & ((B9RD at: #(1 $b 'c') copy) = 5) & "
+      "((B9RD at: Object) = 6) & ((B9RD at: -9) = 7) & (B9RD size = 37) & "
+      "((B9RD at: Object new) isNil)"));
+  EXPECT_EQ("true", printIt(
+      "(B9RS includes: B9RK) & (B9RS includes: $a) & (B9RS includes: 1/3) & "
+      "(B9RS includes: (Point x: 1 y: 2)) & (B9RS includes: #(1 $b 'c') copy) & "
+      "(B9RS includes: Object) & (B9RS includes: Object new) not & (B9RS size = 6)"));
+  EXPECT_EQ("true", printIt(
+      "(B9RI includes: B9RK) & (B9RI includes: Object) & (B9RI includes: $z) & "
+      "(B9RI includes: -5) & (B9RI includes: Object new) not & (B9RI size = 34)"));
+  // The Object new keys: every value 1..30 is still reachable through keysAndValuesDo: and at:.
+  EXPECT_EQ("true", printIt(
+      "| ok n | ok := true. n := 0. B9RD keysAndValuesDo: [:k :v | (B9RD at: k) = v "
+      "ifFalse: [ok := false]. n := n + 1]. ok & (n = 37)"));
   std::filesystem::remove(path);
 }
 
