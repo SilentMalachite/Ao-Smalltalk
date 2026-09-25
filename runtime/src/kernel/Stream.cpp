@@ -328,6 +328,40 @@ Oop fillFromAt(CallContext& ctx, Root& self, Root& coll, Root& answer, std::int6
 // SPEC §3.6: the first k elements of the stream's collection, taken with at:, in a new collection
 // of its kind: a String (String for a Symbol); the same class for an indexable ArrayedCollection
 // (instSize named slots left nil); an OrderedCollection; otherwise an Array. self is the stream.
+// SPEC §3.6: when coll's class finds a Kernel at: that is known to fail at k (ArrayedCollection>>at:
+// past the indexable part, OrderedCollection>>at: past its size), fails as that at: would, before
+// anything is allocated for k elements. True after failing.
+bool refuseBeyondNativeAt(CallContext& ctx, Root& self, Root& coll, Root& cls, std::int64_t k) {
+  if (k <= 0) {
+    return false;
+  }
+  if (findsNative(ctx, cls.slot, ctx.wk.selAt_, ao_ArrayedCollection_at_)) {
+    // basicAt:'s range: the bytes, or the slots after the class's instSize.
+    const Oop fmt = classFormat(ctx.heap, cls.slot);
+    std::int64_t count = 0;
+    if (coll.slot.isHeap() && Format::isIndexable(fmt)) {
+      const auto n = static_cast<std::int64_t>(ctx.heap.size(coll.slot));
+      count = Format::isBytes(fmt) ? n : std::max<std::int64_t>(0, n - Format::instSize(fmt));
+    }
+    if (k > count) {
+      fail(ctx, self.slot, "basicAt: index out of range");
+      return true;
+    }
+    return false;
+  }
+  if (findsNative(ctx, cls.slot, ctx.wk.selAt_, ao_OrderedCollection_at_)) {
+    const Oop n = ao_OrderedCollection_size(ctx, coll.slot, nullptr, 0);
+    if (n.isEmpty()) {
+      return true;  // a damaged OrderedCollection: size has failed as at: would
+    }
+    if (n.isSmallInteger() && k > n.smallIntegerValue()) {
+      fail(ctx, self.slot, "at: index out of range");
+      return true;
+    }
+  }
+  return false;
+}
+
 Oop copyPrefix(CallContext& ctx, Root& self, Root& coll, std::int64_t k) {
   if (k < 0) {
     k = 0;
@@ -340,6 +374,9 @@ Oop copyPrefix(CallContext& ctx, Root& self, Root& coll, std::int64_t k) {
   const bool arrayed = chainIncludes(ctx.heap, cls.slot, ctx.wk.arrayedCollectionClass) &&
                        Format::isIndexable(fmt);
   const std::int64_t inst = arrayed && !Format::isBytes(fmt) ? Format::instSize(fmt) : 0;
+  if (refuseBeyondNativeAt(ctx, self, coll, cls, k)) {
+    return Oop{};
+  }
   if (k > static_cast<std::int64_t>(UINT32_MAX) - inst) {
     ctx.heap.setOutOfMemory();
     return Oop{};

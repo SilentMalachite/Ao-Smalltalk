@@ -159,6 +159,12 @@ bool findsNative(CallContext& ctx, Oop klass, Oop selector, NativeFn fn);
 
 Oop ao_ArrayedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* args,
                              std::uint32_t argc);
+Oop ao_ArrayedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc);
+Oop ao_OrderedCollection_size(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc);
+Oop ao_OrderedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                             std::uint32_t argc);
 Oop ao_String_size(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
 Oop ao_String_at_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
 Oop ao_String_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);

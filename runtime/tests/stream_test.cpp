@@ -158,6 +158,37 @@ TEST_F(Streams, ContentsFailsPastTheCollectionAndOnElementsThatDoNotFit) {
   EXPECT_EQ("true", printIt("(ReadStream on: (B9Masked new: 2)) contents class == B9Masked"));
 }
 
+// B9 review (Low): contents は k 個の答えを先に割り当ててから at: で取り出したので、readLimit を
+// instVarAt:put: で大きくすると、巨大な領域を取ってから失敗した（2^31 なら取れずに out of memory）。
+// at: が Kernel のネイティブなら、割り当てる前に at: と同じ理由で失敗する（SPEC §3.6）。
+TEST_F(Streams, ContentsChecksTheRangeBeforeAllocating) {
+  const std::string huge = "2147483648";  // 2^31 elements: 16 GB of slots
+  EXPECT_EQ("<eval error: basicAt: index out of range>",
+            printIt("| r | r := ReadStream on: #(1 2). r instVarAt: 3 put: " + huge + ". r contents"));
+  EXPECT_EQ("<eval error: basicAt: index out of range>",
+            printIt("| r | r := ReadStream on: (ByteArray new: 2). r instVarAt: 3 put: " + huge +
+                    ". r contents"));
+  EXPECT_EQ("<eval error: at: index out of range>",
+            printIt("| r | r := ReadStream on: 'ab'. r instVarAt: 3 put: " + huge + ". r contents"));
+  EXPECT_EQ("<eval error: at: index out of range>",
+            printIt("| r | r := ReadStream on: (OrderedCollection new add: 1; yourself). "
+                    "r instVarAt: 3 put: " + huge + ". r contents"));
+  acceptClass("Array", "B9Tagged", "tag");
+  EXPECT_EQ("<eval error: basicAt: index out of range>",
+            printIt("| r | r := ReadStream on: (B9Tagged new: 2). r instVarAt: 3 put: 3. r contents"));
+  EXPECT_EQ("true", printIt("| c | c := (ReadStream on: (B9Tagged new: 2)) contents. "
+                            "(c class == B9Tagged) & (c size = 2)"));
+  // A damaged OrderedCollection fails as its at: does; an empty contents reads nothing.
+  EXPECT_EQ("<eval error: damaged ordered collection>",
+            printIt("| o r | o := OrderedCollection new add: 1; yourself. r := ReadStream on: o. "
+                    "o instVarAt: 3 put: 9. r contents"));
+  EXPECT_EQ("0", printIt("| o r | o := OrderedCollection new add: 1; yourself. r := ReadStream on: o. "
+                         "o instVarAt: 3 put: 9. r instVarAt: 3 put: 0. r contents size"));
+  // Within range nothing changes.
+  EXPECT_EQ("#(1 2)", printIt("(ReadStream on: #(1 2)) contents"));
+  EXPECT_EQ("#(1)", printIt("| r | r := ReadStream on: #(1 2). r instVarAt: 3 put: 1. r contents"));
+}
+
 // docs/claude-review/04 Low: ReadWriteStream の contents が position までだった。Blue Book どおり
 // readLimit と position の大きい方まで返す。WriteStream は position まで。
 TEST_F(Streams, ReadWriteStreamContentsReachesTheReadLimit) {
