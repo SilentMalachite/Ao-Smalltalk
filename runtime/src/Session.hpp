@@ -6,6 +6,7 @@
 #include "ao_abi.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,12 @@ struct Session {
   };
   std::vector<std::unique_ptr<MethodSource>> methodSources;
 
+  // SPEC §3.10 評価結果: the last ao_eval's printString (UTF-8, may hold NUL bytes). Empty in a new
+  // session (boot, load) and from the start of each ao_eval until it answers AO_OK or AO_ERR_RANGE;
+  // nullopt when the printString was INT_MAX bytes or more. Plain C++ memory: the GC does not
+  // trace it and the image does not hold it.
+  std::optional<std::string> evalResult = std::string();
+
   // true: Bootstrap::run. false: empty old space for Image::load.
   explicit Session(bool bootstrap);
   ~Session();
@@ -56,6 +63,11 @@ int sessionFileInLoadOrder(const char* path);
 int sessionWorkspaceReset();
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser);
+// SPEC §3.10 評価結果: the byte count of the last ao_eval's result; -1 with no session or result.
+int sessionEvalResultLength();
+// SPEC §3.10 評価結果: writes the result as the browser reads do (AO_ERR_RANGE when cut); AO_ERR
+// for a NULL buf, bufLen < 1, no session or no result.
+int sessionEvalResultCopy(char* buf, int bufLen);
 // `replaced`, when a heap object, is dropped from the rooted table before `method` is stored.
 void rememberMethodSource(Oop method, Oop text, Oop replaced);
 // SPEC §3.9: a class whose shape changed takes its methods' sources along. The pair of `from`

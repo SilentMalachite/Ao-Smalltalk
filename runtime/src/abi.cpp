@@ -240,6 +240,16 @@ extern "C" int ao_eval(const char* source, int source_len, int mode, char* out, 
   return AO_ERR;
 }
 
+// SPEC §3.10 評価結果: reads only, so like ao_browser_* they take no AbiEntry and answer while the
+// runtime is busy (a hook can read them; a refused ao_eval did not touch the result).
+extern "C" int ao_eval_result_length(void) {
+  return guarded(-1, [] { return ao::sessionEvalResultLength(); });
+}
+
+extern "C" int ao_eval_result_copy(char* buf, int buf_len) {
+  return guarded(AO_ERR, [&] { return ao::sessionEvalResultCopy(buf, buf_len); });
+}
+
 extern "C" int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err) {
   clearSpan(err);
   const AbiEntry entry;

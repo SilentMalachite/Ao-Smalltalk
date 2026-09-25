@@ -17,6 +17,7 @@
 #include "ao_abi.h"
 
 #include <algorithm>
+#include <climits>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -660,8 +661,11 @@ void blankOut(char* out, int outLen) {
 }
 
 // *ran becomes true once the doIt is applied: the evaluation ran (SPEC §3.4 評価の終わり).
+// *printedOut gets a Print it's or Inspect it's whole printString (nullopt when it is INT_MAX
+// bytes or more); other outcomes leave it as it was.
 int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
-             AoInspectFn inspect, void* inspectUser, bool* ran) {
+             AoInspectFn inspect, void* inspectUser, bool* ran,
+             std::optional<std::string>* printedOut) {
   if (err != nullptr) {
     err->start = 0;
     err->end = 0;
@@ -761,24 +765,38 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
-  const std::string utf8 = Str::toUtf8(session.heap, printed.slot);
+  std::string utf8 = Str::toUtf8(session.heap, printed.slot);
   // out of memory になった評価は、エラーだけを返す（文言は sessionEval が入れる）。Inspector を
   // 開かないよう、フックより先に判定する。
   if (session.heap.outOfMemory()) {
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
-  if (mode == AO_EVAL_INSPECTIT && inspect != nullptr) {
+  // SPEC §3.10 評価結果: a printString of INT_MAX bytes or more cannot be handed over as an int
+  // with its NUL. It is not kept and the inspect hook is not called; out is cut (AO_ERR_RANGE).
+  const bool fitsInt = utf8.size() < static_cast<std::size_t>(INT_MAX);
+  if (mode == AO_EVAL_INSPECTIT && inspect != nullptr && fitsInt) {
     const std::string cls = classNameOf(session.heap, session.wk.classOf(result.slot));
-    inspect(cls.c_str(), utf8.c_str(), inspectUser);
+    inspect(cls.c_str(), utf8.c_str(), static_cast<int>(utf8.size()), inspectUser);
   }
-  return writeBuf(utf8, out, outLen);
+  const int rc = writeBuf(utf8, out, outLen);
+  if (fitsInt) {
+    *printedOut = std::move(utf8);
+  } else {
+    *printedOut = std::nullopt;
+  }
+  return rc;
 }
 
 }  // namespace
 
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser) {
+  // SPEC §3.10 評価結果: an ao_eval past the busy check starts with an empty result, so a hook
+  // that reads it during this evaluation, or any outcome that does not put one in, sees empty.
+  if (g_session != nullptr) {
+    g_session->evalResult = std::string();
+  }
   // 評価の前に立っていたフラグ（accept や file-in の途中のもの）を、この評価のせいにしない。
   if (g_session != nullptr && g_session->ctx != nullptr) {
     g_session->heap.clearOutOfMemory();
@@ -786,7 +804,9 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
     refreshStackLimit(*g_session->ctx);
   }
   bool ran = false;
-  const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser, &ran);
+  std::optional<std::string> printed = std::string();
+  const int rc =
+      evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser, &ran, &printed);
   if (g_session == nullptr || g_session->ctx == nullptr) {
     return rc;
   }
@@ -812,6 +832,11 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
     g_session->scheduler->drain(Scheduler::kDrainRounds);
   }
   if (reason.empty()) {
+    // SPEC §3.10 評価結果: kept after the drain, and only when ao_eval answers AO_OK or
+    // AO_ERR_RANGE. A Do it leaves printed empty.
+    if (rc == AO_OK || rc == AO_ERR_RANGE) {
+      g_session->evalResult = std::move(printed);
+    }
     return rc;
   }
   g_session->heap.clearOutOfMemory();
@@ -824,6 +849,22 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
     err->message[n] = '\0';
   }
   return AO_ERR_EVAL;
+}
+
+int sessionEvalResultLength() {
+  if (g_session == nullptr || !g_session->evalResult.has_value()) {
+    return -1;
+  }
+  // Only a result shorter than INT_MAX bytes is kept (evalBody).
+  return static_cast<int>(g_session->evalResult->size());
+}
+
+int sessionEvalResultCopy(char* buf, int bufLen) {
+  if (g_session == nullptr || !g_session->evalResult.has_value()) {
+    blankOut(buf, bufLen);
+    return AO_ERR;
+  }
+  return writeBuf(*g_session->evalResult, buf, bufLen);
 }
 
 void rememberMethodSource(Oop method, Oop text, Oop replaced) {

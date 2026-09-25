@@ -7,13 +7,17 @@ private let aoEvalOutCapacity = 65_536
 private func aoWorkspaceInspectHook(
   _ className: UnsafePointer<CChar>?,
   _ printUtf8: UnsafePointer<CChar>?,
+  _ printLen: Int32,
   _ user: UnsafeMutableRawPointer?
 ) {
   guard let user else {
     return
   }
   let classText = className.map { String(cString: $0) } ?? ""
-  let printText = printUtf8.map { String(cString: $0) } ?? ""
+  // SPEC §3.10: the printString may hold NUL bytes, so it is read by print_len, not up to a NUL.
+  let printText = printUtf8.map {
+    String(decoding: UnsafeRawBufferPointer(start: $0, count: max(Int(printLen), 0)), as: UTF8.self)
+  } ?? ""
   let bits = UInt(bitPattern: user)
   MainActor.assumeIsolated {
     guard let token = UnsafeMutableRawPointer(bitPattern: bits) else {
