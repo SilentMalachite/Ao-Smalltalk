@@ -22,15 +22,16 @@ namespace ClassPool {
 // A new pool with a fresh binding (value nil) for each name. A repeated name gets one binding. May
 // GC. Empty Oop when an allocation fails (the out-of-memory flag is then set).
 Oop make(CallContext& ctx, const std::vector<std::string>& names);
-// The names pool binds, in byte order (SPEC §3.6: the table keeps no order). Nothing when pool is
-// no pool (nil for a Kernel class) or its table is damaged. Does not GC.
-std::vector<std::string> names(Heap& heap, Oop pool);
-// The binding pool has for name, or the empty Oop. Does not GC.
-Oop bindingAt(Heap& heap, Oop pool, std::string_view name);
+// The names pool binds, in byte order (SPEC §3.6: the table keeps no order). A name is a Symbol
+// key; a key of any other kind (put with at:put:) names nothing. Nothing when pool is no pool
+// (nil for a Kernel class) or its table is damaged. Does not GC.
+std::vector<std::string> names(Heap& heap, const WellKnown& wk, Oop pool);
+// The binding pool has for name under its Symbol key, or the empty Oop. Does not GC.
+Oop bindingAt(Heap& heap, const WellKnown& wk, Oop pool, std::string_view name);
 // For each name pool binds that from has too, puts from's entry in pool in place of its own, so
 // methods holding from's binding share the variable with methods compiled for pool. An entry of
 // from that is no binding (replaced in place) is put as it is. Does not GC.
-void adopt(Heap& heap, Oop pool, Oop from);
+void adopt(Heap& heap, const WellKnown& wk, Oop pool, Oop from);
 // The class whose pools a method of cls sees: cls, or its thisClass when cls is a metaclass.
 Oop owner(const Heap& heap, const WellKnown& wk, Oop cls);
 // SPEC §3.6 / §3.8: the class variables a method of cls sees, those of owner(cls) and of its

@@ -350,12 +350,12 @@ std::string instVarList(Heap& heap, Oop cls) {
 
 // SPEC §3.10: the class's own class variables (its classPool's names, not the superclasses'), in
 // byte order, one blank apart.
-std::string classVarList(Heap& heap, Oop cls) {
+std::string classVarList(Heap& heap, const WellKnown& wk, Oop cls) {
   if (!pointerSlots(heap, cls, kClassSlotClassPool + 1)) {
     return {};
   }
   std::string out;
-  for (const std::string& name : ClassPool::names(heap, heap.slotAt(cls, kClassSlotClassPool))) {
+  for (const std::string& name : ClassPool::names(heap, wk, heap.slotAt(cls, kClassSlotClassPool))) {
     if (!out.empty()) {
       out.push_back(' ');
     }
@@ -540,7 +540,7 @@ std::string definitionOf(Session& s, const ClassRow& row) {
   text += "\n  instanceVariableNames: '";
   text += instVarList(s.heap, row.cls);
   text += "'\n  classVariableNames: '";
-  text += classVarList(s.heap, row.cls);
+  text += classVarList(s.heap, s.wk, row.cls);
   text += "'\n  poolDictionaries: ''\n  category: '";
   // SPEC §3.10: a string literal in a chunk, so accepting the text again keeps the category.
   for (const char c : definitionCategory(s.heap, row.cls)) {

@@ -882,11 +882,11 @@ TEST(HashedClassPool, MakeHashesNamesAsSymbolsAndListsThemInByteOrder) {
   ao::Root pool(b.roots, ao::ClassPool::make(b.ctx, written));
   ASSERT_TRUE(pool.slot.isHeap());
   EXPECT_EQ(b.wk.dictionaryClass, b.heap.klass(pool.slot));
-  EXPECT_EQ(expected, ao::ClassPool::names(b.heap, pool.slot));
+  EXPECT_EQ(expected, ao::ClassPool::names(b.heap, b.wk, pool.slot));
   EXPECT_EQ(smi(static_cast<std::int64_t>(expected.size())), send0(b, pool.slot, "size"));
   for (const std::string& name : expected) {
     SCOPED_TRACE(name);
-    ao::Root binding(b.roots, ao::ClassPool::bindingAt(b.heap, pool.slot, name));
+    ao::Root binding(b.roots, ao::ClassPool::bindingAt(b.heap, b.wk, pool.slot, name));
     ASSERT_TRUE(binding.slot.isHeap());
     EXPECT_TRUE(ao::ClassPool::isBinding(b.heap, b.wk, binding.slot));
     EXPECT_EQ(b.wk.intern(name), b.heap.slotAt(binding.slot, ao::kAssocKey));
@@ -895,15 +895,15 @@ TEST(HashedClassPool, MakeHashesNamesAsSymbolsAndListsThemInByteOrder) {
     ao::Root text(b.roots, ao::Str::fromUtf8(b.heap, b.wk, name));
     EXPECT_EQ(binding.slot, send1(b, pool.slot, "at:", text.slot));
   }
-  EXPECT_TRUE(ao::ClassPool::bindingAt(b.heap, pool.slot, "Absent").isEmpty());
+  EXPECT_TRUE(ao::ClassPool::bindingAt(b.heap, b.wk, pool.slot, "Absent").isEmpty());
 
   // The copy shares the bindings; at:put: on it leaves the pool alone.
   ao::Root copy(b.roots, ao::ClassPool::copy(b.ctx, pool.slot));
   ASSERT_TRUE(copy.slot.isHeap());
   EXPECT_NE(pool.slot, copy.slot);
-  EXPECT_EQ(expected, ao::ClassPool::names(b.heap, copy.slot));
+  EXPECT_EQ(expected, ao::ClassPool::names(b.heap, b.wk, copy.slot));
   for (const std::string& name : expected) {
-    EXPECT_EQ(ao::ClassPool::bindingAt(b.heap, pool.slot, name),
+    EXPECT_EQ(ao::ClassPool::bindingAt(b.heap, b.wk, pool.slot, name),
               send1(b, copy.slot, "at:", b.wk.intern(name)))
         << name;
   }
@@ -915,11 +915,19 @@ TEST(HashedClassPool, MakeHashesNamesAsSymbolsAndListsThemInByteOrder) {
   // adopt takes the entries of the names both pools have.
   ao::Root other(b.roots, ao::ClassPool::make(b.ctx, {"Count", "Other"}));
   ASSERT_TRUE(other.slot.isHeap());
-  ao::ClassPool::adopt(b.heap, other.slot, pool.slot);
-  EXPECT_EQ(ao::ClassPool::bindingAt(b.heap, pool.slot, "Count"),
-            ao::ClassPool::bindingAt(b.heap, other.slot, "Count"));
-  EXPECT_NE(ao::ClassPool::bindingAt(b.heap, pool.slot, "Q1"),
-            ao::ClassPool::bindingAt(b.heap, other.slot, "Other"));
+  ao::ClassPool::adopt(b.heap, b.wk, other.slot, pool.slot);
+  EXPECT_EQ(ao::ClassPool::bindingAt(b.heap, b.wk, pool.slot, "Count"),
+            ao::ClassPool::bindingAt(b.heap, b.wk, other.slot, "Count"));
+  EXPECT_NE(ao::ClassPool::bindingAt(b.heap, b.wk, pool.slot, "Q1"),
+            ao::ClassPool::bindingAt(b.heap, b.wk, other.slot, "Other"));
+
+  // Only Symbol keys are names: a String key put with at:put: is neither listed nor bound.
+  ao::Root stringKey(b.roots, ao::Str::fromUtf8(b.heap, b.wk, "Stringy"));
+  send2(b, other.slot, "at:put:", stringKey.slot, smi(3));
+  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_EQ((std::vector<std::string>{"Count", "Other"}),
+            ao::ClassPool::names(b.heap, b.wk, other.slot));
+  EXPECT_TRUE(ao::ClassPool::bindingAt(b.heap, b.wk, other.slot, "Stringy").isEmpty());
 }
 
 // SPEC §3.6 / §3.10: クラス変数を読み書きするメソッド、classPool の写しへの at:（Symbol と
@@ -971,6 +979,76 @@ TEST_F(HashedCollection, ClassPoolOfAnEmptyOrDamagedTable) {
             printIt("B9NilPool instVarAt: 7 put: #(1 2). B9NilPool classPool"));
   EXPECT_EQ("3", printIt("B9NilPool instVarAt: 7 put: 3. B9NilPool classPool"));
   EXPECT_EQ("nil", printIt("Object classPool"));
+}
+
+// B9 review (Low): ClassPool::names はバイト列のキーをすべて名前として並べたので、LargeInteger・
+// ByteArray・Float のキーや NUL を含む String が Browser の定義テキストに入り、String のキーは
+// クラス変数として解決された。classPool の名前は Symbol のキーだけである（SPEC §3.6）。
+TEST_F(HashedCollection, ClassPoolNamesAreItsSymbolKeys) {
+  acceptClass("Object", "B9Keys", "", "Beta Alpha");
+  acceptMethod("B9Keys", "alpha\n  ^Alpha\n");
+  acceptMethod("B9Keys", "alpha: v\n  Alpha := v\n");
+  ASSERT_EQ("7", printIt("| p | p := B9Keys instVarAt: 7. p at: (1 bitShift: 70) put: 1; "
+                         "at: (ByteArray new: 2) put: 2; at: 1.5 put: 3; "
+                         "at: 'Gamma' put: (Association key: #Gamma value: 4); "
+                         "at: (String new: 2) put: 5. p size"));
+  const std::string shown = classDefinition("B9Keys");
+  EXPECT_NE(shown.find("classVariableNames: 'Alpha Beta'\n"), std::string::npos) << shown;
+  // A String key is no name: Gamma is no class variable (it reads as an unset global), so it does
+  // not reach the Association under 'Gamma'.
+  acceptMethod("B9Keys", "gamma\n  ^Gamma\n");
+  EXPECT_EQ("nil", printIt("B9Keys new gamma"));
+  AoSpan err{};
+  // The Symbol names still resolve, and the displayed definition accepts back as it was.
+  EXPECT_EQ("6", printIt("B9Keys new alpha: 6; alpha"));
+  ASSERT_EQ(AO_OK, ao_accept_class(shown.c_str(), &err)) << err.message;
+  EXPECT_EQ("6", printIt("B9Keys new alpha"));
+  EXPECT_EQ("7", printIt("(B9Keys instVarAt: 7) size"));
+}
+
+// classPool の本体に at:put: で名前を足して拡張したあとと、removeKey: のあと。名前（Browser の
+// 定義テキスト）と束縛（Accept したメソッド）は、保存した hash からホームを求め直した表を引く。
+TEST_F(HashedCollection, ClassPoolAfterGrowthAndRemoval) {
+  acceptClass("Object", "B9Grown", "", "A B");
+  acceptMethod("B9Grown", "a\n  ^A\n");
+  acceptMethod("B9Grown", "a: v\n  A := v\n");
+  std::string grow = "| p | p := B9Grown instVarAt: 7. ";
+  std::string names = "A B";
+  std::vector<std::string> vs;
+  for (int i = 1; i <= 12; ++i) {
+    const std::string n = "V" + std::to_string(i);
+    grow += "p at: #" + n + " put: (Association key: #" + n + " value: " + std::to_string(i) + "). ";
+    vs.push_back(n);
+  }
+  std::sort(vs.begin(), vs.end());
+  for (const std::string& n : vs) {
+    names += " " + n;
+  }
+  ASSERT_EQ("14", printIt(grow + "p size"));
+  EXPECT_EQ("true", printIt("((B9Grown instVarAt: 7) instVarAt: 2) size > 24"));
+  acceptMethod("B9Grown", "v7\n  ^V7\n");
+  acceptMethod("B9Grown", "v12: x\n  V12 := x\n");
+  EXPECT_EQ("7", printIt("B9Grown new v7"));
+  EXPECT_EQ("99", printIt("B9Grown new v12: 99. ((B9Grown instVarAt: 7) at: #V12) value"));
+  EXPECT_EQ("5", printIt("B9Grown new a: 5; a"));
+  std::string shown = classDefinition("B9Grown");
+  EXPECT_NE(shown.find("classVariableNames: '" + names + "'\n"), std::string::npos) << shown;
+
+  // removeKey: で名前が消える。前に Accept したメソッドは束縛を持ち続ける。
+  ASSERT_EQ("13", printIt("(B9Grown instVarAt: 7) removeKey: #V7. (B9Grown instVarAt: 7) size"));
+  EXPECT_EQ("7", printIt("B9Grown new v7"));
+  EXPECT_EQ("5", printIt("B9Grown new a"));
+  const std::string withoutV7 = [&] {
+    std::string s = names;
+    s.erase(s.find(" V7"), 3);
+    return s;
+  }();
+  shown = classDefinition("B9Grown");
+  EXPECT_NE(shown.find("classVariableNames: '" + withoutV7 + "'\n"), std::string::npos) << shown;
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(shown.c_str(), &err)) << err.message;
+  EXPECT_EQ("99", printIt("((B9Grown instVarAt: 7) at: #V12) value"));
+  EXPECT_EQ("5", printIt("B9Grown new a"));
 }
 
 // 04 Medium: SmallInteger でない刻みの向きは step < 0 で決める。以前は負の Float の刻みを前向きと

@@ -44,8 +44,14 @@ std::string keyText(Heap& heap, Oop key) {
   return std::string(reinterpret_cast<const char*>(heap.bytes(key)), heap.size(key));
 }
 
-bool keyNames(Heap& heap, Oop key, std::string_view name) {
-  if (!isBytes(heap, key) || heap.size(key) != name.size()) {
+// SPEC §3.6: a classPool's names are its Symbol keys. A key of any other kind (a String, a
+// LargeInteger, a ByteArray, a Float put with at:put:) names nothing.
+bool isName(const Heap& heap, const WellKnown& wk, Oop key) {
+  return isBytes(heap, key) && heap.klass(key) == wk.symbolClass;
+}
+
+bool keyNames(Heap& heap, const WellKnown& wk, Oop key, std::string_view name) {
+  if (!isName(heap, wk, key) || heap.size(key) != name.size()) {
     return false;
   }
   return name.empty() || std::memcmp(heap.bytes(key), name.data(), name.size()) == 0;
@@ -108,7 +114,7 @@ Oop make(CallContext& ctx, const std::vector<std::string>& names) {
   return pool.slot;
 }
 
-std::vector<std::string> names(Heap& heap, Oop pool) {
+std::vector<std::string> names(Heap& heap, const WellKnown& wk, Oop pool) {
   std::vector<std::string> out;
   Hashed::Table t;
   if (!tableOf(heap, pool, &t)) {
@@ -116,7 +122,7 @@ std::vector<std::string> names(Heap& heap, Oop pool) {
   }
   for (std::uint32_t i = 0; i < t.capacity; ++i) {
     const Oop key = heap.slotAt(t.array, i * kWidth + Hashed::kEntryKey);
-    if (isBytes(heap, key)) {
+    if (isName(heap, wk, key)) {
       out.push_back(keyText(heap, key));
     }
   }
@@ -126,13 +132,13 @@ std::vector<std::string> names(Heap& heap, Oop pool) {
   return out;
 }
 
-Oop bindingAt(Heap& heap, Oop pool, std::string_view name) {
+Oop bindingAt(Heap& heap, const WellKnown& wk, Oop pool, std::string_view name) {
   Hashed::Table t;
   if (!tableOf(heap, pool, &t)) {
     return Oop{};
   }
-  // The probe the Dictionary natives make for the name's Symbol or String, with the bytes
-  // compared here instead of sending =.
+  // The probe the Dictionary natives make for the name's Symbol, with the bytes compared here
+  // instead of sending =. Only a Symbol key is a name (SPEC §3.6).
   const std::int64_t hash = nameHash(name);
   const std::uint32_t mask = t.capacity - 1;
   std::uint32_t i = Hashed::home(hash, t.capacity);
@@ -141,26 +147,26 @@ Oop bindingAt(Heap& heap, Oop pool, std::string_view name) {
     if (key.isNil()) {
       break;
     }
-    if (Hashed::savedHashIs(heap, t.array, kWidth, i, hash) && keyNames(heap, key, name)) {
+    if (Hashed::savedHashIs(heap, t.array, kWidth, i, hash) && keyNames(heap, wk, key, name)) {
       return heap.slotAt(t.array, i * kWidth + Hashed::kEntryValue);
     }
   }
   return Oop{};
 }
 
-void adopt(Heap& heap, Oop pool, Oop from) {
+void adopt(Heap& heap, const WellKnown& wk, Oop pool, Oop from) {
   Hashed::Table t;
   if (!tableOf(heap, pool, &t)) {
     return;
   }
   for (std::uint32_t i = 0; i < t.capacity; ++i) {
     const Oop key = heap.slotAt(t.array, i * kWidth + Hashed::kEntryKey);
-    if (!isBytes(heap, key)) {
+    if (!isName(heap, wk, key)) {
       continue;
     }
     // Whatever from holds for the name, a binding or an entry that is no longer one, so a name
     // whose entry was replaced in place stays that way instead of starting over at nil.
-    const Oop kept = bindingAt(heap, from, keyText(heap, key));
+    const Oop kept = bindingAt(heap, wk, from, keyText(heap, key));
     if (!kept.isEmpty()) {
       heap.slotAtPut(t.array, i * kWidth + Hashed::kEntryValue, kept);
     }
@@ -181,7 +187,7 @@ std::vector<std::string> visibleNames(Heap& heap, const WellKnown& wk, Oop cls) 
   std::vector<std::string> out;
   SuperclassWalk walk(heap, owner(heap, wk, cls));
   for (Oop c; walk.next(c);) {
-    for (std::string& name : names(heap, heap.slotAt(c, kClassSlotClassPool))) {
+    for (std::string& name : names(heap, wk, heap.slotAt(c, kClassSlotClassPool))) {
       if (std::find(out.begin(), out.end(), name) == out.end()) {
         out.push_back(std::move(name));
       }
@@ -193,7 +199,7 @@ std::vector<std::string> visibleNames(Heap& heap, const WellKnown& wk, Oop cls) 
 Oop visibleBinding(Heap& heap, const WellKnown& wk, Oop cls, std::string_view name) {
   SuperclassWalk walk(heap, owner(heap, wk, cls));
   for (Oop c; walk.next(c);) {
-    const Oop binding = bindingAt(heap, heap.slotAt(c, kClassSlotClassPool), name);
+    const Oop binding = bindingAt(heap, wk, heap.slotAt(c, kClassSlotClassPool), name);
     if (!binding.isEmpty()) {
       return binding;
     }
