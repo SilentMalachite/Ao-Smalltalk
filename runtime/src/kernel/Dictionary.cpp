@@ -163,12 +163,17 @@ Oop entryValue(const Heap& heap, Oop dict, std::uint32_t index) {
 // SPEC §3.6 列挙: for each entry, from the first, puts its key in slots[0] and its value (nil in a
 // Set) in slots[1] and calls visit. The table is read again from coll before each entry, so a
 // block that writes it never makes this read outside the array. True at the end; false when visit
-// answers false or the table is damaged (then it has aborted). Passes a safepoint every 64K entries.
+// answers false or the table is damaged (then it has aborted). Passes a safepoint every 64K entries
+// looked at, free ones included.
 template <typename Visit>
 bool eachEntry(CallContext& ctx, Root& coll, std::uint32_t width, RootedArray& slots, Visit visit) {
   Gc gc(ctx.heap, ctx.roots);
-  std::uint64_t visited = 0;
   for (std::uint32_t i = 0;; ++i) {
+    // SPEC §3.6: every 64K entries looked at, free ones included, so a sparse table passes too.
+    // The table is read after the safepoint, which may move it.
+    if (i != 0 && (i & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
     Hashed::Table t;
     const Hashed::Shape shape = Hashed::read(ctx.heap, coll.slot, width, &t);
     if (shape == Hashed::Shape::Damaged) {
@@ -187,9 +192,6 @@ bool eachEntry(CallContext& ctx, Root& coll, std::uint32_t width, RootedArray& s
                                    : Oop::nil();
     if (!visit()) {
       return false;
-    }
-    if ((++visited & 0xFFFF) == 0) {
-      gc.safepoint();
     }
   }
 }

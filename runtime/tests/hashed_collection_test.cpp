@@ -1405,6 +1405,35 @@ TEST(HashedCollectionGc, AtPutGrowRemoveAndEnumerateWithFullNursery) {
   }
 }
 
+// PR #10 Codex review (Low): 列挙の safepoint は渡した要素だけを数えていたので、疎な大きい表を全部
+// 見ても safepoint を通らなかった。SPEC §3.6: 空きを含めてエントリを 64K 個見るごとに通る。容量
+// 2^17 に 1 件だけの表を keysDo: で見ると、nursery を満杯にしておいた若いオブジェクトが退避される。
+TEST(HashedCollectionGc, SparseEnumerationPassesSafepoints) {
+  Boot b;
+  b.heap.setGcStress(0);
+  constexpr std::uint32_t kCapacity = 1u << 17;
+  ao::Root d(b.roots, send0(b, b.wk.dictionaryClass, "new"));
+  ao::Root array(b.roots, send1(b, b.wk.arrayClass, "new:", smi(kCapacity * 3 + 1)));
+  ASSERT_TRUE(array.slot.isHeap());
+  b.heap.slotAtPut(array.slot, kCapacity * 3, smi(0));  // the generation
+  b.heap.slotAtPut(array.slot, 5 * 3 + 0, smi(42));     // key
+  b.heap.slotAtPut(array.slot, 5 * 3 + 1, smi(7));      // value
+  b.heap.slotAtPut(array.slot, 5 * 3 + 2, smi(42));     // saved hash
+  b.heap.slotAtPut(d.slot, ao::Hashed::kSlotArray, array.slot);
+  b.heap.slotAtPut(d.slot, ao::Hashed::kSlotTally, smi(1));
+  auto nothing = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    return args[0];
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, +nothing, 1));
+  ao::Root young(b.roots, ao::Str::fromUtf8(b.ctx, "young"));
+  ASSERT_TRUE(b.heap.inNursery(young.slot));
+  fillNursery(b);
+  EXPECT_EQ(d.slot, send1(b, d.slot, "keysDo:", blk.slot));
+  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_FALSE(b.heap.inNursery(young.slot));
+  EXPECT_EQ("young", ao::Str::toUtf8(b.heap, young.slot));
+}
+
 // SPEC §3.6 の性能: 1 万件の at:put: と add: は、線形探索（以前は 4000 件で 9 秒）ではなく
 // ハッシュ表で終わる。上限はゆるく取る（Debug）。
 TEST(KernelBench, DictionaryTenThousandAtPut) {
