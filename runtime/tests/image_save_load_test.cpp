@@ -1682,10 +1682,9 @@ TEST(ImageRegistry, KernelThunksCarryTheNameOfTheirFunction) {
     EXPECT_EQ(index.smallIntegerValue(), static_cast<std::int64_t>(found)) << name;
     names.insert(name);
   }
-  EXPECT_EQ((std::set<std::string>{"ao_Collection_collect_fill", "ao_Collection_filter_count",
-                                   "ao_Collection_filter_fill", "ao_Collection_detect_scan",
-                                   "ao_Collection_inject_scan", "ao_Collection_includes_scan",
-                                   "ao_Stream_nextPutAll_each"}),
+  EXPECT_EQ((std::set<std::string>{"ao_Collection_collect_fill", "ao_Collection_filter_scan",
+                                   "ao_Collection_detect_scan", "ao_Collection_inject_scan",
+                                   "ao_Collection_includes_scan", "ao_Stream_nextPutAll_each"}),
             names);
 }
 
@@ -1722,15 +1721,15 @@ TEST(ImageSaveLoad, EscapedCollectionThunksRunAfterSaveAndLoad) {
     ASSERT_EQ(AO_OK, eval(send)) << send << ": " << err.message;
   }
   ASSERT_EQ(AO_OK, eval("(B6Keeper kept select: [:e | e notNil]) size")) << err.message;
-  EXPECT_STREQ("9", out);  // select: and reject: pass two thunks each.
+  EXPECT_STREQ("7", out);  // one thunk each (SPEC §3.6: select: and reject: send do: once).
 
   ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
   ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
-  for (int i = 1; i <= 9; ++i) {
+  for (int i = 1; i <= 7; ++i) {
     const int rc = eval("(B6Keeper kept at: " + std::to_string(i) + ") value: 5");
     EXPECT_TRUE(rc == AO_OK || rc == AO_ERR_EVAL) << i << ": " << rc;
   }
-  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 7) value: 5")) << err.message;  // inject:into:
+  ASSERT_EQ(AO_OK, eval("(B6Keeper kept at: 5) value: 5")) << err.message;  // inject:into:
   EXPECT_STREQ("13", out);  // 3, then 8 above, then 13
   ASSERT_EQ(AO_OK, eval("1 + 2")) << err.message;
   EXPECT_STREQ("3", out);

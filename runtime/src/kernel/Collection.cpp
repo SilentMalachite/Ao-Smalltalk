@@ -11,7 +11,6 @@ namespace ao {
 namespace {
 
 Oop selEquals(WellKnown& wk) { return wk.intern("="); }
-Oop selHash(WellKnown& wk) { return wk.intern("hash"); }
 
 Oop makeThunk(CallContext& ctx, NativeFn fn, std::uint32_t argc) {
   return makeNativeBlock(ctx, fn, argc);
@@ -72,65 +71,75 @@ Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop*
   return mapped.slot;
 }
 
-Oop ao_Collection_filter_count(CallContext& ctx, const Oop& receiver, const Oop* args,
-                               std::uint32_t argc) {
-  if (argc != 1) {
-    return Oop{};
-  }
-  Root self(ctx.roots, receiver);
-  Root elt(ctx.roots, args[0]);
-  if (counterAtMax(ctx.heap, self.slot)) {
-    return fail(ctx, self.slot,
-                ctx.heap.slotAt(self.slot, kCtxStackp).isTrue() ? "select: count out of range"
-                                                                : "reject: count out of range");
-  }
-  const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
-  Oop pred;
-  if (!callBlock(ctx, user, &elt.slot, 1, &pred)) {
-    return Oop{};
-  }
-  const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();
-  const bool keep = keepTrue ? pred.isTrue() : pred.isFalse();
-  if (keep && !bumpCounter(ctx.heap, self.slot, ctx.heap.slotAt(self.slot, kCtxPc))) {
-    return fail(ctx, self.slot,
-                keepTrue ? "select: count out of range" : "reject: count out of range");
-  }
-  return pred;
+const char* filterCountMessage(bool keepTrue) {
+  return keepTrue ? "select: count out of range" : "reject: count out of range";
 }
 
-Oop ao_Collection_filter_fill(CallContext& ctx, const Oop& receiver, const Oop* args,
+// SPEC §3.6: the Array select:/reject: gathers into and its count, from the thunk's slots, when
+// they are sound: kBlockHome a Kernel Array, kCtxPc a SmallInteger from 0 to its size. The do: that
+// gets the thunk can write both. Empty Oop and *count untouched when they are not.
+Oop filterBuffer(CallContext& ctx, Oop thunk, std::int64_t* count) {
+  const Oop buf = ctx.heap.slotAt(thunk, kBlockHome);
+  const Oop n = ctx.heap.slotAt(thunk, kCtxPc);
+  if (!buf.isHeap() || ctx.heap.klass(buf) != ctx.wk.arrayClass || !n.isSmallInteger() ||
+      n.smallIntegerValue() < 0 ||
+      n.smallIntegerValue() > static_cast<std::int64_t>(ctx.heap.size(buf))) {
+    return Oop{};
+  }
+  *count = n.smallIntegerValue();
+  return buf;
+}
+
+// SPEC §3.6: the one thunk select: and reject: pass to do:. Calls the user's block (kBlockCopied)
+// once for the element and, when the answer is true (select:, kCtxStackp true) or false (reject:),
+// puts the element after the count kept so far in the Array at kBlockHome, doubling that Array
+// when it is full.
+Oop ao_Collection_filter_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
   Root elt(ctx.roots, args[0]);
+  const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();
   if (counterAtMax(ctx.heap, self.slot)) {
-    return fail(ctx, self.slot,
-                ctx.heap.slotAt(self.slot, kCtxStackp).isTrue() ? "select: index out of range"
-                                                                : "reject: index out of range");
+    return fail(ctx, self.slot, filterCountMessage(keepTrue));
   }
   const Oop user = ctx.heap.slotAt(self.slot, kBlockCopied);
-  Oop pred;
-  if (!callBlock(ctx, user, &elt.slot, 1, &pred)) {
+  Root pred(ctx.roots);
+  if (!callBlock(ctx, user, &elt.slot, 1, &pred.slot)) {
     return Oop{};
   }
-  const bool keepTrue = ctx.heap.slotAt(self.slot, kCtxStackp).isTrue();
-  const bool keep = keepTrue ? pred.isTrue() : pred.isFalse();
-  if (keep) {
-    Root arr(ctx.roots, ctx.heap.slotAt(self.slot, kBlockHome));
-    const Oop idx = ctx.heap.slotAt(self.slot, kCtxPc);
-    Oop put[2] = {idx, elt.slot};
-    send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
-    if (unwinding(ctx)) {
+  const bool keep = keepTrue ? pred.slot.isTrue() : pred.slot.isFalse();
+  if (!keep) {
+    return pred.slot;
+  }
+  // The block may have written the thunk's slots: read them again.
+  std::int64_t n = 0;
+  Root buf(ctx.roots, filterBuffer(ctx, self.slot, &n));
+  if (!buf.slot.isHeap()) {
+    return fail(ctx, self.slot, filterCountMessage(keepTrue));
+  }
+  const auto capacity = static_cast<std::int64_t>(ctx.heap.size(buf.slot));
+  if (n == capacity) {
+    const std::int64_t grown = capacity < 4 ? 8 : capacity * 2;
+    if (grown > static_cast<std::int64_t>(UINT32_MAX)) {
+      return fail(ctx, self.slot, filterCountMessage(keepTrue));
+    }
+    const Oop bigger = allocateRetry(ctx, ctx.wk.arrayClass, static_cast<std::uint32_t>(grown), 0);
+    if (!bigger.isHeap()) {
       return Oop{};
     }
-    if (!bumpCounter(ctx.heap, self.slot, idx)) {
-      return fail(ctx, self.slot,
-                  keepTrue ? "select: index out of range" : "reject: index out of range");
+    for (std::int64_t i = 0; i < n; ++i) {
+      ctx.heap.slotAtPut(bigger, static_cast<std::uint32_t>(i),
+                         ctx.heap.slotAt(buf.slot, static_cast<std::uint32_t>(i)));
     }
+    buf.slot = bigger;
+    ctx.heap.slotAtPut(self.slot, kBlockHome, buf.slot);
   }
-  return pred;
+  ctx.heap.slotAtPut(buf.slot, static_cast<std::uint32_t>(n), elt.slot);
+  ctx.heap.slotAtPut(self.slot, kCtxPc, Oop::fromSmallInteger(n + 1));
+  return pred.slot;
 }
 
 Oop ao_Collection_detect_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
@@ -196,33 +205,38 @@ Oop ao_Collection_includes_scan(CallContext& ctx, const Oop& receiver, const Oop
   return eq;
 }
 
+// SPEC §3.6: one do: with ao_Collection_filter_scan, then the kept elements in a fresh Array.
 Oop filterIntoArray(CallContext& ctx, Root& rcvr, Root& blk, bool keepTrue) {
-  Root countThunk(ctx.roots, makeThunk(ctx, ao_Collection_filter_count, 1));
-  if (!countThunk.slot.isHeap()) {
+  Root buf(ctx.roots, allocateRetry(ctx, ctx.wk.arrayClass, 8, 0));
+  if (!buf.slot.isHeap()) {
     return Oop{};
   }
-  ctx.heap.slotAtPut(countThunk.slot, kBlockCopied, blk.slot);
-  ctx.heap.slotAtPut(countThunk.slot, kCtxPc, Oop::fromSmallInteger(0));
-  ctx.heap.slotAtPut(countThunk.slot, kCtxStackp, keepTrue ? Oop::true_() : Oop::false_());
-  send(ctx, rcvr.slot, ctx.wk.selDo_, &countThunk.slot, 1, nullptr);
+  Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_filter_scan, 1));
+  if (!thunk.slot.isHeap()) {
+    return Oop{};
+  }
+  ctx.heap.slotAtPut(thunk.slot, kBlockCopied, blk.slot);
+  ctx.heap.slotAtPut(thunk.slot, kBlockHome, buf.slot);
+  ctx.heap.slotAtPut(thunk.slot, kCtxPc, Oop::fromSmallInteger(0));
+  ctx.heap.slotAtPut(thunk.slot, kCtxStackp, keepTrue ? Oop::true_() : Oop::false_());
+  send(ctx, rcvr.slot, ctx.wk.selDo_, &thunk.slot, 1, nullptr);
   if (unwinding(ctx)) {
     return Oop{};
   }
-  const Oop nOop = ctx.heap.slotAt(countThunk.slot, kCtxPc);
-  Root arr(ctx.roots, send(ctx, ctx.wk.arrayClass, ctx.wk.selBasicNew_, &nOop, 1, nullptr));
-  Root fillThunk(ctx.roots, makeThunk(ctx, ao_Collection_filter_fill, 1));
-  if (!fillThunk.slot.isHeap() || !arr.slot.isHeap()) {
-    return arr.slot;
+  std::int64_t n = 0;
+  buf.slot = filterBuffer(ctx, thunk.slot, &n);
+  if (!buf.slot.isHeap()) {
+    return fail(ctx, rcvr.slot, filterCountMessage(keepTrue));
   }
-  ctx.heap.slotAtPut(fillThunk.slot, kBlockCopied, blk.slot);
-  ctx.heap.slotAtPut(fillThunk.slot, kBlockHome, arr.slot);
-  ctx.heap.slotAtPut(fillThunk.slot, kCtxPc, Oop::fromSmallInteger(1));
-  ctx.heap.slotAtPut(fillThunk.slot, kCtxStackp, keepTrue ? Oop::true_() : Oop::false_());
-  send(ctx, rcvr.slot, ctx.wk.selDo_, &fillThunk.slot, 1, nullptr);
-  if (unwinding(ctx)) {
+  const Oop answer = allocateRetry(ctx, ctx.wk.arrayClass, static_cast<std::uint32_t>(n), 0);
+  if (!answer.isHeap()) {
     return Oop{};
   }
-  return arr.slot;
+  for (std::int64_t i = 0; i < n; ++i) {
+    ctx.heap.slotAtPut(answer, static_cast<std::uint32_t>(i),
+                       ctx.heap.slotAt(buf.slot, static_cast<std::uint32_t>(i)));
+  }
+  return answer;
 }
 
 }  // namespace
@@ -353,8 +367,9 @@ Oop ao_Collection_includes_(CallContext& ctx, const Oop& receiver, const Oop* ar
   }
   Root rcvr(ctx.roots, receiver);
   Root needle(ctx.roots, args[0]);
-  send(ctx, needle.slot, selHash(ctx.wk), nullptr, 0, nullptr);
-  if (unwinding(ctx)) {
+  // SPEC §3.6: hash is sent once, as Dictionary and Set send it; a non-Integer answer fails.
+  std::int64_t ignored = 0;
+  if (!sendHash(ctx, needle.slot, &ignored)) {
     return Oop{};
   }
   Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_includes_scan, 1));
@@ -400,8 +415,7 @@ void installCollection(Heap& heap, WellKnown& wk) {
   // SPEC §3.11: the thunks (makeThunk) the natives above pass to do: take these names, so an image
   // holding one that a user's do: kept rebinds it at load.
   (void)NativeRegistry::addNamed("ao_Collection_collect_fill", ao_Collection_collect_fill, nullptr);
-  (void)NativeRegistry::addNamed("ao_Collection_filter_count", ao_Collection_filter_count, nullptr);
-  (void)NativeRegistry::addNamed("ao_Collection_filter_fill", ao_Collection_filter_fill, nullptr);
+  (void)NativeRegistry::addNamed("ao_Collection_filter_scan", ao_Collection_filter_scan, nullptr);
   (void)NativeRegistry::addNamed("ao_Collection_detect_scan", ao_Collection_detect_scan, nullptr);
   (void)NativeRegistry::addNamed("ao_Collection_inject_scan", ao_Collection_inject_scan, nullptr);
   (void)NativeRegistry::addNamed("ao_Collection_includes_scan", ao_Collection_includes_scan,

@@ -3,6 +3,7 @@
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Interpreter.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -343,8 +344,7 @@ TEST(CollectionDo, OrderedCollectionSizeBeyondSmiMaxFails) {
 namespace {
 
 // collect: と select: は、ネイティブのブロック（thunk）の pc を添字や件数に使う。do: を書き換えた
-// コレクションは、そのブロックを受け取って pc を書き換えられる。失敗は評価を中断するので、select:
-// の 2 回目の do:（詰める側）を試すときは、skip: で 1 回目を書き換えずに通す。
+// コレクションは、そのブロックを受け取って pc を書き換えられる。skip: の回数だけは書き換えずに通す。
 const char* kSmiMaxPoker =
     "!Collection subclass: #SmiMaxPoker\n"
     "  instanceVariableNames: 'results skip'\n"
@@ -393,7 +393,8 @@ TEST(CollectionDo, CollectIndexAtSmiMaxFails) {
   EXPECT_EQ(smi(0), send0(b, results.slot, "size"));
 }
 
-// select: は件数を数える do: と、詰める do: の 2 回を回す。どちらのブロックも失敗する。
+// SPEC §3.6: select: は do: を 1 回だけ送る。件数が SmallInteger の最大値なら、述語を呼ぶ前に失敗する。
+// 書き換えなければ、同じコレクションで選んだ要素の Array を答える。
 TEST(CollectionDo, SelectCountersAtSmiMaxFail) {
   Boot b;
   ao::Root poker(b.roots, newPoker(b));
@@ -403,17 +404,22 @@ TEST(CollectionDo, SelectCountersAtSmiMaxFail) {
   };
   ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, +body, 1));
   expectFailAbort(b, send1(b, poker.slot, "select:", blk.slot), "select: count out of range");
-  send1(b, poker.slot, "skip:", smi(1));
-  expectFailAbort(b, send1(b, poker.slot, "select:", blk.slot), "select: index out of range");
   ao::Root results(b.roots, send0(b, poker.slot, "results"));
   EXPECT_EQ(smi(0), send0(b, results.slot, "size"));
+  send1(b, poker.slot, "skip:", smi(1));
+  ao::Root selected(b.roots, send1(b, poker.slot, "select:", blk.slot));
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  ASSERT_TRUE(selected.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(selected.slot));
+  ASSERT_EQ(1u, b.heap.size(selected.slot));
+  EXPECT_EQ(smi(1), b.heap.slotAt(selected.slot, 0));
 }
 
 namespace {
 
 // 入口の検査のあとで利用者のブロックが走り、thunk の pc を書き換える。do: はブロックを ivar に
 // 保存し、collect: / select: / reject: のブロックがそれを SmallInteger の最大値にする。skip: の回数
-// だけは書き換えない（select: / reject: の 2 回目の do: を試すため）。
+// だけは書き換えない。
 const char* kSmiMaxLatePoker =
     "!Collection subclass: #SmiMaxLatePoker\n"
     "  instanceVariableNames: 'thunk results skip'\n"
@@ -468,13 +474,20 @@ TEST(CollectionDo, CollectIndexPokedByUserBlockFails) {
   EXPECT_EQ(smi(0), send0(b, results.slot, "size"));
 }
 
+// SPEC §3.6: 述語のあとで読み直した件数が SmallInteger の最大値なら、要素を入れずに失敗する。
+// 書き換えなければ（skip:）失敗しない。この do: はブロックのあとで件数（instVarAt: 2）を呼ぶ前の
+// 値に戻すので、答えは空の Array である。
 TEST(CollectionDo, SelectCountersPokedByUserBlockFail) {
   Boot b;
   ao::Root poker(b.roots, newLatePoker(b));
   ASSERT_TRUE(poker.slot.isHeap());
   expectFailAbort(b, send0(b, poker.slot, "pokeSelect"), "select: count out of range");
   send1(b, poker.slot, "skip:", smi(1));
-  expectFailAbort(b, send0(b, poker.slot, "pokeSelect"), "basicAt:put: index out of range");
+  ao::Root selected(b.roots, send0(b, poker.slot, "pokeSelect"));
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  ASSERT_TRUE(selected.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(selected.slot));
+  EXPECT_EQ(0u, b.heap.size(selected.slot));
   ao::Root results(b.roots, send0(b, poker.slot, "results"));
   EXPECT_EQ(smi(1), send0(b, results.slot, "size"));
 }
@@ -485,7 +498,177 @@ TEST(CollectionDo, RejectCountersPokedByUserBlockFail) {
   ASSERT_TRUE(poker.slot.isHeap());
   expectFailAbort(b, send0(b, poker.slot, "pokeReject"), "reject: count out of range");
   send1(b, poker.slot, "skip:", smi(1));
-  expectFailAbort(b, send0(b, poker.slot, "pokeReject"), "basicAt:put: index out of range");
+  ao::Root rejected(b.roots, send0(b, poker.slot, "pokeReject"));
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  ASSERT_TRUE(rejected.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(rejected.slot));
+  EXPECT_EQ(0u, b.heap.size(rejected.slot));
   ao::Root results(b.roots, send0(b, poker.slot, "results"));
   EXPECT_EQ(smi(1), send0(b, results.slot, "size"));
+}
+
+namespace {
+
+// Smalltalk の式を Object のメソッドとして nil に対して走らせる（テンポラリは宣言して使う）。
+ao::Oop evalBody(Boot& b, const std::string& body) {
+  auto img = ao::compiler::compileMethod("doIt\n" + body);
+  if (!img.ok) {
+    ADD_FAILURE() << img.error.message;
+    return ao::Oop{};
+  }
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  return ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+}
+
+// body の答えの printString。評価が中断したら "<abort: 理由>"（SPEC §3.3）。
+std::string printOf(Boot& b, const std::string& body) {
+  ao::Root v(b.roots, evalBody(b, body));
+  if (b.ctx.aborting) {
+    return "<abort: " + takeAbortReason(b) + ">";
+  }
+  ao::Root s(b.roots, send0(b, v.slot, "printString"));
+  if (b.ctx.aborting) {
+    return "<abort: " + takeAbortReason(b) + ">";
+  }
+  return s.slot.isHeap() ? ao::Str::toUtf8(b.heap, s.slot) : std::string("<no string>");
+}
+
+std::int64_t& predicateCalls() {
+  static std::int64_t n = 0;
+  return n;
+}
+
+std::string& transcriptSeen() {
+  static std::string seen;
+  return seen;
+}
+
+// GC を走らせずに nursery を使い切る（残りは 16 B 未満）。
+void fillNursery(Boot& b) {
+  while (b.heap.allocate(ao::Oop::nil(), 0, 0).isHeap()) {
+  }
+}
+
+}  // namespace
+
+// docs/claude-review/04 Medium: select: と reject: は、数える do: と詰める do: の 2 回、述語を呼んで
+// いた。SPEC §3.6: do: は 1 回で、述語は要素ごとに 1 回だけ呼ぶ。
+TEST(CollectionDo, SelectAndRejectCallThePredicateOncePerElement) {
+  Boot b;
+  ao::Oop slots[3] = {smi(1), smi(2), smi(3)};
+  ao::Root arr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 3));
+  auto notTwo = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    ++predicateCalls();
+    return args[0] == ao::Oop::fromSmallInteger(2) ? ao::Oop::false_() : ao::Oop::true_();
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, notTwo, 1));
+  predicateCalls() = 0;
+  ao::Root selected(b.roots, send1(b, arr.slot, "select:", blk.slot));
+  EXPECT_EQ(3, predicateCalls());
+  ASSERT_TRUE(selected.slot.isHeap());
+  EXPECT_EQ(b.wk.arrayClass, b.heap.klass(selected.slot));
+  ASSERT_EQ(2u, b.heap.size(selected.slot));
+  EXPECT_EQ(smi(1), b.heap.slotAt(selected.slot, 0));
+  EXPECT_EQ(smi(3), b.heap.slotAt(selected.slot, 1));
+
+  predicateCalls() = 0;
+  ao::Root rejected(b.roots, send1(b, arr.slot, "reject:", blk.slot));
+  EXPECT_EQ(3, predicateCalls());
+  ASSERT_TRUE(rejected.slot.isHeap());
+  ASSERT_EQ(1u, b.heap.size(rejected.slot));
+  EXPECT_EQ(smi(2), b.heap.slotAt(rejected.slot, 0));
+}
+
+// docs/claude-review/04 Medium の失敗シナリオ。Transcript には 1 2 3 が 1 回だけ出る。副作用で答えの
+// 変わる述語でも、答えは要素ごとの 1 回の評価どおりで、nil で埋まらない。
+TEST(CollectionDo, SelectWithSideEffectsSeesEachElementOnce) {
+  Boot b;
+  transcriptSeen().clear();
+  b.ctx.transcriptHook = [](ao::CallContext& ctx, ao::Oop v) {
+    if (v.isHeap()) {
+      transcriptSeen() += ao::Str::toUtf8(ctx.heap, v);
+    }
+  };
+  EXPECT_EQ("#(1 2 3)",
+            printOf(b, "^#(1 2 3) select: [:x | Transcript show: x printString. true]"));
+  EXPECT_EQ("123", transcriptSeen());
+  EXPECT_EQ("#(1 2 3)",
+            printOf(b, "| oc | oc := OrderedCollection new.\n"
+                       "^#(1 2 3) select: [:x | oc add: x. oc size <= 3]"));
+  EXPECT_EQ("#()", printOf(b, "| oc | oc := OrderedCollection new.\n"
+                              "^#(1 2 3) reject: [:x | oc add: x. oc size <= 3]"));
+  EXPECT_EQ("3", printOf(b, "| n | n := 0. #(1 2 3) reject: [:x | n := n + 1. false]. ^n"));
+}
+
+// SPEC §3.6: 集める Array は倍々に伸びる。順序は do: の順で、Boolean でない答えの要素はどちらにも
+// 入らない。
+TEST(CollectionDo, SelectGrowsItsBufferInOrderAndSkipsNonBooleans) {
+  Boot b;
+  const std::string setup =
+      "| a | a := Array new: 100. 1 to: 100 do: [:i | a at: i put: i].\n";
+  EXPECT_EQ("33", printOf(b, setup + "^(a select: [:x | x \\\\ 3 = 0]) size"));
+  EXPECT_EQ("1683",
+            printOf(b, setup + "^(a select: [:x | x \\\\ 3 = 0]) inject: 0 into: [:s :x | s + x]"));
+  EXPECT_EQ("99", printOf(b, setup + "^(a select: [:x | x \\\\ 3 = 0]) at: 33"));
+  EXPECT_EQ("67", printOf(b, setup + "^(a reject: [:x | x \\\\ 3 = 0]) size"));
+  EXPECT_EQ("#()", printOf(b, "^#(1 2 3) select: [:x | nil]"));
+  EXPECT_EQ("#()", printOf(b, "^#(1 2 3) reject: [:x | 3]"));
+}
+
+// GC 圧下: nursery を満杯にしてから、集める Array が 8 → 16 → 32 → 64 と伸びる select: を送る。
+TEST(CollectionDo, SelectGrowsItsBufferWithFullNursery) {
+  Boot b;
+  b.heap.setGcStress(0);
+  ao::Root arr(b.roots, send1(b, b.wk.arrayClass, "new:", smi(40)));
+  for (std::int64_t i = 1; i <= 40; ++i) {
+    ao::Root text(b.roots, ao::Str::fromUtf8(b.ctx, "e" + std::to_string(i)));
+    send2(b, arr.slot, "at:put:", smi(i), text.slot);
+  }
+  auto keep = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+    return ao::Oop::true_();
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, keep, 1));
+  fillNursery(b);
+  b.heap.setGcStress(1);
+  ao::Root selected(b.roots, send1(b, arr.slot, "select:", blk.slot));
+  b.heap.setGcStress(0);
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  ASSERT_TRUE(selected.slot.isHeap());
+  ASSERT_EQ(40u, b.heap.size(selected.slot));
+  for (std::uint32_t i = 0; i < 40; ++i) {
+    const ao::Oop e = b.heap.slotAt(selected.slot, i);
+    ASSERT_TRUE(e.isHeap()) << i;
+    EXPECT_EQ("e" + std::to_string(i + 1), ao::Str::toUtf8(b.heap, e)) << i;
+    EXPECT_EQ(b.heap.slotAt(arr.slot, i), e) << i;
+  }
+}
+
+// B8 レビュー / SPEC §3.6: includes: は hash の答えを捨てていた。答えが Integer でなければ失敗し、
+// hash が中断すればその理由のまま中断する。
+TEST(CollectionDo, IncludesFailsWhenHashAnswersNoInteger) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #B9OddHash\n"
+                               "  instanceVariableNames: 'answer'\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'B9-Test'!\n"
+                               "!B9OddHash methodsFor: 'comparing'!\n"
+                               "answer: x\n"
+                               "  answer := x!\n"
+                               "hash\n"
+                               "  answer == #boom ifTrue: [^self error: 'boom'].\n"
+                               "  ^answer! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  EXPECT_EQ("<abort: failed: #includes:>",
+            printOf(b, "^#(1 2) includes: (B9OddHash new answer: nil)"));
+  EXPECT_EQ("<abort: failed: #includes:>",
+            printOf(b, "^#(1 2) includes: (B9OddHash new answer: 1.5)"));
+  EXPECT_EQ("<abort: boom>", printOf(b, "^#(1 2) includes: (B9OddHash new answer: #boom)"));
+  EXPECT_EQ("false", printOf(b, "^#(1 2) includes: (B9OddHash new answer: 7)"));
+  EXPECT_EQ("false",
+            printOf(b, "^#(1 2) includes: (B9OddHash new answer: 1000000000000000000000)"));
+  EXPECT_EQ("true", printOf(b, "^#(1 2) includes: 2"));
 }
