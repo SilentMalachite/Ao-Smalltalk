@@ -1018,21 +1018,22 @@ TEST(KernelBench, StringInjectFortyThousandCharacters) {
 
 // B9 確認レビュー (Low): はぐれた継続バイト（0xA0）だけの String は、次の位置が継続バイトなので
 // 毎回先頭から合わせ直し、do: が 2 乗時間になった（Release で 8 万バイト 12 秒）。はぐれた継続
-// バイトはそれ自体 1 文字なので合わせ直さない（SPEC §3.6）。どのバイトも 1 文字として渡る。
+// バイトはそれ自体 1 文字なので合わせ直さない（SPEC §3.6）。どのバイトも 1 文字として渡る。4 万バイトは
+// 2 乗なら Debug で 7 秒かかる。上限は、手で回す ASan（1.5 秒ほど）でも赤にならないように取る。
 TEST(KernelBench, StringDoOverStrayContinuationBytesIsLinear) {
   Boot b;
-  const std::string bytes(80000, '\xA0');
+  const std::string bytes(40000, '\xA0');
   ao::Root s(b.roots, ao::Str::fromUtf8(b.ctx, bytes));
   ASSERT_TRUE(s.slot.isHeap());
   ASSERT_TRUE(b.wk.define("B9Stray", s.slot));
   const auto start = std::chrono::steady_clock::now();
   const std::string printed =
       printOf(b, "| n ok | n := 0. ok := true. B9Stray do: [:c | n := n + 1. "
-                 "c asInteger = 160 ifFalse: [ok := false]]. ^ok & (n = 80000)");
+                 "c asInteger = 160 ifFalse: [ok := false]]. ^ok & (n = 40000)");
   const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::steady_clock::now() - start)
                       .count();
-  std::printf("B9 80000 stray continuation bytes do: %lld ms\n", static_cast<long long>(ms));
+  std::printf("B9 40000 stray continuation bytes do: %lld ms\n", static_cast<long long>(ms));
   EXPECT_EQ("true", printed);
-  EXPECT_LT(ms, 2000);
+  EXPECT_LT(ms, 3000);
 }
