@@ -101,6 +101,33 @@ final class ToolWindowTests: XCTestCase {
     XCTAssertEqual(font, NSFont.userFixedPitchFont(ofSize: 0))
   }
 
+  // SPEC §3.9: Transcript text is drawn in the system text color, so it stays readable in Dark
+  // Mode. Each appended chunk carries it with the current font, also after toggling fixed pitch.
+  func testTranscriptTextUsesSystemTextColorAfterAppendAndFixedPitchToggle() {
+    let launch = LaunchSet.make()
+    let windows = NSApplication.shared.windows.filter { $0.title == "Transcript" && $0.isVisible }
+    guard let view = (windows.first?.contentView as? NSScrollView)?.documentView as? NSTextView else {
+      XCTFail("missing Transcript text view")
+      return
+    }
+    func assertLastCharacterDrawnInTextColor(fixedPitch: Bool, line: UInt = #line) {
+      guard let storage = view.textStorage, storage.length > 0 else {
+        XCTFail("the Transcript is empty", line: line)
+        return
+      }
+      let attributes = storage.attributes(at: storage.length - 1, effectiveRange: nil)
+      XCTAssertEqual(attributes[.foregroundColor] as? NSColor, NSColor.textColor, line: line)
+      let font = fixedPitch ? NSFont.userFixedPitchFont(ofSize: 0) : NSFont.userFont(ofSize: 0)
+      XCTAssertEqual(attributes[.font] as? NSFont, font, line: line)
+      XCTAssertEqual(view.typingAttributes[.foregroundColor] as? NSColor, NSColor.textColor, line: line)
+    }
+    launch.transcript.append("x")
+    assertLastCharacterDrawnInTextColor(fixedPitch: launch.transcript.useFixedPitch)
+    launch.transcript.useFixedPitch.toggle()
+    launch.transcript.append("y")
+    assertLastCharacterDrawnInTextColor(fixedPitch: launch.transcript.useFixedPitch)
+  }
+
   // SPEC §3.9 起動と同梱: AO_VENDOR_DIR when it is not empty, else the bundle's
   // Contents/Resources/vendor. The current directory plays no part.
   func testVendorDirectoryPrefersEnvironmentOverBundleResources() {

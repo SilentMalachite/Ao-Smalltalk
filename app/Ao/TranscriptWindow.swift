@@ -188,7 +188,9 @@ final class TranscriptWindow {
       return
     }
     textView.font = font
-    textView.typingAttributes = [.font: font]
-    appendAttributes = [.font: font]
+    // SPEC §3.9: the system text color, so the text stays readable in Dark Mode.
+    let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.textColor]
+    textView.typingAttributes = attributes
+    appendAttributes = attributes
   }
 }
