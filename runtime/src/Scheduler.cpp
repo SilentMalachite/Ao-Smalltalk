@@ -557,9 +557,17 @@ bool Scheduler::nextPut(CallContext& ctx, Oop queue, Oop value) {
     return false;
   }
   // SPEC §3.4: never waits (writeSynch is not used); wakes one reader, if any. When that fails,
-  // the element goes out again: the failed nextPut: adds nothing.
+  // the element goes out again: the failed nextPut: adds nothing. An exception (the ready queue
+  // could not grow) takes it out too on its way to the fiber's entry or the ABI.
   const Oop read = heap.slotAt(q.slot, kSharedQueueSlotRead);
-  if (!hasSlots(heap, read, kSemaphoreSlotList) || !signal(ctx, read)) {
+  bool woke = false;
+  try {
+    woke = hasSlots(heap, read, kSemaphoreSlotList) && signal(ctx, read);
+  } catch (...) {
+    ocRemoveLast(heap, contents.slot);
+    throw;
+  }
+  if (!woke) {
     ocRemoveLast(heap, contents.slot);
     return false;
   }
@@ -741,22 +749,25 @@ Scheduler::Record* Scheduler::findId(std::uint64_t id) const {
 // collect; false (unwinding) when the OrderedCollection could not take it, and r is unchanged.
 bool Scheduler::enqueue(CallContext& ctx, Record& r) {
   Heap& heap = ctx.heap;
+  // The C++ queue first: if growing it throws, nothing has changed yet.
+  ready_.push_back(&r);
   Root sched(ctx.roots, ctx.wk.processor);
   if (hasSlots(heap, sched.slot, kSchedulerSlotActive)) {
     Root list(ctx.roots, ensureOc(ctx, sched, kSchedulerSlotQuiescent));
     if (unwinding(ctx)) {
+      ready_.pop_back();
       return false;
     }
     if (list.slot.isHeap()) {
       ocAdd(ctx, list.slot, r.process);
       if (unwinding(ctx)) {
+        ready_.pop_back();
         return false;
       }
       setMyList(heap, r.process, list.slot);
     }
   }
   r.state = State::Ready;
-  ready_.push_back(&r);
   return true;
 }
 
