@@ -10,13 +10,23 @@ enum {
   AO_ERR_COMPILE = 2,
   AO_ERR_EVAL = 3,
   AO_ERR_RANGE = 4,
-  AO_ERR_NOSOURCE = 5
+  AO_ERR_NOSOURCE = 5,
+  /* SPEC §3.13: a live-mode evaluation, Proceed or Step stopped its process. */
+  AO_ERR_HALT = 6
 };
 
 enum {
   AO_EVAL_DOIT = 1,
   AO_EVAL_PRINTIT = 2,
-  AO_EVAL_INSPECTIT = 3
+  AO_EVAL_INSPECTIT = 3,
+  /* SPEC §3.13: live mode only; stops before the first instruction. */
+  AO_EVAL_DEBUGIT = 4
+};
+
+/* SPEC §3.10 ライブデバッガの操作 (ao_set_debug_mode). */
+enum {
+  AO_DEBUG_POSTMORTEM = 0,
+  AO_DEBUG_LIVE = 1
 };
 
 typedef struct AoSpan {
