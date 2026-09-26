@@ -173,3 +173,67 @@ TEST(PcMap, CopiedOuterTempIsNamedInBlockScope) {
   EXPECT_GE(x->slot, 1);
   EXPECT_EQ(3u, blk->temps.size());
 }
+
+// SPEC §3.8: an entry before every Return*, the implicit ones too (review of P10-02). An implicit
+// return's span is the statement whose value or end it returns after: the last statement, or the
+// whole body when it has none.
+TEST(PcMap, ImplicitReturnsMapToLastStatement) {
+  {
+    const std::string src = "foo\n  self bar";
+    auto r = compileMethod(src);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    EXPECT_EQ("self bar", spanAt(r.image, src, pcOf(r.image, Op::ReturnReceiver)));
+  }
+  {
+    const std::string src = "foo\n  self bar.\n  self baz: 1";
+    auto r = compileMethod(src);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    EXPECT_EQ("self baz: 1", spanAt(r.image, src, pcOf(r.image, Op::ReturnReceiver)));
+  }
+  {
+    const std::string src = "foo";
+    auto r = compileMethod(src);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    EXPECT_EQ("foo", spanAt(r.image, src, pcOf(r.image, Op::ReturnReceiver)));
+  }
+  {
+    const std::string src = "foo\n  ^[3 + 4] value";
+    auto r = compileMethod(src);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    const MethodImage* blk = firstBlock(r.image);
+    ASSERT_NE(nullptr, blk);
+    EXPECT_EQ("3 + 4", spanAt(*blk, src, pcOf(*blk, Op::ReturnTop)));
+  }
+  {
+    const std::string src = "foo\n  ^[:a | a bar. a baz] value: 1";
+    auto r = compileMethod(src);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    const MethodImage* blk = firstBlock(r.image);
+    ASSERT_NE(nullptr, blk);
+    EXPECT_EQ("a baz", spanAt(*blk, src, pcOf(*blk, Op::ReturnTop)));
+  }
+  {
+    const std::string src = "foo\n  ^[:a | ] value: 1";
+    auto r = compileMethod(src);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    const MethodImage* blk = firstBlock(r.image);
+    ASSERT_NE(nullptr, blk);
+    EXPECT_EQ("[:a | ]", spanAt(*blk, src, pcOf(*blk, Op::ReturnTop)));
+  }
+  {
+    ao::compiler::CompileEnv env;
+    env.undeclaredAreBindings = true;
+    const std::string src = "doIt\n  3 + 4.\n  5 + 6";
+    auto r = compileMethod(src, env);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    EXPECT_EQ("5 + 6", spanAt(r.image, src, pcOf(r.image, Op::ReturnTop)));
+  }
+  {
+    ao::compiler::CompileEnv env;
+    env.undeclaredAreBindings = true;
+    const std::string src = "doIt\n  5 + 6";
+    auto r = compileMethod(src, env);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    EXPECT_EQ("5 + 6", spanAt(r.image, src, pcOf(r.image, Op::ReturnTop)));
+  }
+}

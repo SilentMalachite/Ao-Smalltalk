@@ -399,6 +399,37 @@ TEST(GcRoots, RangeRootIsVisitedAndPopped) {
   EXPECT_EQ(0, countVisitedRoots(roots));
 }
 
+// A pinned range (a debug snapshot's; SPEC §3.13) is visited and forwarded like the others, is
+// not a LIFO slot or range, and is released in any order with the LIFO roots.
+TEST(GcRoots, PinnedRangeIsVisitedOutsideTheLifoRoots) {
+  ao::Heap heap(512, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  ao::Oop pinned[2] = {heap.allocate(ao::Oop::nil(), 0, 0), heap.allocate(ao::Oop::nil(), 1, 0)};
+  ao::Oop other[1] = {heap.allocate(ao::Oop::nil(), 2, 0)};
+  ao::Oop lifo = heap.allocate(ao::Oop::nil(), 3, 0);
+  roots.add(&lifo);
+  roots.pinRange(pinned, 2);
+  roots.pinRange(other, 1);
+  EXPECT_EQ(1u, roots.counts().slots);
+  EXPECT_EQ(0u, roots.counts().ranges);
+  EXPECT_EQ(3u, roots.counts().pinnedSlots);
+  EXPECT_EQ(4, countVisitedRoots(roots));
+  gc.collectNursery();
+  EXPECT_TRUE(heap.inOld(pinned[0]));
+  EXPECT_TRUE(heap.inOld(pinned[1]));
+  EXPECT_EQ(1u, heap.size(pinned[1]));
+  EXPECT_EQ(2u, heap.size(other[0]));
+  // Out of order: the LIFO slot first, then the older pinned range.
+  roots.remove(&lifo);
+  roots.unpinRange(pinned, 2);
+  EXPECT_EQ(1u, roots.counts().pinnedSlots);
+  EXPECT_EQ(1, countVisitedRoots(roots));
+  roots.unpinRange(other, 1);
+  EXPECT_EQ(0u, roots.counts().pinnedSlots);
+  EXPECT_EQ(0, countVisitedRoots(roots));
+}
+
 TEST(GcRoots, RootedArrayBeyondInlineSlotsSurvivesGc) {
   ao::Heap heap(512, 4096);
   ao::Roots roots;

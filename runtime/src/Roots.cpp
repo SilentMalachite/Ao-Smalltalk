@@ -25,6 +25,27 @@ void Roots::remove(Oop* slot) {
   }
 }
 
+void Roots::pinRange(Oop* first, std::size_t n) {
+  if (first == nullptr || n == 0) {
+    return;
+  }
+  pinned_.push_back(Stack::Range{first, n});
+}
+
+void Roots::unpinRange(Oop* first, std::size_t n) {
+  if (first == nullptr || n == 0) {
+    return;
+  }
+  auto it = std::find_if(pinned_.begin(), pinned_.end(),
+                         [&](const Stack::Range& r) { return r.first == first && r.n == n; });
+  assert(it != pinned_.end() && "unpinRange of a range that is not pinned");
+  if (it != pinned_.end()) {
+    // Unordered: the last range takes its place.
+    *it = pinned_.back();
+    pinned_.pop_back();
+  }
+}
+
 void Roots::pushRange(Oop* first, std::size_t n) {
   if (first == nullptr || n == 0) {
     return;
@@ -90,6 +111,11 @@ void Roots::visitAll(VisitFn visit, void* ctx) {
       visit(ctx, slot);
     }
   }
+  for (const Stack::Range& r : pinned_) {
+    for (std::size_t i = 0; i < r.n; ++i) {
+      visit(ctx, r.first + i);
+    }
+  }
   // The running roots live in stack_ and a parked process's in its attached Stack, never in
   // both, so each slot is visited once (collectOld's forwarding is not idempotent).
   stack_.visit(visit, ctx);
@@ -141,6 +167,9 @@ bool Roots::attached(const Stack* stack) const {
 Roots::Counts Roots::counts() const {
   Counts c;
   c.slots = slots_.size();
+  for (const Stack::Range& r : pinned_) {
+    c.pinnedSlots += r.n;
+  }
   c.ranges = stack_.rangeCount();
   c.frameSlots = stack_.frameSlotCount();
   for (const Stack* stack : attached_) {

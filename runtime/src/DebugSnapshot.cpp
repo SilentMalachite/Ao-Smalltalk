@@ -137,9 +137,10 @@ bool DebugSnapshot::capture(CallContext& ctx) noexcept {
     fromBase_ = ctx.scheduler == nullptr || !ctx.scheduler->nonBaseRunning();
 
     // Nothing above allocated on the Smalltalk heap, so no GC ran between the reads and here.
-    for (; registered_ < slotCount_; ++registered_) {
-      roots_.add(&slots_[registered_]);
-    }
+    // One pinned range, not LIFO slots: the frames still to unwind remove theirs without
+    // scanning past the snapshot.
+    roots_.pinRange(slots_.get(), slotCount_);
+    registered_ = slotCount_;
     held_ = true;
     return true;
   } catch (...) {
@@ -150,10 +151,9 @@ bool DebugSnapshot::capture(CallContext& ctx) noexcept {
 }
 
 void DebugSnapshot::clear() noexcept {
-  // Roots::remove looks from the newest registration back: reverse order keeps it short.
-  while (registered_ > 0) {
-    --registered_;
-    roots_.remove(&slots_[registered_]);
+  if (registered_ > 0) {
+    roots_.unpinRange(slots_.get(), registered_);
+    registered_ = 0;
   }
   slots_.reset();
   slotCount_ = 0;

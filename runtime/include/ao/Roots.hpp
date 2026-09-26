@@ -62,6 +62,13 @@ class Roots {
   void add(Oop* slot);
   void remove(Oop* slot);
 
+  // Registers n contiguous slots as one pinned range: rooted until unpinRange, released in any
+  // order, and kept apart from the LIFO slots and the Stacks (a debug snapshot's; SPEC §3.13).
+  // Removing a LIFO slot never scans or shifts past a pinned range. Add and remove cost the
+  // number of pinned ranges, which stays small.
+  void pinRange(Oop* first, std::size_t n);
+  void unpinRange(Oop* first, std::size_t n);
+
   // Registers n contiguous slots as one root range of the running Stack. Ranges are released
   // LIFO.
   void pushRange(Oop* first, std::size_t n);
@@ -93,6 +100,7 @@ class Roots {
   // What visitAll visits, by kind (the stack walker's aside). For tests and Debug checks.
   struct Counts {
     std::size_t slots = 0;           // add
+    std::size_t pinnedSlots = 0;     // pinRange: the slots of every pinned range
     std::size_t ranges = 0;          // pushRange: the running Stack and the attached ones
     std::size_t frameSlots = 0;      // pushFrame: the running Stack and the attached ones
     std::size_t handles = 0;         // live pushHandle entries
@@ -100,13 +108,14 @@ class Roots {
   };
   Counts counts() const;
 
-  // Every root once: the slots, the running Stack, each attached Stack, the handles, then the
-  // stack walker.
+  // Every root once: the slots, the pinned ranges, the running Stack, each attached Stack, the
+  // handles, then the stack walker.
   void visitAll(VisitFn visit, void* ctx);
 
  private:
   bool attached(const Stack* stack) const;
   std::vector<Oop*> slots_;
+  std::vector<Stack::Range> pinned_;
   Stack stack_;
   std::vector<Stack*> attached_;
   std::vector<Oop> handles_;

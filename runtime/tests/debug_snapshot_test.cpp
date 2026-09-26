@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -374,7 +375,9 @@ TEST(DebugSnapshot, SnapshotSurvivesNurseryAndOldCollections) {
   ASSERT_EQ(1, d.sink.calls);
   const auto& s = d.snap();
   ASSERT_EQ(4u, s.count());
-  EXPECT_GT(d.b.roots.counts().slots, before);
+  // The snapshot is one pinned range, not LIFO slots.
+  EXPECT_EQ(before, d.b.roots.counts().slots);
+  EXPECT_GT(d.b.roots.counts().pinnedSlots, 0u);
   // Garbage, then both collections: the snapshot's values move and stay.
   for (int i = 0; i < 2000; ++i) {
     send1(d.b, d.b.wk.arrayClass, "new:", smi(16));
@@ -393,12 +396,88 @@ TEST(DebugSnapshot, SnapshotSurvivesNurseryAndOldCollections) {
   EXPECT_EQ(d.sym("inner:"), d.selectorOf(s.method(1)));
   EXPECT_EQ(s.method(3), d.b.heap.slotAt(s.context(3), ao::kCtxMethod));
   // rootSlots names every slot the snapshot registered.
-  EXPECT_EQ(d.b.roots.counts().slots - before, d.sink.snap.rootSlots().size());
+  EXPECT_EQ(d.b.roots.counts().pinnedSlots, d.sink.snap.rootSlots().size());
   // Clearing gives the roots back.
   d.sink.snap.clear();
   EXPECT_TRUE(s.empty());
   EXPECT_EQ(0u, s.count());
   EXPECT_EQ(before, d.b.roots.counts().slots);
+  EXPECT_EQ(0u, d.b.roots.counts().pinnedSlots);
+}
+
+namespace {
+
+// Reads the LIFO slots on both sides of a capture.
+struct CountingSink final : ao::DebugSink {
+  ao::Roots& roots;
+  ao::DebugSnapshot snap;
+  std::size_t slotsBefore = 0;
+  std::size_t slotsAfter = 0;
+  std::size_t pinnedAfter = 0;
+  explicit CountingSink(ao::Roots& r) : roots(r), snap(r) {}
+  void onAbort(ao::CallContext& ctx) noexcept override {
+    slotsBefore = roots.counts().slots;
+    snap.capture(ctx);
+    slotsAfter = roots.counts().slots;
+    pinnedAfter = roots.counts().pinnedSlots;
+  }
+};
+
+}  // namespace
+
+// Review of P10-03: the frames still to unwind after a capture remove their LIFO slots from the
+// top (Roots::remove looks from the newest back). Snapshot slots above them would make each
+// removal scan and shift past the whole snapshot. The capture adds no LIFO slot.
+TEST(DebugSnapshot, CaptureAfterDeepRecursionAddsNoLifoSlots) {
+  Boot b;
+  CountingSink sink(b.roots);
+  const std::string deep =
+      "doIt\n  | r |\n"
+      "  r := [:n | n = 0 ifTrue: [nil foo] ifFalse: [r value: n - 1]].\n"
+      "  ^r value: 600";
+  // A first run leaves the lasting roots of what it sent (caches); count from after it.
+  EXPECT_EQ("doesNotUnderstand: #foo", runAbort(b, deep));
+  const std::size_t base = b.roots.counts().slots;
+  b.ctx.debug = &sink;
+  EXPECT_EQ("doesNotUnderstand: #foo", runAbort(b, deep));
+  b.ctx.debug = nullptr;
+  ASSERT_FALSE(sink.snap.empty());
+  EXPECT_EQ(ao::DebugSnapshot::kMaxFrames, sink.snap.count());
+  EXPECT_GT(sink.snap.total(), 600u);
+  // The unwinding frames' slots were all there at the capture, and none were added by it.
+  EXPECT_GT(sink.slotsBefore, base + 600);
+  EXPECT_EQ(sink.slotsBefore, sink.slotsAfter);
+  EXPECT_EQ(sink.snap.rootSlots().size(), sink.pinnedAfter);
+  // After the unwind only the snapshot's range stays.
+  EXPECT_EQ(base, b.roots.counts().slots);
+  EXPECT_EQ(sink.pinnedAfter, b.roots.counts().pinnedSlots);
+  sink.snap.clear();
+  EXPECT_EQ(0u, b.roots.counts().pinnedSlots);
+}
+
+namespace {
+
+void throwingTranscript(ao::CallContext&, ao::Oop) { throw std::runtime_error("host bug"); }
+
+}  // namespace
+
+// Review of P10-03: a C++ exception out of a cleanup that runs while an abort is set aside
+// (a throwing hook) must not leave abortSetAside or cleanupDepth counted.
+TEST(DebugSnapshot, ExceptionInCleanupRestoresSetAsideCounters) {
+  Dbg d;
+  d.b.ctx.transcriptHook = &throwingTranscript;
+  bool thrown = false;
+  try {
+    runDoIt(d.b, "doIt\n  ^[nil foo] ensure: [Transcript show: 'x']");
+  } catch (const std::runtime_error&) {
+    thrown = true;
+  }
+  d.b.ctx.transcriptHook = nullptr;
+  ao::clearUnwinding(d.b.ctx);
+  ASSERT_TRUE(thrown);
+  EXPECT_EQ(1, d.sink.calls);
+  EXPECT_EQ(0u, d.b.ctx.abortSetAside);
+  EXPECT_EQ(0u, d.b.ctx.cleanupDepth);
 }
 
 TEST(DebugSnapshot, HaltAbortsWithHaltReason) {

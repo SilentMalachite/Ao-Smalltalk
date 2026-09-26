@@ -526,6 +526,7 @@ class Emitter {
     if (body < method.kids.size()) {
       compileMethodBody(method.kids[body]);
     } else {
+      mark(method.span);
       emit(Op::ReturnReceiver);
     }
   }
@@ -539,10 +540,11 @@ class Emitter {
     emitEntry(blk, false);
     if (blk.kids.empty()) {
       emit(Op::PushNil);
+      mark(blk.span);
       emit(Op::ReturnTop);
       return;
     }
-    compileBlockBody(blk.kids[0]);
+    compileBlockBody(blk.kids[0], blk.span);
   }
 
  private:
@@ -807,6 +809,7 @@ class Emitter {
     }
     if (body.kind == Ast::Kind::Sequence) {
       if (body.kids.empty()) {
+        mark(body.span);
         emit(Op::ReturnReceiver);
         return;
       }
@@ -820,6 +823,7 @@ class Emitter {
         mark(last.span);
         compileExpr(last);
         if (!failed_) {
+          mark(last.span);
           emit(Op::ReturnTop);
         }
       }
@@ -832,6 +836,7 @@ class Emitter {
     mark(body.span);
     compileExpr(body);
     if (!failed_) {
+      mark(body.span);
       emit(Op::ReturnTop);
     }
   }
@@ -841,8 +846,11 @@ class Emitter {
       compileWorkspaceMethodBody(body);
       return;
     }
+    // SPEC §3.8: the implicit ReturnReceiver maps to the last statement, or to the whole body
+    // when it has none.
     if (body.kind == Ast::Kind::Sequence) {
       if (body.kids.empty()) {
+        mark(body.span);
         emit(Op::ReturnReceiver);
         return;
       }
@@ -854,6 +862,7 @@ class Emitter {
         compileReturn(last, false);
       } else {
         compileStmt(last);
+        mark(last.span);
         emit(Op::ReturnReceiver);
       }
       return;
@@ -863,10 +872,13 @@ class Emitter {
       return;
     }
     compileStmt(body);
+    mark(body.span);
     emit(Op::ReturnReceiver);
   }
 
-  void compileBlockBody(const Ast& body) {
+  // SPEC §3.8: the implicit ReturnTop maps to the last statement, or to the whole block when it
+  // has none.
+  void compileBlockBody(const Ast& body, SourceSpan whole) {
     const Ast* seq = &body;
     if (body.kind != Ast::Kind::Sequence) {
       if (body.kind == Ast::Kind::Return) {
@@ -875,11 +887,13 @@ class Emitter {
       }
       mark(body.span);
       compileExpr(body);
+      mark(body.span);
       emit(Op::ReturnTop);
       return;
     }
     if (seq->kids.empty()) {
       emit(Op::PushNil);
+      mark(whole);
       emit(Op::ReturnTop);
       return;
     }
@@ -892,6 +906,7 @@ class Emitter {
     } else {
       mark(last.span);
       compileExpr(last);
+      mark(last.span);
       emit(Op::ReturnTop);
     }
   }

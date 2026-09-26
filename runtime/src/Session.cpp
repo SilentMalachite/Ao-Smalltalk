@@ -349,17 +349,24 @@ int sessionImageSave(const char* path) {
   struct HideMethodSources {
     Roots* roots = nullptr;
     std::vector<const Oop*> slots;
+    Oop* snapFirst = nullptr;
+    std::size_t snapCount = 0;
     explicit HideMethodSources(Session* s) {
       if (s != nullptr) {
         roots = &s->roots;
-        slots = methodSourceRootSlots();
+        // The table's are LIFO slots; the snapshot's are one pinned range.
+        slots = methodSourceRootSlots(false);
         for (auto it = slots.rbegin(); it != slots.rend(); ++it) {
           roots->remove(const_cast<Oop*>(*it));
         }
+        snapFirst = s->debug.rootFirst();
+        snapCount = s->debug.rootCount();
+        roots->unpinRange(snapFirst, snapCount);
       }
     }
     ~HideMethodSources() {
       if (roots != nullptr) {
+        roots->pinRange(snapFirst, snapCount);
         for (const Oop* slot : slots) {
           roots->add(const_cast<Oop*>(slot));
         }
@@ -1175,7 +1182,7 @@ bool debugSpanAt(Oop method, std::uint32_t pc, std::uint32_t& start, std::uint32
   return true;
 }
 
-std::vector<const Oop*> methodSourceRootSlots() {
+std::vector<const Oop*> methodSourceRootSlots(bool withSnapshot) {
   std::vector<const Oop*> slots;
   if (Session* s = session()) {
     auto add = [&slots](const Session::MethodSource& entry) {
@@ -1191,8 +1198,10 @@ std::vector<const Oop*> methodSourceRootSlots() {
     if (s->doItDebug != nullptr) {
       add(*s->doItDebug);
     }
-    const std::vector<const Oop*> snapshot = s->debug.rootSlots();
-    slots.insert(slots.end(), snapshot.begin(), snapshot.end());
+    if (withSnapshot) {
+      const std::vector<const Oop*> snapshot = s->debug.rootSlots();
+      slots.insert(slots.end(), snapshot.begin(), snapshot.end());
+    }
   }
   return slots;
 }

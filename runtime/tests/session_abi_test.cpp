@@ -1296,8 +1296,15 @@ TEST_F(SessionAbi, ImageSaveDoesNotTraceSnapshotOrBlockSlots) {
     EXPECT_TRUE(p10SlotListed(hidden, slot));
   }
 
+  // The snapshot is one pinned range, apart from the LIFO slots (review of P10-03).
+  const ao::Roots::Counts rootsBefore = s.roots.counts();
+  EXPECT_EQ(s.debug.rootSlots().size(), rootsBefore.pinnedSlots);
+
   const char* path = "session-abi-p10-hidden.aoimage";
   ASSERT_EQ(AO_OK, ao_image_save(path));
+  // Hiding gives every root back as it was: none twice, none lost.
+  EXPECT_EQ(rootsBefore.slots, s.roots.counts().slots);
+  EXPECT_EQ(rootsBefore.pinnedSlots, s.roots.counts().pinnedSlots);
   std::ifstream in(path, std::ios::binary);
   const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   in.close();

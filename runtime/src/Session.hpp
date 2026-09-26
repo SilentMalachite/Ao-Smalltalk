@@ -146,8 +146,10 @@ DebugInfoRef debugInfoFor(Oop method);
 bool debugSpanAt(Oop method, std::uint32_t pc, std::uint32_t& start, std::uint32_t& end);
 // The root slots the method source table adds (each method's, text's and block's, the doIt's) and
 // the snapshot's. They are session state no Smalltalk object reaches, so neither the image save
-// nor a trace for what is alive (SPEC §3.9) starts from them. Empty outside a session.
-std::vector<const Oop*> methodSourceRootSlots();
+// nor a trace for what is alive (SPEC §3.9) starts from them. Empty outside a session. The table's
+// are LIFO slots (Roots::add); the snapshot's are its one pinned range (DebugSnapshot::rootFirst),
+// left out when withSnapshot is false.
+std::vector<const Oop*> methodSourceRootSlots(bool withSnapshot = true);
 void clearMethodSources();
 void ensureKernelNatives(Session& s);
 

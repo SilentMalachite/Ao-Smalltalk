@@ -52,8 +52,8 @@ class DebugFrames {
   virtual Oop temp(std::uint32_t i, std::uint32_t j) const = 0;
 };
 
-// A copy of one process's chain at the start of an abort. The values are GC roots (roots.add,
-// one slot each) until clear() or destruction, which remove them in reverse order. Its Roots must
+// A copy of one process's chain at the start of an abort. The values are GC roots (one
+// Roots::pinRange, apart from the LIFO slots) until clear() or destruction. Its Roots must
 // outlive it.
 class DebugSnapshot final : public DebugFrames {
  public:
@@ -75,6 +75,10 @@ class DebugSnapshot final : public DebugFrames {
   // Every slot it registered, for what must not trace them (image save, the shape change's
   // liveness; P10-04 methodSourceRootSlots).
   std::vector<const Oop*> rootSlots() const;
+  // The same slots as its one pinned range (null and 0 when empty). Image save takes the range
+  // out with Roots::unpinRange and puts it back with pinRange; nothing may collect in between.
+  Oop* rootFirst() const noexcept { return registered_ > 0 ? slots_.get() : nullptr; }
+  std::uint32_t rootCount() const noexcept { return registered_; }
 
   std::uint32_t count() const override { return static_cast<std::uint32_t>(frames_.size()); }
   int kind(std::uint32_t i) const override;
@@ -116,7 +120,7 @@ class DebugSnapshot final : public DebugFrames {
   // Every captured Oop: the frames' slots, then the process. Never moves while rooted.
   std::unique_ptr<Oop[]> slots_;
   std::uint32_t slotCount_ = 0;
-  std::uint32_t registered_ = 0;  // slots_[0, registered_) are in roots_
+  std::uint32_t registered_ = 0;  // slots_[0, registered_) are roots_'s pinned range
   std::uint32_t total_ = 0;
   std::string reason_;
   bool fromBase_ = false;
