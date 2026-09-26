@@ -505,11 +505,13 @@ bool Scheduler::terminate(CallContext& ctx, Oop process) {
   Record& me = *current_;
   if (r->isBase() || r == &me) {
     // SPEC §3.4: the base never ends; sending this fails the sender. A fiber's own terminate
-    // unwinds it to its body, which is no failure.
+    // unwinds it to its body, which is no failure (SPEC §3.13: not captured).
     if (r == &me && !me.isBase()) {
       me.terminated = true;
+      abortEvaluationQuiet(ctx, "process terminated");
+    } else {
+      abortEvaluation(ctx, "process terminated");
     }
-    abortEvaluation(ctx, "process terminated");
     return false;
   }
   if (me.abandon) {
@@ -849,13 +851,15 @@ bool Scheduler::afterResume(CallContext& ctx, Record& me) {
     ctx.transcriptHook = nullptr;
     ctx.inspectHook = nullptr;
     ctx.bindingHook = nullptr;
-    abortEvaluation(ctx, "process terminated");
+    ctx.debug = nullptr;
+    abortEvaluationQuiet(ctx, "process terminated");
     return false;
   }
   if (me.terminateRequested) {
+    // Terminated by another process: no failure (SPEC §3.13: not captured).
     me.terminateRequested = false;
     me.terminated = true;
-    abortEvaluation(ctx, "process terminated");
+    abortEvaluationQuiet(ctx, "process terminated");
     return false;
   }
   if (me.deadlockPending) {
@@ -888,6 +892,7 @@ void Scheduler::switchTo(Record& to) {
     to.ctx->transcriptHook = base_.transcriptHook;
     to.ctx->inspectHook = base_.inspectHook;
     to.ctx->bindingHook = base_.bindingHook;
+    to.ctx->debug = base_.debug;
   }
   if (hasSlots(heap, base_.wk.processor, kSchedulerSlotActive)) {
     heap.slotAtPut(base_.wk.processor, kSchedulerSlotActive, to.process);

@@ -8,117 +8,17 @@
 #include "ao/Natives.hpp"
 #include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
+#include "InterpFrame.hpp"
 
 #include <pthread.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <memory>
 
 namespace ao {
 namespace {
-
-struct OperandStack {
-  Roots* roots = nullptr;
-  std::deque<Oop> slots;
-  explicit OperandStack(Roots& r) : roots(&r) {}
-  OperandStack(const OperandStack&) = delete;
-  OperandStack& operator=(const OperandStack&) = delete;
-  ~OperandStack() {
-    while (!slots.empty()) {
-      roots->remove(&slots.back());
-      slots.pop_back();
-    }
-  }
-  void push(Oop v) {
-    slots.push_back(v);
-    roots->add(&slots.back());
-  }
-  bool pop(Oop* out) {
-    if (slots.empty()) {
-      return false;
-    }
-    *out = slots.back();
-    roots->remove(&slots.back());
-    slots.pop_back();
-    return true;
-  }
-  bool top(Oop* out) const {
-    if (slots.empty()) {
-      return false;
-    }
-    *out = slots.back();
-    return true;
-  }
-  // The value fromTop slots below the top (0 is the top), left on the stack.
-  bool peek(std::uint32_t fromTop, Oop* out) const {
-    if (fromTop >= slots.size()) {
-      return false;
-    }
-    *out = slots[slots.size() - 1 - fromTop];
-    return true;
-  }
-
-  // Overwrites the top in place. Its slot stays rooted, so Roots is not touched.
-  bool replaceTop(Oop v) {
-    if (slots.empty()) {
-      return false;
-    }
-    slots.back() = v;
-    return true;
-  }
-  std::uint32_t depth() const { return static_cast<std::uint32_t>(slots.size()); }
-};
-
-struct Temps {
-  Roots* roots = nullptr;
-  std::unique_ptr<Oop[]> slots;
-  std::uint32_t n = 0;
-  Temps(Roots& r, std::uint32_t count) : roots(&r), n(count) {
-    if (n == 0) {
-      return;
-    }
-    slots.reset(new Oop[n]);
-    for (std::uint32_t i = 0; i < n; ++i) {
-      slots[i] = Oop::nil();
-      roots->add(&slots[i]);
-    }
-  }
-  ~Temps() {
-    if (!slots) {
-      return;
-    }
-    for (std::uint32_t i = 0; i < n; ++i) {
-      roots->remove(&slots[i]);
-    }
-  }
-  Temps(const Temps&) = delete;
-  Temps& operator=(const Temps&) = delete;
-  bool at(std::uint32_t i, Oop* out) const {
-    if (i >= n) {
-      return false;
-    }
-    *out = slots[i];
-    return true;
-  }
-  bool put(std::uint32_t i, Oop v) {
-    if (i >= n) {
-      return false;
-    }
-    slots[i] = v;
-    return true;
-  }
-};
-
-struct Frame {
-  Oop method{};
-  Oop receiver{};
-  Oop context{};
-  std::uint32_t pc = 0;
-  bool isBlock = false;
-};
 
 struct FieldRoots {
   Roots& roots;
@@ -216,6 +116,24 @@ struct DepthGuard {
   ~DepthGuard() { --depth; }
   DepthGuard(const DepthGuard&) = delete;
   DepthGuard& operator=(const DepthGuard&) = delete;
+};
+
+// SPEC §3.13: links the frame into its process's chain (CallContext::topFrame). Declared right
+// after the operand stack, so it unlinks first on every way out: the chain never points at temps
+// or a stack that are gone.
+struct FrameLink {
+  CallContext& ctx;
+  Frame& frame;
+  FrameLink(CallContext& c, Frame& f, const Temps& temps, const OperandStack& stack)
+      : ctx(c), frame(f) {
+    frame.temps = &temps;
+    frame.stack = &stack;
+    frame.prev = ctx.topFrame;
+    ctx.topFrame = &frame;
+  }
+  ~FrameLink() { ctx.topFrame = frame.prev; }
+  FrameLink(const FrameLink&) = delete;
+  FrameLink& operator=(const FrameLink&) = delete;
 };
 
 struct Leave {
@@ -417,6 +335,11 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   }
   Root sel(ctx.roots, selector);
   const Oop* argp = argc == 0 ? nullptr : argv.ptr();
+  // SPEC §3.13: the send in flight, for a capture while it runs (the rooted slots follow GC).
+  frame.sendSelector = &sel.slot;
+  frame.sendReceiver = &rcvr.slot;
+  frame.sendArgs = argp;
+  frame.sendArgc = argc;
   Oop result;
   if (isSuper) {
     const Oop methodClass = ctx.heap.slotAt(frame.method, kCmSlotMethodClass);
@@ -425,10 +348,12 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
     result = send(ctx, rcvr.slot, sel.slot, argp, argc, nullptr);
   }
   // SPEC §3.3: an empty result is a failure, never a value on the stack. Unless the frames are
-  // unwinding already, it aborts with the selector as the reason (sel is rooted).
+  // unwinding already, it aborts with the selector as the reason (sel is rooted). The send is
+  // still in flight for that abort's capture.
   if (result.isEmpty() && !unwinding(ctx)) {
     abortFailedSend(ctx, sel.slot);
   }
+  frame.sendReceiver = nullptr;
   const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);
   if (nl.leave) {
     return nl;
@@ -549,6 +474,7 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
   }
 
   OperandStack stack(ctx.roots);
+  FrameLink linked(ctx, *frame, temps, stack);
   for (;;) {
     if (!frame->context.isHeap()) {
       return Oop{};

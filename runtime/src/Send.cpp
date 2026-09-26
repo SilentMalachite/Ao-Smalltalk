@@ -3,6 +3,7 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/CompiledMethod.hpp"
 #include "ao/Context.hpp"
+#include "ao/DebugSnapshot.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/Lookup.hpp"
@@ -230,13 +231,28 @@ Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std
 
 bool unwinding(const CallContext& ctx) { return ctx.nonlocalReturn || ctx.aborting; }
 
-Oop abortEvaluation(CallContext& ctx, const char* reason) {
+namespace {
+
+// The abort itself (SPEC §3.4): the first reason stays. Captures nothing.
+void startAbort(CallContext& ctx, const char* reason) {
   if (!ctx.aborting) {
     ctx.aborting = true;
     ctx.abortReason = reason;
   }
   // An abort has no home: it overrides a non-local return still in flight.
   dropNonlocal(ctx);
+}
+
+}  // namespace
+
+Oop abortEvaluation(CallContext& ctx, const char* reason) {
+  const bool starts = !ctx.aborting;
+  startAbort(ctx, reason);
+  // SPEC §3.13: the chain is still whole here. Not for an abandon, nor inside a cleanup that runs
+  // while an earlier abort is set aside (that abort's capture stays).
+  if (starts && ctx.debug != nullptr && !ctx.abandoning && ctx.abortSetAside == 0) {
+    ctx.debug->onAbort(ctx);
+  }
   return Oop{};
 }
 
@@ -252,6 +268,11 @@ Oop abortEvaluation(CallContext& ctx, std::string_view reason) {
     ctx.abortReasonHandle = ctx.roots.pushHandle(text);
   }
   return abortEvaluation(ctx, static_cast<const char*>(nullptr));
+}
+
+Oop abortEvaluationQuiet(CallContext& ctx, const char* reason) {
+  startAbort(ctx, reason);
+  return Oop{};
 }
 
 Oop abortDoesNotUnderstand(CallContext& ctx, Oop selector) {

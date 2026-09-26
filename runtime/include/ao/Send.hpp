@@ -22,7 +22,12 @@ bool unwinding(const CallContext& ctx);
 // Starts an abort (SPEC §3.4). reason is a static string (a literal): nothing is allocated, so
 // out of memory and stack overflow can use it. An abort already in progress keeps its own reason.
 // Answers the empty Oop, so a native can `return abortEvaluation(ctx, "...")`.
+// SPEC §3.13: when it starts the abort, it tells ctx.debug (the capture), unless ctx is
+// abandoning or an earlier abort is set aside for a cleanup (abortSetAside).
 Oop abortEvaluation(CallContext& ctx, const char* reason);
+// The same abort for an unwind that is no failure (SPEC §3.4, §3.13: a process's terminate of
+// itself or of another process, abandon): ctx.debug is not told.
+Oop abortEvaluationQuiet(CallContext& ctx, const char* reason);
 // Starts an abort whose reason is built at run time (SPEC §3.3). The text is copied into a heap
 // String held in the roots' handle table until clearUnwinding, so it survives GCs. May collect.
 // When the String cannot be allocated the reason is "out of memory".

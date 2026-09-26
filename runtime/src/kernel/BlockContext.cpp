@@ -69,7 +69,15 @@ void runAside(CallContext& ctx, Oop cleanup) {
   Oop ignored;
   // During a stack overflow abort the cleanup runs past the normal limit (SPEC §3.4).
   ++ctx.cleanupDepth;
+  // SPEC §3.13: an abort inside a cleanup of an aborting evaluation keeps the first reason, so
+  // it keeps the first capture too.
+  if (aborting) {
+    ++ctx.abortSetAside;
+  }
   const bool ran = callBlock(ctx, blk.slot, nullptr, 0, &ignored);
+  if (aborting) {
+    --ctx.abortSetAside;
+  }
   --ctx.cleanupDepth;
   // SPEC §3.4: unwinding the cleanup started itself wins over a paused non-local return, but not
   // over a paused abort. Then the cleanup's ^ is dropped, and so is its own abort's reason: the
