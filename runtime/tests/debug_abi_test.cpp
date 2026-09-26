@@ -359,8 +359,9 @@ TEST_F(DebugAbi, NextEvalClearsSnapshotAndBumpsGeneration) {
 TEST_F(DebugAbi, ClearDropsRoots) {
   ao::Session* s = ao::session();
   ASSERT_NE(nullptr, s);
-  // The first failure roots one slot for good (with or without capture), and the doIt's source
-  // entry stays until the next ao_eval: count after both, with capture off.
+  // The first use of a new selector (#foo here) roots one slot for good: WellKnown::internWith
+  // roots every Symbol it newly interns. The doIt's source entry stays until the next ao_eval.
+  // Count after both, with capture off.
   ao_set_debug_capture(0);
   ASSERT_EQ(AO_ERR_EVAL, doIt("nil foo"));
   ASSERT_EQ(AO_OK, doIt("3"));
@@ -378,6 +379,37 @@ TEST_F(DebugAbi, ClearDropsRoots) {
   // Nothing else is left rooted.
   ASSERT_EQ(AO_OK, doIt("3"));
   EXPECT_EQ(slots, s->roots.counts().slots);
+}
+
+// SPEC §3.10: ao_set_debug_capture called from a hook inside a debugger printString takes effect
+// when the print is done. A later abort in the same printString is still not captured.
+TEST_F(DebugAbi, CaptureTurnedOnDuringTempPrintWaitsForTheEnd) {
+  defineClass("DbgToggle");
+  accept("DbgToggle", 0, "printString\n  Transcript show: 'p'.\n  ^self zork");
+  ASSERT_EQ(AO_ERR_EVAL, doIt("| t | t := DbgToggle new. t halt"));
+  ASSERT_EQ("halt", reason());
+  ASSERT_EQ(2, ao_debug_frame_count());
+  const int generation = ao_debug_generation();
+  int calls = 0;
+  ao_set_transcript_hook(
+      [](const char*, int, int, void* user) {
+        ++*static_cast<int*>(user);
+        ao_set_debug_capture(1);
+      },
+      &calls);
+  const Printed t = tempPrint(1, 0);
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_LE(1, calls);
+  EXPECT_EQ(AO_OK, t.rc);
+  EXPECT_EQ("DbgToggle", t.cls);
+  EXPECT_EQ("", t.print);
+  EXPECT_EQ("halt", reason());
+  EXPECT_EQ(generation, ao_debug_generation());
+  EXPECT_EQ(2, ao_debug_frame_count());
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  // Capture is on once the print is done.
+  ASSERT_EQ(AO_ERR_EVAL, doIt("nil foo"));
+  EXPECT_EQ("#foo (doesNotUnderstand:)", label(0));
 }
 
 // SPEC §3.10 ao_set_debug_capture: off, a failure leaves no frames.

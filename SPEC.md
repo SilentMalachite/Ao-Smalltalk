@@ -1138,7 +1138,8 @@ int ao_accept_class(const char* source, AoSpan* err);
 規則は次のとおりである。
 
 - 項目を入れるのは、今までどおり Accept（`ao_accept_method` と、`ao_accept_class` の形の変更で移したメソッド）だけである。file-in、vendor、ロードしたイメージのメソッドは項目を持たない（プレースホルダ）。
-- 形の変更（§3.9）で移したメソッドは、新しく箱詰めしたブロックを同じ前順で付け直す。デバッグ情報はそのまま使う。
+- 項目のスロットのルート表への登録は、全部か無しかである。C++ のメモリが足りずに項目を入れられなければ、Accept したメソッドは入ったまま項目を持たない（プレースホルダ。doIt も同じ）。Accept は成功を返す。
+- 形の変更（§3.9）で移したメソッドは、コンパイルし直した結果から、新しく箱詰めしたブロック（同じ前順）とデバッグ情報を付け直す。メモリが足りなければ、ソースだけを移す（ブロックとデバッグ情報を持たない）。
 - 再 Accept で置き換えた古いメソッドの項目は、そのブロックとともに消える。スナップショットに残った古いメソッドのフレームは、プレースホルダになる。
 - セッションは、直前の `ao_eval` の doIt 1 件（メソッド、ブロック、テキスト、デバッグ情報）も持つ。`ao_eval` の入口で消し、コンパイルのあとに入れる。doIt はクラスに属さないので、Browser の読み出しには出ない。
 - イメージの保存（§3.11）と形の変更の生存の判定（§3.9）は、ソース表のブロックとスナップショット（§3.13）のルートもたどらない。
@@ -1243,7 +1244,7 @@ int ao_debug_clear(void);
 読み:
 
 - フレームの添字 `i` は 0 が最内である。temp の添字 `j` は 0 から数え、receiver を含まない。
-- `ao_debug_generation` は、捕捉と消去のたびに 1 増える値を返す。セッションが無ければ -1。
+- `ao_debug_generation` は、捕捉と消去のたびに 1 増える値を返す。セッションが無ければ -1。`ao_image_load` の差し替える前の新しいセッション（ワークスペースの作成と探針）の abort は捕捉せず、値を動かさない。失敗したロードは値を変えない。
 - `ao_debug_frame_count` は、スナップショットのフレーム数（上限で切ったあと。§3.13）を返す。スナップショットが無ければ 0、セッションが無ければ -1。`ao_debug_frame_total` は、上限で切る前の総数を返す（無ければ 0、セッションが無ければ -1）。
 - `ao_debug_reason` は理由（§3.3 の文言）を書く。`ao_eval` の `AoSpan.message` と違い、255 バイトで切らない。スナップショットが無ければ `AO_ERR`。
 - `ao_debug_frame_kind` は、0（メソッド）、1（ブロック）、2（ネイティブ。合成）のどれかを返す。範囲外は -1。
@@ -1257,7 +1258,7 @@ int ao_debug_clear(void);
 
 最外の入口（§3.4）:
 
-- 次の 4 つは最外の入口である。busy なら何もせずに `AO_ERR` を返す（上の「再入と例外」）。入る前に前の abort を消してスタックの範囲を取り直し、出るときに abort を読んで消す。drain はしない。この中の abort は捕捉しない（スナップショットを置き換えない）。
+- 次の 4 つは最外の入口である。busy なら何もせずに `AO_ERR` を返す（上の「再入と例外」）。入る前に前の abort を消してスタックの範囲を取り直し、出るときに abort を読んで消す。drain はしない。この中の abort は捕捉しない（スナップショットを置き換えない）。この中から `ao_set_debug_capture` を呼んでも（フックから）、設定は出るときに効く。
 - `ao_debug_frame_receiver_print` と `ao_debug_frame_temp_print` は、receiver か temp のクラス名を `class_buf` に、`printString` を `buf` に書く。`printString` が abort したら、`buf` を空にしてクラス名だけで `AO_OK` を返す。範囲外は `AO_ERR`。
 - `ao_debug_inspect` は、`j` が -1 なら receiver、そうでなければ temp `j` の値について、Inspect it と同じく inspect フックを呼ぶ（クラス名と printString）。範囲外は `AO_ERR`。`inspect` か `printString` が abort したら（Inspect it と同じく）フックを呼ばずに `AO_ERR` を返す。
 - `ao_debug_clear` はスナップショットを消して generation を増やす。
@@ -1412,6 +1413,7 @@ P10 は事後（post-mortem）デバッガである。失敗は今までどお�
   - 自分への `terminate`（ベースでないプロセス）、ほかのプロセスからの `terminate`、abandon の巻き戻し（どれも失敗でない。§3.4）
   - abort の途中で走る後始末の中の再 abort（最初の理由を保つので、最初の捕捉を保つ。§3.4）
   - `ao_debug_*` の printString と inspect の中の abort（§3.10）
+  - `ao_image_load` が差し替える前の新しいセッションでの abort（ワークスペースの作成と探針。§3.10）
 - 捕捉は Smalltalk のヒープを割り当てない（GC を起こさない）。値は C++ のメモリに写し、写し終えてからルートに登録する。C++ のメモリが足りなければ、捕捉を捨てる。評価の失敗と理由は変わらない。
 - 最内から 256 フレームまで写し、総数も記録する（§3.10 の `ao_debug_frame_total`）。捕捉は再帰しない。stack overflow でもスタックガードの予約分（§3.4）の中で終わる。
 - フレームごとに写すのは、種類、method、receiver、コンテキスト、pc、進行中の送信の selector と引数、temps の値である。オペランドスタックの値は写さない。スナップショット全体では、理由（C++ の文字列）、失敗したプロセス、それがベースかどうかを写す。
@@ -1475,9 +1477,9 @@ P10 は事後（post-mortem）デバッガである。失敗は今までどお�
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
 - `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）。評価結果（§3.10）: `out` を超える Print it の全体と、副作用が 1 回であること（`EvalResultLengthGivesWholePrintStringPastOut`）、NUL を含む結果（`EvalResultCopyKeepsNulBytes`）、切り詰めと `AO_ERR` の規則（`EvalResultCopyCutsLikeOtherBuffers`）、Do it と失敗のあとの空文字（`EvalResultEmptyAfterDoItAndFailures`）、shutdown・boot・ロードとの関係（`EvalResultFollowsSessionLifetime`）、busy の間の読み出しと、拒まれた評価が結果に触れないこと（`EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`）、`ao_accept_class` の送信から呼ばれたフックでも、前の評価の結果 `42` が読め、拒まれた評価のあとも残ること（`KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt`）、inspect フックの `print_len`（`InspectHookGetsPrintLengthWithNul`）。デバッガ（§3.10、§3.13）: イメージの保存がスナップショットとブロックのスロットをたどらない（`ImageSaveDoesNotTraceSnapshotOrBlockSlots`）、doIt のデバッグ情報の座標が前置分を引いた値（`DoItDebugInfoDropsPrefix`）、次の評価がスナップショットを消す（`NextEvalClearsSnapshot`）
-- `accept_abi_test`（追加分。§3.10 の「ソースはイメージに書かない」）: Accept したメソッドとブロックの pc→ソース表がソース表に残る（`AcceptKeepsPcMapForMethodAndBlocks`）、再 Accept で古いメソッドとブロックの項目が消える（`ReacceptDropsOldMethodAndItsBlocks`）、形の変更でブロックを付け直す（`ReshapeKeepsBlockPcMaps`）
+- `accept_abi_test`（追加分。§3.10 の「ソースはイメージに書かない」）: Accept したメソッドとブロックの pc→ソース表がソース表に残る（`AcceptKeepsPcMapForMethodAndBlocks`）、再 Accept で古いメソッドとブロックの項目が消える（`ReacceptDropsOldMethodAndItsBlocks`）、形の変更でブロックを付け直す（`ReshapeKeepsBlockPcMaps`）、そのデバッグ情報をコンパイルし直した結果から作る（`ReshapeTakesDebugInfoFromRecompiledImage`）、メモリが足りなければ項目のルートを全部か無しかで入れ、Accept したメソッドは残る（`SourceEntryRootsAllOrNothing`）、形の変更の移動はソースだけを移す（`MoveSourceWithoutMemoryKeepsTextOnly`）
 - `debug_snapshot_test`: 捕捉（§3.13）。入れ子のメソッドの失敗で最内が先頭（`ErrorInNestedMethodCapturesInnermostFirst`）、ブロックのフレームの temps とホーム（`BlockFrameKeepsTempsAndHome`）、ネイティブの失敗の合成（`FailedNativeSendSynthesizesNativeFrameWithReceiverAndArgs`）、DNU の合成（`DoesNotUnderstandSynthesizesFrameWithoutMethod`）、stack overflow の上限と総数（`StackOverflowCapturesCappedFramesAndTotal`）、後始末の abort が最初の捕捉を保つ（`CleanupAbortKeepsFirstSnapshot`）、正常終了のあとの後始末の失敗（`CleanupFailureAfterNormalEndIsCaptured`）、`terminate` と abandon（`SelfTerminateDoesNotCapture`、`TerminateBaseCaptures`、`AbandonDoesNotCapture`）、ベースのデッドロック（`DeadlockOnBaseCaptures`）、ファイバの失敗は自分の連鎖（`FiberFailureCapturesOnItsOwnChain`）、nursery と old の GC をまたぐ（`SnapshotSurvivesNurseryAndOldCollections`）、`halt`（`HaltAbortsWithHaltReason`）
-- `debug_abi_test`: デバッガの読み出し（§3.10）。最内が先頭（`EvalErrorFillsFramesInnermostFirst`）、失敗した送信の区間（`FrameSourceHighlightsFailingSend`）、doIt の座標（`DoItFrameSourceDropsPrefix`）、ラベル（`BlockFrameLabelIsBracketsIn`、`NativeFrameLabelNamesSymbol`）、busy の拒否（`TempPrintIsRefusedWhileBusy`）、printString の abort がスナップショットを置き換えない（`TempPrintAbortDoesNotReplaceSnapshot`）、次の評価と generation（`NextEvalClearsSnapshotAndBumpsGeneration`）、消去でルートの数が戻る（`ClearDropsRoots`）、捕捉が無効ならフレーム無し（`CaptureOffLeavesNoFrames`）、プレースホルダと `arg1` / `t1`（`NoSourceMethodAnswersPlaceholderAndGenericTempNames`）、inspect フック（`InspectFiresHookWithTempValue`）、drain 中のプロセスの失敗（`ProcessFailureIsReadableAfterEval`）、バッファの規則（`BuffersFollowRangeRule`）、設定が boot とロードをまたぐ（`CaptureSettingSurvivesBootAndLoad`）
+- `debug_abi_test`: デバッガの読み出し（§3.10）。最内が先頭（`EvalErrorFillsFramesInnermostFirst`）、失敗した送信の区間（`FrameSourceHighlightsFailingSend`）、doIt の座標（`DoItFrameSourceDropsPrefix`）、ラベル（`BlockFrameLabelIsBracketsIn`、`NativeFrameLabelNamesSymbol`）、busy の拒否（`TempPrintIsRefusedWhileBusy`）、printString の abort がスナップショットを置き換えない（`TempPrintAbortDoesNotReplaceSnapshot`）、printString の中から捕捉を有効にしても出るまで効かない（`CaptureTurnedOnDuringTempPrintWaitsForTheEnd`）、次の評価と generation（`NextEvalClearsSnapshotAndBumpsGeneration`）、消去でルートの数が戻る（`ClearDropsRoots`）、捕捉が無効ならフレーム無し（`CaptureOffLeavesNoFrames`）、プレースホルダと `arg1` / `t1`（`NoSourceMethodAnswersPlaceholderAndGenericTempNames`）、inspect フック（`InspectFiresHookWithTempValue`）、drain 中のプロセスの失敗（`ProcessFailureIsReadableAfterEval`）、バッファの規則（`BuffersFollowRangeRule`）、設定が boot とロードをまたぐ（`CaptureSettingSurvivesBootAndLoad`）。`image_save_load_test` の `FailedLoadKeepsDebugGeneration`: 探針の abort で失敗したロードは generation とスナップショットを変えない
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
 - `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる

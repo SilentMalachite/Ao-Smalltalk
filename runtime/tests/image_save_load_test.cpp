@@ -754,6 +754,33 @@ TEST(ImageSaveLoad, FailedProbeKeepsCurrentSession) {
   std::filesystem::remove(path);
 }
 
+// SPEC §3.10, §3.13: the new session's probe aborts before the swap. That abort is not captured,
+// so a failed load leaves the generation and the current snapshot as they were (an open Debugger
+// still reads its values).
+TEST(ImageSaveLoad, FailedLoadKeepsDebugGeneration) {
+  Boot b;
+  auto broken = ao::compiler::compileMethod("+ x\n  ^nil zork");
+  ASSERT_TRUE(broken.ok) << broken.error.message;
+  ASSERT_TRUE(ao::installMethod(b.ctx, b.wk.smallIntegerClass, broken.image).isHeap());
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-probe-aborts.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+
+  ao_set_debug_capture(1);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_ERR_EVAL, ao_eval("nil foo", 7, AO_EVAL_DOIT, out, 64, &err));
+  ASSERT_EQ(2, ao_debug_frame_count());
+  const int generation = ao_debug_generation();
+  EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str(), &err));
+  EXPECT_STREQ("image probes failed", err.message);
+  EXPECT_EQ(generation, ao_debug_generation());
+  EXPECT_EQ(2, ao_debug_frame_count());
+  ao_runtime_shutdown();
+  ao_set_debug_capture(0);
+  std::filesystem::remove(path);
+}
+
 // SPEC §3.11: グローバル辞書より前のイメージ（Smalltalk が 57 要素の表）は、修復せずに拒否する。
 // 保存したイメージの well-known 表の Smalltalk を、同じ 57 の値を並べた表に向け直して、それを作る。
 TEST(ImageSaveLoad, RefusesSmalltalkWithoutGlobalDictionary) {

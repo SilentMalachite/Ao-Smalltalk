@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iterator>
+#include <new>
 #include <utility>
 
 namespace ao {
@@ -10,6 +11,13 @@ namespace ao {
 void Roots::add(Oop* slot) {
   if (slot == nullptr) {
     return;
+  }
+  if (failAfter_ != kNoFailure) {
+    if (failAfter_ == 0) {
+      failAfter_ = kNoFailure;
+      throw std::bad_alloc();
+    }
+    --failAfter_;
   }
   slots_.push_back(slot);
 }
@@ -22,6 +30,18 @@ void Roots::remove(Oop* slot) {
   auto it = std::find(slots_.rbegin(), slots_.rend(), slot);
   if (it != slots_.rend()) {
     slots_.erase(std::next(it).base());
+  }
+}
+
+void Roots::reserveSlots(std::size_t n) {
+  if (failAfter_ != kNoFailure && failAfter_ < n) {
+    failAfter_ = kNoFailure;
+    throw std::bad_alloc();
+  }
+  const std::size_t need = slots_.size() + n;
+  if (need > slots_.capacity()) {
+    // Grows geometrically, as push_back would, so repeated reservations stay amortized O(1).
+    slots_.reserve(std::max(need, slots_.capacity() * 2));
   }
 }
 

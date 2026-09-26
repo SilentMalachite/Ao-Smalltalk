@@ -148,12 +148,14 @@ int debugInspect(int i, int j, AoInspectFn inspect, void* inspectUser);
 int debugClear();
 // `replaced`, when a heap object, is dropped from the rooted table (with its blocks) before
 // `method` is stored. `image`, when given, is what `method` was boxed from: its blocks are found
-// at the same literal indices (nested ones in preorder) and its debug info is kept.
+// at the same literal indices (nested ones in preorder) and its debug info is kept. Never throws:
+// without the memory for the entry, `method` stays installed without one (SPEC §3.10).
 void rememberMethodSource(Oop method, Oop text, Oop replaced, const compiler::MethodImage* image);
 // SPEC §3.9: a class whose shape changed takes its methods' sources along. The entry of `from`
-// names `to` from now on; the blocks boxed for `to` replace `from`'s in the same preorder, and the
-// debug info stays. False when `from` has no source.
-bool moveMethodSource(Oop from, Oop to);
+// names `to` from now on; `image` is what `to` was boxed from, and the entry's blocks and debug
+// info are rebuilt from it. Without the memory for that, the entry keeps its text only (no blocks,
+// no debug info). Never throws. False when `from` has no source.
+bool moveMethodSource(Oop from, Oop to, const compiler::MethodImage& image);
 // The text of the entry that holds `method` as its method or one of its blocks (the home
 // method's), the doIt's too. False when no entry holds it.
 bool methodSource(Oop method, std::string& utf8);

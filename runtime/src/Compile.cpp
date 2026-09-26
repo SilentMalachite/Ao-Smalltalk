@@ -1037,7 +1037,7 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     installed[i] = method;
   }
   for (std::uint32_t i = 0; i < count; ++i) {
-    moveMethodSource(oldMethods[i], installed[i]);
+    moveMethodSource(oldMethods[i], installed[i], carried[i].image);
   }
   // SPEC §3.3: the class was replaced. installMethod dropped each selector already.
   invalidateMethodCache(ctx.cache, Oop{});

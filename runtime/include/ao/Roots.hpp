@@ -59,8 +59,15 @@ class Roots {
     std::size_t frameCap_ = 0;
   };
 
+  // add throws std::bad_alloc when the slot table cannot grow. remove never throws.
   void add(Oop* slot);
   void remove(Oop* slot);
+  // Makes room for n more add calls, which then do not allocate and cannot throw. Throws
+  // std::bad_alloc before anything is registered, so a group of adds is all or nothing.
+  void reserveSlots(std::size_t n);
+  // Test seam: the slot table cannot grow once, after `adds` more adds succeed. That add throws
+  // std::bad_alloc, or a reserveSlots whose room covers it does.
+  void failSlotGrowthForTesting(std::size_t adds) { failAfter_ = adds; }
 
   // Registers n contiguous slots as one pinned range: rooted until unpinRange, released in any
   // order, and kept apart from the LIFO slots and the Stacks (a debug snapshot's; SPEC §3.13).
@@ -114,7 +121,9 @@ class Roots {
 
  private:
   bool attached(const Stack* stack) const;
+  static constexpr std::size_t kNoFailure = static_cast<std::size_t>(-1);
   std::vector<Oop*> slots_;
+  std::size_t failAfter_ = kNoFailure;
   std::vector<Stack::Range> pinned_;
   Stack stack_;
   std::vector<Stack*> attached_;

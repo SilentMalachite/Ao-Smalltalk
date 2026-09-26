@@ -34,6 +34,9 @@ HostOopHook g_transcriptHook = nullptr;
 // SPEC §3.13: capture on or off, as the ABI set it (off by default). Every session boot and load
 // make gets it.
 bool g_debugCapture = false;
+// SPEC §3.10: the ao_debug_* prints and inspects running (DebugEntry). While one runs, capture stays
+// off and a new setting waits for its end.
+int g_debugEntries = 0;
 // SPEC §3.10 ao_debug_generation: process-wide, so a snapshot of a later session never shows an
 // earlier session's number.
 std::uint32_t g_debugGeneration = 0;
@@ -112,8 +115,10 @@ bool loadedImageProbes(Session& session) {
 }
 
 // An entry's slots: method, text, then its blocks. Removed in the reverse order (Roots::remove
-// looks from the newest registration back).
+// looks from the newest registration back). All or nothing (SPEC §3.10): the room comes first, so
+// std::bad_alloc leaves before any slot is registered and none of the adds can throw.
 void rootEntry(Roots& roots, Session::MethodSource& entry) {
+  roots.reserveSlots(2 + entry.blocks.size());
   roots.add(&entry.method);
   roots.add(&entry.text);
   for (Oop& block : entry.blocks) {
@@ -175,26 +180,6 @@ void attachBlocks(const Session& s, Session::MethodSource& entry,
   }
   entry.blocks = std::move(blocks);
   entry.debug = std::move(info);
-}
-
-// The block CompiledMethods of `method` from the heap alone, in the preorder attachBlocks uses.
-std::vector<Oop> blockMethods(const Session& s, Oop method) {
-  std::vector<Oop> blocks;
-  std::vector<std::pair<Oop, std::size_t>> stack{{method, 0}};
-  while (!stack.empty()) {
-    auto& [at, next] = stack.back();
-    const Oop lits = s.heap.slotAt(at, kCmSlotLiterals);
-    if (!lits.isHeap() || (s.heap.flags(lits) & kFlagBytes) != 0 || next >= s.heap.size(lits)) {
-      stack.pop_back();
-      continue;
-    }
-    const Oop block = blockLiteral(s, at, next++);
-    if (!block.isEmpty()) {
-      blocks.push_back(block);
-      stack.emplace_back(block, 0);
-    }
-  }
-  return blocks;
 }
 
 // The entry whose method or block is `method`: the accepted methods', then the doIt's. *index is
@@ -262,6 +247,11 @@ Session::~Session() {
 }
 
 void Session::onAbort(CallContext& aborting) noexcept {
+  // SPEC §3.10, §3.13: only the live session captures. ao_image_load's new session aborts (its
+  // workspace creation, its probes) before the swap; a failed load must not move the generation.
+  if (this != g_session.get()) {
+    return;
+  }
   // A fiber runs on its own CallContext; the base on ctx.
   const bool base = &aborting == ctx.get();
   if (!base && !debug.empty()) {
@@ -303,7 +293,9 @@ void setSessionTranscriptHook(HostOopHook hook) {
 
 void setSessionDebugCapture(bool on) {
   g_debugCapture = on;
-  if (g_session != nullptr && g_session->ctx != nullptr) {
+  // SPEC §3.10: inside an ao_debug_* print or inspect (a hook calling in), the setting is only
+  // recorded; ~DebugEntry applies it, so an abort later in that print is still not captured.
+  if (g_debugEntries == 0 && g_session != nullptr && g_session->ctx != nullptr) {
     g_session->ctx->debug = on ? g_session.get() : nullptr;
   }
 }
@@ -1097,42 +1089,54 @@ void rememberMethodSource(Oop method, Oop text, Oop replaced, const compiler::Me
     }
   }
   // Nothing below collects: `method` and `text` stay valid until they are in the rooted slots.
-  auto entry = std::make_unique<Session::MethodSource>();
-  entry->method = method;
-  entry->text = text;
-  if (image != nullptr) {
-    attachBlocks(*s, *entry, *image);
+  // SPEC §3.10: plain C++ memory and root slots. Without the memory the method, which is installed
+  // already, has no entry (as the doIt), and the accept still succeeds: nothing is rooted before
+  // the last step that can throw, and the table has room for the entry before it is rooted.
+  try {
+    auto entry = std::make_unique<Session::MethodSource>();
+    entry->method = method;
+    entry->text = text;
+    if (image != nullptr) {
+      attachBlocks(*s, *entry, *image);
+    }
+    s->methodSources.reserve(s->methodSources.size() + 1);
+    rootEntry(s->roots, *entry);
+    s->methodSources.push_back(std::move(entry));
+  } catch (const std::bad_alloc&) {
   }
-  rootEntry(s->roots, *entry);
-  s->methodSources.push_back(std::move(entry));
 }
 
-bool moveMethodSource(Oop from, Oop to) {
+bool moveMethodSource(Oop from, Oop to, const compiler::MethodImage& image) {
   Session* s = session();
   if (s == nullptr || !from.isHeap() || !to.isHeap()) {
     return false;
   }
   for (auto& entry : s->methodSources) {
-    if (entry->method == from) {
-      // The slots themselves are the roots, so the new objects are rooted as soon as they are
-      // stored. The recompiled method boxes the same blocks in the same preorder (SPEC §3.9).
-      std::vector<Oop> blocks = blockMethods(*s, to);
-      entry->method = to;
-      if (blocks.size() == entry->blocks.size()) {
-        std::copy(blocks.begin(), blocks.end(), entry->blocks.begin());
-      } else {
-        // Not the same blocks: the debug info would name the wrong bodies.
-        for (auto it = entry->blocks.rbegin(); it != entry->blocks.rend(); ++it) {
-          s->roots.remove(&*it);
-        }
-        entry->blocks = std::move(blocks);
-        for (Oop& block : entry->blocks) {
-          s->roots.add(&block);
-        }
-        entry->debug.reset();
-      }
-      return true;
+    if (entry->method != from) {
+      continue;
     }
+    // SPEC §3.9, §3.10: `to` was boxed from `image`, so its blocks and debug info come from there.
+    // The new entry is built and rooted (all or nothing) before the old one lets go. Nothing here
+    // collects, so `to` and the text stay valid until they are in the rooted slots.
+    try {
+      auto moved = std::make_unique<Session::MethodSource>();
+      moved->method = to;
+      moved->text = entry->text;
+      moved->sourceOffset = entry->sourceOffset;
+      attachBlocks(*s, *moved, image);
+      rootEntry(s->roots, *moved);
+      unrootEntry(s->roots, *entry);
+      entry = std::move(moved);
+    } catch (const std::bad_alloc&) {
+      // Without the memory the entry still moves, with its text only. None of this allocates.
+      for (auto it = entry->blocks.rbegin(); it != entry->blocks.rend(); ++it) {
+        s->roots.remove(&*it);
+      }
+      entry->blocks.clear();
+      entry->debug.reset();
+      entry->method = to;
+    }
+    return true;
   }
   return false;
 }
@@ -1554,12 +1558,16 @@ class DebugEntry {
     clearUnwinding(ctx);
     refreshStackLimit(ctx);
     ctx.debug = nullptr;
+    ++g_debugEntries;
   }
   ~DebugEntry() {
     CallContext& ctx = *s_.ctx;
     clearUnwinding(ctx);
     s_.heap.clearOutOfMemory();
-    ctx.debug = g_debugCapture ? &s_ : nullptr;
+    // The capture setting as the ABI last set it; a hook may have changed it meanwhile.
+    if (--g_debugEntries == 0) {
+      ctx.debug = g_debugCapture ? &s_ : nullptr;
+    }
   }
   DebugEntry(const DebugEntry&) = delete;
   DebugEntry& operator=(const DebugEntry&) = delete;

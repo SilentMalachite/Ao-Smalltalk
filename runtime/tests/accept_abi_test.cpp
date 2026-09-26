@@ -3,6 +3,8 @@
 #include "../src/Session.hpp"
 #include "ao/Bootstrap.hpp"
 #include "ao/CompiledMethod.hpp"
+#include "ao/Compiler.hpp"
+#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/MethodDictionary.hpp"
 
@@ -2872,7 +2874,7 @@ TEST(AcceptAbi, ReacceptDropsOldMethodAndItsBlocks) {
 }
 
 // SPEC §3.9, §3.10: a shape change moves the entry to the recompiled method and puts its newly
-// boxed blocks in, in the same preorder. The debug info stays as it was.
+// boxed blocks in, in the same preorder. The spans are the same source's, so they read the same.
 TEST(AcceptAbi, ReshapeKeepsBlockPcMaps) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   AoSpan err{};
@@ -2889,7 +2891,6 @@ TEST(AcceptAbi, ReshapeKeepsBlockPcMaps) {
     const ao::DebugInfoRef before = ao::debugInfoFor(oldInner.slot);
     ASSERT_TRUE(before);
     const std::vector<ao::compiler::PcSpan> spans = before.body->pcMap;
-    const std::shared_ptr<const ao::DebugInfo> info = before.source->debug;
     const std::size_t slotsBefore = ao::methodSourceRootSlots().size();
 
     ASSERT_EQ(AO_OK,
@@ -2905,7 +2906,6 @@ TEST(AcceptAbi, ReshapeKeepsBlockPcMaps) {
     const ao::DebugInfoRef after = ao::debugInfoFor(blocks[1]);
     ASSERT_TRUE(after);
     EXPECT_EQ(moved, after.source->method);
-    EXPECT_EQ(info, after.source->debug);
     ASSERT_EQ(spans.size(), after.body->pcMap.size());
     for (std::size_t i = 0; i < spans.size(); ++i) {
       EXPECT_EQ(spans[i].pc, after.body->pcMap[i].pc);
@@ -2919,5 +2919,146 @@ TEST(AcceptAbi, ReshapeKeepsBlockPcMaps) {
   char out[64];
   ASSERT_EQ(AO_OK, ao_eval("P10Shape new run", 16, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
   EXPECT_STREQ("6", out);
+  ao_runtime_shutdown();
+}
+
+namespace {
+
+// The bodies of `image` in the source table's order: the method, then its blocks in preorder over
+// the literals.
+void p10Bodies(const ao::compiler::MethodImage& image,
+               std::vector<const ao::compiler::MethodImage*>& out) {
+  out.push_back(&image);
+  for (const auto& lit : image.literals) {
+    if (lit.kind == ao::compiler::LitKind::Method && lit.method != nullptr) {
+      p10Bodies(*lit.method, out);
+    }
+  }
+}
+
+}  // namespace
+
+// SPEC §3.9, §3.10: the moved entry's debug info is built from the recompiled method's compile
+// result, not carried over from the old entry: each body's spans and temps are those of compiling
+// the source in the new shape.
+TEST(AcceptAbi, ReshapeTakesDebugInfoFromRecompiledImage) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "P10Fresh", "x", "P10-Test").c_str(), &err))
+      << err.message;
+  const char* src = "run\n  | t |\n  x := 5.\n  t := 1.\n  ^[:y | [:z | z + x + t] value: y] value: 1\n";
+  ASSERT_EQ(AO_OK, ao_accept_method("P10Fresh", 0, src, &err)) << err.message;
+  const ao::DebugInfoRef before = ao::debugInfoFor(p10Method("P10Fresh", "run"));
+  ASSERT_TRUE(before);
+  const std::shared_ptr<const ao::DebugInfo> old = before.source->debug;
+
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "P10Fresh", "w x", "P10-Test").c_str(), &err))
+      << err.message;
+  const ao::Oop moved = p10Method("P10Fresh", "run");
+  ASSERT_EQ(2u, p10Blocks(moved).size());
+  const ao::DebugInfoRef after = ao::debugInfoFor(moved);
+  ASSERT_TRUE(after);
+  EXPECT_NE(old, after.source->debug);
+
+  ao::compiler::CompileEnv env;
+  env.instVarNames = {"w", "x"};
+  const ao::compiler::CompileResult cr = ao::compiler::compileMethod(src, env);
+  ASSERT_TRUE(cr.ok) << cr.error.message;
+  std::vector<const ao::compiler::MethodImage*> bodies;
+  p10Bodies(cr.image, bodies);
+  const std::vector<ao::MethodDebugInfo>& got = after.source->debug->bodies;
+  ASSERT_EQ(bodies.size(), got.size());
+  for (std::size_t k = 0; k < bodies.size(); ++k) {
+    ASSERT_EQ(bodies[k]->pcMap.size(), got[k].pcMap.size()) << k;
+    for (std::size_t i = 0; i < got[k].pcMap.size(); ++i) {
+      EXPECT_EQ(bodies[k]->pcMap[i].pc, got[k].pcMap[i].pc);
+      EXPECT_EQ(bodies[k]->pcMap[i].start, got[k].pcMap[i].start);
+      EXPECT_EQ(bodies[k]->pcMap[i].end, got[k].pcMap[i].end);
+    }
+    ASSERT_EQ(bodies[k]->temps.size(), got[k].temps.size()) << k;
+    for (std::size_t i = 0; i < got[k].temps.size(); ++i) {
+      EXPECT_EQ(bodies[k]->temps[i].name, got[k].temps[i].name);
+      EXPECT_EQ(bodies[k]->temps[i].kind, got[k].temps[i].kind);
+      EXPECT_EQ(bodies[k]->temps[i].slot, got[k].temps[i].slot);
+      EXPECT_EQ(bodies[k]->temps[i].vecIndex, got[k].temps[i].vecIndex);
+    }
+  }
+  char out[64];
+  ASSERT_EQ(AO_OK, ao_eval("P10Fresh new run", 16, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10: an entry's root slots go in all or nothing. When the slot table cannot grow halfway
+// through, the method keeps no entry, no slot is left pointing into the dropped entry, and nothing
+// escapes, so ao_accept_method answers AO_OK for the method it installed.
+TEST(AcceptAbi, SourceEntryRootsAllOrNothing) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "P10Oom", "", "P10-Test").c_str(), &err))
+      << err.message;
+  const char* src = "run\n  ^[:x | [:y | y + 1] value: x] value: 1\n";
+  ASSERT_EQ(AO_OK, ao_accept_method("P10Oom", 0, src, &err)) << err.message;
+  {
+    ao::Session& s = *ao::session();
+    ao::Root method(s.roots, p10Method("P10Oom", "run"));
+    ao::Root text(s.roots, ao::Oop::nil());
+    {
+      const ao::DebugInfoRef info = ao::debugInfoFor(method.slot);
+      ASSERT_TRUE(info);
+      text.slot = info.source->text;
+    }
+    const ao::compiler::CompileResult cr = ao::compiler::compileMethod(src, {});
+    ASSERT_TRUE(cr.ok) << cr.error.message;
+    const std::size_t others = s.roots.counts().slots - ao::methodSourceRootSlots().size();
+    // The entry goes out and back in; the second of its four slots cannot be registered.
+    s.roots.failSlotGrowthForTesting(1);
+    EXPECT_NO_THROW(ao::rememberMethodSource(method.slot, text.slot, ao::Oop{}, &cr.image));
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    EXPECT_FALSE(ao::debugInfoFor(method.slot));
+    std::string kept;
+    EXPECT_FALSE(ao::methodSource(method.slot, kept));
+    EXPECT_EQ(others, s.roots.counts().slots - ao::methodSourceRootSlots().size());
+    ao::Gc gc(s.heap, s.roots);
+    gc.collectNursery();
+    gc.collectOld();
+    EXPECT_EQ(p10Method("P10Oom", "run"), method.slot);
+  }
+  char out[64];
+  ASSERT_EQ(AO_OK, ao_eval("P10Oom new run", 14, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("2", out);
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10: a shape change's move without the memory for the new block slots moves the source
+// only (no blocks, no debug info); no slot is left half registered.
+TEST(AcceptAbi, MoveSourceWithoutMemoryKeepsTextOnly) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "P10OomMove", "", "P10-Test").c_str(),
+                                   &err))
+      << err.message;
+  const char* src = "run\n  ^[:x | [:y | y + 1] value: x] value: 1\n";
+  ASSERT_EQ(AO_OK, ao_accept_method("P10OomMove", 0, src, &err)) << err.message;
+  {
+    ao::Session& s = *ao::session();
+    ao::Root method(s.roots, p10Method("P10OomMove", "run"));
+    const ao::compiler::CompileResult cr = ao::compiler::compileMethod(src, {});
+    ASSERT_TRUE(cr.ok) << cr.error.message;
+    const std::size_t others = s.roots.counts().slots - ao::methodSourceRootSlots().size();
+    s.roots.failSlotGrowthForTesting(1);
+    EXPECT_TRUE(ao::moveMethodSource(method.slot, method.slot, cr.image));
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    std::string kept;
+    ASSERT_TRUE(ao::methodSource(method.slot, kept));
+    EXPECT_EQ(src, kept);
+    EXPECT_FALSE(ao::debugInfoFor(method.slot));
+    EXPECT_EQ(others, s.roots.counts().slots - ao::methodSourceRootSlots().size());
+    EXPECT_EQ(2u, ao::methodSourceRootSlots().size());
+    ao::Gc gc(s.heap, s.roots);
+    gc.collectNursery();
+    gc.collectOld();
+  }
   ao_runtime_shutdown();
 }
