@@ -311,7 +311,14 @@ bool stopOrAbort(CallContext& ctx, std::string_view reason, bool proceedable) {
   if (ctx.scheduler != nullptr && ctx.scheduler->canHalt(ctx)) {
     std::string text;
     try {
-      text.assign(reason);
+      // SPEC §3.3: a NUL byte becomes the two characters \0, as abortReasonText writes it.
+      for (const char c : reason) {
+        if (c == '\0') {
+          text += "\\0";
+        } else {
+          text += c;
+        }
+      }
     } catch (const std::bad_alloc&) {
       abortEvaluation(ctx, "out of memory");
       return false;

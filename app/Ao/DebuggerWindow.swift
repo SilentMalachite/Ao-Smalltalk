@@ -171,6 +171,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   private var inspectReceived = false
   // nonisolated(unsafe): deinit, which is nonisolated, reads it once nothing else can.
   nonisolated(unsafe) private var closeObserver: (any NSObjectProtocol)?
+  nonisolated(unsafe) private var keyObserver: (any NSObjectProtocol)?
 
   var title: String {
     window.title
@@ -279,6 +280,19 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
         self?.windowWillClose(onClose)
       }
     }
+    // SPEC §3.9: a live Debugger's process may end elsewhere (a terminate from another Do it);
+    // the buttons follow when the window comes back to the front.
+    if pid != 0 {
+      keyObserver = NotificationCenter.default.addObserver(
+        forName: NSWindow.didBecomeKeyNotification,
+        object: window,
+        queue: nil
+      ) { [weak self] _ in
+        MainActor.assumeIsolated {
+          self?.updateButtons()
+        }
+      }
+    }
     Self.live.add(self)
     applyFont()
     frameTable.reloadData()
@@ -292,6 +306,9 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   deinit {
     if let closeObserver {
       NotificationCenter.default.removeObserver(closeObserver)
+    }
+    if let keyObserver {
+      NotificationCenter.default.removeObserver(keyObserver)
     }
   }
 
@@ -324,11 +341,12 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       return ("", "", "")
     }
     let name = row == 0 ? "self" : frames[selectedFrame].tempNames[row - 1]
-    if let cached = values[row] {
-      return (name, cached.className, cached.value)
-    }
+    // Before the cache: a value of a process that is gone (terminated elsewhere) is not shown.
     guard readable() else {
       return (name, "", "-")
+    }
+    if let cached = values[row] {
+      return (name, cached.className, cached.value)
     }
     let read = printValue(frame: Int32(selectedFrame), temp: Int32(row - 1))
     guard let read else {
@@ -450,6 +468,9 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   // What it shows can still be read: the snapshot of its generation, or its halted process.
   private func readable() -> Bool {
     guard ao_debug_select(pid) == Int32(AO_OK) else {
+      if isLive {
+        updateButtons()
+      }
       return false
     }
     return isLive ? !finished : ao_debug_generation() == generation
@@ -655,6 +676,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       NotificationCenter.default.removeObserver(closeObserver)
     }
     closeObserver = nil
+    if let keyObserver {
+      NotificationCenter.default.removeObserver(keyObserver)
+    }
+    keyObserver = nil
   }
 }
 

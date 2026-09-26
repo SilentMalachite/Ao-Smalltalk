@@ -341,6 +341,7 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   frame.sendReceiver = &rcvr.slot;
   frame.sendArgs = argp;
   frame.sendArgc = argc;
+  const std::uint32_t proceeds = ctx.haltProceeds;
   Oop result;
   if (isSuper) {
     const Oop methodClass = ctx.heap.slotAt(frame.method, kCmSlotMethodClass);
@@ -351,8 +352,10 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   // SPEC §3.3: an empty result is a failure, never a value on the stack. Unless the frames are
   // unwinding already, it aborts with the selector as the reason (sel is rooted). The send is
   // still in flight for that abort's capture. SPEC §3.13: a live debugger halts here instead, and
-  // Proceed makes nil the send's value.
-  if (result.isEmpty() && !unwinding(ctx) && stopFailedSend(ctx, sel.slot)) {
+  // Proceed makes nil the send's value. A native that fails after a halt in it was proceeded
+  // (its error: answered nil) answers nil too, without halting again.
+  if (result.isEmpty() && !unwinding(ctx) &&
+      (ctx.haltProceeds != proceeds || stopFailedSend(ctx, sel.slot))) {
     result = Oop::nil();
   }
   frame.sendReceiver = nullptr;
@@ -420,8 +423,15 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
       break;
   }
   // Not while an abort unwinds or its cleanups run: the mark stays for later.
-  if (!reached || ctx.scheduler == nullptr || !ctx.scheduler->canHalt(ctx)) {
+  if (!reached || ctx.scheduler == nullptr || ctx.aborting || ctx.abortSetAside > 0 ||
+      ctx.abandoning) {
     return true;
+  }
+  if (!ctx.scheduler->canHalt(ctx)) {
+    // SPEC §3.13: too many halted processes: it aborts, as a failure that cannot halt does.
+    ctx.stepMode = StepMode::None;
+    abortEvaluation(ctx, reason);
+    return false;
   }
   return ctx.scheduler->halt(ctx, reason, true);
 }

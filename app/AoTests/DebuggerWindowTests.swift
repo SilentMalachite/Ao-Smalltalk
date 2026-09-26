@@ -469,6 +469,41 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertFalse(debugger.window.isVisible)
   }
 
+  // The text changed while halted: the Print it goes to a character boundary, not inside a pair.
+  func testProceedAfterEditInsertsAtCharacterBoundary() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let workspace = workspace("self halt. 42")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    workspace.replaceText("😀😀😀😀😀😀😀")
+    button("Proceed", in: debugger)?.performClick(nil)
+    XCTAssertEqual(workspace.text, "😀😀😀😀😀😀😀42")
+  }
+
+  // A process terminated elsewhere: its live Debugger shows no values and disables its buttons.
+  func testProcessTerminatedElsewhereDisablesDebugger() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let workspace = workspace("| a | p := Processor activeProcess. a := 5. self halt. a")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    XCTAssertEqual(debugger.variable(at: 0).value, "nil")
+    workspace.replaceText("p terminate")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+    XCTAssertEqual(debugger.variable(at: 0).value, "-")
+    XCTAssertTrue(debugger.buttons.allSatisfy { !$0.isEnabled })
+  }
+
   // MARK: - helpers
 
   private static let outerSource = "outer: x\n  | y |\n  y := x.\n  ^self inner: y"

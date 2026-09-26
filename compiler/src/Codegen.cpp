@@ -924,6 +924,14 @@ class Emitter {
     if (failed_) {
       return;
     }
+    if (n.kind == Ast::Kind::Sequence) {
+      // Its statements start where they do; the sequence itself emits nothing (it may be empty).
+      mark(n.span);
+      for (const Ast& k : n.kids) {
+        compileStmt(k);
+      }
+      return;
+    }
     markStatement(n.span);
     if (n.kind == Ast::Kind::Return) {
       compileReturn(n, real_->isBlock);
@@ -931,12 +939,6 @@ class Emitter {
     }
     if (n.kind == Ast::Kind::Assign) {
       compileAssign(n, true);
-      return;
-    }
-    if (n.kind == Ast::Kind::Sequence) {
-      for (const Ast& k : n.kids) {
-        compileStmt(k);
-      }
       return;
     }
     compileExpr(n);

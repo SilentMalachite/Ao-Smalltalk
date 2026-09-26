@@ -460,7 +460,16 @@ final class WorkspaceWindow {
       status = Int32(AO_OK)
       output = whole
     }
-    let end = min(NSMaxRange(range), (textView.string as NSString).length)
+    // The text may have changed meanwhile: the end of the range, kept inside the text and out of
+    // a composed character (a surrogate pair, say).
+    let text = textView.string as NSString
+    var end = min(NSMaxRange(range), text.length)
+    if end > 0, end < text.length {
+      let composed = text.rangeOfComposedCharacterSequence(at: end)
+      if composed.location < end {
+        end = NSMaxRange(composed)
+      }
+    }
     show(
       (status, output, outcome.message, AoSpan()),
       mode: mode,

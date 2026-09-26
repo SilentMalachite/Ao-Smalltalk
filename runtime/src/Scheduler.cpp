@@ -43,9 +43,20 @@ std::int64_t ocSize(Heap& heap, Oop oc) {
   return l < f ? 0 : l - f + 1;
 }
 
+// SPEC §3.13: the scheduler's own sends (its lists) never halt the process that runs them: a
+// halt there would leave a list and the C++ queue half updated.
+struct NoHalt {
+  CallContext& ctx;
+  explicit NoHalt(CallContext& c) : ctx(c) { ++ctx.haltSuppressed; }
+  ~NoHalt() { --ctx.haltSuppressed; }
+  NoHalt(const NoHalt&) = delete;
+  NoHalt& operator=(const NoHalt&) = delete;
+};
+
 // Sends add: (the Kernel native). May collect; unwinding afterwards when it failed, and then the
 // collection is as it was.
 Oop ocAdd(CallContext& ctx, Oop oc, Oop value) {
+  const NoHalt noHalt(ctx);
   Root list(ctx.roots, oc);
   Root v(ctx.roots, value);
   Root sel(ctx.roots, ctx.wk.intern("add:"));
@@ -174,6 +185,7 @@ bool ocRemoveIdentity(Heap& heap, Oop oc, Oop target) {
 // The OrderedCollection in holder's slot, made (OrderedCollection new) when the slot holds
 // something else. Empty when holder has no such slot, or when making one failed (unwinding).
 Oop ensureOc(CallContext& ctx, Root& holder, std::uint32_t slot) {
+  const NoHalt noHalt(ctx);
   if (!hasSlots(ctx.heap, holder.slot, slot)) {
     return Oop{};
   }
@@ -503,8 +515,8 @@ bool Scheduler::runningEval() const { return current_->isEval; }
 bool Scheduler::canHalt(const CallContext& ctx) const {
   const Record& me = *current_;
   return me.isEval && me.id == awaited_ && me.ctx == &ctx && !ctx.aborting && !ctx.abandoning &&
-         ctx.abortSetAside == 0 && !me.abandon && !me.terminateRequested &&
-         haltedCount() < kMaxHalted;
+         ctx.abortSetAside == 0 && ctx.haltSuppressed == 0 && !me.abandon &&
+         !me.terminateRequested && haltedCount() < kMaxHalted;
 }
 
 bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
@@ -523,7 +535,11 @@ bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   switchTo(b);
   me.haltReason.clear();
   me.proceedable = false;
-  return afterResume(ctx, me);
+  if (!afterResume(ctx, me)) {
+    return false;
+  }
+  ++ctx.haltProceeds;
+  return true;
 }
 
 std::size_t Scheduler::haltedCount() const {

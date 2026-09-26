@@ -126,6 +126,12 @@ struct CallContext {
   // innermost interpreted frame when it halted. This process's own: never copied.
   StepMode stepMode = StepMode::None;
   std::uint32_t stepDepth = 0;
+  // SPEC §3.13: halts of this process that were proceeded (a count that only grows). A send in
+  // whose course one was proceeded answers nil when it then fails, instead of halting again.
+  std::uint32_t haltProceeds = 0;
+  // While > 0 this process does not halt (the scheduler updating its own lists): a failure
+  // aborts as without a debugger.
+  std::uint32_t haltSuppressed = 0;
   // Tells the step where statements start. The scheduler copies the base's into each fiber's.
   StatementHook statementHook = nullptr;
 };

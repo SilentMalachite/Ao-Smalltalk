@@ -282,4 +282,8 @@ TEST(PcMap, StatementPcsListEveryStatementStart) {
   ASSERT_TRUE(d.ok) << d.error.message;
   EXPECT_EQ(3u, d.image.statementPcs.size());
   EXPECT_TRUE(strictlyAscending(d.image.statementPcs));
+  // An empty inlined block has no statement; its loop's increment is none either.
+  const auto e = compileMethod("doIt\n1 to: 3 do: [:i | ]. 4", env);
+  ASSERT_TRUE(e.ok) << e.error.message;
+  EXPECT_EQ(2u, e.image.statementPcs.size());
 }

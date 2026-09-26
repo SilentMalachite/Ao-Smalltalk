@@ -1134,4 +1134,53 @@ TEST_F(DebugAbi, DebugItOutsideLiveModeIsRefused) {
   EXPECT_STREQ("nil", out_);
 }
 
+// ---- Review fixes (Codex) ----
+
+// SPEC §3.13: the scheduler's own list updates do not halt; a failure there aborts and leaves the
+// ready queue consistent, so a later terminate is safe.
+TEST_F(LiveProceed, SchedulerListFailureAbortsInsteadOfHalting) {
+  ASSERT_EQ(AO_OK, doIt("p := [1] fork. p suspend"));
+  ASSERT_EQ(AO_ERR_EVAL, doIt("q := Processor instVarAt: 1. q instVarAt: 2 put: 0. p resume"));
+  EXPECT_EQ(0, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, doIt("q instVarAt: 2 put: 1. p terminate"));
+  ASSERT_EQ(AO_OK, printIt("3 + 4"));
+  EXPECT_STREQ("7", out_);
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+}
+
+// SPEC §3.13: after Proceed from a native's failure with a message, the native's own failure
+// mark does not halt again: the send answers nil.
+TEST_F(LiveProceed, ProceedFromNativeFailureDoesNotHaltAgain) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("s := Semaphore new. s instVarAt: 1 put: 4611686018427387903. "
+                                 "s signal"));
+  EXPECT_STREQ("signal: excess signals out of range", err_.message);
+  ASSERT_EQ(AO_OK, proceed(ao_debug_halted_pid())) << err_.message;
+  EXPECT_STREQ("nil", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+}
+
+// SPEC §3.13: Debug it with eight processes halted aborts before running anything.
+TEST_F(LiveStep, DebugItPastTheHaltLimitAborts) {
+  for (int k = 0; k < 8; ++k) {
+    ASSERT_EQ(AO_ERR_HALT, doIt("self halt")) << k;
+  }
+  err_ = AoSpan{};
+  const char* src = "x := 1";
+  EXPECT_EQ(AO_ERR_EVAL, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DEBUGIT, out_,
+                                 sizeof out_, &err_));
+  EXPECT_STREQ("debug it", err_.message);
+  EXPECT_EQ(8, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, printIt("x"));
+  EXPECT_STREQ("nil", out_);
+}
+
+// SPEC §3.3: a halt's reason writes a NUL byte as \0, as an abort's does.
+TEST_F(LiveDebug, HaltReasonEscapesNul) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("nil error: ((String new: 3) at: 1 put: $a; at: 3 put: $b; "
+                              "yourself)"));
+  EXPECT_STREQ("a\\0b", err_.message);
+  selectHalted();
+  EXPECT_EQ("a\\0b", reason());
+}
+
 }  // namespace
