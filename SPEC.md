@@ -1437,7 +1437,7 @@ P10 は事後（post-mortem）デバッガである。失敗は今までどお�
 - 最内の解釈フレームに進行中の送信があり、その送信の探索（§3.3。割り当てずに引く）がネイティブに当たれば、そのネイティブを種類 2 のフレームとして最内に合成する。receiver と引数は進行中の送信のものである。
 - 探索がセレクタに当たらなければ（DNU）、method の無い種類 2 のフレームを最内に合成する。
 - 探索が CompiledMethod に当たれば（スタックガードの abort。§3.4）、合成しない。最内は、進行中の送信のある呼び出し元である。
-- 例: `nil foo` の最内は `#foo (doesNotUnderstand:)`、次が `doIt` である。`#(1 2) at: 5` の最内は `ArrayedCollection>>at: native …`（`at:` は ArrayedCollection のネイティブ）、次の `doIt` で `at: 5` の送信を選択する。
+- 例: `nil foo` の最内は `#foo (doesNotUnderstand:)`、次が `doIt` である。`#(1 2) at: 5` の最内は `ArrayedCollection>>at: native …`（`at:` は ArrayedCollection のネイティブ）、次の `doIt` で送信全体（`#(1 2) at: 5`）を選択する。
 
 #### P11 ライブデバッガの設計判断
 
@@ -1610,17 +1610,17 @@ v1 は次をすべて満たす。
 
 ### デバッガ
 
-P10（§3.13）は次をすべて満たす。上の v1 の項目は変えない。
+P10（§3.13）は次をすべて満たす。上の v1 の項目は変えない。どの項目も自動テストで確かめた（2026-09-26。対応するテストは `docs/phases/P10.md`）。`Ao.app` を手で操作する確認は `docs/phases/P10.md` の「手動確認」に残る。
 
-- [ ] Workspace で `nil foo` の Do it → Debug で、最内が `#foo (doesNotUnderstand:)`、次が doIt で `nil foo` が選択される
-- [ ] `#(1 2) at: 5` → 最内が `ArrayedCollection>>at: native …`、次の doIt で `at: 5` が選択される
-- [ ] `#(1 2) do: [:e | e foo]` → `[] in` フレームの variables に `e` が値付きで見える。ダブルクリックで Inspector が開く
-- [ ] `self halt` → 理由 `halt` で捕捉され、Debug が出る
-- [ ] Browser で Accept したメソッドの中の失敗 → そのメソッドのソースで失敗した送信が選択される。vendor メソッドの中の失敗 → プレースホルダで選択なし
-- [ ] 次の Do it でスナップショットが消え、開いていた Debugger の Inspect は何もしない
-- [ ] `ao --test image/tests` と CLI は変わらない（捕捉は既定オフ）
-- [ ] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
-- [ ] この小節がすべて `[x]`、`PHASE` は `P10`、CHANGELOG の `[Unreleased]` に項目
+- [x] Workspace で `nil foo` の Do it → Debug で、最内が `#foo (doesNotUnderstand:)`、次が doIt で `nil foo` が選択される
+- [x] `#(1 2) at: 5` → 最内が `ArrayedCollection>>at: native …`、次の doIt で送信全体の `#(1 2) at: 5` が選択される
+- [x] `#(1 2) do: [:e | e foo]` → `[] in` フレームの variables に `e` が値付きで見える。ダブルクリックで Inspector が開く
+- [x] `self halt` → 理由 `halt` で捕捉され、Debug が出る
+- [x] Browser で Accept したメソッドの中の失敗 → そのメソッドのソースで失敗した送信が選択される。vendor メソッドの中の失敗 → プレースホルダで選択なし
+- [x] 次の Do it でスナップショットが消え、開いていた Debugger の Inspect は何もしない
+- [x] `ao --test image/tests` と CLI は変わらない（捕捉は既定オフ）
+- [x] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
+- [x] この小節がすべて `[x]`、`PHASE` は `P10`、CHANGELOG の `[Unreleased]` に項目
 
 ---
 
