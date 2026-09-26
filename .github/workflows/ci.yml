@@ -1,0 +1,36 @@
+# SPEC §4.5: every push to main and every pull request to main runs scripts/test.sh
+# (ctest, including the Kernel scan, and swift test) on an Apple Silicon macOS runner.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (macOS arm64)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Ninja
+        run: brew list ninja >/dev/null 2>&1 || brew install ninja
+      - name: Show toolchain
+        run: |
+          uname -m
+          sw_vers
+          cmake --version | head -1
+          ninja --version
+          swift --version
+      - name: Test
+        run: ./scripts/test.sh
