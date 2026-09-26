@@ -57,9 +57,10 @@ class WellKnown {
   // global (SPEC §3.6).
   static bool isPseudoVariableName(std::string_view name);
   bool rebind(std::string_view name, Oop cls);
-  // Grows whenever define or rebind changes the global names, so caches of them can tell.
+  // Grows whenever define, rebind or undefine changes the global names, so caches of them can tell.
   std::uint64_t globalsVersion() const { return globalsVersion_; }
-  // The classes Smalltalk binds, in the order they were bound (an alias again); before
+  // The classes Smalltalk binds, in pair order (the order they were bound, except where a bind
+  // reused a pair undefine emptied; an alias again); before
   // Globals::install, the catalog's. fn must not collect or bind a global: the walk reads
   // Smalltalk's pair array as raw Oops (Globals::each), which a collection would move and a bind
   // could replace.

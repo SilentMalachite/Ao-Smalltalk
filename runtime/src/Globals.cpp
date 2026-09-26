@@ -80,7 +80,8 @@ namespace {
 constexpr std::uint32_t kFirstPairs = 64;
 
 // Binds key to value in dict, which has Smalltalk's shape. A full array doubles; a new pair takes
-// the first empty one, so the pairs stay in the order they were bound. The tally is recounted.
+// the first empty one, so the pairs keep the order they were bound until an unbind empties one
+// before the end: the next bind lands there, out of that order. The tally is recounted.
 // Does not GC.
 bool bindIn(WellKnown& wk, Oop dict, Oop key, Oop value) {
   if (!key.isHeap()) {
