@@ -43,6 +43,69 @@ func configureSourceEditing(_ textView: NSTextView) {
   textView.smartInsertDeleteEnabled = false
 }
 
+/// SPEC §3.9 文字の大きさ: the Transcript, the Workspace and the Browser's source pane share one
+/// text size, kept as the points added to the default size of their font.
+@MainActor
+enum ToolTextSize {
+  private static let offsetKey = "AoTextSizeOffset"
+  private static let offsets = -4...24
+
+  // A value written outside the app is held to the range too.
+  static var offset: Int {
+    clamped(UserDefaults.standard.integer(forKey: offsetKey))
+  }
+
+  // A step past either end of the range leaves the offset at that end.
+  static func step(by points: Int) {
+    UserDefaults.standard.set(clamped(offset + points), forKey: offsetKey)
+  }
+
+  static func reset() {
+    UserDefaults.standard.removeObject(forKey: offsetKey)
+  }
+
+  static func font(fixedPitch: Bool) -> NSFont? {
+    let base = fixedPitch ? NSFont.userFixedPitchFont(ofSize: 0) : NSFont.userFont(ofSize: 0)
+    guard let base, offset != 0 else {
+      return base
+    }
+    let size = base.pointSize + CGFloat(offset)
+    return fixedPitch ? NSFont.userFixedPitchFont(ofSize: size) : NSFont.userFont(ofSize: size)
+  }
+
+  private static func clamped(_ value: Int) -> Int {
+    min(max(value, offsets.lowerBound), offsets.upperBound)
+  }
+}
+
+/// SPEC §3.9 文字の大きさ: keeps one font over a plain text view. Setting the view's font changes
+/// the text already there; characters that come in later with no font or an old one (Print it
+/// into empty text, undo of an edit made at another size) get it as the storage processes them.
+/// It is set before the storage fixes its attributes, so characters the font has no glyphs for
+/// (Japanese in Helvetica) still get a face that has them, at the same size.
+final class UniformFont: NSObject, NSTextStorageDelegate {
+  private var font: NSFont?
+
+  @MainActor
+  func apply(_ font: NSFont, to textView: NSTextView) {
+    self.font = font
+    textView.textStorage?.delegate = self
+    textView.font = font
+  }
+
+  func textStorage(
+    _ textStorage: NSTextStorage,
+    willProcessEditing editedMask: NSTextStorageEditActions,
+    range editedRange: NSRange,
+    changeInLength delta: Int
+  ) {
+    guard editedMask.contains(.editedCharacters), editedRange.length > 0, let font else {
+      return
+    }
+    textStorage.addAttribute(.font, value: font, range: editedRange)
+  }
+}
+
 @MainActor
 func makeToolTextWindow(title: String, frame: NSRect, editable: Bool) -> (window: NSWindow, textView: NSTextView) {
   _ = NSApplication.shared
@@ -180,11 +243,9 @@ final class TranscriptWindow {
     applyFont()
   }
 
-  private func applyFont() {
-    let font = useFixedPitch
-      ? NSFont.userFixedPitchFont(ofSize: 0)
-      : NSFont.userFont(ofSize: 0)
-    guard let font else {
+  // Also run when the text size changes (SPEC §3.9 文字の大きさ).
+  func applyFont() {
+    guard let font = ToolTextSize.font(fixedPitch: useFixedPitch) else {
       return
     }
     textView.font = font

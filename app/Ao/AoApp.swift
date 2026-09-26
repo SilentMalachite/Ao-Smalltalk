@@ -91,6 +91,9 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       showTranscript: { self.launch?.transcript.orderFront() },
       showWorkspace: { self.launch?.workspace.orderFront() },
       toggleFixedPitch: { item in self.toggleFixedPitch(item) },
+      makeTextBigger: { self.resizeText { ToolTextSize.step(by: 1) } },
+      makeTextSmaller: { self.resizeText { ToolTextSize.step(by: -1) } },
+      showActualSize: { self.resizeText { ToolTextSize.reset() } },
       showHelp: { self.showVersion() }
     )
     let menu = MainMenu.build(actions: actions)
@@ -183,6 +186,14 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     }
     transcript.useFixedPitch.toggle()
     item.state = transcript.useFixedPitch ? .on : .off
+  }
+
+  // SPEC §3.9 文字の大きさ: the open Transcript, Workspace and Browser take the new size at once.
+  private func resizeText(_ change: () -> Void) {
+    change()
+    launch?.transcript.applyFont()
+    launch?.workspace.applyFont()
+    browser?.applyFont()
   }
 
   private func showVersion() {

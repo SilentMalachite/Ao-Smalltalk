@@ -190,6 +190,7 @@ final class WorkspaceWindow {
   let window: NSWindow
   let errorField: NSTextField
   private let textView: NSTextView
+  private let uniformFont = UniformFont()
   private var inspectors: [InspectorWindow] = []
   private var inspectClassName = ""
   private var inspectPrint = ""
@@ -238,7 +239,16 @@ final class WorkspaceWindow {
     textView = built.textView
     textView.setAccessibilityLabel("Workspace")
     errorField = installErrorField(on: built.window, textView: built.textView)
+    applyFont()
     window.makeKeyAndOrderFront(nil)
+  }
+
+  // SPEC §3.9 文字の大きさ: run at init and whenever the text size changes.
+  func applyFont() {
+    guard let font = ToolTextSize.font(fixedPitch: false) else {
+      return
+    }
+    uniformFont.apply(font, to: textView)
   }
 
   func orderFront() {

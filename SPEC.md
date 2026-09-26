@@ -857,7 +857,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 #### Transcript
 
 - グローバル `Transcript` への `show:` / `cr` / `nextPutAll:` / `clear` がこのウィンドウに出る。
-- フォントは可変幅可。等幅設定を用意する。
+- フォントは可変幅可。等幅設定を用意する。大きさは下の「文字の大きさ」に従う。
 - 起動時に 1 枚開く。閉じてもオブジェクトは生き、再表示できる。
 - 出力は差分で足し、全文を置き換えない。末尾へのスクロールは、評価のあとで 1 回だけ行う。
 - 文字はシステムの文字色（`NSColor.textColor`）で描き、ダークモードでも読めるようにする。等幅の設定を切り替えても色は変わらない。
@@ -898,10 +898,19 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 メニューバー:
 
 - Ao / File / Edit / Smalltalk / Tools / Window / Help
-- Tools: Browser, Transcript, Workspace
+- Tools: Browser, Transcript, Workspace, Use Fixed Pitch, Make Text Bigger（`⌘+`）, Make Text Smaller（`⌘-`）, Actual Size（`⌘0`）
 - Smalltalk: Do it, Print it, Inspect it, Accept
 
 アクセシビリティ: VoiceOver ラベルを主要コントロールに付ける。動的な過度なアニメーションを使わない。
+
+#### 文字の大きさ
+
+- Transcript の本文、Workspace の本文、Browser のソース枠は、文字の大きさを 1 つ共有する。Browser の一覧枠、エラー表示、Inspector はシステムの大きさのままにする。
+- 大きさは、フォントの既定の大きさに足すポイント数で持つ。既定の大きさは `NSFont.userFont(ofSize: 0)` の大きさ、Transcript が等幅なら `NSFont.userFixedPitchFont(ofSize: 0)` の大きさである。足す数の既定は 0、範囲は −4 から +24 である。
+- Tools → Make Text Bigger（`⌘+`）で 1 pt 大きく、Make Text Smaller（`⌘-`）で 1 pt 小さくする。範囲の端では変えない。Actual Size（`⌘0`）で 0 に戻す。
+- 変えると、開いている 3 つの枠の全文がすぐにその大きさになる。あとから足す文字も、あとで開くウィンドウも同じ大きさを使う。等幅を切り替えても足す数は変わらない。
+- 共有するのは大きさで、書体ではない。フォントに字形の無い文字（Helvetica の中の日本語など）は、字形を持つ書体（ヒラギノなど）で同じ大きさに描く。
+- 足す数は UserDefaults の `AoTextSizeOffset` に保存し、次の起動でも使う。Actual Size はこのキーを消す。
 
 #### クラス定義の再 Accept
 
@@ -1300,6 +1309,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - Transcript: 2 万行の出力が 10 秒以内に終わり、末尾が見える（`testTwentyThousandTranscriptLinesFinishWithinTenSecondsAndShowTheEnd`）、足した文字がシステムの文字色と今のフォントを持ち、等幅を切り替えても色が残る（`testTranscriptTextUsesSystemTextColorAfterAppendAndFixedPitchToggle`）
 - 起動と同梱（§3.9）: vendor の場所の選び方（`testVendorDirectoryPrefersEnvironmentOverBundleResources`）、読み込んだ行とクラス（`testVendorFileInWritesLoadedLineAndDefinesTimespan`）、見つからない行（`testMissingVendorWritesNotFoundLine`）
 - Tools メニュー: Tools → Browser で System Browser が開く（`testToolsBrowserMenuItemOpensSystemBrowser`）
+- 文字の大きさ（§3.9）: Tools の項目とキー（`testToolsMenuHasTextSizeItemsWithCommandKeys`）、3 つの枠への反映、あとで足す文字とあとで開くウィンドウ、等幅との組み合わせ、Actual Size（`testTextSizeMenuItemsResizeTranscriptWorkspaceAndBrowserSource`）、空の Workspace への Print it と、大きさを変える前の削除の Undo（`testPrintItIntoEmptyWorkspaceAndUndoAfterResizeUseCurrentSize`）、日本語の字形を持つ書体と大きさ（`testJapaneseTypedAfterResizeKeepsCoveringFontAtCurrentSize`）、範囲の端（`testTextSizeOffsetStopsAtRangeEnds`）
 - ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
 
 `scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。

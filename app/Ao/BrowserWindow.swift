@@ -12,6 +12,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private let protocolTable = NSTableView()
   private let selectorTable = NSTableView()
   private let sourceView: NSTextView
+  private let uniformFont = UniformFont()
   private let errorField: NSTextField
   private let sideControl: NSSegmentedControl
 
@@ -152,6 +153,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     holder.frame = band
     window.contentView = outer
 
+    applyFont()
     showInitialSelection()
     window.makeKeyAndOrderFront(nil)
   }
@@ -225,6 +227,14 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
 
   func replaceSource(_ value: String) {
     sourceView.string = value
+  }
+
+  // SPEC §3.9 文字の大きさ: the source pane only; the lists keep the system size.
+  func applyFont() {
+    guard let font = ToolTextSize.font(fixedPitch: false) else {
+      return
+    }
+    uniformFont.apply(font, to: sourceView)
   }
 
   func accept() {
