@@ -1,17 +1,17 @@
 # Graph Report - ao-smalltalk  (2026-09-26)
 
 ## Corpus Check
-- 291 files · ~288,918 words
+- 291 files · ~291,069 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 81 file(s) not represented in the graph (top: .st 65, (none) 13, .toml 1)
 
 ## Summary
-- 5596 nodes · 14608 edges · 304 communities (214 shown, 90 thin omitted)
-- Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 1700 edges (avg confidence: 0.83)
+- 5630 nodes · 14715 edges · 306 communities (216 shown, 90 thin omitted)
+- Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 1731 edges (avg confidence: 0.83)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b89dde7e`
+- Built from commit: `0033bbfe`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -23,7 +23,7 @@
 - Float.cpp
 - TEST
 - send
-- RealScope
+- Codegen.cpp
 - LargeInteger.cpp
 - Parser
 - Stream.cpp
@@ -33,16 +33,16 @@
 - Emitter
 - Scanner.cpp
 - DebuggerWindow
-- vector
+- image_save_load_test.cpp
 - TEST
 - Claude Review Fixes Plan (2026-09-23)
 - Oop
 - Heap
 - TEST
 - Boolean.cpp
-- BrowserWindow
+- AcceptTests
 - abi.cpp
-- Ao 実装文書 (docs/ index)
+- P6b — vendor file-in
 - WorkspaceWindow
 - TEST
 - Literal
@@ -51,18 +51,18 @@
 - Heap.cpp
 - DebugSnapshot
 - TEST
-- DefinitionScanner
+- BrowserWindow
 - TEST_F
-- Image::save
+- ImageSave.cpp
 - 横断テーマ3: 言語意味論の欠落(コンパイラ)
 - TEST
 - P1 — オブジェクトメモリ
-- Scheduler.cpp
-- Frame
+- .nil
+- TEST
 - TEST_F
 - TEST_F
 - CallContext
-- cstdint
+- string
 - ImageLoad.cpp
 - Scheduler
 - MethodDebugInfo
@@ -70,7 +70,7 @@
 - putNative
 - Session
 - SPEC.md (Product Specification)
-- classRows
+- Session.cpp
 - ToolWindowTests
 - .isHeap
 - Task 12: Browser accept, Hierarchy, VoiceOver, Close v1
@@ -83,22 +83,22 @@
 - Gc.cpp
 - VendorExtract.cpp
 - TEST
-- allocateRetry
+- .false_
 - Geometry.cpp
-- TEST
+- ao_eval
 - TEST
 - DiskHeader
 - collectNursery
-- CompileEnv
+- TEST
 - BlockContext.cpp
 - Roots
 - string
-- CallContext
+- size
 - TEST
-- ao_eval
+- TEST_F
 - Array.cpp
 - Scheduler::Record
-- AppKit
+- ClassPool.cpp
 - ChunkParser.cpp
 - FiberStack
 - SmallInteger.cpp
@@ -111,19 +111,19 @@
 - ImageFormat
 - DebugSnapshot.cpp
 - MethodSource
-- TEST
+- fiber_test.cpp
 - TEST
 - Process.cpp
 - NativeMethod.cpp
 - TEST
 - TEST
-- ImageHeader
+- DefinitionScanner
 - Roots.cpp
-- .isSmallInteger
+- HashedCollection.cpp
 - FiberStackBounds
 - P5 — コンパイラ
 - CountingSink
-- Bootstrap
+- send2
 - TEST
 - P9 — 統合
 - Deep
@@ -131,8 +131,8 @@
 - TEST
 - MainMenu
 - Ast
-- TEST
-- Session.cpp
+- .font
+- BrowserModelTests
 - Deferred vendor methods list
 - CLAUDE.md
 - native_method_test.cpp
@@ -140,7 +140,7 @@
 - TEST
 - P6b Vendor File-in Implementation Plan
 - Qiita-part2.md
-- string
+- KeptClass
 - VirtualRegion.cpp
 - Loaded
 - Phase Progression P0-P11
@@ -153,36 +153,36 @@
 - DebugSnapshot::capture (root-safe, no heap allocation)
 - TEST
 - P4 — Kernelネイティブ実装
-- reshapeClass
-- RootedArray
+- vector
+- GarbageFirstBoot
 - .isTrue
-- .nil
+- ClassDef
 - Abort / Evaluation Failure Propagation
 - Smalltalk-80 Blue Book
 - Fiber.cpp
-- send2
-- runFile
 - TEST
-- writeFile
+- clearUnwinding
+- TEST
+- CompileEnv
 - P10 — 事後デバッガ
 - FrameBlock
 - path
 - Token
 - Gc
-- Table
-- ClassMethodCache
-- B2: Block semantics and interpreter (shared temps, inlining)
+- P3 — ネイティブディスパッチ
+- P7 .aoimage Implementation Plan
+- B1: GC safety and old-space growth
 - C ABI Bridge (ao_abi.h)
 - Debugger (P10 Post-mortem)
 - TEST
-- Codegen.cpp
-- Image::load
+- specialIndex
+- TEST
 - PingPong
 - P11-04: Proceed / Abort
 - VendorClassFile
 - FiberRegs
 - P2 — ブートストラップ
-- P0-03: CMake + GoogleTest + CLI
+- Ao 実装文書 (docs/ index)
 - intern
 - StackPool
 - Character.cpp
@@ -193,7 +193,7 @@
 - Parsed
 - WellKnown::InternTable
 - TEST
-- PcSpan
+- InspectorWindow
 - P8–P9 Remaining Implementation Plan
 - FileSizeLimit
 - cli_test.sh
@@ -201,7 +201,7 @@
 - popFrame
 - KeptMethod
 - TestDir
-- ao_set_inspect_hook
+- Reentry
 - Metaclass Circularity (Blue Book Rules 6-10)
 - TEST
 - Roots::visitAll
@@ -211,10 +211,10 @@
 - answerOne
 - TDD Test Suites (SPEC section 4)
 - ao-smalltalk/AGENTS.md
-- P11-02: 評価プロセス
-- P11-05: Step into / over / out と Debug it
+- P8 — AppKit ツール
+- CompiledMethodNatives.cpp
 - .specialSelector
-- StringDoProbe
+- TEST
 - abortingNew
 - build.sh
 - Package.swift
@@ -303,25 +303,27 @@
 - Kernel Instance Variable Read-Only Rule
 - Message
 - MethodDictionary
-- Format.hpp
-- isClassShaped
-- InlineCache
-- BlockProbe
-- fileInLoadOrder
-- fillFullTable
-- P11-03: 止める、止まったプロセスのフレーム、保存の拒否
+- DebugFrames
+- native_send_test.cpp
+- P11-06: Debugger 窓の操作、Debug it、保存の拒否の警告
+- string
+- Dbg
+- TEST
+- debugFrameSource
 - Qiita-part1.md
-- valueHashFold
+- createBlock
 - ScopedGcStressEnv
 - TEST
-- ParseResult
-- .ptr
-- expectPrints
-- DepthGuard
-- NameBag
+- codegen
+- lookup_test.cpp
+- create
+- IgnoreFileSizeSignal
+- abortingSubclass
+- .turnRunLoop
+- SlotNames
 
 ## God Nodes (most connected - your core abstractions)
-1. `Oop` - 915 edges
+1. `Oop` - 920 edges
 2. `Heap` - 252 edges
 3. `vector` - 172 edges
 4. `WellKnown` - 167 edges
@@ -330,7 +332,7 @@
 7. `Boot` - 101 edges
 8. `TEST()` - 100 edges
 9. `TEST()` - 96 edges
-10. `Session` - 93 edges
+10. `Session` - 94 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `ao_Object_identityEquals Native Method` --semantically_similar_to--> `addNamed()`  [INFERRED] [semantically similar]
@@ -338,11 +340,11 @@
 - `Interfaces` --references--> `DebugFrames`  [INFERRED]
   docs/prs/P11-01.md → runtime/include/ao/DebugSnapshot.hpp
 - `手順` --references--> `sessionEval()`  [INFERRED]
-  docs/prs/P11-02.md → runtime/src/Session.cpp
-- `手順` --references--> `sessionEval()`  [INFERRED]
   docs/prs/P11-04.md → runtime/src/Session.cpp
 - `目的` --references--> `ao_eval()`  [INFERRED]
   docs/prs/P11-02.md → runtime/src/abi.cpp
+- `Files` --references--> `ao_eval()`  [INFERRED]
+  docs/prs/P11-04.md → runtime/src/abi.cpp
 
 ## Import Cycles
 - None detected.
@@ -376,7 +378,7 @@
 - **P10 デバッガフェーズの実装フロー（コンパイラ pc 表 → 捕捉 → セッション → ABI → GUI → 受け入れ）** — docs_prs_p10_02_doc, docs_prs_p10_03_doc, docs_prs_p10_04_doc, docs_prs_p10_05_doc, docs_prs_p10_06_doc, docs_prs_p10_07_doc [INFERRED 0.95]
 - **P3 メッセージ送信基盤パイプライン（Symbol intern → MethodDictionary → NativeMethod → lookup → send キャッシュ）** — docs_prs_p3_01_doc, docs_prs_p3_02_doc, docs_prs_p3_03_doc, docs_prs_p3_04_doc, docs_prs_p3_05_doc [INFERRED 0.95]
 
-## Communities (304 total, 90 thin omitted)
+## Communities (306 total, 90 thin omitted)
 
 ### Community 0 - "WellKnown"
 Cohesion: 0.01
@@ -384,59 +386,59 @@ Nodes (148): InternTable, Roots, unique_ptr, WellKnown, addRoots, arrayClass, ar
 
 ### Community 1 - ".fromSmallInteger"
 Cohesion: 0.08
-Nodes (88): OcShape, Pass, safepoint, probe, visit, ao_Association_key(), ao_Association_key_value_(), ao_Association_value() (+80 more)
+Nodes (89): OcShape, Pass, safepoint, probe, int64_t, visit, ao_Association_key(), ao_Association_key_value_() (+81 more)
 
 ### Community 2 - "TEST"
-Cohesion: 0.03
-Nodes (74): AbortingTestClassFailsAndClears, AndOrShortCircuit, AoTestRunner, ArgumentAndOuterTemp, ArrayDoNonLocalReturnStopsAtFirst, AssertEqualsStopsAfterAbortingEquals, BlockAbort, BlockActivation (+66 more)
+Cohesion: 0.02
+Nodes (82): AbortingTestClassFailsAndClears, AndOrShortCircuit, AoTestRunner, ArgumentAndOuterTemp, ArrayDoNonLocalReturnStopsAtFirst, AssertEqualsStopsAfterAbortingEquals, BlockAbort, BlockActivation (+74 more)
 
 ### Community 3 - "Interpreter.cpp"
-Cohesion: 0.10
-Nodes (43): run, ActiveGuard, rootShared, saved, applyMethod(), boolean(), branchTruth(), byteCount() (+35 more)
+Cohesion: 0.05
+Nodes (70): run, Frame, context, isBlock, method, pc, prev, receiver (+62 more)
 
 ### Community 4 - "Float.cpp"
 Cohesion: 0.15
 Nodes (44): NumberOp, NumberRelation, NumKind, ao_Float_add(), ao_Float_divide(), ao_Float_equals(), ao_Float_greaterOrEqual(), ao_Float_greaterThan() (+36 more)
 
 ### Community 5 - "TEST"
-Cohesion: 0.03
-Nodes (78): AcceptAbi, AcceptClassErrorSpanCountsUndoubledBangs, AcceptClassKeepsSubclassPatternAMethod, AcceptClassReadsDoubledBangCharacter, AcceptClassRefusesChunksAfterSectionEnd, AcceptClassRefusesClassAsItsOwnSuperclass, AcceptClassRefusesNonDefinitionWithoutApplying, AcceptClassRefusesStatementsAfterDefinition (+70 more)
+Cohesion: 0.02
+Nodes (84): AcceptAbi, AcceptClassErrorSpanCountsUndoubledBangs, AcceptClassKeepsSubclassPatternAMethod, AcceptClassReadsDoubledBangCharacter, AcceptClassRefusesChunksAfterSectionEnd, AcceptClassRefusesClassAsItsOwnSuperclass, AcceptClassRefusesNonDefinitionWithoutApplying, AcceptClassRefusesStatementsAfterDefinition (+76 more)
 
 ### Community 6 - "send"
-Cohesion: 0.20
-Nodes (28): ao_ArrayedCollection_do_(), ao_Collection_collect_(), ao_Collection_collect_fill(), ao_Collection_detect_ifNone_(), ao_Collection_detect_scan(), ao_Collection_filter_scan(), ao_Collection_includes_(), ao_Collection_includes_scan() (+20 more)
+Cohesion: 0.16
+Nodes (37): ao_ArrayedCollection_do_(), ao_Collection_collect_(), ao_Collection_collect_fill(), ao_Collection_detect_ifNone_(), ao_Collection_detect_scan(), ao_Collection_filter_scan(), ao_Collection_includes_(), ao_Collection_includes_scan() (+29 more)
 
-### Community 7 - "RealScope"
-Cohesion: 0.08
-Nodes (27): Capture, owner, var, uint32_t, RealScope, copied, copiedBase, isBlock (+19 more)
+### Community 7 - "Codegen.cpp"
+Cohesion: 0.05
+Nodes (60): Analysis, declared, error, failed, lexes, localOf, outerRefs, realOf (+52 more)
 
 ### Community 8 - "LargeInteger.cpp"
 Cohesion: 0.11
 Nodes (70): Digits, __int128, add(), addBig(), asInt64IfFits(), Big, d, neg (+62 more)
 
 ### Community 9 - "Parser"
-Cohesion: 0.10
-Nodes (23): uint32_t, SourceSpan, end, start, Kind, string, string_view, Tok (+15 more)
+Cohesion: 0.11
+Nodes (22): uint32_t, SourceSpan, end, start, Kind, string, string_view, Tok (+14 more)
 
 ### Community 10 - "Stream.cpp"
-Cohesion: 0.15
-Nodes (35): ao_PositionableStream_contents(), ao_PositionableStream_next(), ao_PositionableStream_on_(), ao_PositionableStream_position(), ao_ReadWriteStream_contents(), ao_WriteStream_contents(), ao_WriteStream_nextPut_(), classFormat() (+27 more)
+Cohesion: 0.07
+Nodes (80): GrowAndContentsWithFullNursery, OverwriteAndReserveWithFullNursery, ReadStreamContentsOfFortyThousandCharacters, ao_PositionableStream_contents(), ao_PositionableStream_next(), ao_PositionableStream_on_(), ao_PositionableStream_position(), ao_PositionableStream_reset() (+72 more)
 
 ### Community 11 - "Boot"
 Cohesion: 0.05
-Nodes (66): makeSubclass(), abortingSubclass(), countingPrintString(), CallContext, string, uint32_t, evalExpr(), expectAbortedEmpty() (+58 more)
+Nodes (61): DepthCountsActivationsOnTheContext, HandAssembledLitVarRoundTrip, HandAssembledRemoteTempRoundTrip, initializer_list, JumpOnNonBooleanAborts, JumpOnNonBooleanUsesMustBeBooleanAnswer, OpcodePastLastOpFails, PushNewArrayIsNilFilledArray (+53 more)
 
 ### Community 12 - "TEST"
-Cohesion: 0.03
-Nodes (85): AsSymbolWithFullNursery, BetweenAndAcrossGc, BrokenParent, BrokenSuperclassChain, CollectThunkMethodFailureSetsOutOfMemory, CollectWithFullNursery, CompileInstVarReferenceStops, CompileError (+77 more)
+Cohesion: 0.04
+Nodes (62): AsSymbolWithFullNursery, BetweenAndAcrossGc, BrokenParent, BrokenSuperclassChain, CollectThunkMethodFailureSetsOutOfMemory, CollectWithFullNursery, CompileInstVarReferenceStops, CopyArrayLargerThanNursery (+54 more)
 
 ### Community 13 - "TEST_F"
 Cohesion: 0.03
-Nodes (70): ArrayEqualsChecksIdentityFirstAndSameClass, BaseDeadlockFailsEvalBaseStays, BlockAssignmentUpdatesWorkspaceBinding, BootThenImageRoundTripKeepsOnePlusTwo, CallFromAnotherThreadWhileEvaluatingIsRefused, ClassDefinedAfterBindingWins, ClassSideConstructorsAllocateTheSubclassInstSize, DeadHomeBlockAbortsWithReason (+62 more)
+Nodes (68): AoTranscriptFn, ArrayEqualsChecksIdentityFirstAndSameClass, BaseDeadlockFailsEvalBaseStays, BlockAssignmentUpdatesWorkspaceBinding, BootThenImageRoundTripKeepsOnePlusTwo, CallFromAnotherThreadWhileEvaluatingIsRefused, ClassDefinedAfterBindingWins, ClassSideConstructorsAllocateTheSubclassInstSize (+60 more)
 
 ### Community 14 - "Emitter"
-Cohesion: 0.16
-Nodes (10): int16_t, Op, size_t, uint16_t, uint8_t, Emitter, real_, hasReceiverChild() (+2 more)
+Cohesion: 0.14
+Nodes (12): int16_t, Op, size_t, string_view, uint16_t, uint8_t, Emitter, real_ (+4 more)
 
 ### Community 15 - "Scanner.cpp"
 Cohesion: 0.07
@@ -446,173 +448,173 @@ Nodes (58): ArrayAndByteArrayHeaders, AssignVariantsAndComment, CommaIsABinaryCh
 Cohesion: 0.07
 Nodes (38): aoDebuggerInspectHook(), DebugFrame, DebuggerWindow, .frameLabels, .inspectorCount, .inspectorText, .open, .selectedFrame (+30 more)
 
-### Community 17 - "vector"
-Cohesion: 0.07
-Nodes (53): algorithm, chrono, Chunk, classpool, cmath, compile, CompiledMethod, compiler (+45 more)
+### Community 17 - "image_save_load_test.cpp"
+Cohesion: 0.11
+Nodes (36): algorithm, Bootstrap, chrono, Chunk, classpool, compile, CompiledMethod, compiler (+28 more)
 
 ### Community 18 - "TEST"
-Cohesion: 0.05
-Nodes (40): ArrayCollectDoublesViaNativeBlock, ArraySelectRejectDetectInjectIncludesIsEmpty, AssociationKeyValue, BagLinkedListMappedCollectionStubs, CollectDoesNotGrowNativeRegistry, CollectIndexAtSmiMaxFails, CollectIndexPokedByUserBlockFails, CollectionDo (+32 more)
+Cohesion: 0.04
+Nodes (55): ArrayCollectDoublesViaNativeBlock, ArraySelectRejectDetectInjectIncludesIsEmpty, AssociationKeyValue, BagLinkedListMappedCollectionStubs, CollectDoesNotGrowNativeRegistry, CollectIndexAtSmiMaxFails, CollectIndexPokedByUserBlockFails, CollectionDo (+47 more)
 
 ### Community 19 - "Claude Review Fixes Plan (2026-09-23)"
-Cohesion: 0.19
-Nodes (16): B10: Cooperative process scheduler (fibers), B11: App and build remainder, B3: Failure propagation and cache invalidation, B4: Kernel class metadata (instVarNames, SmalltalkImage, classPool), B5: Browser/Workspace data-loss fixes, B6: Image/session robustness (atomic save, load validation), B8: Kernel numeric semantics, B9: Kernel collections and streams (+8 more)
+Cohesion: 0.18
+Nodes (18): B10: Cooperative process scheduler (fibers), B11: App and build remainder, B2: Block semantics and interpreter (shared temps, inlining), B3: Failure propagation and cache invalidation, B4: Kernel class metadata (instVarNames, SmalltalkImage, classPool), B5: Browser/Workspace data-loss fixes, B6: Image/session robustness (atomic save, load validation), B8: Kernel numeric semantics (+10 more)
 
 ### Community 20 - "Oop"
-Cohesion: 0.11
-Nodes (58): uint64_t, Oop, kCharTag, kImmTag, kLow3, kSmiTag, raw_, ao_Object_basicAt_() (+50 more)
+Cohesion: 0.09
+Nodes (66): bits(), int64_t, instSize(), isBytes(), isIndexable(), isPointers(), make(), uint64_t (+58 more)
 
 ### Community 21 - "Heap"
-Cohesion: 0.05
-Nodes (64): hashedcollection, Heap, containsNurseryFrom, containsNurseryTo, fitsOld, flipNursery, fromBump_, fromEnd_ (+56 more)
+Cohesion: 0.04
+Nodes (58): Heap, containsNurseryFrom, containsNurseryTo, flipNursery, fromBump_, fromEnd_, fromStart_, nextHash_ (+50 more)
 
 ### Community 22 - "TEST"
-Cohesion: 0.05
-Nodes (44): AbandonSkipsCleanupsAndRestoresRoots, ActiveProcessInsideForkIsForked, BaseDeadlockIsFailureActiveStaysBase, BlockContextForkCreatesAndResumesProcess, FiberCountersFoldIntoBase, FiftyWaitersSurviveGcStressAndOldGc, ForkDnuTerminatesOnlyFork, ForkFifoOrder (+36 more)
+Cohesion: 0.04
+Nodes (53): AbandonSkipsCleanupsAndRestoresRoots, ActiveProcessInsideForkIsForked, BaseDeadlockIsFailureActiveStaysBase, BlockContextForkCreatesAndResumesProcess, EvalProcessRunsUntilItEndsAndLeavesNothing, FiberCountersFoldIntoBase, FiftyWaitersSurviveGcStressAndOldGc, ForkDnuTerminatesOnlyFork (+45 more)
 
 ### Community 23 - "Boolean.cpp"
 Cohesion: 0.23
 Nodes (26): ao_Boolean_subclassResponsibility(), ao_False_and_(), ao_False_eqv_(), ao_False_ifFalse_(), ao_False_ifFalse_ifTrue_(), ao_False_ifTrue_(), ao_False_ifTrue_ifFalse_(), ao_False_not() (+18 more)
 
-### Community 24 - "BrowserWindow"
-Cohesion: 0.10
-Nodes (22): BrowserWindow, .acceptsMethod, .errorText, .hasUnacceptedChanges, .paneAccessibilityLabels, .sourceText, .title, sendToKeyBrowser() (+14 more)
+### Community 24 - "AcceptTests"
+Cohesion: 0.14
+Nodes (9): AcceptTests, NSMenu, NSSegmentedControl, NSTableView, NSTextView, NSView, String, T (+1 more)
 
 ### Community 25 - "abi.cpp"
-Cohesion: 0.08
-Nodes (53): atomic, Body, CountsAnswerMinusOneOnFailure, ObjectIsKernelAndPrintStringIsNative, AbiEntry, ao_browser_class_at(), ao_browser_class_count(), ao_browser_class_definition() (+45 more)
+Cohesion: 0.09
+Nodes (47): atomic, Body, CountsAnswerMinusOneOnFailure, ObjectIsKernelAndPrintStringIsNative, AbiEntry, ao_browser_class_at(), ao_browser_class_count(), ao_browser_class_definition() (+39 more)
 
-### Community 26 - "Ao 実装文書 (docs/ index)"
-Cohesion: 0.13
-Nodes (32): vendor ライセンス方針 (Cuis MIT / 新規 Apache-2.0), P6b — vendor file-in, P7 — イメージ, P8 — AppKit ツール, P4-09: Kernel NativeMethod 走査と bench, Kernel NativeMethod 走査, P6b-01: Cuis pin と ORIGIN.md, Cuis vendor pin (ORIGIN.md) (+24 more)
+### Community 26 - "P6b — vendor file-in"
+Cohesion: 0.18
+Nodes (18): vendor ライセンス方針 (Cuis MIT / 新規 Apache-2.0), P6b — vendor file-in, P7 — イメージ, P4-09: Kernel NativeMethod 走査と bench, Kernel NativeMethod 走査, P6b-01: Cuis pin と ORIGIN.md, Cuis vendor pin (ORIGIN.md), P6b-02: LOAD_ORDER と Kernel 上書き禁止 (+10 more)
 
 ### Community 27 - "WorkspaceWindow"
-Cohesion: 0.12
-Nodes (13): Int, WorkspaceWindow, .errorAccessibilityLabel, .errorText, .inspectorCount, .inspectorText, .inspectorWindow, .textAccessibilityLabel (+5 more)
+Cohesion: 0.13
+Nodes (12): WorkspaceWindow, .errorAccessibilityLabel, .errorText, .inspectorCount, .inspectorText, .inspectorWindow, .textAccessibilityLabel, .title (+4 more)
 
 ### Community 28 - "TEST"
 Cohesion: 0.06
 Nodes (48): ArgumentAssignIsError, BoxedTempUsesRemoteTemp, CascadeAndBlock, ClassVariable, ClassVariableHidesGlobalInsideBlocks, classVarLiterals(), countOp(), CascadePartsAreMessageChains (+40 more)
 
 ### Community 29 - "Literal"
-Cohesion: 0.05
-Nodes (49): BlockMethodHasItsOwnMapInMethodCoordinates, int16_t, int64_t, LitKind, string, uint16_t, uint8_t, unique_ptr (+41 more)
+Cohesion: 0.07
+Nodes (31): int16_t, int64_t, LitKind, string, uint16_t, uint8_t, unique_ptr, Literal (+23 more)
 
 ### Community 30 - "TEST"
-Cohesion: 0.03
-Nodes (88): AllocateNoGcSpillsToOld, ByteObjectPayload, ByteObjectPayloadIsNotScannedAsOops, CollectOldOnlyAfterThreshold, CompactionDuringScavengeDoesNotCorruptSlots, CountsFollowEveryKindOfRoot, DeadOldSlotIsNotANurseryRoot, DestJumpPastPinDoesNotOverlap (+80 more)
+Cohesion: 0.04
+Nodes (48): ByteObjectPayloadIsNotScannedAsOops, CollectOldOnlyAfterThreshold, CompactionDuringScavengeDoesNotCorruptSlots, CountsFollowEveryKindOfRoot, DeadOldSlotIsNotANurseryRoot, DestJumpPastPinDoesNotOverlap, DuplicateRootForwardedOnce, FrameBlocksStayWithTheirStack (+40 more)
 
 ### Community 31 - "Compile.cpp"
-Cohesion: 0.16
-Nodes (31): cctype, acceptClassSource(), acceptMethodSource(), anyMethodIn(), applyChunks(), applyMethodsFor(), assignError(), boxBytes() (+23 more)
+Cohesion: 0.14
+Nodes (37): cctype, isClassShaped(), superclassOf(), acceptMethodSource(), anyMethodIn(), applyMethodsFor(), boxBytes(), boxedOk() (+29 more)
 
 ### Community 32 - "Heap.cpp"
-Cohesion: 0.09
-Nodes (42): charconv, allocateTenured, growOld, initObject, objectBytes, oldUsed, align8(), byte (+34 more)
+Cohesion: 0.07
+Nodes (51): charconv, allocateTenured, checkNotPoisoned, fitsOld, growOld, initObject, largeObjectBytes, objectBytes (+43 more)
 
 ### Community 33 - "DebugSnapshot"
-Cohesion: 0.04
-Nodes (47): Files, DebugFrames, count, kind, method, pc, receiver, selector (+39 more)
+Cohesion: 0.05
+Nodes (42): Files, DebugSnapshot, capture, clear, context, frames_, held_, kFixedSlots (+34 more)
 
 ### Community 34 - "TEST"
 Cohesion: 0.04
 Nodes (47): AnonymousBehaviorInstanceSavesAndLoads, EscapedCollectionThunksRunAfterSaveAndLoad, EscapedStreamThunkSurvivesSaveAndLoad, FailedLoadKeepsDebugGeneration, FailedProbeKeepsCurrentSession, FailedWriteKeepsOldImage, FileSizeLimitFailsWithoutTheSignal, HeapBeyondOldLimitFailsAndKeepsOldImage (+39 more)
 
-### Community 35 - "DefinitionScanner"
+### Community 35 - "BrowserWindow"
 Cohesion: 0.08
-Nodes (22): DefinitionScanner, Any, Bool, Int, Int32, Notification, NSRect, NSScrollView (+14 more)
+Nodes (24): BrowserWindow, .acceptsMethod, .errorText, .hasUnacceptedChanges, .paneAccessibilityLabels, .sourceText, .title, sendToKeyBrowser() (+16 more)
 
 ### Community 36 - "TEST_F"
 Cohesion: 0.06
 Nodes (36): BlockFrameLabelIsBracketsIn, BuffersFollowRangeRule, CaptureOffLeavesNoFrames, CaptureSettingSurvivesBootAndLoad, CaptureTurnedOnDuringTempPrintWaitsForTheEnd, ClearDropsRoots, DoItFrameSourceDropsPrefix, EvalErrorFillsFramesInnermostFirst (+28 more)
 
-### Community 37 - "Image::save"
-Cohesion: 0.13
-Nodes (25): writeFiller, writeHeader, appendRaw(), appendRecord(), collectImageSlot(), byte, Roots, string_view (+17 more)
+### Community 37 - "ImageSave.cpp"
+Cohesion: 0.09
+Nodes (45): cerrno, climits, fcntl, encodeNonHeap, writeFiller, writeHeader, appendRaw(), appendRecord() (+37 more)
 
 ### Community 38 - "横断テーマ3: 言語意味論の欠落(コンパイラ)"
 Cohesion: 0.05
 Nodes (46): B2 to:do: bench（jump 展開ループ）, bytecode/native 比率メトリクス, SmallInteger fast path（send を経ない演算）, P4 microbench（native to:do: 基準）, P6 interpreter bench（bytecode block send）, 自分を含む Array の = でスタックオーバーフロー, 既存クラスの再 Accept で全メソッドが消える, クラス定義でない文字列が AO_OK で黙って捨てられる (+38 more)
 
 ### Community 39 - "TEST"
-Cohesion: 0.08
-Nodes (24): AbandonDoesNotCapture, BlockFrameKeepsTempsAndHome, CaptureAfterDeepRecursionAddsNoLifoSlots, CleanupAbortKeepsFirstSnapshot, CleanupFailureAfterNormalEndIsCaptured, DeadlockOnBaseCaptures, DoesNotUnderstandSynthesizesFrameWithoutMethod, ErrorInNestedMethodCapturesInnermostFirst (+16 more)
+Cohesion: 0.10
+Nodes (21): AbandonDoesNotCapture, BlockFrameKeepsTempsAndHome, CaptureAfterDeepRecursionAddsNoLifoSlots, CleanupAbortKeepsFirstSnapshot, CleanupFailureAfterNormalEndIsCaptured, DeadlockOnBaseCaptures, DoesNotUnderstandSynthesizesFrameWithoutMethod, ErrorInNestedMethodCapturesInnermostFirst (+13 more)
 
 ### Community 40 - "P1 — オブジェクトメモリ"
-Cohesion: 0.30
-Nodes (15): P0 (親フェーズ, stub), ao::Gc — 正確 GC (nursery + old mark-compact), ao::Heap — ヘッダ付き bump 割り当て, ao::Oop — 64-bit tagged pointer, P1 — オブジェクトメモリ, ao::Roots — GC ルート API, P0-05: docs/phases と docs/prs, P0-07: Graphify 初期グラフ (+7 more)
+Cohesion: 0.39
+Nodes (12): ao::Gc — 正確 GC (nursery + old mark-compact), ao::Heap — ヘッダ付き bump 割り当て, ao::Oop — 64-bit tagged pointer, P1 — オブジェクトメモリ, ao::Roots — GC ルート API, P1-01: ao::Oop タグ, P1-02: オブジェクトヘッダと bump 割り当て, P1-03: nursery GC (+4 more)
 
-### Community 41 - "Scheduler.cpp"
+### Community 41 - ".nil"
 Cohesion: 0.08
-Nodes (68): flags, slotAt, slotAtPut, afterResume, enqueue, find, leaveLists, liveFibers (+60 more)
+Nodes (68): flags, slotAt, slotAtPut, addFiber, afterResume, enqueue, find, leaveLists (+60 more)
 
-### Community 42 - "Frame"
-Cohesion: 0.08
-Nodes (26): Frame, context, isBlock, method, pc, prev, receiver, sendArgc (+18 more)
+### Community 42 - "TEST"
+Cohesion: 0.06
+Nodes (37): AllocateNoGcSpillsToOld, ByteObjectPayload, EnvEnablesStress, EveryFourthStressCollectionAlsoCompactsOldAndPoisonsTail, ExhaustionReturnsEmpty, FreedNurseryIsPoisonedAndReallocationIsClean, GcStress, GcStressDeathTest (+29 more)
 
 ### Community 43 - "TEST_F"
-Cohesion: 0.04
-Nodes (50): AsCharacterAcceptsOnlyUnicodeScalarValues, BitShiftBeyondMinusTwoToThe24AnswersZeroOrMinusOne, BooleanOperatorsFollowTheBlueBook, DivisionFollowsTheSameTypeRules, ElementHashMayBeASmalltalkMethod, EqualArraysAndPointsHashEqually, EqualNumbersHashEqually, EqualStringsAndSymbolsHashEqually (+42 more)
+Cohesion: 0.06
+Nodes (40): AsCharacterAcceptsOnlyUnicodeScalarValues, BitShiftBeyondMinusTwoToThe24AnswersZeroOrMinusOne, BooleanOperatorsFollowTheBlueBook, DivisionFollowsTheSameTypeRules, ElementHashMayBeASmalltalkMethod, EqualArraysAndPointsHashEqually, EqualNumbersHashEqually, EqualStringsAndSymbolsHashEqually (+32 more)
 
 ### Community 44 - "TEST_F"
 Cohesion: 0.05
-Nodes (37): ClassPoolAfterGrowthAndRemoval, ClassPoolNamesAreItsSymbolKeys, ClassPoolOfAnEmptyOrDamagedTable, ClassVariablesThroughTheHashedPool, CopyDoesNotShareTheTable, DamagedOrderedCollectionFails, DamagedTablesFailInEveryNative, DamagedTallyOrArray (+29 more)
+Nodes (39): ClassPoolAfterGrowthAndRemoval, ClassPoolNamesAreItsSymbolKeys, ClassPoolOfAnEmptyOrDamagedTable, ClassVariablesThroughTheHashedPool, CopyDoesNotShareTheTable, DamagedOrderedCollectionFails, DamagedTablesFailInEveryNative, DamagedTallyOrArray (+31 more)
 
 ### Community 45 - "CallContext"
-Cohesion: 0.06
-Nodes (37): BindingHook, CallContext, abandoning, aborting, abortReason, abortReasonHandle, abortSetAside, activeContext (+29 more)
+Cohesion: 0.05
+Nodes (48): BindingHook, CallContext, abandoning, aborting, abortReason, abortReasonHandle, abortSetAside, activeContext (+40 more)
 
-### Community 46 - "cstdint"
-Cohesion: 0.04
-Nodes (38): cassert, cerrno, climits, string_view, csignal, cstddef, cstdint, cstdlib (+30 more)
+### Community 46 - "string"
+Cohesion: 0.07
+Nodes (20): cassert, string, string_view, cstddef, cstdint, memory, NativeMethod, CallContext (+12 more)
 
 ### Community 47 - "ImageLoad.cpp"
-Cohesion: 0.22
-Nodes (26): ifstream, atOffset(), checkFile(), byte, size_t, string, T, uint32_t (+18 more)
+Cohesion: 0.16
+Nodes (35): ifstream, readHeader, acceptWord(), atOffset(), checkFile(), checkGlobals(), byte, Roots (+27 more)
 
 ### Community 48 - "Scheduler"
-Cohesion: 0.06
-Nodes (35): CallContext, Record, size_t, string, uint64_t, unique_ptr, Scheduler, abandonAll (+27 more)
+Cohesion: 0.05
+Nodes (46): CallContext, EvalEnd, Record, size_t, string, uint64_t, unique_ptr, Scheduler (+38 more)
 
 ### Community 49 - "MethodDebugInfo"
-Cohesion: 0.33
-Nodes (6): MethodDebugInfo, pcMap, temps, size_t, p10ExpectSpansWithin(), p10HasTemp()
+Cohesion: 0.18
+Nodes (11): uint32_t, PcSpan, end, pc, start, MethodDebugInfo, pcMap, temps (+3 more)
 
 ### Community 50 - "ao_main.cpp"
-Cohesion: 0.21
-Nodes (14): dyld, runtime, addRoots, bootAndRunTests(), string, imageUsage(), main(), printFileInErrors() (+6 more)
+Cohesion: 0.16
+Nodes (17): dyld, runtime, addRoots, bootAndRunTests(), string, imageUsage(), main(), printFileInErrors() (+9 more)
 
 ### Community 51 - "putNative"
 Cohesion: 0.08
 Nodes (36): WellKnown, installArray(), WellKnown, installBehavior(), WellKnown, installBoolean(), WellKnown, installCharacter() (+28 more)
 
 ### Community 52 - "Session"
-Cohesion: 0.07
-Nodes (33): kind, pc, browserClassCount(), DebugEntry, debugFrameKind(), debugFramePc(), debugTempCount(), frameInRange() (+25 more)
+Cohesion: 0.06
+Nodes (39): Image, check, load, save, clearMethodSources(), HostOopHook, dropDoItDebug(), ensureKernelNatives() (+31 more)
 
 ### Community 53 - "SPEC.md (Product Specification)"
 Cohesion: 0.11
 Nodes (21): ao_debug_* / ao_set_debug_capture C ABI, Post-mortem Debugger Capture, P10 Known Limitations, Unreleased: Phase P10 Debugger, 1.0.0 Release Entry, Fixed Design Decisions, PHASE File, 曲げない規則 (+13 more)
 
-### Community 54 - "classRows"
-Cohesion: 0.20
-Nodes (25): browserClassAt(), browserClassDefinition(), browserProtocolAt(), browserProtocolCount(), browserSelectorAt(), browserSelectorCount(), browserSource(), browserSubclassAt() (+17 more)
+### Community 54 - "Session.cpp"
+Cohesion: 0.15
+Nodes (33): browserClassAt(), browserClassCount(), browserClassDefinition(), browserProtocolAt(), browserProtocolCount(), browserSelectorAt(), browserSelectorCount(), browserSource() (+25 more)
 
 ### Community 55 - "ToolWindowTests"
 Cohesion: 0.13
 Nodes (11): fileInVendor(), LaunchSet, NSFont, NSMenu, NSMenuItem, NSTextView, NSView, String (+3 more)
 
 ### Community 56 - ".isHeap"
-Cohesion: 0.17
-Nodes (28): 手順, toDoSendingLessOrEqual(), Scheduler::runFiber(), abortDoesNotUnderstand(), abortEvaluation(), abortEvaluationQuiet(), abortFailedSend(), abortReasonText() (+20 more)
+Cohesion: 0.10
+Nodes (37): reapDead, InlineCache, cachedClass, cachedMethod, allocateRetry(), Roots, uint16_t, uint32_t (+29 more)
 
 ### Community 57 - "Task 12: Browser accept, Hierarchy, VoiceOver, Close v1"
 Cohesion: 0.11
 Nodes (33): Session-Only Method Source Table, Browser Protocol Split: native vs user, Selective printString Native Overrides, Process Session Model, SPEC §3.10 AppKit objects not on the heap, SPEC §3.10 Boot, eval, listing, accept, hooks, error strings, SPEC §3.11 Image version stays 1, no function pointers written, SPEC §3.6 printString readable via Print it (+25 more)
 
 ### Community 58 - "String.cpp"
-Cohesion: 0.18
-Nodes (31): ao_String_asSymbol(), ao_String_at_(), ao_String_at_put_(), ao_String_do_(), ao_String_equals(), ao_String_hash(), ao_String_printString(), ao_String_size() (+23 more)
+Cohesion: 0.16
+Nodes (33): ao_String_asSymbol(), ao_String_at_(), ao_String_at_put_(), ao_String_do_(), ao_String_equals(), ao_String_hash(), ao_String_printString(), ao_String_size() (+25 more)
 
 ### Community 59 - "AoApp"
 Cohesion: 0.11
@@ -623,92 +625,92 @@ Cohesion: 0.10
 Nodes (28): findSymbol, global, internWith, Roots, string_view, ImageSelector, name, WellKnown (+20 more)
 
 ### Community 61 - ".run"
-Cohesion: 0.07
-Nodes (36): AnyObject, InspectorWindow, .text, MainActor, NSObjectProtocol, NSTextView, NSWindow, Sendable (+28 more)
+Cohesion: 0.10
+Nodes (27): AnyObject, aoWorkspaceInspectHook(), failureText(), installDebugButton(), installErrorField(), keptEvalResult(), selectErrorSpan(), sendToKeyWorkspace() (+19 more)
 
 ### Community 62 - "BrowserModel"
-Cohesion: 0.11
-Nodes (17): BrowserModel, .metaFlag, ListedClass, Bool, CChar, Int32, String, UnsafeMutablePointer (+9 more)
+Cohesion: 0.21
+Nodes (8): BrowserModel, .metaFlag, ListedClass, Bool, CChar, Int32, String, UnsafeMutablePointer
 
 ### Community 63 - "DebuggerWindowTests"
-Cohesion: 0.14
+Cohesion: 0.13
 Nodes (10): DebuggerWindowTests, Int, NSFont, NSTableView, NSTextView, NSView, NSWindow, String (+2 more)
 
 ### Community 64 - "Gc.cpp"
-Cohesion: 0.13
-Nodes (17): clearWeakAfterOldMark, checkNotPoisoned, Roots, size_t, uintptr_t, unordered_set, Gc::clearWeakAfterNursery(), Gc::clearWeakAfterOldMark() (+9 more)
+Cohesion: 0.21
+Nodes (10): cstdlib, Roots, size_t, uintptr_t, unordered_set, Gc::clearWeakAfterNursery(), Gc::clearWeakAfterOldMark(), Gc::Gc() (+2 more)
 
 ### Community 65 - "VendorExtract.cpp"
-Cohesion: 0.17
-Nodes (28): allowIndex(), containsHostWord(), string_view, doubleBangs(), extractVendor(), firstLineKey(), firstNonEmptyLine(), HostMethod (+20 more)
+Cohesion: 0.23
+Nodes (20): allowIndex(), containsHostWord(), string_view, extractVendor(), firstLineKey(), firstNonEmptyLine(), hostPatch(), isCatalogName() (+12 more)
 
 ### Community 66 - "TEST"
-Cohesion: 0.06
-Nodes (44): ClassSkeletonsAreHeapAndNamed, CycleEveryClassIsInstanceOfItsMetaclass, CycleEveryMetaclassIsInstanceOfMetaclass, CycleImmediateClassOf, CycleMetaclassClassClassIsMetaclass, CycleMetaclassHierarchyParallelsClasses, CycleMetaclassInheritsFromClassDescription, CycleMethodDictIsMethodDictionary (+36 more)
+Cohesion: 0.05
+Nodes (46): ClassSkeletonsAreHeapAndNamed, CycleEveryClassIsInstanceOfItsMetaclass, CycleEveryMetaclassIsInstanceOfMetaclass, CycleImmediateClassOf, CycleMetaclassClassClassIsMetaclass, CycleMetaclassHierarchyParallelsClasses, CycleMetaclassInheritsFromClassDescription, CycleMethodDictIsMethodDictionary (+38 more)
 
-### Community 67 - "allocateRetry"
-Cohesion: 0.13
-Nodes (36): CallContext, uint16_t, uint8_t, create(), CallContext, uint8_t, createBlock(), createMethod() (+28 more)
+### Community 67 - ".false_"
+Cohesion: 0.17
+Nodes (27): boolean(), ao_Behavior_basicNew_(), ao_Behavior_compiledMethodAt_(), ao_Behavior_includesSelector_(), ao_Behavior_inheritsFrom_(), ao_Behavior_instSize(), ao_Behavior_isBytes(), ao_Behavior_isPointers() (+19 more)
 
 ### Community 68 - "Geometry.cpp"
-Cohesion: 0.19
-Nodes (33): allocateInstance(), CallContext, Roots, uint32_t, RootedArray::RootedArray(), ao_Point_add(), ao_Point_equals(), ao_Point_hash() (+25 more)
+Cohesion: 0.23
+Nodes (30): allocateInstance(), CallContext, ao_Point_add(), ao_Point_equals(), ao_Point_hash(), ao_Point_intDivide(), ao_Point_multiply(), ao_Point_subtract() (+22 more)
 
-### Community 69 - "TEST"
-Cohesion: 0.22
-Nodes (9): CleanupFailureReleasesItsReasonHandle, DefaultDoesNotUnderstandAborts, DynamicReasonSurvivesCollections, FailureAbortBoot, FailureOutermost, TEST(), SendToEmptyReceiverAborts, StaticReasonNeedsNoAllocation (+1 more)
+### Community 69 - "ao_eval"
+Cohesion: 0.14
+Nodes (26): AoSpan, end, message, start, ao_accept_class(), ao_accept_method(), ao_eval(), ao_filein_load_order() (+18 more)
 
 ### Community 70 - "TEST"
-Cohesion: 0.10
-Nodes (20): AtPutGrowRemoveAndEnumerateWithFullNursery, BagSizeCountsWhatWasAdded, CountPastSmallIntegerIsALargeInteger, DictionaryAlignedKeysAtPut, DictionaryTenThousandAtPut, HashedClassPool, HashedCollectionGc, HashedCollectionInterval (+12 more)
+Cohesion: 0.05
+Nodes (39): AtPutGrowRemoveAndEnumerateWithFullNursery, BagSizeCountsWhatWasAdded, CountPastSmallIntegerIsALargeInteger, DictionaryAlignedKeysAtPut, DictionaryTenThousandAtPut, HashedClassPool, HashedCollectionGc, HashedCollectionInterval (+31 more)
 
 ### Community 71 - "DiskHeader"
-Cohesion: 0.12
-Nodes (17): uint16_t, uint32_t, DiskHeader, endian, extraCount, globalCount, headerBytes, heapBytes (+9 more)
+Cohesion: 0.08
+Nodes (27): bit, byte, size_t, string, uint16_t, uint32_t, uint64_t, DiskHeader (+19 more)
 
 ### Community 72 - "collectNursery"
-Cohesion: 0.20
-Nodes (15): BlockContextKeepsHomeAndCopied, ContextGc, MethodContextSurvivesNurseryCollection, NativeBlockThunkStillValues, collectNursery, collectOld, Gc::collectBeforeTenured(), Gc::stressPoint() (+7 more)
+Cohesion: 0.36
+Nodes (10): collectNursery, collectOld, Gc::collectBeforeTenured(), Gc::stressPoint(), CallContext, uint32_t, forceNursery(), forceOld() (+2 more)
 
-### Community 73 - "CompileEnv"
-Cohesion: 0.06
-Nodes (29): BlockAssignmentIsBindingStore, Codegen, CompileEnv, classVarNames, instVarNames, kernelInstVarCount, knownGlobals, undeclaredAreBindings (+21 more)
+### Community 73 - "TEST"
+Cohesion: 0.16
+Nodes (13): BlockAssignmentIsBindingStore, bindingLiterals(), DeclaredTempIgnoresBinding, MethodImage, string, TEST(), workspaceEnv(), KnownGlobalAssignIsError (+5 more)
 
 ### Community 74 - "BlockContext.cpp"
-Cohesion: 0.17
-Nodes (27): ao_runtime library target, ao executable target, cli_filein / cli_image_save / cli_test ctest targets, ao_BlockContext_cannotReturn_(), ao_BlockContext_ensure_(), ao_BlockContext_ifCurtailed_(), ao_BlockContext_numArgs(), ao_BlockContext_repeat() (+19 more)
+Cohesion: 0.19
+Nodes (25): 手順, ao_BlockContext_cannotReturn_(), ao_BlockContext_ensure_(), ao_BlockContext_ifCurtailed_(), ao_BlockContext_numArgs(), ao_BlockContext_repeat(), ao_BlockContext_value(), ao_BlockContext_value_value_() (+17 more)
 
 ### Community 75 - "Roots"
 Cohesion: 0.07
 Nodes (28): StackWalker, uint8_t, Roots, add, attachStack, counts, detachStack, dropHandle (+20 more)
 
 ### Community 76 - "string"
-Cohesion: 0.14
-Nodes (36): Interfaces, 手順, argCountOf(), byteText(), categoryHeading(), classNameOf(), ClassRow, category (+28 more)
+Cohesion: 0.17
+Nodes (24): byteText(), categoryHeading(), classNameOf(), ClassRow, category, cls, name, classVarList() (+16 more)
 
-### Community 77 - "CallContext"
-Cohesion: 0.16
-Nodes (30): ao_PositionableStream_reset(), ao_ReadStream_nextPut_(), ao_SmalltalkImage_at_(), ao_SmalltalkImage_at_ifAbsent_(), ao_SmalltalkImage_at_put_(), ao_SmalltalkImage_globals(), ao_SmalltalkImage_includesKey_(), ao_Stream_cr() (+22 more)
+### Community 77 - "size"
+Cohesion: 0.17
+Nodes (22): allocateNoGc, size, contextPc(), CallContext, Frame, DebugSnapshot::capture(), hasSendInFlight(), sendTarget() (+14 more)
 
 ### Community 78 - "TEST"
-Cohesion: 0.08
-Nodes (26): BitOpsAndShift, CharacterProtocol, CompareAndBetween, DivisionByZeroAbortsWithReason, FloatArithmetic, FloatEqualsDoesNotCoerceInteger, FloorDivAndModulo, FractionMulDiv (+18 more)
+Cohesion: 0.07
+Nodes (27): BitOpsAndShift, CharacterProtocol, CompareAndBetween, DivisionByZeroAbortsWithReason, FloatArithmetic, FloatEqualsDoesNotCoerceInteger, FloorDivAndModulo, FractionMulDiv (+19 more)
 
-### Community 79 - "ao_eval"
+### Community 79 - "TEST_F"
 Cohesion: 0.06
-Nodes (41): AoSpan, end, message, start, CleanupFailureKeepsFirstReason, CleanupReturnDoesNotSwallowAbort, CleanupUnwindingWinsOverPausedReturn, CollectStopsOnFailedBlock (+33 more)
+Nodes (32): CleanupFailureKeepsFirstReason, CleanupFailureReleasesItsReasonHandle, CleanupReturnDoesNotSwallowAbort, CleanupUnwindingWinsOverPausedReturn, CollectStopsOnFailedBlock, DefaultDoesNotUnderstandAborts, DoesNotUnderstandNamesSelector, DynamicReasonSurvivesCleanupAllocations (+24 more)
 
 ### Community 80 - "Array.cpp"
-Cohesion: 0.18
-Nodes (24): valueHashWord(), ao_Array_equals(), ao_Array_hash(), ao_Array_printString(), ao_ArrayedCollection_at_(), ao_ArrayedCollection_at_put_(), ao_ArrayedCollection_basicAt_(), ao_ArrayedCollection_basicAt_put_() (+16 more)
+Cohesion: 0.14
+Nodes (30): bytesValueHash(), int64_t, size_t, uint64_t, valueHashBytes(), valueHashFold(), valueHashWord(), ao_Array_equals() (+22 more)
 
 ### Community 81 - "Scheduler::Record"
 Cohesion: 0.08
-Nodes (24): Scheduler, uint64_t, unique_ptr, Scheduler::Record, abandon, awaitingTerminate, ctx, deadlockPending (+16 more)
+Nodes (24): Scheduler, unique_ptr, Scheduler::Record, abandon, awaitingTerminate, ctx, deadlockPending, evalMode (+16 more)
 
-### Community 82 - "AppKit"
-Cohesion: 0.18
-Nodes (7): Ao, SmokeTests, AppKit, CAo, P0 phase doc, XCTest, XCTestCase
+### Community 82 - "ClassPool.cpp"
+Cohesion: 0.21
+Nodes (23): adopt(), bindingAt(), copy(), CallContext, int64_t, string, string_view, uint32_t (+15 more)
 
 ### Community 83 - "ChunkParser.cpp"
 Cohesion: 0.17
@@ -728,39 +730,39 @@ Nodes (23): AppendingKeepsTheStringSubclass, ContentsChecksTheRangeBeforeAllocat
 
 ### Community 87 - "TEST"
 Cohesion: 0.11
-Nodes (16): DeferredMethodErrorsAreNotCounted, DeferredMethodsReadsOnlyListingLines, FileInLoadOrder, LoadOrderEvaluatesLinkRoundTrip, MethodErrorsAreExactlyTheDeferredOnes, PartlyDeferredStillFails, path, string (+8 more)
+Nodes (17): DeferredMethodErrorsAreNotCounted, DeferredMethodsReadsOnlyListingLines, FileInLoadOrder, LoadOrderEvaluatesLinkRoundTrip, MethodErrorsAreExactlyTheDeferredOnes, PartlyDeferredStillFails, path, string (+9 more)
 
 ### Community 88 - "uint64_t"
-Cohesion: 0.24
-Nodes (15): uint64_t, unordered_map, headerAt(), heapShaped(), bits, ObjectRules, behavior_, dict_ (+7 more)
+Cohesion: 0.23
+Nodes (16): bindAll(), uint64_t, unordered_map, fileOop(), headerAt(), heapShaped(), bits, ObjectRules (+8 more)
 
 ### Community 89 - "TranscriptWindow"
 Cohesion: 0.07
-Nodes (28): aoTranscriptHook(), configureSourceEditing(), makeToolTextWindow(), Any, Bool, CChar, Int, Int32 (+20 more)
+Nodes (25): Ao, aoTranscriptHook(), configureSourceEditing(), makeToolTextWindow(), Any, Bool, CChar, Int32 (+17 more)
 
 ### Community 90 - "ChunkAction"
 Cohesion: 0.09
 Nodes (23): ChunkKind, ChunkAction, category, className, classVars, instVars, kind, meta (+15 more)
 
 ### Community 91 - "string"
-Cohesion: 0.22
-Nodes (13): CarriedMethod, image, meta, selector, source, string, string_view, deferredListing() (+5 more)
+Cohesion: 0.27
+Nodes (11): string_view, isVendorStub(), string, string_view, WellKnown, deferredListing(), definedClassVarNames(), definedInstVarNames() (+3 more)
 
 ### Community 92 - "ImageFormat"
-Cohesion: 0.15
-Nodes (14): HeaderRoundTripAndRejects, HeapShapedBitsAreNotImmediates, ImmediateBitsRoundTrip, ImageFormat, decodeNonHeap, encodeNonHeap, kImageEndianLittle, kImageFillerBytes (+6 more)
+Cohesion: 0.09
+Nodes (23): HeaderRoundTripAndRejects, HeapShapedBitsAreNotImmediates, ImmediateBitsRoundTrip, uint16_t, uint32_t, ImageFormat, decodeNonHeap, kImageEndianLittle (+15 more)
 
 ### Community 93 - "DebugSnapshot.cpp"
-Cohesion: 0.18
-Nodes (21): contextPc(), CallContext, Frame, uint32_t, DebugSnapshot::capture(), DebugSnapshot::context(), DebugSnapshot::kind(), DebugSnapshot::method() (+13 more)
+Cohesion: 0.16
+Nodes (16): cmath, limits, uint32_t, DebugSnapshot::context(), DebugSnapshot::kind(), DebugSnapshot::method(), DebugSnapshot::pc(), DebugSnapshot::process() (+8 more)
 
 ### Community 94 - "MethodSource"
 Cohesion: 0.12
 Nodes (23): attachBlocks(), blockLiteral(), MethodImage, Roots, size_t, DebugInfoRef, body, index (+15 more)
 
-### Community 95 - "TEST"
-Cohesion: 0.11
-Nodes (25): DepthCountsActivationsOnTheContext, HandAssembledLitVarRoundTrip, HandAssembledRemoteTempRoundTrip, initializer_list, JumpOnNonBooleanAborts, JumpOnNonBooleanUsesMustBeBooleanAnswer, OpcodePastLastOpFails, PushNewArrayIsNilFilledArray (+17 more)
+### Community 95 - "fiber_test.cpp"
+Cohesion: 0.10
+Nodes (17): csignal, ao_fiber_switch AArch64 asm context switch, mach, mach_vm, ao_runtime library target, ao_runtime_tests executable target, ao executable target, cli_filein / cli_image_save / cli_test ctest targets (+9 more)
 
 ### Community 96 - "TEST"
 Cohesion: 0.10
@@ -775,24 +777,24 @@ Cohesion: 0.22
 Nodes (19): add(), addNamed(), apply(), CallContext, NativeFn, Roots, string_view, uint32_t (+11 more)
 
 ### Community 99 - "TEST"
-Cohesion: 0.10
-Nodes (21): ArrayPrintsElementPrintStrings, EmptyArrayPrintsEmptyLiteral, FalsePrintsFalse, FloatOnePrintStringContainsOne, LargeIntegerPrintsClassName, NegativeSmallIntegerPrintsLeadingMinus, NestedArrayPastDepthFourPrintsEllipsis, NilPrintsNil (+13 more)
+Cohesion: 0.09
+Nodes (24): ArrayPrintsElementPrintStrings, EmptyArrayPrintsEmptyLiteral, FalsePrintsFalse, FloatOnePrintStringContainsOne, LargeIntegerPrintsClassName, NegativeSmallIntegerPrintsLeadingMinus, NestedArrayPastDepthFourPrintsEllipsis, NilPrintsNil (+16 more)
 
 ### Community 100 - "TEST"
 Cohesion: 0.10
-Nodes (20): BlockContext, CallContextHooksDefaultNull, FalseIfTrueIfFalseReturnsNgBlock, FormatBitsForIndexableClasses, IdentityEqualsAndYourself, IdentityHashOfImmediates, InspectCallsHookAndReturnsSelf, KernelCatalog (+12 more)
+Nodes (21): BlockContext, CallContextHooksDefaultNull, FalseIfTrueIfFalseReturnsNgBlock, FormatBitsForIndexableClasses, IdentityEqualsAndYourself, IdentityHashOfImmediates, InspectCallsHookAndReturnsSelf, KernelCatalog (+13 more)
 
-### Community 101 - "ImageHeader"
-Cohesion: 0.11
-Nodes (21): bit, uint16_t, uint32_t, ImageHeader, endian, extraCount, globalCount, heapBytes (+13 more)
+### Community 101 - "DefinitionScanner"
+Cohesion: 0.25
+Nodes (9): DefinitionScanner, Bool, Int32, String, Token, keyword, other, Equatable (+1 more)
 
 ### Community 102 - "Roots.cpp"
 Cohesion: 0.13
 Nodes (19): new, size_t, StackWalker, uint32_t, Roots::add(), Roots::attached(), Roots::detachStack(), Roots::dropHandle() (+11 more)
 
-### Community 103 - ".isSmallInteger"
-Cohesion: 0.14
-Nodes (34): int64_t, bumpGeneration(), capacityFor(), copyEntry(), CallContext, int64_t, Root, uint32_t (+26 more)
+### Community 103 - "HashedCollection.cpp"
+Cohesion: 0.12
+Nodes (31): hashedcollection, CallContext, int64_t, uint32_t, Root, Table, array, capacity (+23 more)
 
 ### Community 104 - "FiberStackBounds"
 Cohesion: 0.24
@@ -806,17 +808,17 @@ Nodes (22): CompiledMethod — バイトコード生成物, P5 — コンパイ�
 Cohesion: 0.14
 Nodes (13): CountingSink, pinnedAfter, slotsAfter, slotsBefore, snap, CallContext, DebugSink, Roots (+5 more)
 
-### Community 107 - "Bootstrap"
-Cohesion: 0.10
-Nodes (26): AtPutFailureReachesInstallMethod, AtPutFindsInternedKey, AtPutRejectsNonHeapKey, AtPutWithTallyAtSmiMaxFails, Bootstrap, GrowKeepsOuterOopAndEntries, MethodDictionary, NinthMethodWithFullNurseryIsInstalled (+18 more)
+### Community 107 - "send2"
+Cohesion: 0.11
+Nodes (20): AtPutFailureReachesInstallMethod, AtPutFindsInternedKey, AtPutRejectsNonHeapKey, AtPutWithTallyAtSmiMaxFails, ClassDefinitionThroughAliasOnlyRebindsGlobal, GrowKeepsOuterOopAndEntries, KeepsNativeIdentityEquals, NinthMethodWithFullNurseryIsInstalled (+12 more)
 
 ### Community 108 - "TEST"
 Cohesion: 0.10
 Nodes (20): ClassRedefinitionDropsOldClassEntries, FlushSelectorDropsEveryClassAndKeepsOtherSelectors, InlinedToDoMillion, InstallMissingAddsAbsentAndKeepsPresent, InstallMissingReachesCachedSend, KernelInstall, KernelScan, MethodCacheInvalidation (+12 more)
 
 ### Community 109 - "P9 — 統合"
-Cohesion: 0.20
-Nodes (12): P9 — 統合, P9-01: Do it / Print it / Inspect it, Do it / Print it / Inspect it, P9-02: Browser accept, Browser accept, P9-03: エラー表示と VoiceOver, エラー表示と VoiceOver, P9-04 v1 Golden Acceptance (+4 more)
+Cohesion: 0.18
+Nodes (13): P9 — 統合, P9-01: Do it / Print it / Inspect it, Do it / Print it / Inspect it, P9-02: Browser accept, Browser accept, P9-03: エラー表示と VoiceOver, エラー表示と VoiceOver, P9-04 v1 Golden Acceptance (+5 more)
 
 ### Community 110 - "Deep"
 Cohesion: 0.22
@@ -835,20 +837,20 @@ Cohesion: 0.24
 Nodes (8): Actions, MainMenu, MenuAction, NSMenu, NSMenuItem, Selector, String, Void
 
 ### Community 114 - "Ast"
-Cohesion: 0.09
-Nodes (29): Ast, argc, floatValue, intValue, isFloat, isSuper, kids, kind (+21 more)
+Cohesion: 0.11
+Nodes (19): Ast, argc, floatValue, intValue, isFloat, isSuper, kids, kind (+11 more)
 
-### Community 115 - "TEST"
-Cohesion: 0.14
-Nodes (14): GrowAndContentsWithFullNursery, OverwriteAndReserveWithFullNursery, ReadStreamContentsOfFortyThousandCharacters, int64_t, KernelBench, fillNursery(), smi(), TEST() (+6 more)
+### Community 115 - ".font"
+Cohesion: 0.16
+Nodes (10): Int, NSFont, NSRange, ToolTextSize, .offset, UniformFont, NSObject, NSTextStorage (+2 more)
 
-### Community 116 - "Session.cpp"
-Cohesion: 0.10
-Nodes (32): Image, check, load, save, boot(), shutdown(), blankOut(), bumpDebugGeneration() (+24 more)
+### Community 116 - "BrowserModelTests"
+Cohesion: 0.21
+Nodes (9): BrowserModelTests, NSSegmentedControl, NSTableView, NSTextView, NSView, String, T, UInt (+1 more)
 
 ### Community 117 - "Deferred vendor methods list"
-Cohesion: 0.15
-Nodes (15): B7: Compiler syntax and chunk format fixes, Backquote compile-time literal unsupported, Bag size not in P9 golden, Brace array {...} syntax unsupported by v1 compiler, Deferred vendor methods list, FileStream subclass does not exist, Class>>selector: reason line format (SPEC §3.12), MappedCollection absent from pinned sources (+7 more)
+Cohesion: 0.16
+Nodes (14): B7: Compiler syntax and chunk format fixes, Backquote compile-time literal unsupported, Bag size not in P9 golden, Brace array {...} syntax unsupported by v1 compiler, Deferred vendor methods list, FileStream subclass does not exist, Class>>selector: reason line format (SPEC §3.12), MappedCollection absent from pinned sources (+6 more)
 
 ### Community 118 - "CLAUDE.md"
 Cohesion: 0.20
@@ -867,16 +869,16 @@ Cohesion: 0.12
 Nodes (17): ChunkFileIn, ChunkLevelErrorsCarryTheChunkSpan, ClassDefinitionAbortIsAnErrorAndIsCleared, DoItIsNotEvaluated, DoubledBangCharacterFromAFileOut, DoubledBangInStringIsOneBang, ErrorSpanCountsUndoubledBangs, InstallsCompiledMethodAndKeepsOldOnError (+9 more)
 
 ### Community 122 - "P6b Vendor File-in Implementation Plan"
-Cohesion: 0.09
-Nodes (32): .aoimage Restart Method Persistence, Vendor Class Allowlist, Bag (vendor stub rebind target), Cuis Smalltalk Vendor Pin, DEFERRED Unsupported Class Shapes, FileStream (host-patched vendor class), Host Word Patch (ao-host-patch), Kernel Scan Narrowed to Native-Required Classes (+24 more)
+Cohesion: 0.17
+Nodes (16): Vendor Class Allowlist, Bag (vendor stub rebind target), Cuis Smalltalk Vendor Pin, DEFERRED Unsupported Class Shapes, FileStream (host-patched vendor class), Host Word Patch (ao-host-patch), Kernel Scan Narrowed to Native-Required Classes, Link (vendor class) (+8 more)
 
 ### Community 123 - "Qiita-part2.md"
 Cohesion: 0.14
 Nodes (13): Codex は、修正が持ち込んだ退行と、見落としていた不具合を捕まえた, Cuis のコアはパッケージに無く、変更ログにあった, double 版の `std::from_chars` は 2〜36 進の小数を読めなかった, macOS の `open` は環境変数をアプリに渡していた, ベンチマークは Debug ビルドの数字だった, 仕様と手順は先に固めたが、道具の強制は守り切れなかった, 例外の仕組みや remembered set は、まだ後回しにしている, 効いたやり方：再現してから直し、直したものを別のエージェントに疑わせる (+5 more)
 
-### Community 124 - "string"
-Cohesion: 0.23
-Nodes (18): size_t, string, dropCycles(), dropMissingSupers(), findActive(), KeptClass, category, classVars (+10 more)
+### Community 124 - "KeptClass"
+Cohesion: 0.21
+Nodes (17): size_t, dropCycles(), dropMissingSupers(), findActive(), KeptClass, category, classVars, deferred (+9 more)
 
 ### Community 125 - "VirtualRegion.cpp"
 Cohesion: 0.21
@@ -891,16 +893,16 @@ Cohesion: 0.16
 Nodes (17): Ao Smalltalk System, ao_image_save, Bootstrap Procedure, Cuis Smalltalk, DEFERRED.md Exclusion List, Graphify / Serena Mandatory Tooling, Image Format .aoimage, Image Load Validation Rules (+9 more)
 
 ### Community 128 - "evalBody"
-Cohesion: 0.39
-Nodes (8): Interfaces, AoInspectFn, optional, debugInspect(), evalBody(), inspectValue(), printStringOf(), knownGlobals
+Cohesion: 0.11
+Nodes (24): Files, Interfaces, P11-02: 評価プロセス, コミット文, テスト, 完了条件, 手順, 目的 (+16 more)
 
 ### Community 129 - "= and hash Contract"
 Cohesion: 0.14
 Nodes (16): Array, ByteArray, Character, = and hash Contract, Float (IEEE754 binary64), Fraction, Magnitude, Number / Integer Hierarchy (+8 more)
 
 ### Community 130 - "TEST"
-Cohesion: 0.14
-Nodes (14): ArrayNewIsEmptyArray, BasicNewColonAllocatesIndexableSlots, BasicNewColonAtTheBoundAndOddSizes, BasicNewColonRefusesSizesPastUint32, Behavior, EachClassAndGlobalsSeeExtraNamed, InheritsFromWalksSuperclassChain, InstSizeAndFormatBitsArrayVsObject (+6 more)
+Cohesion: 0.13
+Nodes (15): ArrayNewIsEmptyArray, BasicNewColonAllocatesIndexableSlots, BasicNewColonAtTheBoundAndOddSizes, BasicNewColonRefusesSizesPastUint32, Behavior, EachClassAndGlobalsSeeExtraNamed, InheritsFromWalksSuperclassChain, InstSizeAndFormatBitsArrayVsObject (+7 more)
 
 ### Community 131 - "TEST"
 Cohesion: 0.13
@@ -919,28 +921,28 @@ Cohesion: 0.18
 Nodes (14): ClassMethodCache::flushSelector/flushAll, Stack guard + abort as homeless NLR, ao_debug_* C ABI, Ao.app DebuggerWindow + Workspace Debug button, DebugSnapshot::capture (root-safe, no heap allocation), Frame linked list (CallContext::topFrame), GRAPH_REPORT.md god nodes/communities (2026-09-26), Object>>halt native (ao_Object_halt) (+6 more)
 
 ### Community 135 - "TEST"
-Cohesion: 0.16
-Nodes (14): DnuWithFullNurseryPassesMessage, DoesNotUnderstandAppliesSubclassNative, DoesNotUnderstandPassesMessage, IdentityEqualsAndClass, NativeSend, setGcStress, int64_t, WellKnown (+6 more)
+Cohesion: 0.15
+Nodes (18): BlockMethodHasItsOwnMapInMethodCoordinates, MethodImage, Op, string, string_view, firstBlock(), named(), pcOf() (+10 more)
 
 ### Community 136 - "P4 — Kernelネイティブ実装"
-Cohesion: 0.08
-Nodes (32): MethodDictionary / lookup (IC→class cache→辞書→DNU), NativeMethod — ネイティブメソッドディスパッチ, P3 — ネイティブディスパッチ, P4 — Kernelネイティブ実装, NativeMethod のシンボル名再結合 (イメージロード時), P3-01: Symbol intern, Symbol intern, P3-02: MethodDictionary (+24 more)
+Cohesion: 0.15
+Nodes (17): P4 — Kernelネイティブ実装, P4-01: Object / UndefinedObject / Boolean, Object / UndefinedObject / Boolean のネイティブ実装, Behavior / ClassDescription / Class / Metaclass のネイティブ実装, P4-02: Behavior / ClassDescription / Class / Metaclass, P4-03: Magnitude / SmallInteger / Character, SmallInteger 算術のネイティブ実装, Array / ByteArray / String の可変長ペイロード (+9 more)
 
-### Community 137 - "reshapeClass"
-Cohesion: 0.20
-Nodes (21): FileInError, error, file, method, string, string_view, isVendorStub(), acceptClassDef() (+13 more)
+### Community 137 - "vector"
+Cohesion: 0.11
+Nodes (37): CompileError, message, span, string, vector, FileInError, error, file (+29 more)
 
-### Community 138 - "RootedArray"
-Cohesion: 0.16
-Nodes (11): Roots, uint32_t, unique_ptr, Root, slot, RootedArray, data_, inline_ (+3 more)
+### Community 138 - "GarbageFirstBoot"
+Cohesion: 0.15
+Nodes (16): CallContext, Roots, uint32_t, WellKnown, doubleIt(), expectErrorWithFullNursery(), fillNursery(), GarbageFirstBoot (+8 more)
 
 ### Community 139 - ".isTrue"
 Cohesion: 0.49
 Nodes (10): ao_Magnitude_between_and_(), ao_Magnitude_greaterOrEqual(), ao_Magnitude_greaterThan(), ao_Magnitude_lessOrEqual(), ao_Magnitude_max_(), ao_Magnitude_min_(), CallContext, uint32_t (+2 more)
 
-### Community 140 - ".nil"
-Cohesion: 0.11
-Nodes (31): allocateSkeletons(), allocClass(), ClassDef, bytes, indexable, instSize, name, WellKnown (+23 more)
+### Community 140 - "ClassDef"
+Cohesion: 0.29
+Nodes (7): ClassDef, bytes, indexable, instSize, name, WellKnown, int64_t
 
 ### Community 141 - "Abort / Evaluation Failure Propagation"
 Cohesion: 0.16
@@ -954,21 +956,21 @@ Nodes (14): Association, Smalltalk-80 Blue Book, Boolean / True / False, Class V
 Cohesion: 0.22
 Nodes (11): asan_interface, common_interface_defs, pthread, array, clearShadow(), byte, size_t, map (+3 more)
 
-### Community 144 - "send2"
-Cohesion: 0.07
-Nodes (32): ClassDefinitionThroughAliasOnlyRebindsGlobal, ClassSideShowForwardsToInstanceHook, EachClassSkipsSmalltalkImageNonClassExtra, Geometry, KeepsNativeIdentityEquals, NextPutAllCopiesCollection, NextPutAndClearInvokeHook, NextPutAtSmiMaxPositionFails (+24 more)
+### Community 144 - "TEST"
+Cohesion: 0.15
+Nodes (13): ClassSideShowForwardsToInstanceHook, EachClassSkipsSmalltalkImageNonClassExtra, NextPutAllCopiesCollection, NextPutAndClearInvokeHook, NextPutAtSmiMaxPositionFails, ReadStreamNextPositionResetContents, TEST(), ShowInvokesHook (+5 more)
 
-### Community 145 - "runFile"
-Cohesion: 0.26
-Nodes (12): ao_AoTest_assert_equals_(), CallContext, path, Root, string, string_view, uint32_t, listTests() (+4 more)
+### Community 145 - "clearUnwinding"
+Cohesion: 0.21
+Nodes (16): endEval, recordFailure, Scheduler::runFiber(), abortReasonText(), clearUnwinding(), string, CallContext, path (+8 more)
 
 ### Community 146 - "TEST"
 Cohesion: 0.17
 Nodes (12): AddNamedKeepsAliasAndRejectsForeignIndex, AdoptOldBytesOnce, BindImageSlotWritesFieldsInOrder, BootFindsIdentityEqualsAndSharedStubNames, EachImageSlotLists127Names, KernelThunkFunctionsHaveNames, RememberSymbolRegistersWithoutAllocating, adoptOldBytes (+4 more)
 
-### Community 147 - "writeFile"
-Cohesion: 0.27
-Nodes (12): size_t, string, directoryOf(), makeTemporary(), NamedOop, name, value, saveTarget() (+4 more)
+### Community 147 - "CompileEnv"
+Cohesion: 0.13
+Nodes (16): CompileEnv, classVarNames, instVarNames, kernelInstVarCount, knownGlobals, undeclaredAreBindings, size_t, classVarEnv() (+8 more)
 
 ### Community 148 - "P10 — 事後デバッガ"
 Cohesion: 0.09
@@ -979,28 +981,28 @@ Cohesion: 0.17
 Nodes (10): FrameBlock, capacity, slots, used, size_t, unique_ptr, Range, first (+2 more)
 
 ### Community 150 - "path"
-Cohesion: 0.18
-Nodes (11): path, string, uint32_t, expectRefused(), fileNames(), findBytesOfSize(), freshDir(), readHeapBytes() (+3 more)
+Cohesion: 0.16
+Nodes (12): path, string, uint32_t, expectRefused(), fileNames(), findBytesOfSize(), freshDir(), readAll() (+4 more)
 
 ### Community 151 - "Token"
 Cohesion: 0.18
 Nodes (11): int64_t, string, Tok, Token, intValue, isFloat, kind, largeInt (+3 more)
 
 ### Community 152 - "Gc"
-Cohesion: 0.22
-Nodes (11): Gc, clearWeakAfterNursery, collectBeforeTenured, copy, heap_, roots_, scavengeCanProgress, scavengeFromRoots (+3 more)
-
-### Community 153 - "Table"
 Cohesion: 0.18
-Nodes (10): CallContext, int64_t, uint32_t, Root, Table, array, capacity, generation (+2 more)
+Nodes (13): Gc, clearWeakAfterNursery, clearWeakAfterOldMark, collectBeforeTenured, copy, heap_, roots_, scavengeCanProgress (+5 more)
 
-### Community 154 - "ClassMethodCache"
-Cohesion: 0.18
-Nodes (11): ClassMethodCache, entries, flushAll, flushSelector, insert, kSize, Entry, klass (+3 more)
+### Community 153 - "P3 — ネイティブディスパッチ"
+Cohesion: 0.16
+Nodes (15): MethodDictionary / lookup (IC→class cache→辞書→DNU), NativeMethod — ネイティブメソッドディスパッチ, P3 — ネイティブディスパッチ, NativeMethod のシンボル名再結合 (イメージロード時), P3-01: Symbol intern, Symbol intern, P3-02: MethodDictionary, MethodDictionary (+7 more)
 
-### Community 155 - "B2: Block semantics and interpreter (shared temps, inlining)"
-Cohesion: 0.22
-Nodes (10): B0: Test infrastructure (GC stress mode, ASan), B1: GC safety and old-space growth, B2: Block semantics and interpreter (shared temps, inlining), Fiber stack via mmap with guard page, pooled, HandleScope/RootedArray/allocateRetry consolidation, Inlining of ifTrue:/whileTrue:/to:do: etc., NativeFn receiver/args rooted via RootedArray, Old space: mmap-reserved, mprotect-committed virtual region up to 4GiB (+2 more)
+### Community 154 - "P7 .aoimage Implementation Plan"
+Cohesion: 0.20
+Nodes (15): CmUser (user file-in test class), Extra Section (non-catalog classes), .aoimage Binary Format (AOIM), Globals Section (57 slots), VendorLinkSurvives Acceptance Test, Image Load Procedure, Native Method Rebind by Name (no function pointers serialized), OOP Bit Encoding in Image (+7 more)
+
+### Community 155 - "B1: GC safety and old-space growth"
+Cohesion: 0.40
+Nodes (6): B0: Test infrastructure (GC stress mode, ASan), B1: GC safety and old-space growth, Fiber stack via mmap with guard page, pooled, HandleScope/RootedArray/allocateRetry consolidation, NativeFn receiver/args rooted via RootedArray, Old space: mmap-reserved, mprotect-committed virtual region up to 4GiB
 
 ### Community 156 - "C ABI Bridge (ao_abi.h)"
 Cohesion: 0.33
@@ -1014,13 +1016,13 @@ Nodes (11): Ao Bytecode Instruction Set, CompiledMethod, Ao Compiler, Method/Blo
 Cohesion: 0.20
 Nodes (10): BootstrapInstallsObjectIdentityEquals, InheritsFromSuperclass, MissingSelectorIsNil, Lookup, NativeFn, WellKnown, install(), TEST() (+2 more)
 
-### Community 159 - "Codegen.cpp"
-Cohesion: 0.07
-Nodes (35): BytecodeIsa, Op, uint8_t, operandBytes(), specialCount(), specialSelector(), Analysis, declared (+27 more)
+### Community 159 - "specialIndex"
+Cohesion: 0.27
+Nodes (10): BytecodeIsa, Op, uint8_t, operandBytes(), specialCount(), specialSelector(), specialIndex(), TEST() (+2 more)
 
-### Community 160 - "Image::load"
-Cohesion: 0.31
-Nodes (9): readHeader, bindAll(), checkGlobals(), Roots, string_view, WellKnown, fileOop(), Image::load() (+1 more)
+### Community 160 - "TEST"
+Cohesion: 0.15
+Nodes (11): FractionToFloatRoundsOnceIncludingSubnormals, IntegerToFloatRoundsHalfToEven, KernelNumericConvert, RightShiftOfAMillionBitsIsLinear, KernelBench, string, testing::Test, KernelNumeric (+3 more)
 
 ### Community 161 - "PingPong"
 Cohesion: 0.20
@@ -1042,9 +1044,9 @@ Nodes (10): fiberInit(), FiberRegs, d, fp, lr, sp, x, uint64_t (+2 more)
 Cohesion: 0.24
 Nodes (11): P2 — ブートストラップ, WellKnown.hpp — well-known クラス表, P2-01: WellKnown と即値クラス, WellKnown 表と即値クラス, クラス骨格の割り当て, P2-02: クラス骨格の割り当て, Smalltalk-80 Blue Book（メタクラス規則, 章 6–10）, P2-03: メタクラス循環（Blue Book 6–10） (+3 more)
 
-### Community 166 - "P0-03: CMake + GoogleTest + CLI"
-Cohesion: 0.25
-Nodes (9): P0-01: git / LICENSE / PHASE / README, PHASE file marker, P0-02: directory skeleton, P0-03: CMake + GoogleTest + CLI, ao::boot / shutdown / version_string, P0-04: C ABI + Swift smoke, ao_abi.h C ABI stub, P0-06: Serena project (+1 more)
+### Community 166 - "Ao 実装文書 (docs/ index)"
+Cohesion: 0.24
+Nodes (16): P0 phase doc, P0 (親フェーズ, stub), P0-01: git / LICENSE / PHASE / README, PHASE file marker, P0-02: directory skeleton, P0-03: CMake + GoogleTest + CLI, ao::boot / shutdown / version_string, P0-04: C ABI + Swift smoke (+8 more)
 
 ### Community 167 - "intern"
 Cohesion: 0.25
@@ -1086,9 +1088,9 @@ Nodes (7): deque, size_t, string, unordered_map, WellKnown::InternTable, byBytes
 Cohesion: 0.25
 Nodes (8): AbiSmoke, BootAndShutdownReturnZero, BootVersionShutdown, TEST(), Smoke, VersionStringIsNonEmpty, VersionStringIsReleaseOneZeroZero, VersionTruncationIsRangeError
 
-### Community 177 - "PcSpan"
-Cohesion: 0.40
-Nodes (5): uint32_t, PcSpan, end, pc, start
+### Community 177 - "InspectorWindow"
+Cohesion: 0.22
+Nodes (8): InspectorWindow, .text, MainActor, NSObjectProtocol, NSTextView, NSWindow, Sendable, String
 
 ### Community 178 - "P8–P9 Remaining Implementation Plan"
 Cohesion: 0.33
@@ -1118,9 +1120,9 @@ Nodes (5): KeptMethod, key, meta, protocol, source
 Cohesion: 0.40
 Nodes (3): path, TestDir, path
 
-### Community 185 - "ao_set_inspect_hook"
-Cohesion: 0.29
-Nodes (6): AoTranscriptFn, ao_set_inspect_hook(), ao_set_transcript_hook(), AoInspectFn, testing::Test, SessionAbi
+### Community 185 - "Reentry"
+Cohesion: 0.15
+Nodes (13): BusyRead, copies, evalCodes, lengths, string, expectAllRefused(), Reentry, codes (+5 more)
 
 ### Community 186 - "Metaclass Circularity (Blue Book Rules 6-10)"
 Cohesion: 0.60
@@ -1158,57 +1160,57 @@ Nodes (4): GC Stress Mode (AO_GC_STRESS), Kernel Scan Test (NativeMethod invaria
 Cohesion: 0.67
 Nodes (3): ao-smalltalk/AGENTS.md, CLAUDE.md process authority, SPEC.md product authority
 
-### Community 195 - "P11-02: 評価プロセス"
-Cohesion: 0.25
-Nodes (7): Files, P11-02: 評価プロセス, コミット文, テスト, 完了条件, 手順, 目的
+### Community 195 - "P8 — AppKit ツール"
+Cohesion: 0.29
+Nodes (11): P8 — AppKit ツール, P8-01: Ao.app 骨格, Ao.app 骨格, P8-02: Transcript ウィンドウ, Transcript ウィンドウ, P8-03: Workspace ウィンドウ, Workspace ウィンドウ, P8-04: System Browser 5 ペイン (+3 more)
 
-### Community 196 - "P11-05: Step into / over / out と Debug it"
-Cohesion: 0.25
-Nodes (7): Files, Interfaces, P11-05: Step into / over / out と Debug it, コミット文, テスト, 完了条件, 目的
+### Community 196 - "CompiledMethodNatives.cpp"
+Cohesion: 0.53
+Nodes (10): ao_CompiledMethod_bytecodes(), ao_CompiledMethod_literals(), ao_CompiledMethod_nativeCode(), ao_CompiledMethod_numArgs(), ao_CompiledMethod_numTemps(), ao_CompiledMethod_primitive(), CallContext, uint32_t (+2 more)
 
-### Community 198 - "StringDoProbe"
-Cohesion: 0.25
-Nodes (8): mt19937, int64_t, Root, StringDoProbe, calls, rng, strangers, walked
+### Community 198 - "TEST"
+Cohesion: 0.24
+Nodes (9): Geometry, PointAccessorsEqualsAndSetters, PointAdd, PointSubtractScaleIntDivideAndPlusNumber, RectangleWidthHeightContainsAndIntersect, int64_t, pt(), rect() (+1 more)
 
 ### Community 199 - "abortingNew"
 Cohesion: 0.67
 Nodes (3): abortingNew(), CallContext, uint32_t
 
-### Community 288 - "Format.hpp"
-Cohesion: 0.46
-Nodes (7): bits(), int64_t, instSize(), isBytes(), isIndexable(), isPointers(), make()
+### Community 288 - "DebugFrames"
+Cohesion: 0.20
+Nodes (9): DebugFrames, count, kind, method, pc, receiver, selector, temp (+1 more)
 
-### Community 289 - "isClassShaped"
-Cohesion: 0.32
-Nodes (7): isClassShaped(), superclassOf(), pair, hasSubclass(), liveClasses(), methodHoldingDropped(), ownClassName()
+### Community 289 - "native_send_test.cpp"
+Cohesion: 0.40
+Nodes (9): answerMessage(), CallContext, NativeFn, uint32_t, install(), pairAfterAlloc(), stubA(), stubB() (+1 more)
 
-### Community 290 - "InlineCache"
-Cohesion: 0.32
-Nodes (7): InlineCache, cachedClass, cachedMethod, ClassMethodCache::addRoots(), Roots, IcGuard, ic
+### Community 290 - "P11-06: Debugger 窓の操作、Debug it、保存の拒否の警告"
+Cohesion: 0.22
+Nodes (8): Files, Interfaces, P11-06: Debugger 窓の操作、Debug it、保存の拒否の警告, コミット文, テスト, 完了条件, 手順, 目的
 
-### Community 291 - "BlockProbe"
+### Community 291 - "string"
+Cohesion: 0.39
+Nodes (9): string, doubleBangs(), HostMethod, protocol, source, quoteSmalltalk(), render(), trimTrailingWs() (+1 more)
+
+### Community 292 - "Dbg"
 Cohesion: 0.29
-Nodes (5): BlockProbe, b, probe, int64_t, Root
+Nodes (3): Dbg, b, sink
 
-### Community 292 - "fileInLoadOrder"
-Cohesion: 0.48
-Nodes (7): path, deferredMethods(), fileInFile(), fileInListedFile(), fileInLoadOrder(), readSource(), sessionFileInLoadOrder()
+### Community 293 - "TEST"
+Cohesion: 0.40
+Nodes (5): BlockContextKeepsHomeAndCopied, ContextGc, MethodContextSurvivesNurseryCollection, NativeBlockThunkStillValues, TEST()
 
-### Community 293 - "fillFullTable"
-Cohesion: 0.33
-Nodes (7): int64_t, Root, set, uint32_t, fillFullTable(), keyWithHome(), smi()
-
-### Community 294 - "P11-03: 止める、止まったプロセスのフレーム、保存の拒否"
-Cohesion: 0.33
-Nodes (5): P11-03: 止める、止まったプロセスのフレーム、保存の拒否, コミット文, テスト, 完了条件, 目的
+### Community 294 - "debugFrameSource"
+Cohesion: 0.14
+Nodes (27): Interfaces, P11-03: 止める、止まったプロセスのフレーム、保存の拒否, コミット文, テスト, 完了条件, 手順, 目的, argCountOf() (+19 more)
 
 ### Community 295 - "Qiita-part1.md"
 Cohesion: 0.33
 Nodes (5): 50 時間で v1 に届き、直後のレビューで Critical が 11 件見つかった, Ao は Kernel を C++ で書き、画面を AppKit に任せる処理系, GC 安全性：ネイティブ関数がローカル変数に持ったレシーバが、GC のあとで古い番地を指す, old 領域が 4 MB で頭打ちになり、full GC を 88 回回していた, ブロックの意味論：`ifTrue:` の中の代入と `^` が正しく動かなかった
 
-### Community 296 - "valueHashFold"
-Cohesion: 0.53
-Nodes (6): bytesValueHash(), int64_t, size_t, uint64_t, valueHashBytes(), valueHashFold()
+### Community 296 - "createBlock"
+Cohesion: 0.60
+Nodes (4): CallContext, uint8_t, createBlock(), createMethod()
 
 ### Community 297 - "ScopedGcStressEnv"
 Cohesion: 0.40
@@ -1218,55 +1220,63 @@ Nodes (4): optional, string, ScopedGcStressEnv, saved_
 Cohesion: 0.50
 Nodes (4): BoxFromImageNativeCodeNil, BoxLiteralArrayPseudoObjects, LayoutNativeCodeNil, TEST()
 
-### Community 299 - "ParseResult"
-Cohesion: 0.50
-Nodes (4): ParseResult, error, method, ok
+### Community 299 - "codegen"
+Cohesion: 0.12
+Nodes (13): Codegen, CompileResult, error, image, ok, ParseResult, error, method (+5 more)
 
-### Community 300 - ".ptr"
-Cohesion: 0.50
-Nodes (3): CallContext, string_view, workspaceBinding()
+### Community 300 - "lookup_test.cpp"
+Cohesion: 0.60
+Nodes (4): CallContext, uint32_t, stubA(), stubB()
 
-### Community 301 - "expectPrints"
+### Community 301 - "create"
 Cohesion: 0.50
-Nodes (4): Check, printed, source, expectPrints()
+Nodes (4): CallContext, uint16_t, uint8_t, create()
 
-### Community 303 - "NameBag"
+### Community 302 - "IgnoreFileSizeSignal"
+Cohesion: 0.50
+Nodes (3): IgnoreFileSizeSignal, old_, saved_
+
+### Community 303 - "abortingSubclass"
 Cohesion: 0.67
-Nodes (3): NameBag, heap, names
+Nodes (4): abortingSubclass(), countingPrintString(), CallContext, uint32_t
+
+### Community 305 - "SlotNames"
+Cohesion: 0.67
+Nodes (3): SlotNames, names, WellKnown
 
 ## Ambiguous Edges - Review These
-- `B4: Kernel class metadata (instVarNames, SmalltalkImage, classPool)` → `Compiler MethodImage pcMap + temps (Emitter::mark)`  [AMBIGUOUS]
+- `P5-01: 字句解析` → `P4-09: Kernel NativeMethod 走査と bench`  [AMBIGUOUS]
+  docs/prs/P5-01.md · relation: references
+- `P9-01: Do it / Print it / Inspect it` → `P8-05: メニューとキー`  [AMBIGUOUS]
+  docs/prs/P9-01.md · relation: references
+- `Compiler MethodImage pcMap + temps (Emitter::mark)` → `B4: Kernel class metadata (instVarNames, SmalltalkImage, classPool)`  [AMBIGUOUS]
   docs/superpowers/plans/2026-09-26-p10-debugger.md · relation: conceptually_related_to
 - `P4-08: Point / Rectangle` → `P4-09: Kernel NativeMethod 走査と bench`  [AMBIGUOUS]
   docs/prs/P4-09.md · relation: references
-- `P4-09: Kernel NativeMethod 走査と bench` → `P5-01: 字句解析`  [AMBIGUOUS]
-  docs/prs/P5-01.md · relation: references
 - `P6b-04: vendor file-in` → `P7-01: .aoimage 形式`  [AMBIGUOUS]
   docs/prs/P7-01.md · relation: references
 - `P7-03: load と NativeMethod 再結合` → `P8-01: Ao.app 骨格`  [AMBIGUOUS]
   docs/prs/P8-01.md · relation: references
-- `P8-05: メニューとキー` → `P9-01: Do it / Print it / Inspect it`  [AMBIGUOUS]
-  docs/prs/P9-01.md · relation: references
 
 ## Knowledge Gaps
-- **900 isolated node(s):** `.metaFlag`, `.hasUnacceptedChanges`, `.title`, `.sourceText`, `.errorText` (+895 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2397 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **907 isolated node(s):** `.metaFlag`, `.hasUnacceptedChanges`, `.title`, `.sourceText`, `.errorText` (+902 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2415 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **90 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **What is the exact relationship between `B4: Kernel class metadata (instVarNames, SmalltalkImage, classPool)` and `Compiler MethodImage pcMap + temps (Emitter::mark)`?**
+- **What is the exact relationship between `P5-01: 字句解析` and `P4-09: Kernel NativeMethod 走査と bench`?**
+  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
+- **What is the exact relationship between `P9-01: Do it / Print it / Inspect it` and `P8-05: メニューとキー`?**
+  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
+- **What is the exact relationship between `Compiler MethodImage pcMap + temps (Emitter::mark)` and `B4: Kernel class metadata (instVarNames, SmalltalkImage, classPool)`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `P4-08: Point / Rectangle` and `P4-09: Kernel NativeMethod 走査と bench`?**
-  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
-- **What is the exact relationship between `P4-09: Kernel NativeMethod 走査と bench` and `P5-01: 字句解析`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **What is the exact relationship between `P6b-04: vendor file-in` and `P7-01: .aoimage 形式`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **What is the exact relationship between `P7-03: load と NativeMethod 再結合` and `P8-01: Ao.app 骨格`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
-- **What is the exact relationship between `P8-05: メニューとキー` and `P9-01: Do it / Print it / Inspect it`?**
-  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
-- **Why does `Oop` connect `Oop` to `WellKnown`, `.fromSmallInteger`, `Interpreter.cpp`, `Float.cpp`, `TEST`, `send`, `LargeInteger.cpp`, `Stream.cpp`, `Boot`, `TEST`, `vector`, `Heap`, `Boolean.cpp`, `abi.cpp`, `TEST`, `Compile.cpp`, `Heap.cpp`, `DebugSnapshot`, `TEST`, `Image::save`, `TEST`, `Scheduler.cpp`, `Frame`, `CallContext`, `cstdint`, `putNative`, `Session`, `classRows`, `.isHeap`, `String.cpp`, `WellKnown.cpp`, `Gc.cpp`, `TEST`, `allocateRetry`, `Geometry.cpp`, `collectNursery`, `BlockContext.cpp`, `Roots`, `string`, `CallContext`, `Array.cpp`, `Scheduler::Record`, `SmallInteger.cpp`, `uint64_t`, `string`, `DebugSnapshot.cpp`, `MethodSource`, `TEST`, `Process.cpp`, `NativeMethod.cpp`, `ImageHeader`, `Roots.cpp`, `.isSmallInteger`, `FiberStackBounds`, `CountingSink`, `Bootstrap`, `TEST`, `TEST`, `native_method_test.cpp`, `Loaded`, `evalBody`, `TEST`, `Stack`, `TEST`, `reshapeClass`, `RootedArray`, `.isTrue`, `.nil`, `send2`, `runFile`, `writeFile`, `FrameBlock`, `path`, `Table`, `ClassMethodCache`, `TEST`, `Image::load`, `intern`, `Character.cpp`, `ObjectHeader`, `WellKnown::InternTable`, `popFrame`, `Root`, `imageRegistryStubB()`, `answerOne`, `.specialSelector`, `abortingNew`, `Format.hpp`, `isClassShaped`, `InlineCache`, `BlockProbe`, `fileInLoadOrder`, `fillFullTable`, `.ptr`?**
-  _High betweenness centrality (0.335) - this node is a cross-community bridge._
+- **Why does `Oop` connect `Oop` to `WellKnown`, `.fromSmallInteger`, `TEST`, `Interpreter.cpp`, `Float.cpp`, `TEST`, `send`, `LargeInteger.cpp`, `Stream.cpp`, `Boot`, `TEST`, `TEST_F`, `image_save_load_test.cpp`, `TEST`, `Heap`, `TEST`, `Boolean.cpp`, `abi.cpp`, `TEST`, `Compile.cpp`, `Heap.cpp`, `DebugSnapshot`, `TEST`, `ImageSave.cpp`, `TEST`, `.nil`, `TEST`, `CallContext`, `string`, `ImageLoad.cpp`, `Scheduler`, `putNative`, `Session`, `Session.cpp`, `.isHeap`, `String.cpp`, `WellKnown.cpp`, `TEST`, `.false_`, `Geometry.cpp`, `TEST`, `DiskHeader`, `collectNursery`, `BlockContext.cpp`, `Roots`, `string`, `size`, `TEST`, `TEST_F`, `Array.cpp`, `Scheduler::Record`, `ClassPool.cpp`, `SmallInteger.cpp`, `uint64_t`, `DebugSnapshot.cpp`, `MethodSource`, `Process.cpp`, `NativeMethod.cpp`, `TEST`, `TEST`, `Roots.cpp`, `HashedCollection.cpp`, `FiberStackBounds`, `CountingSink`, `send2`, `TEST`, `native_method_test.cpp`, `Loaded`, `evalBody`, `TEST`, `TEST`, `Stack`, `vector`, `GarbageFirstBoot`, `.isTrue`, `ClassDef`, `clearUnwinding`, `FrameBlock`, `path`, `TEST`, `intern`, `Character.cpp`, `ObjectHeader`, `WellKnown::InternTable`, `popFrame`, `Root`, `imageRegistryStubB()`, `answerOne`, `CompiledMethodNatives.cpp`, `.specialSelector`, `TEST`, `abortingNew`, `native_send_test.cpp`, `Dbg`, `debugFrameSource`, `createBlock`, `lookup_test.cpp`, `create`, `abortingSubclass`, `SlotNames`?**
+  _High betweenness centrality (0.362) - this node is a cross-community bridge._

@@ -34,6 +34,8 @@ HostOopHook g_transcriptHook = nullptr;
 // SPEC §3.13: capture on or off, as the ABI set it (off by default). Every session boot and load
 // make gets it.
 bool g_debugCapture = false;
+// SPEC §3.13: the live mode, as the ABI set it (post-mortem by default). Each ao_eval reads it.
+int g_debugMode = AO_DEBUG_POSTMORTEM;
 // SPEC §3.10: the ao_debug_* prints and inspects running (DebugEntry). While one runs, capture stays
 // off and a new setting waits for its end.
 int g_debugEntries = 0;
@@ -252,8 +254,10 @@ void Session::onAbort(CallContext& aborting) noexcept {
   if (this != g_session.get()) {
     return;
   }
-  // A fiber runs on its own CallContext; the base on ctx.
-  const bool base = &aborting == ctx.get();
+  // A fiber runs on its own CallContext; the base on ctx. SPEC §3.13: an evaluating process's
+  // failure is the evaluation's, so it replaces the snapshot as the base's does.
+  const bool base = &aborting == ctx.get() ||
+                    (scheduler != nullptr && scheduler->runningEval());
   if (!base && !debug.empty()) {
     return;
   }
@@ -297,6 +301,12 @@ void setSessionDebugCapture(bool on) {
   // recorded; ~DebugEntry applies it, so an abort later in that print is still not captured.
   if (g_debugEntries == 0 && g_session != nullptr && g_session->ctx != nullptr) {
     g_session->ctx->debug = on ? g_session.get() : nullptr;
+  }
+}
+
+void setSessionDebugMode(int mode) {
+  if (mode == AO_DEBUG_POSTMORTEM || mode == AO_DEBUG_LIVE) {
+    g_debugMode = mode;
   }
 }
 
@@ -874,9 +884,41 @@ bool inspectValue(Session& session, const Oop& value, AoInspectFn inspect, void*
 // *ran becomes true once the doIt is applied: the evaluation ran (SPEC §3.4 評価の終わり).
 // *printedOut gets a Print it's or Inspect it's whole printString (nullopt when it is INT_MAX
 // bytes or more); other outcomes leave it as it was.
+// SPEC §3.10: the answer for a doIt whose value is `result` (a rooted slot): empty for a Do it,
+// else the printString (and inspect first, for an Inspect it). *printedOut gets a Print it's or
+// Inspect it's whole printString (nullopt when it is INT_MAX bytes or more).
+int answerEval(Session& session, int mode, const Oop& result, char* out, int outLen,
+               AoInspectFn inspect, void* inspectUser, std::optional<std::string>* printedOut) {
+  if (mode != AO_EVAL_PRINTIT && mode != AO_EVAL_INSPECTIT) {
+    return writeBuf("", out, outLen);
+  }
+  std::string utf8;
+  const bool printedOk = mode == AO_EVAL_INSPECTIT
+                             ? inspectValue(session, result, inspect, inspectUser, &utf8)
+                             : printStringOf(session, result, &utf8);
+  if (!printedOk) {
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
+  // SPEC §3.10 評価結果: a printString of INT_MAX bytes or more is not kept; out is cut
+  // (AO_ERR_RANGE).
+  const bool fitsInt = utf8.size() < static_cast<std::size_t>(INT_MAX);
+  const int rc = writeBuf(utf8, out, outLen);
+  if (fitsInt) {
+    *printedOut = std::move(utf8);
+  } else {
+    *printedOut = std::nullopt;
+  }
+  return rc;
+}
+
+// *ran becomes true once the doIt is applied: the evaluation ran (SPEC §3.4 評価の終わり).
+// *printedOut gets a Print it's or Inspect it's whole printString (nullopt when it is INT_MAX
+// bytes or more); other outcomes leave it as it was. *failure gets the reason of a live-mode
+// evaluation that failed on its process (SPEC §3.13); the base is then not unwinding.
 int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
              AoInspectFn inspect, void* inspectUser, bool* ran,
-             std::optional<std::string>* printedOut) {
+             std::optional<std::string>* printedOut, std::string* failure) {
   if (err != nullptr) {
     err->start = 0;
     err->end = 0;
@@ -953,36 +995,30 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
   }
 
   *ran = true;
-  Root result(session.roots,
-              applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil()));
+  Root result(session.roots);
+  if (g_debugMode == AO_DEBUG_LIVE && session.scheduler != nullptr) {
+    // SPEC §3.13 評価プロセス: the doIt runs on its own process; the base waits for it.
+    Scheduler& sched = *session.scheduler;
+    const std::uint64_t pid = sched.forkEval(*session.ctx, method.slot, mode);
+    if (pid == 0) {
+      blankOut(out, outLen);
+      return AO_ERR_EVAL;
+    }
+    if (sched.awaitEval(pid) != Scheduler::EvalEnd::Finished) {
+      *failure = sched.evalReason();
+      blankOut(out, outLen);
+      return AO_ERR_EVAL;
+    }
+    result.slot = sched.evalValue();
+    sched.clearEvalValue();
+  } else {
+    result.slot = applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil());
+  }
   if (result.slot.isEmpty()) {
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
-
-  if (mode == AO_EVAL_DOIT) {
-    return writeBuf("", out, outLen);
-  }
-
-  std::string utf8;
-  const bool printedOk =
-      mode == AO_EVAL_INSPECTIT
-          ? inspectValue(session, result.slot, inspect, inspectUser, &utf8)
-          : printStringOf(session, result.slot, &utf8);
-  if (!printedOk) {
-    blankOut(out, outLen);
-    return AO_ERR_EVAL;
-  }
-  // SPEC §3.10 評価結果: a printString of INT_MAX bytes or more is not kept; out is cut
-  // (AO_ERR_RANGE).
-  const bool fitsInt = utf8.size() < static_cast<std::size_t>(INT_MAX);
-  const int rc = writeBuf(utf8, out, outLen);
-  if (fitsInt) {
-    *printedOut = std::move(utf8);
-  } else {
-    *printedOut = std::nullopt;
-  }
-  return rc;
+  return answerEval(session, mode, result.slot, out, outLen, inspect, inspectUser, printedOut);
 }
 
 }  // namespace
@@ -1007,8 +1043,17 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   }
   bool ran = false;
   std::optional<std::string> printed = std::string();
-  const int rc =
-      evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser, &ran, &printed);
+  std::string failure;
+  const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser, &ran,
+                          &printed, &failure);
+  return finishEval(rc, ran, std::move(printed), failure, out, outLen, err);
+}
+
+// SPEC §3.4, §3.10: the end of an evaluation, once its answer is made (rc, out, *printed): the
+// base's abort (or the live evaluation's `failure`) is read and cleared, the ready queue drains
+// when the evaluation ran, and the result is kept.
+int finishEval(int rc, bool ran, std::optional<std::string> printed, const std::string& failure,
+               char* out, int outLen, AoSpan* err) {
   if (g_session == nullptr || g_session->ctx == nullptr) {
     return rc;
   }
@@ -1016,7 +1061,9 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   // abort にならずに走り切ったときも「out of memory」。SPEC §3.10: AO_ERR_EVAL の理由は空にしない。
   CallContext& ctx = *g_session->ctx;
   std::string reason;
-  if (ctx.aborting) {
+  if (!failure.empty()) {
+    reason = failure;
+  } else if (ctx.aborting) {
     reason = abortReasonText(ctx);
     if (reason.empty()) {
       reason = "evaluation aborted";

@@ -45,7 +45,7 @@ typedef struct AoSpan {
    or a native), each of these thirteen does nothing and answers AO_ERR: ao_image_load with the
    reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
    setters, ao_version, the ao_browser_* reads, ao_eval_result_length, ao_eval_result_copy,
-   ao_set_debug_capture and the snapshot reads (ao_debug_generation to ao_debug_frame_temp_name)
+   ao_set_debug_capture, ao_set_debug_mode and the snapshot reads (ao_debug_generation to ao_debug_frame_temp_name)
    may be called then. No C++ exception leaves any of these functions: it becomes AO_ERR (-1 for
    the *_count functions, ao_eval_result_length, and the ao_debug_* functions below that answer a
    number). */
@@ -118,6 +118,12 @@ int ao_eval_result_copy(char* buf, int buf_len);
    process failing in the drain) into the session's one snapshot before the abort unwinds. Off by
    default; the setting stays across ao_runtime_shutdown, ao_runtime_boot and ao_image_load. */
 void ao_set_debug_capture(int on);
+
+/* SPEC §3.10 ライブデバッガの操作, §3.13. AO_DEBUG_LIVE runs each ao_eval's doIt on its own
+   process (the evaluating process); AO_DEBUG_POSTMORTEM (the default) runs it on the base. Other
+   values do nothing. The setting stays across ao_runtime_shutdown, ao_runtime_boot and
+   ao_image_load, and takes effect at the next ao_eval. */
+void ao_set_debug_mode(int mode);
 
 /* The snapshot reads; they may be called while busy. Frame i counts from 0, the innermost; temp j
    from 0, the receiver not included. The string reads follow the buffer rule above; AO_ERR also

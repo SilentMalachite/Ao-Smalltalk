@@ -1190,3 +1190,37 @@ TEST(Process, WakeThatCannotEnqueueChangesNothing) {
   EXPECT_EQ(0u, b.scheduler.liveFibers());
   EXPECT_EQ(0u, b.scheduler.processFailures());
 }
+
+// SPEC §3.13 評価プロセス: forkEval makes a live process that is in no list; awaitEval runs it,
+// and the ready processes whenever it switches, until it ends. It is then gone, its value is the
+// evaluation's, and the base is the active process again.
+TEST(Process, EvalProcessRunsUntilItEndsAndLeavesNothing) {
+  Boot b;
+  ao::Root base(b.roots, active(b));
+  auto doIt = ao::compiler::compileMethod(
+      "doIt | env | env := Array new: 2. env at: 1 put: Processor activeProcess. "
+      "[env at: 2 put: 5] fork. Processor yield. ^(env at: 2) + 1");
+  ASSERT_TRUE(doIt.ok) << doIt.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, doIt.image, b.wk.objectClass));
+  const std::uint64_t pid = b.scheduler.forkEval(b.ctx, cm.slot, 2);
+  ASSERT_NE(0u, pid);
+  EXPECT_EQ(1u, b.scheduler.liveFibers());
+  EXPECT_EQ(0, sizeOf(b, readyList(b)));
+  EXPECT_EQ(ao::Scheduler::EvalEnd::Finished, b.scheduler.awaitEval(pid));
+  EXPECT_EQ(smi(6), b.scheduler.evalValue());
+  b.scheduler.clearEvalValue();
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_EQ(0u, b.scheduler.processFailures());
+  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_EQ(base.slot, active(b));
+  // A failure is the evaluation's reason, not a process failure.
+  auto bad = ao::compiler::compileMethod("doIt ^nil foo");
+  ASSERT_TRUE(bad.ok);
+  ao::Root cm2(b.roots, ao::boxMethodImage(b.ctx, bad.image, b.wk.objectClass));
+  const std::uint64_t pid2 = b.scheduler.forkEval(b.ctx, cm2.slot, 1);
+  ASSERT_NE(pid, pid2);
+  EXPECT_EQ(ao::Scheduler::EvalEnd::Failed, b.scheduler.awaitEval(pid2));
+  EXPECT_EQ("doesNotUnderstand: #foo", b.scheduler.evalReason());
+  EXPECT_EQ(0u, b.scheduler.processFailures());
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}

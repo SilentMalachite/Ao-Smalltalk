@@ -259,6 +259,14 @@ extern "C" void ao_set_debug_capture(int on) {
   });
 }
 
+// SPEC §3.10 ライブデバッガの操作: kept on the session side like the capture setting.
+extern "C" void ao_set_debug_mode(int mode) {
+  guarded(AO_ERR, [&] {
+    ao::setSessionDebugMode(mode);
+    return AO_OK;
+  });
+}
+
 // The snapshot reads only read, so like ao_browser_* they take no AbiEntry and answer while the
 // runtime is busy.
 extern "C" int ao_debug_generation(void) {

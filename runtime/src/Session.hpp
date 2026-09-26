@@ -111,6 +111,10 @@ int sessionFileInLoadOrder(const char* path);
 int sessionWorkspaceReset();
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser);
+// SPEC §3.4, §3.10: the end of an evaluation (ao_eval; Proceed and Step, SPEC §3.13) once its
+// answer rc / out / printed is made. `failure` is a live evaluation's reason (empty otherwise).
+int finishEval(int rc, bool ran, std::optional<std::string> printed, const std::string& failure,
+               char* out, int outLen, AoSpan* err);
 // SPEC §3.10 評価結果: the byte count of the last ao_eval's result; -1 with no session or result.
 int sessionEvalResultLength();
 // SPEC §3.10 評価結果: writes the result as the browser reads do (AO_ERR_RANGE when cut); AO_ERR
@@ -119,6 +123,9 @@ int sessionEvalResultCopy(char* buf, int bufLen);
 // SPEC §3.13: capture on or off (off by default). Kept across boot, load and shutdown, like the
 // transcript hook: it goes into the current session's ctx now and into every later session's.
 void setSessionDebugCapture(bool on);
+// SPEC §3.10 ライブデバッガの操作: AO_DEBUG_POSTMORTEM or AO_DEBUG_LIVE (other values do nothing).
+// Kept across boot, load and shutdown; read by each ao_eval.
+void setSessionDebugMode(int mode);
 // The current session's snapshot; null without a session.
 DebugSnapshot* sessionDebugSnapshot();
 // SPEC §3.10 ao_debug_generation: moves by one on every capture and every clear, across sessions
