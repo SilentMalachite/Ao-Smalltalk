@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1790387245.2934144,
-    "seen": 1790388311.655593,
-    "ast_hash": "44e21a632466d7c569fef4dbf5cc9191",
+    "mtime": 1790389891.152856,
+    "seen": 1790390956.583093,
+    "ast_hash": "a63a15c133cf44da22c13c6f45dba635",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -1308,9 +1308,9 @@
     "semantic_hash": ""
   },
   "app/Ao/TranscriptWindow.swift": {
-    "mtime": 1790387225.8088152,
-    "seen": 1790388311.6554601,
-    "ast_hash": "185412bc8021713d905044e9aa4b8d20",
+    "mtime": 1790389890.9640868,
+    "seen": 1790390956.582962,
+    "ast_hash": "d427467b99dfe79bc2b4e28a085b8bae",
     "semantic_hash": ""
   },
   "app/Ao/WorkspaceWindow.swift": {
@@ -1332,9 +1332,9 @@
     "semantic_hash": ""
   },
   "app/AoTests/ToolWindowTests.swift": {
-    "mtime": 1790387164.073033,
-    "seen": 1790388311.655469,
-    "ast_hash": "a3f224581c70262b679584faa21f142f",
+    "mtime": 1790389874.631059,
+    "seen": 1790390956.5829709,
+    "ast_hash": "b2e024266c6dfc3b732f90cd28f8c0ea",
     "semantic_hash": ""
   },
   "runtime/src/Session.cpp": {

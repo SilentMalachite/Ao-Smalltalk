@@ -4,9 +4,8 @@ Copyright 2026 Ao contributors
 This product is licensed under the Apache License, Version 2.0.
 See the LICENSE file for the full license text.
 
-Third-party class libraries, when added under image/vendor/, retain their
-original licenses. Origins will be listed in this file and in
-image/vendor/ORIGIN.md.
+Third-party class libraries under image/vendor/ retain their original
+licenses. Their origins are listed below and in image/vendor/ORIGIN.md.
 
 Cuis-Smalltalk class library excerpts
 https://github.com/Cuis-Smalltalk/Cuis-Smalltalk-Dev

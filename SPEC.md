@@ -82,8 +82,10 @@ ao-smalltalk/
   AGENTS.md
   README.md              # GitHub 案内（英語が正本）
   README.ja.md
+  CHANGELOG.md           # 版ごとの変更点（英語。§2.4）
   LICENSE                # Apache License 2.0（英語）
   NOTICE
+  .github/workflows/     # CI（§4.5）
   graphify-out/          # Graphify 成果。コミットする
   runtime/               # C++20 — オブジェクトメモリと Kernel
     include/ao/
@@ -123,6 +125,18 @@ ao-smalltalk/
 | P9 | 統合 | Do it / Print it / accept、階層閲覧、エラー表示 |
 
 P9 完了が v1。
+
+### 2.4 リリース
+
+版は Semantic Versioning に従う。v1 の版は `1.0.0`、タグは `v<版>`（例 `v1.0.0`）である。
+
+- 版の正本は `ao::version_string`（`ao --version` と `ao_version` の値）である。リリースの版には `-` 以降を付けない。`ao::compiler::version` も同じ値にする。
+- 版ごとの変更点を `CHANGELOG.md`（英語）に書く。
+- GitHub Release に次を添付する。どれも Apple Silicon の macOS 14 以降向けで、アドホック署名だけである（公証しない）。
+  - `Ao-<版>-macos-arm64.zip`: `scripts/package-app.sh` が作る `Ao.app` と、`LICENSE`、`NOTICE`
+  - `ao-<版>-macos-arm64.tar.gz`: Release ビルドの `ao`、`image/vendor` の写し（`vendor/`）、`LICENSE`、`NOTICE`
+  - `SHA256SUMS`: 上の 2 つの SHA-256
+- タグを打つのは、`main` の CI（§4.5）が緑で、§6 がすべて `[x]` のときだけである。
 
 ---
 
@@ -947,7 +961,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - `scripts/package-app.sh` は次を行う。
   - Release でビルドする。
   - `image/vendor` を `Contents/Resources/vendor` に写す。
-  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（今は `0.0.0`）である。
+  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（v1 は `1.0.0`。§2.4）である。
   - アドホック署名する。`codesign --verify --strict` が通る。
 
 ### 3.10 ブリッジ
@@ -1341,6 +1355,14 @@ self assert: (Object new class) equals: Object.
 - 失敗ごとに 1 行を stderr に出す。形式は `ao --test: <ファイル名>: <理由>`。コンパイルエラーは `ao --test: <ファイル名>:<start>-<end>: <メッセージ>`（位置はファイル本文のバイト位置）。プロセスの失敗は、件数によらずファイルごとに 1 行で、`ao --test: <ファイル名>: process failed: <最後の失敗の理由>` である。
 - 終了コードは、1 つでも失敗があれば 1、`.st` が 0 件か `<dir>` が読めなければ 1、それ以外は 0。
 
+### 4.5 CI
+
+GitHub Actions（`.github/workflows/ci.yml`）が、`main` への push と `main` 向けの pull request ごとに、Apple Silicon の macOS ランナーで `scripts/test.sh` を回す。
+
+- ctest（Kernel 走査テスト `KernelScan.MethodDictionaryValuesAreNativeMethods`、`gcstress`、`gcstress_vendor`、ゴールデンを含む）と swift test のどれかが赤なら、CI は赤である。
+- `main` はブランチ保護でこのジョブの成功を必須にする。CI が赤の変更はマージしない。
+- `--asan` と `--app` は CI では回さない（`--app` は GUI を開いてフォーカスを奪う。§4.3）。
+
 ---
 
 ## 5. 制約
@@ -1381,16 +1403,16 @@ v1 は次をすべて満たす。
 - [x] `image/vendor` から file-in した非 Kernel メソッドが `CompiledMethod` として評価できる
 - [x] vendor 由来メソッドがネイティブ必須セレクタを上書きしていない
 - [x] Kernel のメソッド辞書を走査したとき、値はすべて `NativeMethod`
-- [ ] 上記 Kernel 走査テストが CI で失敗する変更はマージしない
+- [x] 上記 Kernel 走査テストが CI で失敗する変更はマージしない（§4.5。`main` のブランチ保護が `test (macOS arm64)` を必須にする）
 
 ### ツール
 
 - [x] 起動すると Transcript と Workspace が出る
-- [ ] Tools メニューから System Browser を開ける
+- [x] Tools メニューから System Browser を開ける
 - [x] Browser で `Object` のメソッド一覧が見える
 - [x] ソースペインでメソッドを編集し Accept すると、直後の Do it に反映される
 - [x] Transcript に `Transcript show: 'hello'; cr` が出る
-- [ ] ウィンドウ操作が macOS 標準（閉じる、最小化、Spaces）に従う
+- [x] ウィンドウ操作が macOS 標準（閉じる、最小化、Spaces）に従う（`scripts/package-app.sh` の `Ao.app` で手動確認。2026-09-26）
 
 ### 性能（緩いゲート。数値は実機で更新）
 
