@@ -127,8 +127,9 @@ ao-smalltalk/
 | P9 | 統合 | Do it / Print it / accept、階層閲覧、エラー表示 |
 | P10 | 事後デバッガ | abort の直前のスタックの捕捉、pc→ソース表、`ao_debug_*`、Debugger 窓（§3.13） |
 | P11 | ライブデバッガ | `halt` と失敗で評価を止める、Proceed / Abort / Step、Debug it（§3.13） |
+| P12 | Browser の削除 | Browser からメソッドとクラスを削除する、`ao_remove_method`、`ao_remove_class`（§3.9「削除」） |
 
-P9 完了が v1。P10 と P11 は v1 のあとのフェーズである。
+P9 完了が v1。P10、P11、P12 は v1 のあとのフェーズである。
 
 ### 2.4 リリース
 
@@ -223,7 +224,7 @@ lookup(receiver, selector)
   → doesNotUnderstand:
 ```
 
-キャッシュの無効化: メソッドの追加・置換（Browser の accept、file-in のメソッドチャンク、`putNative`）とクラスの差し替え（既存の名前へのクラス定義）は、どれも同じ 1 つの関数を通り、その関数がキャッシュを無効化する。無効化は、そのセレクタのエントリをレシーバのクラスによらずすべて捨てるか、キャッシュ全体を捨てる（クラスの差し替え）。定義クラスのエントリだけを捨てるのでは足りない（サブクラスをレシーバとするエントリが残る）。差し替えの直後の送信は、キャッシュ済みの送信でも新しいメソッドを適用する。例えば `Object>>zork` を再 Accept すると、それまで `3 zork` でキャッシュしていた送信にも反映される。反射（`instVarAt:put:` でメソッド辞書を書き換えること）はこの限りでない。
+キャッシュの無効化: メソッドの追加・置換・削除（Browser の accept、file-in のメソッドチャンク、`putNative`、`ao_remove_method`）とクラスの差し替え・削除（既存の名前へのクラス定義、`ao_remove_class`）は、どれも同じ 1 つの関数を通り、その関数がキャッシュを無効化する。無効化は、そのセレクタのエントリをレシーバのクラスによらずすべて捨てるか、キャッシュ全体を捨てる（クラスの差し替えと削除）。定義クラスのエントリだけを捨てるのでは足りない（サブクラスをレシーバとするエントリが残る）。差し替えの直後の送信は、キャッシュ済みの送信でも新しいメソッドを適用する。例えば `Object>>zork` を再 Accept すると、それまで `3 zork` でキャッシュしていた送信にも反映される。反射（`instVarAt:put:` でメソッド辞書を書き換えること）はこの限りでない。
 
 メソッドは 2 種類だけ持つ。
 
@@ -792,7 +793,7 @@ String への書き込み（WriteStream の `nextPut:`）:
 グローバル辞書:
 
 - グローバル `Smalltalk` は `SmalltalkImage` のインスタンスで、グローバル名（intern した Symbol）から値への辞書を持つ。グローバル名の解決は、すべてこの辞書を引く。インタプリタの `PushGlobal`（実行時に引く。無い名前は nil）、クラス定義・Browser・file-in の名前の解決（`WellKnown::named`）、ワークスペースの `knownGlobals`（§3.10）である。
-- 辞書は `Smalltalk` の 2 つのスロット `tally array` に置く。`tally` は対の数、`array` は Array で、キーと値を交互に並べる。キーが nil の対は空きである。対は登録した順に並ぶ。v1 ではグローバルを消さない。
+- 辞書は `Smalltalk` の 2 つのスロット `tally array` に置く。`tally` は対の数、`array` は Array で、キーと値を交互に並べる。キーが nil の対は空きである。対は登録した順に並ぶ。グローバルを消すのは `ao_remove_class`（§3.9「削除」）だけで、消した対はキーと値を nil にして空きにし、`tally` を 1 減らす。次の登録は、先頭から見て最初の空きを使う（登録した順は、そこでは保たない）。固定のグローバル（下）は消さない。
 - ブートストラップ（§3.7）は、56 個の Kernel クラスをクラス名で、`Processor` をスケジューラで、`Smalltalk` を辞書自身で登録する。この 58 個の名前を固定のグローバルと呼ぶ。固定のグローバルの値は、vendor のスタブを file-in が結び直すとき（§3.12）のほかは変わらない。
 - `subclass:instanceVariableNames:…` は、作ったクラスをその名前（intern した Symbol）で登録する。同じ名前があれば値を置き換える。固定のグローバルの名前なら登録しない。擬変数の名前（`nil true false self super thisContext`。§3.8）も登録しない。
 - 擬変数の名前は、`Smalltalk` の辞書のキーにならない。コンパイラは擬変数をグローバルより先に解決するので（§3.8）、辞書に入れてもソースから読めず、`Smalltalk at: #nil` だけが別の値を答えることになるからである。
@@ -943,6 +944,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 右下: セレクタ
 - 下: ソース。accept でコンパイルしメソッド辞書を更新
 - クラス定義テキストの accept でクラス作成 / 再定義（下の「クラス定義の再 Accept」）
+- クラスとメソッドの削除（下の「削除」。P12）
 - 階層表示（hierarchy）をクラスリストの代替または別コマンドで提供
 
 外観は macOS 標準（NSSplitView, NSTableView / NSOutlineView, NSTextView）。Smalltalk-80 の白黒ビットマップ見た目を再現しない。キーバインドは macOS 標準 + Smalltalk 慣習（Do it は `⌘D`、Print it は `⌘P` が衝突するため `⌘P` は Print it にせず、メニューで明示。Print it は `⌘I` を既定候補とし、設定可能にする）。
@@ -951,7 +953,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 
 - Ao / File / Edit / Smalltalk / Tools / Window / Help
 - Tools: Browser, Transcript, Workspace, Use Fixed Pitch, Make Text Bigger（`⌘+`）, Make Text Smaller（`⌘-`）, Actual Size（`⌘0`）
-- Smalltalk: Do it, Print it, Inspect it, Debug it（`⌘⇧D`）, Accept
+- Smalltalk: Do it, Print it, Inspect it, Debug it（`⌘⇧D`）, Accept, Remove Method…, Remove Class…（キー無し。下の「削除」）
 
 アクセシビリティ: VoiceOver ラベルを主要コントロールに付ける。動的な過度なアニメーションを使わない。
 
@@ -1018,6 +1020,51 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 既存インスタンスは移行しない。形が変わったあとも旧クラスのインスタンスのまま残り、旧クラスのメソッドで動く。
 - 1 回の `ao_accept_class` に複数のクラス定義があれば、先頭から順に適用し、拒否された定義で止まって `AO_ERR_COMPILE` を返す。それより前のチャンク（クラス定義と `methodsFor:`）は適用済みのまま残り、それより後のチャンクは適用しない。
 
+#### 削除
+
+Browser から、間違えて定義したメソッドとクラスを消す（P12）。消す経路は `ao_remove_method` と `ao_remove_class`（§3.10）だけである。Smalltalk 側のセレクタ（`removeSelector:`、`removeFromSystem` など）は足さない。削除は取り消せない（Undo もソースの復元も無い）。
+
+メソッドの削除（`ao_remove_method`）:
+
+- 名前で引いた先がクラス（Behavior）でなければ、何もせずに `AO_ERR` を返す。メッセージは `not a class: <name>` である。`meta` が 1 なら、そのクラスのメタクラスのメソッド辞書を対象にする。
+- 対象の側のメソッド辞書にセレクタが無ければ `AO_ERR`、メッセージは `selector not found: <Class>>><selector>` である。継承したメソッドは消さない（上位クラスのメソッド辞書は変えない）。
+- 値が NativeMethod なら `AO_ERR`、メッセージは `native method removal refused: <Class>>><selector>` である。
+- 値が CompiledMethod なら、クラスによらず消す。Kernel クラスに Accept で足したメソッド（`Object>>foo`）も、vendor や file-in で入れたメソッドも、イメージから読んだメソッドも消せる。Kernel 走査（§6）は NativeMethod だけの辞書を確かめるので、この削除で結果は変わらない。
+- 消す手順は次のとおりである。メソッド辞書からエントリを除き（残ったエントリがどれも引けるままであるように）、キャッシュを無効化し（§3.3。そのセレクタ）、ソース表の項目をブロックごと外す（§3.10「ソースはイメージに書かない」）。
+- 消したあとの送信は、キャッシュ済みの送信も含め、上位クラスのメソッドに当たるか、無ければ `doesNotUnderstand:` に入る。
+- 実行中のメソッド（止まったプロセス（§3.13）のフレームや、fork したプロセスが走らせている途中のもの）は、そのフレームでは消す前のメソッドのまま最後まで走る（再 Accept と同じ）。事後スナップショットに残ったフレームはプレースホルダになる（§3.10）。
+- プロトコルはメソッド辞書から導く（§3.10「プロトコルとカテゴリ」）。そのため、最後のメソッドを消したプロトコルは一覧から消える。
+
+クラスの削除（`ao_remove_class`）:
+
+- 名前で `Smalltalk` を引いた先がクラスでなければ（メタクラス、`Processor`、未定義の名前など）、何もせずに `AO_ERR` を返す。メッセージは `not a class: <name>` である。
+- 名前が固定のグローバル（§3.6「グローバル辞書」。Kernel クラスと vendor のスタブ）なら `AO_ERR`、メッセージは `class removal refused: <name> is a fixed global` である。
+- 引いた先が Kernel クラス（§3.10 の `ao_accept_method` と同じく同一性で判定する。`Smalltalk at: #IntegerAlias put: SmallInteger` の別名で指しても当たる）なら `AO_ERR`、メッセージは `class removal refused: <name> is a kernel class` である。
+- そのクラスにサブクラス（「クラス定義の再 Accept」の冒頭の意味。名前の無いものや、形の変更で残った旧クラスも含む）があれば `AO_ERR`、メッセージは `class removal refused: <name> has subclass <Sub>` である。`<Sub>` はサブクラスのクラス名で、複数あれば名前のバイト列で最も小さいものである。
+- 消す手順は次のとおりである。その名前の束縛だけを `Smalltalk` から外し（§3.6「グローバル辞書」）、キャッシュ全体を捨て（§3.3）、そのクラスのメソッド（インスタンス側とクラス側）のソース表の項目をブロックごと外す。
+- 別名（同じクラスを指すほかのグローバル名）は外さない。クラスは別名から引けるままで、Browser の一覧にも残る。
+- クラスオブジェクト、メタクラス、メソッド辞書は変えない。既存インスタンスは消えず、そのクラスのまま、そのメソッドで動く。インスタンスから届く限りクラスは生きていて、「クラス定義の再 Accept」の生きているクラスにも数える（そのスーパークラスの削除を拒む理由になる）。インスタンスも別名も無ければ、そのうち GC が回収する。
+- その名前を読むコンパイル済みのメソッドは、コンパイルし直さない。実行時に nil を読む（`PushGlobal`。§3.6「グローバル辞書」）。
+- カテゴリはクラスから導く。そのため、最後のクラスを消したカテゴリは一覧から消える。
+- 消したクラスは、ルートから届かなければイメージに書かない（§3.11 のまま）。
+
+どちらにも共通する規則:
+
+- 成功すれば `AO_OK` を返し、`err` が NULL でなければ `AoSpan.message` を空にする。上の拒否は `AO_ERR` で、メッセージを空にしない（`start` と `end` は 0）。上に書いていない失敗（セッションが無い、引数が NULL、`meta` が 0 でも 1 でもない）も `AO_ERR` で、メッセージは `remove failed` である。
+- busy のときは拒む（§3.10「再入と例外」）。メッセージは `runtime is busy` である。
+- 拒んだとき、メソッド辞書、グローバル辞書、キャッシュ、ソース表はどれも変わらない。
+- 削除はヒープに割り当てない（GC を起こさない）。
+
+Browser での操作:
+
+- クラス一覧の右クリックメニューに Remove Class…、セレクタ一覧の右クリックメニューに Remove Method… を置く。Smalltalk メニューにも同じ 2 項目を置く（キー無し）。メニュー項目は、Browser がキーウィンドウで、Remove Class… はクラスを、Remove Method… はセレクタを選んでいるときだけ有効にする。階層表示でも同じである。
+- 右クリックは、その行を選んでから（選択の変更と同じく、Accept していない編集があれば破棄の確認を先に出す）メニューを出す。
+- 実行の前に確認のシートを出す。メッセージは `Remove Foo>>bar?`（クラス側は `Remove Foo class>>bar?`）か `Remove class Foo?`、補足は `This cannot be undone.` で、ボタンは Remove（破壊的な操作の印を付ける）と Cancel である。Cancel では何も変えない。
+- ソース枠に Accept していない編集があれば、確認のシートの前に破棄の確認を出す（選択の変更と同じ）。
+- 成功したら一覧を読み直す。メソッドなら、カテゴリ、クラス、側の選択を保ち、プロトコルはまだ一覧にあれば保ち、セレクタの選択を外す（ソース枠は、セレクタを選んでいないときと同じ表示）。クラスなら、カテゴリがまだ一覧にあれば保ち、クラスの選択を外す。
+- 拒否されたら、一覧も選択もソース枠も変えずに、エラー欄にメッセージを出す。
+- VoiceOver ラベルは、メニュー項目の名前と同じにする。
+
 #### 起動と同梱
 
 - 起動時に vendor（§3.12）を file-in する。場所は、環境変数 `AO_VENDOR_DIR` が空でなければそこ、無いか空ならバンドルの `Contents/Resources/vendor` である。カレントディレクトリは見ない。
@@ -1040,6 +1087,7 @@ C ABI（`bridge/ao_abi.h`）のみが runtime と app の境界。
 - 起動 / 終了 / イメージ load-save
 - 文字列ソースの評価（Workspace / Do it）
 - クラス一覧、セレクタ一覧、ソース取得、accept
+- メソッドとクラスの削除（`ao_remove_method`、`ao_remove_class`。§3.9「削除」）
 - Transcript コールバック（ランタイム → アプリ）
 - 評価エラーの理由の文字列化（`AoSpan.message`。§3.3 の失敗の規則）
 - デバッガの読み出し（`ao_set_debug_capture` と `ao_debug_*`。下の「デバッガの読み出し」、§3.13）
@@ -1063,10 +1111,11 @@ OS のプロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ�
 - `ao_runtime_boot`、`ao_runtime_shutdown`
 - `ao_image_save`、`ao_image_load`、`ao_filein_load_order`
 - `ao_workspace_reset`、`ao_eval`、`ao_accept_method`、`ao_accept_class`
+- `ao_remove_method`、`ao_remove_class`
 - `ao_debug_frame_receiver_print`、`ao_debug_frame_temp_print`、`ao_debug_inspect`、`ao_debug_clear`
 - `ao_debug_proceed`、`ao_debug_step_into`、`ao_debug_step_over`、`ao_debug_step_out`、`ao_debug_abort`
 
-拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）、ブラウザの読み取り（`ao_browser_*`、`ao_version`）、評価結果の読み出し（`ao_eval_result_length`、`ao_eval_result_copy`。下の「評価結果」）、捕捉の設定とスナップショットの読み（`ao_set_debug_capture`、`ao_debug_generation` から `ao_debug_frame_temp_name` まで。下の「デバッガの読み出し」）、ライブデバッガの設定と読み（`ao_set_debug_mode`、`ao_debug_halted_pid`、`ao_debug_halted_count`、`ao_debug_can_proceed`、`ao_debug_select`。下の「ライブデバッガの操作」）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。止まったプロセス（§3.13）は走っていないので、それだけでは busy でない。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
+拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load`、`ao_remove_method`、`ao_remove_class` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）、ブラウザの読み取り（`ao_browser_*`、`ao_version`）、評価結果の読み出し（`ao_eval_result_length`、`ao_eval_result_copy`。下の「評価結果」）、捕捉の設定とスナップショットの読み（`ao_set_debug_capture`、`ao_debug_generation` から `ao_debug_frame_temp_name` まで。下の「デバッガの読み出し」）、ライブデバッガの設定と読み（`ao_set_debug_mode`、`ao_debug_halted_pid`、`ao_debug_halted_count`、`ao_debug_can_proceed`、`ao_debug_select`。下の「ライブデバッガの操作」）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。止まったプロセス（§3.13）は走っていないので、それだけでは busy でない。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
 
 ABI の関数は C++ の例外を境界の外へ出さない。関数の中で捕捉し、int を返す関数は `AO_ERR`（件数を返す関数は -1）を返す。`ao_image_load` の理由は `image load failed` である。
 
@@ -1124,7 +1173,11 @@ int ao_eval_result_length(void);
 int ao_eval_result_copy(char* buf, int buf_len);
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);
 int ao_accept_class(const char* source, AoSpan* err);
+int ao_remove_method(const char* class_name, int meta, const char* selector, AoSpan* err);
+int ao_remove_class(const char* class_name, AoSpan* err);
 ```
+
+`ao_remove_method` と `ao_remove_class` の規則、拒否のメッセージは §3.9「削除」に書く。
 
 `meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`、`AO_EVAL_DEBUGIT = 4`（ライブモードだけ。§3.13。ライブモードでなければ何も評価せずに `AO_ERR`）。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
 
@@ -1162,6 +1215,7 @@ int ao_accept_class(const char* source, AoSpan* err);
 - 項目のスロットのルート表への登録は、全部か無しかである。C++ のメモリが足りずに項目を入れられなければ、Accept したメソッドは入ったまま項目を持たない（プレースホルダ。doIt も同じ）。Accept は成功を返す。
 - 形の変更（§3.9）で移したメソッドは、コンパイルし直した結果から、新しく箱詰めしたブロック（同じ前順）とデバッグ情報を付け直す。メモリが足りなければ、ソースだけを移す（ブロックとデバッグ情報を持たない）。
 - 再 Accept で置き換えた古いメソッドの項目は、そのブロックとともに消える。スナップショットに残った古いメソッドのフレームは、プレースホルダになる。
+- 削除（§3.9「削除」）で消したメソッドの項目と、消したクラスのメソッド（インスタンス側とクラス側）の項目も、そのブロックとともに消える。スナップショットのフレームは再 Accept と同じくプレースホルダになる。
 - セッションは、直前の `ao_eval` の doIt 1 件（メソッド、ブロック、テキスト、デバッグ情報）も持つ。`ao_eval` の入口で消し、コンパイルのあとに入れる。doIt はクラスに属さないので、Browser の読み出しには出ない。
 - イメージの保存（§3.11）と形の変更の生存の判定（§3.9）は、ソース表のブロックとスナップショット（§3.13）のルートもたどらない。
 
@@ -1579,6 +1633,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
 - `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）。評価結果（§3.10）: `out` を超える Print it の全体と、副作用が 1 回であること（`EvalResultLengthGivesWholePrintStringPastOut`）、NUL を含む結果（`EvalResultCopyKeepsNulBytes`）、切り詰めと `AO_ERR` の規則（`EvalResultCopyCutsLikeOtherBuffers`）、Do it と失敗のあとの空文字（`EvalResultEmptyAfterDoItAndFailures`）、shutdown・boot・ロードとの関係（`EvalResultFollowsSessionLifetime`）、busy の間の読み出しと、拒まれた評価が結果に触れないこと（`EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`）、`ao_accept_class` の送信から呼ばれたフックでも、前の評価の結果 `42` が読め、拒まれた評価のあとも残ること（`KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt`）、inspect フックの `print_len`（`InspectHookGetsPrintLengthWithNul`）。デバッガ（§3.10、§3.13）: イメージの保存がスナップショットとブロックのスロットをたどらない（`ImageSaveDoesNotTraceSnapshotOrBlockSlots`）、doIt のデバッグ情報の座標が前置分を引いた値（`DoItDebugInfoDropsPrefix`）、次の評価がスナップショットを消す（`NextEvalClearsSnapshot`）
 - `accept_abi_test`（追加分。§3.10 の「ソースはイメージに書かない」）: Accept したメソッドとブロックの pc→ソース表がソース表に残る（`AcceptKeepsPcMapForMethodAndBlocks`）、再 Accept で古いメソッドとブロックの項目が消える（`ReacceptDropsOldMethodAndItsBlocks`）、形の変更でブロックを付け直す（`ReshapeKeepsBlockPcMaps`）、そのデバッグ情報をコンパイルし直した結果から作る（`ReshapeTakesDebugInfoFromRecompiledImage`）、メモリが足りなければ項目のルートを全部か無しかで入れ、Accept したメソッドは残る（`SourceEntryRootsAllOrNothing`）、形の変更の移動はソースだけを移す（`MoveSourceWithoutMemoryKeepsTextOnly`）
+- `remove_abi_test`（P12。§3.9「削除」）: メソッドの削除のあと、キャッシュ済みの送信も `doesNotUnderstand:` に入るか上位クラスのメソッドに当たる（`RemovedMethodFallsBackEvenWhenCached`）、クラス側の削除（`RemoveClassSideMethod`）、Kernel クラスに Accept したメソッドを消せる（`RemoveAcceptedMethodOnKernelClass`）、NativeMethod と無いセレクタと継承したセレクタの拒否（`RemoveNativeMethodIsRefused`、`RemoveMissingOrInheritedSelectorIsRefused`）、ソース表の項目とブロックが消える（`RemoveMethodDropsSourceEntry`）、クラスの削除で名前が nil を読み、既存インスタンスが動き続ける（`RemovedClassNameReadsNilAndInstancesKeepWorking`）、固定のグローバル・Kernel クラスの別名・サブクラスのあるクラスの拒否（`RemoveFixedGlobalIsRefused`、`RemoveKernelAliasIsRefused`、`RemoveClassWithSubclassIsRefused`）、別名が残る（`RemoveClassKeepsAliases`）、消した名前の対を次の登録が使う（`RemovedGlobalSlotIsReused`）、busy の拒否（`RemoveWhileBusyIsRefused`）、拒否で何も変わらない（`RefusedRemoveChangesNothing`）、保存とロードのあとも消えたまま（`RemovalSurvivesSaveAndLoad`）、Kernel 走査が緑のまま（`KernelScanStaysGreenAfterRemovals`）
 - `debug_snapshot_test`: 捕捉（§3.13）。入れ子のメソッドの失敗で最内が先頭（`ErrorInNestedMethodCapturesInnermostFirst`）、ブロックのフレームの temps とホーム（`BlockFrameKeepsTempsAndHome`）、ネイティブの失敗の合成（`FailedNativeSendSynthesizesNativeFrameWithReceiverAndArgs`）、DNU の合成（`DoesNotUnderstandSynthesizesFrameWithoutMethod`）、stack overflow の上限と総数（`StackOverflowCapturesCappedFramesAndTotal`）、後始末の abort が最初の捕捉を保つ（`CleanupAbortKeepsFirstSnapshot`）、正常終了のあとの後始末の失敗（`CleanupFailureAfterNormalEndIsCaptured`）、`terminate` と abandon（`SelfTerminateDoesNotCapture`、`TerminateBaseCaptures`、`AbandonDoesNotCapture`）、ベースのデッドロック（`DeadlockOnBaseCaptures`）、ファイバの失敗は自分の連鎖（`FiberFailureCapturesOnItsOwnChain`）、nursery と old の GC をまたぐ（`SnapshotSurvivesNurseryAndOldCollections`）、`halt`（`HaltAbortsWithHaltReason`）
 - `debug_abi_test`: デバッガの読み出し（§3.10）。最内が先頭（`EvalErrorFillsFramesInnermostFirst`）、失敗した送信の区間（`FrameSourceHighlightsFailingSend`）、doIt の座標（`DoItFrameSourceDropsPrefix`）、ラベル（`BlockFrameLabelIsBracketsIn`、`NativeFrameLabelNamesSymbol`）、busy の拒否（`TempPrintIsRefusedWhileBusy`）、printString の abort がスナップショットを置き換えない（`TempPrintAbortDoesNotReplaceSnapshot`）、printString の中から捕捉を有効にしても出るまで効かない（`CaptureTurnedOnDuringTempPrintWaitsForTheEnd`）、次の評価と generation（`NextEvalClearsSnapshotAndBumpsGeneration`）、消去でルートの数が戻る（`ClearDropsRoots`）、捕捉が無効ならフレーム無し（`CaptureOffLeavesNoFrames`）、プレースホルダと `arg1` / `t1`（`NoSourceMethodAnswersPlaceholderAndGenericTempNames`）、inspect フック（`InspectFiresHookWithTempValue`）、drain 中のプロセスの失敗（`ProcessFailureIsReadableAfterEval`）、バッファの規則（`BuffersFollowRangeRule`）、設定が boot とロードをまたぐ（`CaptureSettingSurvivesBootAndLoad`）。`image_save_load_test` の `FailedLoadKeepsDebugGeneration`: 探針の abort で失敗したロードは generation とスナップショットを変えない
 - ライブデバッガ（§3.13。P11）: `session_abi_test` に評価プロセス（`LiveModeRunsDoItOnEvalProcess`、`LiveModeErrorAnswersEvalErrorAndCaptures`、`LiveModeDeadlockFailsEvalProcessAndRunsEnsure`、`LiveModeSharesWorkspaceBindings`、`DefaultModeUnchanged`）。`debug_abi_test` に停止（`HaltStopsWithHaltCodeAndLiveTemps`、`DnuAndErrorAndFailedSendStop`、`NonBooleanAndCannotReturnStopWithoutProceed`、`StackOverflowAndOomStillAbort`、`NinthHaltAborts`、`HaltedProcessIsNotBusy`、`SelectUnknownPidFails`）、Proceed と Abort（`ProceedAnswersNilAndFinishesPrintIt`、`ProceedCanHaltAgain`、`AbortRunsEnsureBlocks`、`ErrorInCleanupDuringAbortDoesNotStop`、`ProceedOnNonProceedableIsRefused`、`ProceedWhileBusyIsRefused`）、Step と Debug it（`StepOverMovesToNextStatement`、`StepOverDoesNotEnterBlocks`、`StepIntoEntersInterpretedMethod`、`StepIntoSkipsNative`、`StepOutStopsInSender`、`StepPastEndFinishesEval`、`DebugItStopsAtFirstBytecode`）。`image_save_load_test` の `SaveWithHaltedProcessIsRefused`。`process_test` に評価プロセスの状態遷移
@@ -1611,6 +1666,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - 文字の大きさ（§3.9）: Tools の項目とキー（`testToolsMenuHasTextSizeItemsWithCommandKeys`）、3 つの枠への反映、あとで足す文字とあとで開くウィンドウ、等幅との組み合わせ、Actual Size（`testTextSizeMenuItemsResizeTranscriptWorkspaceAndBrowserSource`）、空の Workspace への Print it と、大きさを変える前の削除の Undo（`testPrintItIntoEmptyWorkspaceAndUndoAfterResizeUseCurrentSize`）、日本語の字形を持つ書体と大きさ（`testJapaneseTypedAfterResizeKeepsCoveringFontAtCurrentSize`）、範囲の端（`testTextSizeOffsetStopsAtRangeEnds`）
 - Debugger（§3.9、§3.13）: Debug ボタンと最内が先頭のフレーム（`testDoItErrorShowsDebugButtonAndOpensDebuggerWithInnermostFrameFirst`）、失敗した送信の選択（`testSelectingFrameSelectsFailingSendSpanInSource`）、`self` と引数と temps の値（`testVariablesListSelfArgsAndTempsWithPrintStrings`）、ダブルクリックで Inspector（`testDoubleClickVariableOpensInspector`）、プレースホルダ（`testNoSourceFrameShowsPlaceholderReadOnly`）、次の評価のあとの Inspect（`testNextEvalDisablesInspectInOpenDebugger`）、文字の大きさ（`testDebuggerSourceFollowsTextSize`）、コンパイルエラーでは Debug を出さない（`testCompileErrorShowsNoDebugButton`）、`process failed:`（`testProcessFailureShowsReasonAndDebugButton`）、VoiceOver ラベル（`testDebuggerControlsHaveAccessibilityLabels`）
 - ライブ Debugger（§3.9、§3.13。P11）: `self halt` で開き temps が見える（`testHaltOpensLiveDebuggerWithTemps`）、Proceed で Print it の結果を挿入（`testProceedInsertsPrintItResult`）、Abort で `ensure:` が走り窓が閉じる（`testAbortRunsEnsureAndClosesWindow`）、Step で選択が動く（`testStepButtonsMoveSelection`）、Proceed できない停止でボタンが無効（`testNonProceedableDisablesProceedAndStep`）、窓を閉じると Abort（`testClosingWindowAbortsProcess`）、窓を開いたまま Do it（`testDoItWhileDebuggerOpen`）、Debug it（`testDebugItStopsAtFirstStatement`）。`ToolWindowTests.testMainMenuListsToolsAndSmalltalkKeys` に `⌘⇧D`、`AcceptTests.testSaveWithHaltedProcessShowsReason`
+- Browser の削除（§3.9「削除」。P12）: Smalltalk メニューの 2 項目と有効・無効（`testRemoveMenuItemsFollowSelection`）、右クリックメニュー（`testContextMenusOfferRemove`）、確認で Remove を選ぶとメソッドが消えセレクタの選択が外れる（`testRemoveMethodAfterConfirmUpdatesLists`）、Cancel で何も変わらない（`testCancelRemoveChangesNothing`）、クラスの削除で一覧から消える（`testRemoveClassAfterConfirmUpdatesLists`）、拒否でエラー欄に理由が出て一覧が変わらない（`testRefusedRemoveShowsReason`）、Accept していない編集があれば破棄の確認が先（`testRemoveAsksToDiscardEditsFirst`）
 - ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
 
 `scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。
@@ -1741,6 +1797,20 @@ P11（§3.13）は次をすべて満たす。上の項目は変えない。ど�
 - [x] `ao --test image/tests` と CLI は変わらない（ライブモードは既定オフ）
 - [x] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
 - [x] この小節がすべて `[x]`、`PHASE` は `P11`、CHANGELOG の `[Unreleased]` に項目
+
+### Browser の削除
+
+P12（§3.9「削除」）は次をすべて満たす。上の項目は変えない。
+
+- [ ] Browser で `Object>>foo` を Accept し、Remove Method… で消すと、Workspace の `Object new foo` が `doesNotUnderstand: #foo` になる（直前に `Object new foo` をキャッシュしていても）
+- [ ] Browser でクラス `Foo` を定義し、Remove Class… で消すと、一覧から消え、Workspace の `Foo` が `nil` になる
+- [ ] `Object>>printString` の Remove Method… と `Object` の Remove Class… は、理由をエラー欄に出して拒まれる
+- [ ] サブクラスのあるクラスの Remove Class… は、サブクラス名を理由に出して拒まれる
+- [ ] 確認のシートで Cancel すると何も変わらない
+- [ ] 削除のあとにイメージを保存して読み直しても、消えたままである
+- [ ] `ao --test image/tests` と CLI は変わらない
+- [ ] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
+- [ ] この小節がすべて `[x]`、`PHASE` は `P12`、CHANGELOG の `[Unreleased]` に項目
 
 ---
 
