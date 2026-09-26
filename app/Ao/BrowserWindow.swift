@@ -3,7 +3,7 @@ import CAo
 
 // isVertical is a vertical divider, so side-by-side panes. The outer split stacks.
 @MainActor
-final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
   let model = BrowserModel()
   let window: NSWindow
 
@@ -34,6 +34,21 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   // discard the edit and change the selection, false to keep both. Tests replace it.
   typealias DiscardConfirmation = @MainActor (NSWindow, @escaping @MainActor (Bool) -> Void) -> Void
   var confirmDiscard: DiscardConfirmation = BrowserWindow.askToDiscard
+
+  // SPEC §3.9 削除: asked before a removal. The text is the sheet's message (`Remove Foo>>bar?`,
+  // `Remove Foo class>>bar?`, `Remove class Foo?`); the callback gets true to remove. Tests
+  // replace it.
+  typealias RemoveConfirmation = @MainActor (NSWindow, String, @escaping @MainActor (Bool) -> Void) -> Void
+  var confirmRemove: RemoveConfirmation = BrowserWindow.askToRemove
+
+  // SPEC §3.9 削除: the Remove items are enabled for a selected selector or class.
+  var canRemoveMethod: Bool {
+    selectorName != nil
+  }
+
+  var canRemoveClass: Bool {
+    !selectedClass.isEmpty
+  }
 
   var hasUnacceptedChanges: Bool {
     sourceView.isEditable && sourceView.string != shownSource
@@ -299,6 +314,130 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     return nil
   }
 
+  // SPEC §3.9 削除: Smalltalk → Remove Method…, for the selected selector.
+  func removeMethod() {
+    removeMethod(atRow: selectorName.flatMap { model.selectors.firstIndex(of: $0) } ?? -1)
+  }
+
+  // SPEC §3.9 削除: Smalltalk → Remove Class…, for the selected class.
+  func removeClass() {
+    removeClass(atRow: model.classes.firstIndex(of: selectedClass) ?? -1)
+  }
+
+  // SPEC §3.9 削除: the context menu's item, for the clicked row (-1: none). The row is selected
+  // before the question when it is another one.
+  func removeMethod(atRow row: Int) {
+    guard let selector = value(at: row, in: model.selectors) else {
+      return
+    }
+    let className = selectedClass
+    let classSide = meta
+    let message = "Remove \(className)\(classSide ? " class" : "")>>\(selector)?"
+    removeAfterConfirming(
+      message: message,
+      select: selector == selectorName ? nil : { self.selectorName = selector }
+    ) {
+      self.performRemoveMethod(selector, ofClass: className, meta: classSide)
+    }
+  }
+
+  func removeClass(atRow row: Int) {
+    guard let name = value(at: row, in: model.classes) else {
+      return
+    }
+    removeAfterConfirming(
+      message: "Remove class \(name)?",
+      select: name == selectedClass ? nil : {
+        self.selectedClass = name
+        self.protocolName = nil
+        self.selectorName = nil
+      }
+    ) {
+      self.performRemoveClass(name)
+    }
+  }
+
+  // SPEC §3.9 削除: an unaccepted edit asks first, as a selection change does; keeping it ends
+  // here. Discarding (or no edit) selects `select`'s row, republishes (the pane shows the
+  // selection again) and asks the removal question. A question already up decides alone.
+  private func removeAfterConfirming(
+    message: String,
+    select: (() -> Void)?,
+    remove: @escaping () -> Void
+  ) {
+    guard !confirming else {
+      return
+    }
+    let ask = {
+      select?()
+      self.publish()
+      self.confirming = true
+      self.confirmRemove(self.window, message) { yes in
+        self.confirming = false
+        if yes {
+          remove()
+        }
+      }
+    }
+    guard hasUnacceptedChanges else {
+      ask()
+      return
+    }
+    confirmBeforeDiscarding { proceed in
+      if proceed {
+        ask()
+      }
+    }
+  }
+
+  // SPEC §3.9 削除: a refusal shows its reason and changes nothing else. Success keeps the
+  // category, the class, the side and (while it is still listed) the protocol, and deselects the
+  // selector.
+  private func performRemoveMethod(_ selector: String, ofClass className: String, meta classSide: Bool) {
+    var err = AoSpan()
+    let metaFlag: Int32 = classSide ? 1 : 0
+    let status = className.withCString { name in
+      selector.withCString { sel in
+        withUnsafeMutablePointer(to: &err) { errPtr in
+          ao_remove_method(name, metaFlag, sel, errPtr)
+        }
+      }
+    }
+    guard status == Int32(AO_OK) else {
+      errorField.stringValue = spanMessage(err)
+      return
+    }
+    errorField.stringValue = ""
+    selectorName = nil
+    publish()
+  }
+
+  // SPEC §3.9 削除: success deselects the class and keeps the category while it is still listed;
+  // a category that went with its last class gives way to the first one. The hierarchy list
+  // drops the name too.
+  private func performRemoveClass(_ className: String) {
+    var err = AoSpan()
+    let status = className.withCString { name in
+      withUnsafeMutablePointer(to: &err) { errPtr in
+        ao_remove_class(name, errPtr)
+      }
+    }
+    guard status == Int32(AO_OK) else {
+      errorField.stringValue = spanMessage(err)
+      return
+    }
+    errorField.stringValue = ""
+    selectedClass = ""
+    protocolName = nil
+    selectorName = nil
+    hierarchyNames.removeAll { $0 == className }
+    publish()
+    if !model.categories.contains(categoryName), let first = model.categories.first {
+      categoryName = first
+      publish()
+    }
+  }
+
   func showHierarchy() {
     // The question already up decides alone.
     guard !confirming else {
@@ -400,7 +539,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     let keepClass = selectedClass
     model.select(
       category: categoryName,
-      className: selectedClass,
+      className: selectedClass.isEmpty ? nil : selectedClass,
       meta: meta,
       protocol: protocolName,
       selector: selectorName
@@ -567,6 +706,25 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     alert.messageText = "Discard the changes you have not accepted?"
     alert.informativeText = "The source pane has edits that were not accepted."
     alert.addButton(withTitle: "Discard").hasDestructiveAction = true
+    alert.addButton(withTitle: "Cancel")
+    alert.beginSheetModal(for: window) { response in
+      MainActor.assumeIsolated {
+        decide(response == .alertFirstButtonReturn)
+      }
+    }
+  }
+
+  // SPEC §3.9 削除: Remove first and destructive, which leaves the sheet without a default button,
+  // so Return answers nothing; Cancel keeps the Escape key.
+  private static func askToRemove(
+    _ window: NSWindow,
+    _ message: String,
+    _ decide: @escaping @MainActor (Bool) -> Void
+  ) {
+    let alert = NSAlert()
+    alert.messageText = message
+    alert.informativeText = "This cannot be undone."
+    alert.addButton(withTitle: "Remove").hasDestructiveAction = true
     alert.addButton(withTitle: "Cancel")
     alert.beginSheetModal(for: window) { response in
       MainActor.assumeIsolated {

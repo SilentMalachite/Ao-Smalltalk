@@ -53,9 +53,10 @@ final class BrowserModel {
     (source, sourceIsPlaceholder) = loadSource()
   }
 
+  // className nil: no class is selected (after Remove Class…); refresh keeps it nil.
   func select(
     category: String,
-    className: String,
+    className: String?,
     meta: Bool,
     protocol protocolName: String?,
     selector: String? = nil
