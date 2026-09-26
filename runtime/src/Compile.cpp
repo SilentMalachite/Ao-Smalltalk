@@ -1406,7 +1406,9 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
     return false;
   }
   const Oop replaced = old.slot.isHeap() ? old.slot : Oop{};
-  rememberMethodSource(kept.slot, text.slot, replaced);
+  // SPEC §3.10, §3.13: kept was boxed from cr.image, so its blocks sit at the image's literal
+  // indices.
+  rememberMethodSource(kept.slot, text.slot, replaced, &cr.image);
   return true;
 }
 
