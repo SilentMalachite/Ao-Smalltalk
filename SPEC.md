@@ -134,8 +134,9 @@ P9 完了が v1。
 - 版ごとの変更点を `CHANGELOG.md`（英語）に書く。
 - GitHub Release に次を添付する。どれも Apple Silicon の macOS 14 以降向けで、アドホック署名だけである（公証しない）。
   - `Ao-<版>-macos-arm64.zip`: `scripts/package-app.sh` が作る `Ao.app` と、`LICENSE`、`NOTICE`
-  - `ao-<版>-macos-arm64.tar.gz`: Release ビルドの `ao`、`image/vendor` の写し（`vendor/`）、`LICENSE`、`NOTICE`
+  - `ao-cli-<版>-macos-arm64.tar.gz`: Release ビルドの `ao`、`image/vendor` の写し（`vendor/`）、`LICENSE`、`NOTICE`
   - `SHA256SUMS`: 上の 2 つの SHA-256
+- 添付物とその中の最上位ディレクトリの名前は、大文字と小文字の違いだけで区別しない。macOS の既定のファイルシステムは大文字と小文字を区別しないので、`Ao-…` と `ao-…` は同じ場所になる。CLI の名前に `ao-cli-` を使うのはこのためである。
 - タグを打つのは、`main` の CI（§4.5）が緑で、§6 がすべて `[x]` のときだけである。
 
 ---

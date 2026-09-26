@@ -46,16 +46,16 @@ Apple Silicon の macOS 14 以降、CMake 3.28 以上、Ninja、C++20、Swift 6�
    ```sh
    V=1.0.0
    D=build/dist
-   rm -rf "$D" && mkdir -p "$D/Ao-$V-macos-arm64" "$D/ao-$V-macos-arm64"
+   rm -rf "$D" && mkdir -p "$D/Ao-$V-macos-arm64" "$D/ao-cli-$V-macos-arm64"
    ditto build/Ao.app "$D/Ao-$V-macos-arm64/Ao.app"
    cp LICENSE NOTICE "$D/Ao-$V-macos-arm64/"
-   cp build-release/ao LICENSE NOTICE "$D/ao-$V-macos-arm64/"
-   cp -R image/vendor "$D/ao-$V-macos-arm64/vendor"
+   cp build-release/ao LICENSE NOTICE "$D/ao-cli-$V-macos-arm64/"
+   cp -R image/vendor "$D/ao-cli-$V-macos-arm64/vendor"
    find "$D" -name .DS_Store -exec rm -f {} +
    (cd "$D" &&
      ditto -c -k --keepParent "Ao-$V-macos-arm64" "Ao-$V-macos-arm64.zip" &&
-     tar -czf "ao-$V-macos-arm64.tar.gz" "ao-$V-macos-arm64" &&
-     shasum -a 256 "Ao-$V-macos-arm64.zip" "ao-$V-macos-arm64.tar.gz" > SHA256SUMS)
+     tar -czf "ao-cli-$V-macos-arm64.tar.gz" "ao-cli-$V-macos-arm64" &&
+     shasum -a 256 "Ao-$V-macos-arm64.zip" "ao-cli-$V-macos-arm64.tar.gz" > SHA256SUMS)
    ```
 
 4. タグを打って公開する。ノートは `CHANGELOG.md` の項目を使う。
@@ -64,7 +64,7 @@ Apple Silicon の macOS 14 以降、CMake 3.28 以上、Ninja、C++20、Swift 6�
    git tag -a "v$V" -m "Ao $V"
    git push origin "v$V"
    gh release create "v$V" --title "Ao $V" --notes-file <notes> \
-     "$D/Ao-$V-macos-arm64.zip" "$D/ao-$V-macos-arm64.tar.gz" "$D/SHA256SUMS"
+     "$D/Ao-$V-macos-arm64.zip" "$D/ao-cli-$V-macos-arm64.tar.gz" "$D/SHA256SUMS"
    ```
 
 ## ライセンス

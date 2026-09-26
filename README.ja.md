@@ -30,7 +30,7 @@ English (canonical GitHub text): [README.md](README.md)
 | ファイル | 中身 |
 |---|---|
 | `Ao-1.0.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
-| `ao-1.0.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
+| `ao-cli-1.0.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
 | `SHA256SUMS` | 上の 2 つのアーカイブの SHA-256 |
 
 ダウンロードを確かめます。
@@ -43,7 +43,7 @@ shasum -a 256 -c SHA256SUMS
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-1.0.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.0.0-macos-arm64/ao
 ```
 
 ## Ao.app の使い方
