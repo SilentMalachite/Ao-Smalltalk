@@ -4,7 +4,7 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
-Phase P10 of SPEC §2.3: the post-mortem debugger (SPEC §3.13). An evaluation still aborts as before; the debugger only shows the stack as it was when the abort started.
+Phases P10 and P11 of SPEC §2.3: the post-mortem debugger and the live debugger (SPEC §3.13). By default an evaluation still aborts as before and the debugger only shows the stack as it was when the abort started. In live mode (Ao.app) an evaluation runs on its own process, and `halt` and failures stop it so the Debugger can proceed, step, or abort it.
 
 ### Runtime
 
@@ -13,22 +13,29 @@ Phase P10 of SPEC §2.3: the post-mortem debugger (SPEC §3.13). An evaluation s
 - `Object>>halt` aborts the evaluation with the reason `halt`.
 - The session's source table also keeps the doIt's source, block methods, and debug info.
 - C ABI: `ao_set_debug_capture` and `ao_debug_*` read the snapshot (frame labels, the source with the failing send, temp names and values) and inspect a value. The reads work while the runtime is busy; printString, inspect, and clear are refused then.
+- Live mode (`ao_set_debug_mode(AO_DEBUG_LIVE)`, off by default): each `ao_eval` runs its doIt on an evaluating process. `halt`, `error:` (the Kernel's failures with a message too), `doesNotUnderstand:`, a failed send, `NonBoolean receiver` and `cannot return` halt that process, and `ao_eval` answers `AO_ERR_HALT` (6) with the reason. Stack overflow, out of memory, deadlock and the process operations still abort. At most 8 processes are halted at once.
+- A halted process's frames are read live through the same `ao_debug_*` reads (`ao_debug_select`). `ao_debug_proceed`, `ao_debug_step_into` / `_over` / `_out` and `ao_debug_abort` go on or end it; Proceed answers nil from the halted send. `NonBoolean receiver` and `cannot return` can only be aborted. `AO_EVAL_DEBUGIT` halts before the first instruction.
+- A halted process is not running, so the runtime is not busy. `ao_image_save` refuses while a process is halted (`halted processes`); loading an image or shutting down abandons halted processes.
 
 ### Compiler and interpreter
 
 - The compiler emits a pc-to-source table and temp names for every method and block. The bytecode and the disassembly do not change.
 - Interpreted frames are linked for the capture. Natives and the SmallInteger fast path are unchanged.
+- The compiler also emits each method's and block's statement starts, for the step. The interpreter loop tests one step flag per instruction ([docs/bench.md](docs/bench.md): no measurable change).
 
 ### Ao.app
 
 - A Debugger window with three panes: frames, the frame's source with the failing send selected, and its variables (`self`, arguments, temps) with their values. A double click opens an Inspector. A frame without source shows a placeholder.
 - The Workspace shows a Debug button after a failed evaluation, and `process failed: <reason>` when a process fails although the evaluation answered.
 - After the next evaluation, an open Debugger no longer prints or inspects values.
+- The app runs in live mode. A halted evaluation opens a live Debugger with Proceed, Abort, Step over, Step into and Step out; the Workspace shows `halted: <reason>`. When Proceed or a step ends the evaluation, a Print it's result goes into the Workspace. Closing the live Debugger aborts the process.
+- Smalltalk → Debug it (⌘⇧D) stops before the first statement.
+- Save Image with a halted process fails with an alert that says `halted processes`.
 
 ### Known limitations
 
 - An evaluation cannot be interrupted. A loop that never yields hangs the app, and only a force quit ends it.
-- No live debugger (Proceed / Step; P11).
+- The live debugger has no Restart, no editing in the Debugger, and does not step into natives.
 - No JIT, FFI, networking, or catching of Smalltalk exception objects (SPEC §1.4, §5).
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.

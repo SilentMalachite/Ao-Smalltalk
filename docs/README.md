@@ -29,7 +29,7 @@ GitHub 向けの案内（英語が正本）: [`README.md`](../README.md) / [`REA
 | P8 AppKit ツール | [phases/P8.md](phases/P8.md) | done |
 | P9 統合 | [phases/P9.md](phases/P9.md) | done |
 | P10 事後デバッガ | [phases/P10.md](phases/P10.md) | done |
-| P11 ライブデバッガ | [phases/P11.md](phases/P11.md) | in progress |
+| P11 ライブデバッガ | [phases/P11.md](phases/P11.md) | done |
 
 依存は直線: P0 → P1 → P2 → P3 → P4 → P5 → P6 → P6b → P7 → P8 → P9 → P10 → P11。
 
