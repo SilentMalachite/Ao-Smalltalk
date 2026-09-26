@@ -215,7 +215,6 @@ bool WellKnown::define(std::string_view name, Oop value) {
   return true;
 }
 
-
 bool WellKnown::undefine(std::string_view name) {
   if (isFixedGlobal(name)) {
     return false;

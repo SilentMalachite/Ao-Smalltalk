@@ -93,7 +93,6 @@ bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
   return false;
 }
 
-
 bool removeKey(Heap& heap, Oop dict, Oop key) {
   if (!dict.isHeap() || !key.isHeap()) {
     return false;

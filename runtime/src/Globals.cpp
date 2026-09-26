@@ -176,7 +176,6 @@ bool bind(WellKnown& wk, Oop key, Oop value) {
   return isDictionary(wk, wk.smalltalk) && bindIn(wk, wk.smalltalk, key, value);
 }
 
-
 bool unbind(WellKnown& wk, Oop key) {
   if (!key.isHeap() || !isDictionary(wk, wk.smalltalk)) {
     return false;
