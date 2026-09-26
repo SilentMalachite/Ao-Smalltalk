@@ -176,6 +176,29 @@ bool bind(WellKnown& wk, Oop key, Oop value) {
   return isDictionary(wk, wk.smalltalk) && bindIn(wk, wk.smalltalk, key, value);
 }
 
+
+bool unbind(WellKnown& wk, Oop key) {
+  if (!key.isHeap() || !isDictionary(wk, wk.smalltalk)) {
+    return false;
+  }
+  Heap& heap = wk.heap();
+  const Oop pairs = heap.slotAt(wk.smalltalk, kSmalltalkSlotArray);
+  const auto n = heap.size(pairs);
+  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
+    if (heap.slotAt(pairs, i) != key) {
+      continue;
+    }
+    heap.slotAtPut(pairs, i, Oop::nil());
+    heap.slotAtPut(pairs, i + 1, Oop::nil());
+    const Oop tally = heap.slotAt(wk.smalltalk, kSmalltalkSlotTally);
+    const std::int64_t bound = tally.isSmallInteger() ? tally.smallIntegerValue() : 0;
+    heap.slotAtPut(wk.smalltalk, kSmalltalkSlotTally,
+                   Oop::fromSmallInteger(bound > 0 ? bound - 1 : 0));
+    return true;
+  }
+  return false;
+}
+
 void each(const WellKnown& wk, void (*fn)(void* baton, Oop key, Oop value), void* baton) {
   if (fn == nullptr || !isDictionary(wk, wk.smalltalk)) {
     return;

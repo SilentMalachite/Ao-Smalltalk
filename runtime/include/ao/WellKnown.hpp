@@ -43,6 +43,11 @@ class WellKnown {
   // also when the Symbol or the dictionary's growth cannot be allocated (old at its max; the
   // out-of-memory flag is set). Does not GC.
   bool define(std::string_view name, Oop value);
+
+  // SPEC §3.6, §3.9 削除: takes name's binding out of Smalltalk. A fixed global keeps its
+  // binding: false. False also when Smalltalk binds no such name. Allocates nothing (the Symbol
+  // is looked up, never interned) and moves globalsVersion, so knownGlobals is rebuilt (§3.10).
+  bool undefine(std::string_view name);
   bool isCatalogName(std::string_view name) const;
   // The names Bootstrap binds and nothing rebinds but file-in's vendor stubs: the catalog,
   // Smalltalk and Processor (SPEC §3.6).

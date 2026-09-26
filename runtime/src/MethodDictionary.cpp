@@ -93,5 +93,30 @@ bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
   return false;
 }
 
+
+bool removeKey(Heap& heap, Oop dict, Oop key) {
+  if (!dict.isHeap() || !key.isHeap()) {
+    return false;
+  }
+  const Oop inner = heap.slotAt(dict, kDictSlotArray);
+  if (!inner.isHeap()) {
+    return false;
+  }
+  const auto n = heap.size(inner);
+  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
+    if (heap.slotAt(inner, i) != key) {
+      continue;
+    }
+    heap.slotAtPut(inner, i, Oop::nil());
+    heap.slotAtPut(inner, i + 1, Oop::nil());
+    // tally は Smalltalk から書き換えられる（atPut と同じ）。0 未満にはしない。
+    const Oop tallyOop = heap.slotAt(dict, kDictSlotTally);
+    const auto tally = tallyOop.isSmallInteger() ? tallyOop.smallIntegerValue() : 0;
+    heap.slotAtPut(dict, kDictSlotTally, Oop::fromSmallInteger(tally > 0 ? tally - 1 : 0));
+    return true;
+  }
+  return false;
+}
+
 }  // namespace MethodDictionary
 }  // namespace ao

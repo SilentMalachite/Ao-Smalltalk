@@ -180,3 +180,36 @@ TEST(MethodDictionary, AtPutRejectsNonHeapKey) {
     EXPECT_TRUE(b.heap.slotAt(inner, i).isNil()) << "slot " << i;
   }
 }
+
+// SPEC §3.9 削除: the removed pair goes nil/nil and the tally drops by one; the other pairs stay
+// where they are, and the next atPut takes the emptied pair.
+TEST(MethodDictionary, RemoveKeyLeavesTheOthersFindableAndReusesThePair) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  auto dict = ao::MethodDictionary::create(heap, wk, 4);
+  const ao::Oop a = ao::Symbol::intern(wk, "rkA");
+  const ao::Oop b = ao::Symbol::intern(wk, "rkB");
+  const ao::Oop c = ao::Symbol::intern(wk, "rkC");
+  ASSERT_TRUE(ao::MethodDictionary::atPut(heap, dict, a, ao::Oop::fromSmallInteger(1)));
+  ASSERT_TRUE(ao::MethodDictionary::atPut(heap, dict, b, ao::Oop::fromSmallInteger(2)));
+  ASSERT_TRUE(ao::MethodDictionary::atPut(heap, dict, c, ao::Oop::fromSmallInteger(3)));
+  EXPECT_TRUE(ao::MethodDictionary::removeKey(heap, dict, b));
+  EXPECT_TRUE(ao::MethodDictionary::at(heap, dict, b).isNil());
+  EXPECT_EQ(1, ao::MethodDictionary::at(heap, dict, a).smallIntegerValue());
+  EXPECT_EQ(3, ao::MethodDictionary::at(heap, dict, c).smallIntegerValue());
+  EXPECT_EQ(2, heap.slotAt(dict, ao::kDictSlotTally).smallIntegerValue());
+  const ao::Oop inner = heap.slotAt(dict, ao::kDictSlotArray);
+  EXPECT_TRUE(heap.slotAt(inner, 2).isNil());
+  EXPECT_TRUE(heap.slotAt(inner, 3).isNil());
+  // Not bound any more: false, and nothing changes.
+  EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, dict, b));
+  EXPECT_EQ(2, heap.slotAt(dict, ao::kDictSlotTally).smallIntegerValue());
+  const ao::Oop d = ao::Symbol::intern(wk, "rkD");
+  ASSERT_TRUE(ao::MethodDictionary::atPut(heap, dict, d, ao::Oop::fromSmallInteger(4)));
+  EXPECT_EQ(d, heap.slotAt(inner, 2));
+  EXPECT_EQ(3, heap.slotAt(dict, ao::kDictSlotTally).smallIntegerValue());
+  EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, ao::Oop::nil(), a));
+  EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, dict, ao::Oop::fromSmallInteger(1)));
+}

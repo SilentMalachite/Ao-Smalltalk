@@ -33,6 +33,11 @@ Oop lookup(const WellKnown& wk, Oop key);
 // Does not GC: a full array grows with allocateNoGc. False when Smalltalk is no dictionary, key is
 // no heap object, or old is at its max (the out-of-memory flag is then set).
 bool bind(WellKnown& wk, Oop key, Oop value);
+
+// SPEC §3.6: empties key's pair (nil key and value) and takes one off the tally; the other pairs
+// stay in place, and the next bind takes the emptied pair. Allocates nothing. False when
+// Smalltalk is no dictionary, key is no heap object, or Smalltalk binds no such key.
+bool unbind(WellKnown& wk, Oop key);
 // Calls fn with each key and value, in the order they were bound. fn must not GC or bind.
 void each(const WellKnown& wk, void (*fn)(void* baton, Oop key, Oop value), void* baton);
 // The value bound to name, or nil when Smalltalk binds none.
