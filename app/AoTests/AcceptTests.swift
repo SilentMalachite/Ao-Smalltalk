@@ -711,6 +711,31 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(alerts.last?.informativeText.contains("not an Ao image") ?? false)
   }
 
+  // SPEC §3.9, §3.11: with a halted process the save is refused, and the alert says why.
+  func testSaveWithHaltedProcessShowsReason() {
+    let app = AoApp()
+    var alerts: [NSAlert] = []
+    app.presentAlert = { alerts.append($0) }
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-halted-\(UUID().uuidString).aoimage")
+    defer {
+      try? FileManager.default.removeItem(at: url)
+      ao_set_debug_mode(Int32(AO_DEBUG_POSTMORTEM))
+    }
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    var out = [CChar](repeating: 0, count: 64)
+    var err = AoSpan()
+    let status = "self halt".withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_eval(src, 9, Int32(AO_EVAL_DOIT), &out, 64, $0) }
+    }
+    XCTAssertEqual(status, Int32(AO_ERR_HALT))
+    XCTAssertFalse(app.saveImage(to: url))
+    XCTAssertEqual(alerts.last?.messageText, "Could not save the image")
+    XCTAssertTrue(alerts.last?.informativeText.contains("halted processes") ?? false)
+    XCTAssertEqual(ao_debug_abort(ao_debug_halted_pid()), Int32(AO_OK))
+    XCTAssertTrue(app.saveImage(to: url))
+  }
+
   // `expecting` is the selection after the click when it differs from the clicked row
   // (a cancelled change keeps the old one).
   private func selectClass(_ name: String, in browser: BrowserWindow, expecting: String? = nil) {

@@ -108,9 +108,22 @@ private func readDebugFrames() -> [DebugFrame] {
   }
 }
 
-// SPEC §3.9 Debugger: the post-mortem view of the session's snapshot (§3.13). It reads the
-// frames when it opens; a value is printed only when its row is shown or asked for, and never once
-// the generation has moved (the next evaluation cleared the snapshot).
+// SPEC §3.9 ライブ Debugger: how Proceed or a Step ended when it did not halt again: the ABI's
+// status (AO_OK, AO_ERR_RANGE or AO_ERR_EVAL), out, and the reason.
+struct DebugOutcome {
+  let status: Int32
+  let output: String
+  let message: String
+}
+
+// SPEC §3.10: out stops at 64 KiB; the Workspace reads a Print it's whole result past it.
+private let debugOutCapacity = 65_536
+
+// SPEC §3.9 Debugger: the post-mortem view of the session's snapshot (§3.13), or (pid > 0) the
+// live view of a halted process with Proceed, Abort and the Steps. It reads the frames when it
+// opens (and, live, after each Step); a value is printed only when its row is shown or asked for,
+// and never once what it shows is gone (a post-mortem window's generation moved; a live window's
+// process no longer halted).
 @MainActor
 final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
   // The open Debuggers, held weakly, so AoApp.resizeText reaches every one of them.
@@ -122,13 +135,31 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
   // SPEC §3.10 ao_debug_reason: the whole reason; empty without a snapshot.
   static func snapshotReason() -> String {
-    readDebugText { ao_debug_reason($0, $1) }.text
+    _ = ao_debug_select(0)
+    return readDebugText { ao_debug_reason($0, $1) }.text
+  }
+
+  // SPEC §3.10 ao_debug_select: the reads follow the last selection, so the snapshot's count
+  // selects it first.
+  static func snapshotFrameCount() -> Int32 {
+    _ = ao_debug_select(0)
+    return ao_debug_frame_count()
   }
 
   let window: NSWindow
-  let generation: Int32
-  let reason: String
-  let frames: [DebugFrame]
+  // 0: the post-mortem Debugger of the snapshot; else the halted process it shows (SPEC §3.9).
+  let pid: Int64
+  private(set) var generation: Int32
+  private(set) var reason: String
+  private(set) var frames: [DebugFrame]
+  // Live only: Proceed, Abort, Step over, Step into, Step out.
+  private(set) var buttons: [NSButton] = []
+  private let buttonActions = DebuggerButtonActions()
+  // Runs a Proceed or Step: the Workspace wraps it (its inspect hook for an Inspect it).
+  private let around: @MainActor (() -> Void) -> Void
+  private let onFinish: @MainActor (DebugOutcome) -> Void
+  // Live: the process ended through a button, so closing the window does not abort it.
+  private var finished = false
   private let frameTable = NSTableView()
   private let variableTable = NSTableView()
   private let sourceView: NSTextView
@@ -181,10 +212,25 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     inspectors.count
   }
 
+  var isLive: Bool {
+    pid != 0
+  }
+
   // SPEC §3.9: `onClose` runs once, from inside `close`, so the owner can drop this Debugger.
-  init(onClose: @escaping @MainActor @Sendable (DebuggerWindow) -> Void = { _ in }) {
+  // pid 0 reads the snapshot; a halted process's pid makes the live Debugger, whose Proceed or
+  // Step that ends the evaluation goes to `onFinish` (run inside `around`) and closes the window.
+  init(
+    pid: Int64 = 0,
+    around: @escaping @MainActor (() -> Void) -> Void = { $0() },
+    onFinish: @escaping @MainActor (DebugOutcome) -> Void = { _ in },
+    onClose: @escaping @MainActor @Sendable (DebuggerWindow) -> Void = { _ in }
+  ) {
+    self.pid = pid
+    self.around = around
+    self.onFinish = onFinish
+    _ = ao_debug_select(pid)
     generation = ao_debug_generation()
-    reason = Self.snapshotReason()
+    reason = readDebugText { ao_debug_reason($0, $1) }.text
     frames = readDebugFrames()
     let frame = NSRect(x: 260, y: 120, width: 640, height: 600)
     let built = makeToolTextWindow(title: "Debugger: " + reason, frame: frame, editable: false)
@@ -217,7 +263,11 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     split.addArrangedSubview(variableScroll)
     frameScroll.frame = listBand
     variableScroll.frame = listBand
-    window.contentView = split
+    if pid != 0 {
+      window.contentView = installButtons(above: split, size: frame.size)
+    } else {
+      window.contentView = split
+    }
 
     // queue nil: the center calls this synchronously, inside `close` on the main thread.
     closeObserver = NotificationCenter.default.addObserver(
@@ -277,7 +327,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     if let cached = values[row] {
       return (name, cached.className, cached.value)
     }
-    guard ao_debug_generation() == generation else {
+    guard readable() else {
       return (name, "", "-")
     }
     let read = printValue(frame: Int32(selectedFrame), temp: Int32(row - 1))
@@ -289,7 +339,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   }
 
   func inspectVariable(at row: Int) {
-    guard let selectedFrame, row >= 0, row < variableCount, ao_debug_generation() == generation else {
+    guard let selectedFrame, row >= 0, row < variableCount, readable() else {
       return
     }
     inspectClassName = ""
@@ -310,6 +360,143 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     inspectClassName = className
     inspectPrint = printString
     inspectReceived = true
+  }
+
+  // MARK: - live (SPEC §3.9 ライブ Debugger)
+
+  func proceed() {
+    resume { ao_debug_proceed($0, $1, $2, $3) }
+  }
+
+  func stepOver() {
+    resume { ao_debug_step_over($0, $1, $2, $3) }
+  }
+
+  func stepInto() {
+    resume { ao_debug_step_into($0, $1, $2, $3) }
+  }
+
+  func stepOut() {
+    resume { ao_debug_step_out($0, $1, $2, $3) }
+  }
+
+  // Terminates the process (its ensure: blocks run) and closes the window.
+  func abort() {
+    guard isLive, !finished else {
+      return
+    }
+    guard ao_debug_abort(pid) == Int32(AO_OK) else {
+      updateButtons()
+      return
+    }
+    finished = true
+    window.close()
+  }
+
+  private func resume(_ call: (Int64, UnsafeMutablePointer<CChar>, Int32, UnsafeMutablePointer<AoSpan>) -> Int32) {
+    guard isLive, !finished else {
+      return
+    }
+    var out = [CChar](repeating: 0, count: debugOutCapacity)
+    var err = AoSpan()
+    var status = Int32(AO_ERR)
+    around {
+      status = out.withUnsafeMutableBufferPointer { outBuf -> Int32 in
+        guard let outPtr = outBuf.baseAddress else {
+          return Int32(AO_ERR)
+        }
+        return withUnsafeMutablePointer(to: &err) { call(pid, outPtr, Int32(outBuf.count), $0) }
+      }
+    }
+    if status == Int32(AO_ERR_HALT) {
+      reload()
+      return
+    }
+    guard status != Int32(AO_ERR) else {
+      // Refused (busy) or no longer halted: nothing ran.
+      updateButtons()
+      return
+    }
+    let output = out.withUnsafeBufferPointer { buf -> String in
+      guard let base = buf.baseAddress else {
+        return ""
+      }
+      return String(cString: base)
+    }
+    finished = true
+    let outcome = DebugOutcome(status: status, output: output, message: spanMessage(err))
+    window.close()
+    onFinish(outcome)
+  }
+
+  // The process halted again: everything is read anew, the innermost frame selected.
+  private func reload() {
+    _ = ao_debug_select(pid)
+    generation = ao_debug_generation()
+    reason = readDebugText { ao_debug_reason($0, $1) }.text
+    frames = readDebugFrames()
+    window.title = "Debugger: " + reason
+    values = [:]
+    frameTable.reloadData()
+    if frames.isEmpty {
+      sourceView.string = ""
+      variableTable.reloadData()
+    } else {
+      selectFrame(0)
+    }
+    updateButtons()
+  }
+
+  // What it shows can still be read: the snapshot of its generation, or its halted process.
+  private func readable() -> Bool {
+    guard ao_debug_select(pid) == Int32(AO_OK) else {
+      return false
+    }
+    return isLive ? !finished : ao_debug_generation() == generation
+  }
+
+  // SPEC §3.9: Proceed and the Steps only when the halt can go on; nothing once it is gone.
+  private func updateButtons() {
+    let halted = !finished && ao_debug_select(pid) == Int32(AO_OK)
+    let canGoOn = halted && ao_debug_can_proceed(pid) == 1
+    for button in buttons {
+      button.isEnabled = button.title == "Abort" ? halted : canGoOn
+    }
+  }
+
+  private func installButtons(above split: NSSplitView, size: NSSize) -> NSView {
+    let barHeight: CGFloat = 32
+    let container = NSView(frame: NSRect(origin: .zero, size: size))
+    container.autoresizingMask = [.width, .height]
+    split.frame = NSRect(x: 0, y: 0, width: size.width, height: max(size.height - barHeight, 0))
+    let runs: [(String, @MainActor (DebuggerWindow) -> Void)] = [
+      ("Proceed", { $0.proceed() }),
+      ("Abort", { $0.abort() }),
+      ("Step over", { $0.stepOver() }),
+      ("Step into", { $0.stepInto() }),
+      ("Step out", { $0.stepOut() })
+    ]
+    var x: CGFloat = 8
+    for (title, run) in runs {
+      let button = NSButton(title: title, target: buttonActions, action: #selector(DebuggerButtonActions.invoke(_:)))
+      button.bezelStyle = .rounded
+      button.setAccessibilityLabel(title)
+      button.sizeToFit()
+      button.frame.origin = NSPoint(x: x, y: size.height - barHeight + 2)
+      button.autoresizingMask = [.minYMargin]
+      x += button.frame.width + 4
+      container.addSubview(button)
+      buttons.append(button)
+      buttonActions.runs[ObjectIdentifier(button)] = { [weak self] in
+        guard let self else {
+          return
+        }
+        run(self)
+      }
+    }
+    container.addSubview(split)
+    updateButtons()
+    return container
   }
 
   // MARK: - NSTableViewDataSource, NSTableViewDelegate
@@ -457,11 +644,26 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   }
 
   private func windowWillClose(_ onClose: @MainActor (DebuggerWindow) -> Void) {
+    // SPEC §3.9: closing a live Debugger (not through its buttons) aborts the halted process.
+    if isLive, !finished {
+      finished = true
+      _ = ao_debug_abort(pid)
+    }
     Self.live.remove(self)
     onClose(self)
     if let closeObserver {
       NotificationCenter.default.removeObserver(closeObserver)
     }
     closeObserver = nil
+  }
+}
+
+// NSButton.target is weak; the Debugger keeps this one.
+@MainActor
+private final class DebuggerButtonActions: NSObject {
+  var runs: [ObjectIdentifier: @MainActor () -> Void] = [:]
+
+  @objc func invoke(_ sender: NSButton) {
+    runs[ObjectIdentifier(sender)]?()
   }
 }

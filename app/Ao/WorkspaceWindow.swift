@@ -338,9 +338,26 @@ final class WorkspaceWindow {
     inspectorLinesFromHook = InspectorWindow.lines(className: className, printString: printString)
   }
 
+  func debugIt() {
+    run(Int32(AO_EVAL_DEBUGIT))
+  }
+
   private func run(_ mode: Int32) {
     let range = sourceRange()
     let source = text(in: range)
+    let result = withInspectHook(mode) { evaluate(source, mode: mode) }
+    if result.status == Int32(AO_ERR_HALT) {
+      // SPEC §3.9: the evaluating process halted; its live Debugger opens.
+      debugButton.isHidden = true
+      errorField.stringValue = "halted: " + result.message
+      openLiveDebugger(pid: ao_debug_halted_pid(), mode: mode, range: range)
+      return
+    }
+    show(result, mode: mode, source: source, range: range)
+  }
+
+  // An Inspect it's hook is set around `body`, whose inspect it hears.
+  private func withInspectHook<T>(_ mode: Int32, _ body: () -> T) -> T {
     let inspecting = mode == Int32(AO_EVAL_INSPECTIT)
     if inspecting {
       inspectClassName = ""
@@ -354,20 +371,32 @@ final class WorkspaceWindow {
         ao_set_inspect_hook(nil, nil)
       }
     }
-    let result = evaluate(source, mode: mode)
+    return body()
+  }
+
+  // The answer of an evaluation, or of the live Debugger's Proceed or Step that ended one. source
+  // is the evaluated text when a compile error's span can be selected in it.
+  private func show(
+    _ result: (status: Int32, output: String, message: String, span: AoSpan),
+    mode: Int32,
+    source: String?,
+    range: NSRange
+  ) {
     // SPEC §3.9: ao_eval clears the snapshot on entry, so frames now are this evaluation's.
-    let captured = ao_debug_frame_count() > 0
+    let captured = DebuggerWindow.snapshotFrameCount() > 0
     debugButton.isHidden = !captured
     if result.status != Int32(AO_OK) {
       errorField.stringValue = failureText(status: result.status, message: result.message)
       // SPEC §3.8: an ao_eval span counts from the start of the evaluated fragment.
-      selectErrorSpan(
-        status: result.status,
-        span: result.span,
-        source: source,
-        base: range.location,
-        in: textView
-      )
+      if let source {
+        selectErrorSpan(
+          status: result.status,
+          span: result.span,
+          source: source,
+          base: range.location,
+          in: textView
+        )
+      }
       return
     }
     // SPEC §3.9: AO_OK with a snapshot is a process that failed in the drain (§3.4).
@@ -376,7 +405,7 @@ final class WorkspaceWindow {
       insert(result.output, after: range)
       return
     }
-    if inspecting {
+    if mode == Int32(AO_EVAL_INSPECTIT) {
       inspectorLinesFromOut = InspectorWindow.lines(
         className: inspectClassName,
         printString: result.output
@@ -384,6 +413,60 @@ final class WorkspaceWindow {
       openInspector(className: inspectClassName, printString: inspectPrint)
       openInspector(className: inspectClassName, printString: result.output)
     }
+  }
+
+  // SPEC §3.9 ライブ Debugger: one window per halted process. Its Proceed or Step that ends the
+  // evaluation answers here, as the evaluation would have.
+  @discardableResult
+  func openLiveDebugger(pid: Int64, mode: Int32, range: NSRange) -> DebuggerWindow? {
+    guard pid > 0 else {
+      return nil
+    }
+    if let existing = debuggers.first(where: { $0.pid == pid }) {
+      existing.orderFront()
+      return existing
+    }
+    let debugger = DebuggerWindow(
+      pid: pid,
+      around: { [weak self] body in
+        guard let self else {
+          body()
+          return
+        }
+        self.withInspectHook(mode, body)
+      },
+      onFinish: { [weak self] outcome in
+        self?.finishLive(outcome, mode: mode, range: range)
+      },
+      onClose: { [weak self] closed in
+        self?.debuggers.removeAll { $0 === closed }
+      }
+    )
+    debuggers.append(debugger)
+    return debugger
+  }
+
+  // SPEC §3.9: a Print it inserts after the evaluated range (at the end when the text is shorter
+  // now); nothing when this Workspace is closed.
+  private func finishLive(_ outcome: DebugOutcome, mode: Int32, range: NSRange) {
+    guard window.isVisible else {
+      return
+    }
+    var status = outcome.status
+    var output = outcome.output
+    let answered = status == Int32(AO_OK) || status == Int32(AO_ERR_RANGE)
+    let printing = mode == Int32(AO_EVAL_PRINTIT) || mode == Int32(AO_EVAL_INSPECTIT)
+    if answered, printing, let whole = keptEvalResult() {
+      status = Int32(AO_OK)
+      output = whole
+    }
+    let end = min(NSMaxRange(range), (textView.string as NSString).length)
+    show(
+      (status, output, outcome.message, AoSpan()),
+      mode: mode,
+      source: nil,
+      range: NSRange(location: end, length: 0)
+    )
   }
 
   // Hook and out share one window when the lines match. A later Inspect it orders that window front.
@@ -406,17 +489,17 @@ final class WorkspaceWindow {
   @discardableResult
   func openDebugger() -> DebuggerWindow? {
     let generation = ao_debug_generation()
-    if let existing = debuggers.first(where: { $0.generation == generation }) {
+    if let existing = debuggers.first(where: { $0.pid == 0 && $0.generation == generation }) {
       existing.orderFront()
       return existing
     }
-    guard ao_debug_frame_count() > 0 else {
+    guard DebuggerWindow.snapshotFrameCount() > 0 else {
       debugButton.isHidden = true
       return nil
     }
-    let debugger = DebuggerWindow { [weak self] closed in
+    let debugger = DebuggerWindow(onClose: { [weak self] closed in
       self?.debuggers.removeAll { $0 === closed }
-    }
+    })
     debuggers.append(debugger)
     return debugger
   }

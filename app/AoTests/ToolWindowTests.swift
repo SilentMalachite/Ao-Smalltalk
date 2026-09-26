@@ -180,6 +180,10 @@ final class ToolWindowTests: XCTestCase {
     let doIt = menuItem(titled: "Do it", in: menu)
     XCTAssertEqual(doIt?.keyEquivalent, "d")
     XCTAssertTrue(doIt?.keyEquivalentModifierMask.contains(.command) ?? false)
+    // SPEC §3.9: Debug it is ⌘⇧D.
+    let debugIt = menuItem(titled: "Debug it", in: menu)
+    XCTAssertEqual(debugIt?.keyEquivalent, "d")
+    XCTAssertEqual(debugIt?.keyEquivalentModifierMask, [.command, .shift])
     for item in menuItems(in: menu) where item.keyEquivalent == "p" {
       XCTAssertNotEqual(item.title, "Print it")
     }

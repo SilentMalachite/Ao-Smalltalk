@@ -6,6 +6,7 @@ enum MainMenu {
     var doIt: () -> Void = {}
     var printIt: () -> Void = {}
     var inspectIt: () -> Void = {}
+    var debugIt: () -> Void = {}
     var accept: () -> Void = {}
     var showHierarchy: () -> Void = {}
     var saveImage: () -> Void = {}
@@ -44,10 +45,14 @@ enum MainMenu {
       responderItem("Paste", key: "v", action: #selector(NSText.paste(_:))),
       responderItem("Select All", key: "a", action: #selector(NSText.selectAll(_:)))
     ]))
+    // SPEC §3.9: Debug it is ⌘⇧D, beside Do it's ⌘D.
+    let debugIt = actionItem("Debug it", key: "d", run: { _ in actions.debugIt() })
+    debugIt.keyEquivalentModifierMask = [.command, .shift]
     bar.addItem(top("Smalltalk", items: [
       actionItem("Do it", key: "d", run: { _ in actions.doIt() }),
       actionItem("Print it", key: "i", run: { _ in actions.printIt() }),
       actionItem("Inspect it", key: "", run: { _ in actions.inspectIt() }),
+      debugIt,
       actionItem("Accept", key: "", run: { _ in actions.accept() }),
       actionItem("Show Hierarchy", key: "", run: { _ in actions.showHierarchy() })
     ]))
