@@ -133,6 +133,37 @@ ao::Oop methodOf(const char* cls, const char* sel) {
   return ao::MethodDictionary::at(s->heap, dict, s->wk.findSymbol(sel));
 }
 
+std::string tryRemoveClass(const char* cls, int* rc) {
+  AoSpan err{};
+  std::strcpy(err.message, "stale");
+  err.start = 7;
+  *rc = ao_remove_class(cls, &err);
+  EXPECT_EQ(0u, err.start);
+  EXPECT_EQ(0u, err.end);
+  return err.message;
+}
+
+// The index in Smalltalk's pair array of name's key, or -1.
+int pairIndexOf(const char* name) {
+  ao::Session* s = ao::session();
+  const ao::Oop key = s->wk.findSymbol(name);
+  if (!key.isHeap()) {
+    return -1;
+  }
+  const ao::Oop pairs = s->heap.slotAt(s->wk.smalltalk, ao::Globals::kSmalltalkSlotArray);
+  for (std::uint32_t i = 0; i + 1 < s->heap.size(pairs); i += 2) {
+    if (s->heap.slotAt(pairs, i) == key) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+std::int64_t globalsTally() {
+  ao::Session* s = ao::session();
+  return s->heap.slotAt(s->wk.smalltalk, ao::Globals::kSmalltalkSlotTally).smallIntegerValue();
+}
+
 }  // namespace
 
 // SPEC §3.9 削除, §6: a method accepted on a Kernel class goes, and the send falls to
@@ -258,4 +289,158 @@ TEST_F(RemoveAbi, RemoveMethodDropsSourceEntry) {
   EXPECT_EQ(slots - 3, ao::methodSourceRootSlots(false).size());
   char shown[64];
   EXPECT_EQ(AO_ERR, ao_browser_source("B12Src", 0, "blk", shown, sizeof(shown)));
+}
+
+// SPEC §3.9 削除, §6: the name reads nil (PushGlobal, no recompile), the instances keep their
+// class and methods, and the Browser no longer lists the class.
+TEST_F(RemoveAbi, RemovedClassNameReadsNilAndInstancesKeepWorking) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, defineClass("B12Inst", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Inst", 0, "answer\n  ^7\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "b12useInst\n  ^B12Inst\n", &err)) << err.message;
+  // A class object's own printString goes through Object>>printString too: its class is the
+  // metaclass, whose name is "<Name> class".
+  EXPECT_EQ("B12Inst class", printIt("Object new b12useInst"));
+  // An instance prints as its class name (Object>>printString).
+  EXPECT_EQ("B12Inst", printIt("b12i := B12Inst new"));
+  ASSERT_TRUE(browserLists("B12Inst"));
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveClass("B12Inst", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ("nil", printIt("Object new b12useInst"));
+  EXPECT_EQ("7", printIt("b12i answer"));
+  EXPECT_EQ("'B12Inst'", printIt("b12i printString"));
+  EXPECT_FALSE(browserLists("B12Inst"));
+  EXPECT_EQ("not a class: B12Inst", tryRemoveClass("B12Inst", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+}
+
+// SPEC §3.9 削除, §3.10 ワークスペース変数: the globals version moved, so the name is an undeclared
+// identifier again: it reads nil, and an assignment (refused while the class was there) binds it.
+TEST_F(RemoveAbi, RemovedClassNameBecomesWorkspaceVariable) {
+  ASSERT_EQ(AO_OK, defineClass("B12Var", "Object", "B12-Test"));
+  // A class object's own printString shows its metaclass's name, "<Name> class".
+  EXPECT_EQ("B12Var class", printIt("B12Var"));
+  const std::string refused = printIt("B12Var := 3");
+  EXPECT_EQ(0u, refused.find("<" + std::to_string(AO_ERR_COMPILE) + ": ")) << refused;
+  EXPECT_NE(std::string::npos, refused.find("cannot assign")) << refused;
+  const std::uint64_t version = ao::session()->wk.globalsVersion();
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveClass("B12Var", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ(version + 1, ao::session()->wk.globalsVersion());
+  EXPECT_EQ("nil", printIt("B12Var"));
+  EXPECT_EQ("3", printIt("B12Var := 3"));
+  EXPECT_EQ("3", printIt("B12Var"));
+}
+
+// SPEC §3.9 削除: a fixed global (a Kernel class, a vendor stub), a name that is no class
+// (Processor, Smalltalk, a metaclass, an unknown or empty name) and a NULL name are refused.
+TEST_F(RemoveAbi, RemoveFixedGlobalIsRefused) {
+  int rc = -9;
+  EXPECT_EQ("class removal refused: Object is a fixed global", tryRemoveClass("Object", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("class removal refused: Bag is a fixed global", tryRemoveClass("Bag", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("not a class: Processor", tryRemoveClass("Processor", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("not a class: Smalltalk", tryRemoveClass("Smalltalk", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("not a class: B12Nope", tryRemoveClass("B12Nope", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("not a class: ", tryRemoveClass("", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("remove failed", tryRemoveClass(nullptr, &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ(std::string::npos, printIt("Smalltalk at: #B12Meta put: Object class").find("<"));
+  EXPECT_EQ("not a class: B12Meta", tryRemoveClass("B12Meta", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ(AO_ERR, ao_remove_class("Object", nullptr));
+  // A class object's own printString shows its metaclass's name, "<Name> class".
+  EXPECT_EQ("Object class", printIt("Object"));
+  EXPECT_EQ("Bag class", printIt("Bag"));
+}
+
+// SPEC §3.9 削除: a Kernel class through an alias is one by identity, as ao_accept_method sees it.
+TEST_F(RemoveAbi, RemoveKernelAliasIsRefused) {
+  // A class object's own printString shows its metaclass's name, "<Name> class".
+  EXPECT_EQ("SmallInteger class", printIt("Smalltalk at: #B12IntAlias put: SmallInteger"));
+  int rc = -9;
+  EXPECT_EQ("class removal refused: B12IntAlias is a kernel class", tryRemoveClass("B12IntAlias", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("SmallInteger class", printIt("B12IntAlias"));
+}
+
+// SPEC §3.9 削除: a live subclass refuses the removal, named after the smallest name; a subclass
+// whose name slot is no string (reflection) makes it "an unnamed subclass". The refused class is
+// still bound.
+TEST_F(RemoveAbi, RemoveClassWithSubclassIsRefused) {
+  ASSERT_EQ(AO_OK, defineClass("B12Base", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, defineClass("B12SubB", "B12Base", "B12-Test"));
+  ASSERT_EQ(AO_OK, defineClass("B12SubA", "B12Base", "B12-Test"));
+  int rc = -9;
+  EXPECT_EQ("class removal refused: B12Base has subclass B12SubA", tryRemoveClass("B12Base", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  // A class object's own printString shows its metaclass's name, "<Name> class".
+  EXPECT_EQ("B12Base class", printIt("B12Base"));
+  // The subclasses go (leaves first), then the base can go.
+  EXPECT_EQ("", tryRemoveClass("B12SubA", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ("class removal refused: B12Base has subclass B12SubB", tryRemoveClass("B12Base", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("", tryRemoveClass("B12SubB", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  // An unbound subclass a workspace variable keeps alive through an instance still counts, and
+  // with its name slot nilled (instVarAt:put:, kClassSlotName is slot 3, index 4) it is unnamed.
+  ASSERT_EQ(AO_OK, defineClass("B12Anon", "B12Base", "B12-Test"));
+  EXPECT_EQ("B12Anon", printIt("b12anon := B12Anon new"));
+  // instVarAt:put: answers the value (ao_Object_instVarAt_put_).
+  EXPECT_EQ("nil", printIt("B12Anon instVarAt: 4 put: nil"));
+  EXPECT_EQ("", tryRemoveClass("B12Anon", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ("class removal refused: B12Base has an unnamed subclass", tryRemoveClass("B12Base", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("nil", printIt("b12anon := nil"));
+  EXPECT_EQ("", tryRemoveClass("B12Base", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ("nil", printIt("B12Base"));
+}
+
+// SPEC §3.9 削除: only the named binding goes; an alias keeps the class reachable, and the
+// Browser keeps listing it under its own name slot (unaffected by which global reaches it), not
+// under the alias's name.
+TEST_F(RemoveAbi, RemoveClassKeepsAliases) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, defineClass("B12Real", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Real", 0, "answer\n  ^9\n", &err)) << err.message;
+  // A class object's own printString shows its metaclass's name, "<Name> class".
+  EXPECT_EQ("B12Real class", printIt("Smalltalk at: #B12Alias put: B12Real"));
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveClass("B12Real", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ("nil", printIt("B12Real"));
+  EXPECT_EQ("9", printIt("B12Alias new answer"));
+  // classRows reads the class's own name slot, not the binding key it was reached through.
+  EXPECT_FALSE(browserLists("B12Alias"));
+  EXPECT_TRUE(browserLists("B12Real"));
+  EXPECT_EQ("", tryRemoveClass("B12Alias", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_FALSE(browserLists("B12Alias"));
+}
+
+// SPEC §3.6: the emptied pair is the one the next registration takes; the tally follows.
+TEST_F(RemoveAbi, RemovedGlobalSlotIsReused) {
+  ASSERT_EQ(AO_OK, defineClass("B12Slot", "Object", "B12-Test"));
+  const int index = pairIndexOf("B12Slot");
+  ASSERT_NE(-1, index);
+  const std::int64_t tally = globalsTally();
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveClass("B12Slot", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ(-1, pairIndexOf("B12Slot"));
+  EXPECT_EQ(tally - 1, globalsTally());
+  EXPECT_EQ("3", printIt("Smalltalk at: #B12Next put: 3"));
+  EXPECT_EQ(index, pairIndexOf("B12Next"));
+  EXPECT_EQ(tally, globalsTally());
+  EXPECT_EQ("3", printIt("B12Next"));
 }

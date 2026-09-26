@@ -494,6 +494,28 @@ extern "C" int ao_remove_method(const char* class_name, int meta, const char* se
   return AO_ERR;
 }
 
+extern "C" int ao_remove_class(const char* class_name, AoSpan* err) {
+  clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    setMessage(err, "runtime is busy");
+    return AO_ERR;
+  }
+  std::string reason;
+  const int rc = guarded(-1, [&] {
+    ao::Session* s = ao::session();
+    if (s == nullptr || s->ctx == nullptr || class_name == nullptr) {
+      return AO_ERR;
+    }
+    return ao::removeClassNamed(*s->ctx, class_name, &reason) ? AO_OK : AO_ERR;
+  });
+  if (rc == AO_OK) {
+    return AO_OK;
+  }
+  setMessage(err, rc == -1 || reason.empty() ? std::string_view("remove failed") : reason);
+  return AO_ERR;
+}
+
 extern "C" int ao_image_load(const char* path, AoSpan* err) {
   clearSpan(err);
   const AbiEntry entry;

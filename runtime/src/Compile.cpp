@@ -504,6 +504,60 @@ std::string removedMethodName(std::string_view className, bool meta, std::string
   return key;
 }
 
+// SPEC §3.9 削除: obj is a class, not a metaclass, Processor, Smalltalk or another instance: the
+// thisClass of its metaclass, which is an instance of Metaclass (the test liveClasses applies).
+bool isClassObject(CallContext& ctx, Oop obj) {
+  if (!isClassShaped(ctx.heap, obj)) {
+    return false;
+  }
+  const Oop meta = ctx.heap.klass(obj);
+  return isClassShaped(ctx.heap, meta) && ctx.heap.klass(meta) == ctx.wk.metaclassClass &&
+         ctx.heap.slotAt(meta, kClassSlotThisClass) == obj;
+}
+
+// SPEC §3.9 削除: what the live subclasses of cls (hasSubclass's classes) say for the refusal.
+struct SubclassProbe {
+  bool any = false;
+  // The smallest name, bytewise, among the subclasses whose name slot is a string; "" when none is.
+  std::string name;
+};
+
+SubclassProbe probeSubclasses(CallContext& ctx, Oop cls) {
+  SubclassProbe probe;
+  for (const Oop each : liveClasses(ctx)) {
+    if (superclassOf(ctx.heap, each) != cls) {
+      continue;
+    }
+    probe.any = true;
+    const std::string name = ownClassName(ctx, each);
+    if (!name.empty() && (probe.name.empty() || name < probe.name)) {
+      probe.name = name;
+    }
+  }
+  return probe;
+}
+
+// SPEC §3.9 削除: drops the source entries of every method in side's dictionary.
+void forgetMethodSourcesOf(CallContext& ctx, Oop side) {
+  const Oop dict =
+      isClassShaped(ctx.heap, side) ? ctx.heap.slotAt(side, kClassSlotMethodDict) : Oop::nil();
+  if (!dict.isHeap() || (ctx.heap.flags(dict) & kFlagBytes) != 0 ||
+      ctx.heap.size(dict) <= kDictSlotArray) {
+    return;
+  }
+  const Oop inner = ctx.heap.slotAt(dict, kDictSlotArray);
+  if (!inner.isHeap() || (ctx.heap.flags(inner) & kFlagBytes) != 0) {
+    return;
+  }
+  const std::uint32_t n = ctx.heap.size(inner);
+  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
+    const Oop method = ctx.heap.slotAt(inner, i + 1);
+    if (method.isHeap()) {
+      forgetMethodSource(method);
+    }
+  }
+}
+
 // Binds name to cls again, the way subclass: and applyClassDef bound it (a vendor stub through its
 // well-known slot), and drops the method cache (SPEC §3.3).
 void rebindClassName(CallContext& ctx, const std::string& name, Oop cls) {
@@ -1499,6 +1553,39 @@ bool removeMethodNamed(CallContext& ctx, std::string_view className, bool meta,
   // SPEC §3.3: the one function every method change goes through. Nothing above collected.
   invalidateMethodCache(ctx.cache, sel);
   forgetMethodSource(method);
+  return true;
+}
+
+bool removeClassNamed(CallContext& ctx, std::string_view className, std::string* reason) {
+  const Oop cls = ctx.wk.named(className);
+  if (!isClassObject(ctx, cls)) {
+    *reason = "not a class: " + std::string(className);
+    return false;
+  }
+  const std::string refused = "class removal refused: " + std::string(className);
+  if (ctx.wk.isFixedGlobal(className)) {
+    *reason = refused + " is a fixed global";
+    return false;
+  }
+  if (isKernelClass(ctx.wk, cls)) {
+    *reason = refused + " is a kernel class";
+    return false;
+  }
+  const SubclassProbe sub = probeSubclasses(ctx, cls);
+  if (sub.any) {
+    *reason = sub.name.empty() ? refused + " has an unnamed subclass"
+                               : refused + " has subclass " + sub.name;
+    return false;
+  }
+  if (!ctx.wk.undefine(className)) {
+    *reason = "remove failed";
+    return false;
+  }
+  // SPEC §3.3: as a class replacement, the whole cache goes. Nothing above collected, so cls is
+  // still the class object.
+  invalidateMethodCache(ctx.cache, Oop{});
+  forgetMethodSourcesOf(ctx, cls);
+  forgetMethodSourcesOf(ctx, ctx.heap.klass(cls));
   return true;
 }
 

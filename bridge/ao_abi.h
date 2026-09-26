@@ -226,6 +226,15 @@ int ao_accept_class(const char* source, AoSpan* err);
    changes on AO_ERR. Allocates nothing on the heap. */
 int ao_remove_method(const char* class_name, int meta, const char* selector, AoSpan* err);
 
+/* SPEC §3.9 削除. AO_OK: the name's binding is out of Smalltalk (an alias stays; the class object
+   and its instances are untouched), the whole method cache is dropped, and the sources of its
+   methods are forgotten; err's message is empty. AO_ERR with the reason: "not a class: <name>"
+   (a metaclass, Processor, Smalltalk, an unknown name), "class removal refused: <name> is a fixed
+   global" / "is a kernel class" (by identity, an alias too) / "has subclass <Sub>" / "has an
+   unnamed subclass", "runtime is busy", or "remove failed" (no session, a NULL name). Nothing
+   changes on AO_ERR. Allocates nothing on the heap. */
+int ao_remove_class(const char* class_name, AoSpan* err);
+
 #ifdef __cplusplus
 }
 #endif
