@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,13 +42,16 @@ typedef struct AoSpan {
 
 /* SPEC §3.10. The runtime is busy while ao_runtime_boot, ao_runtime_shutdown, ao_image_save,
    ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method,
-   ao_accept_class, ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect or
-   ao_debug_clear runs, or the interpreter does. Called then (from a transcript or inspect hook,
-   or a native), each of these thirteen does nothing and answers AO_ERR: ao_image_load with the
-   reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
+   ao_accept_class, ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
+   ao_debug_clear, ao_debug_proceed, ao_debug_step_into, ao_debug_step_over, ao_debug_step_out
+   or ao_debug_abort runs, or the interpreter does. Called then (from a transcript or inspect
+   hook, or a native), each of these eighteen does nothing and answers AO_ERR: ao_image_load
+   with the reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
    setters, ao_version, the ao_browser_* reads, ao_eval_result_length, ao_eval_result_copy,
-   ao_set_debug_capture, ao_set_debug_mode and the snapshot reads (ao_debug_generation to ao_debug_frame_temp_name)
-   may be called then. No C++ exception leaves any of these functions: it becomes AO_ERR (-1 for
+   ao_set_debug_capture, ao_set_debug_mode, the snapshot reads (ao_debug_generation to
+   ao_debug_frame_temp_name) and the live reads (ao_debug_halted_pid to ao_debug_select) may be
+   called then. A halted process (SPEC §3.13) does not run, so it alone does not make the runtime
+   busy. No C++ exception leaves any of these functions: it becomes AO_ERR (-1 for
    the *_count functions, ao_eval_result_length, and the ao_debug_* functions below that answer a
    number). */
 
@@ -173,6 +178,29 @@ int ao_debug_frame_receiver_print(int i, char* class_buf, int class_len, char* b
 int ao_debug_frame_temp_print(int i, int j, char* class_buf, int class_len, char* buf, int len);
 int ao_debug_inspect(int i, int j);
 int ao_debug_clear(void);
+/* SPEC §3.10 ライブデバッガの操作, §3.13. May be called while busy.
+   ao_debug_halted_pid: the process that halted last, while it is still halted; 0 otherwise or
+   with no session. ao_debug_halted_count: the halted processes; -1 with no session.
+   ao_debug_can_proceed: 1 when pid is halted and Proceed and Step may go on, else 0.
+   ao_debug_select: what the ao_debug_* reads (and the prints and inspect) read from now on: 0 the
+   snapshot (the default after boot and load), or a halted process's live frames. A pid that is
+   not halted answers AO_ERR and reads as nothing (0 frames, ao_debug_reason AO_ERR) until the
+   next select; AO_ERR with no session. */
+int64_t ao_debug_halted_pid(void);
+int ao_debug_halted_count(void);
+int ao_debug_can_proceed(int64_t pid);
+int ao_debug_select(int64_t pid);
+/* SPEC §3.10 ライブデバッガの操作. Outermost entries: AO_ERR while busy. Proceed goes on from
+   the halt of pid (halt, error: and doesNotUnderstand: answer nil; a failed send's value is nil)
+   and answers as ao_eval does, for the mode of the evaluation that halted: AO_OK with out (Print
+   it), the inspect hook (Inspect it) or an empty out; AO_ERR_HALT with the reason in err when it
+   halts again; AO_ERR_EVAL with the reason when it fails. The result and the snapshot are cleared
+   first and the ready queue drains at the end, as for ao_eval. AO_ERR (out empty, err empty) when
+   pid is not halted, its halt cannot go on (ao_debug_can_proceed 0), out is NULL or out_len < 1,
+   or there is no session. ao_debug_abort terminates the halted process pid (its ensure: blocks
+   run on it), drains and answers AO_OK; AO_ERR when pid is not halted or there is no session. */
+int ao_debug_proceed(int64_t pid, char* out, int out_len, AoSpan* err);
+int ao_debug_abort(int64_t pid);
 /* AO_ERR when class_name does not name a class (Processor, Smalltalk, an undefined name).
    AO_ERR_COMPILE for a compile error or a refused native overwrite. */
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);

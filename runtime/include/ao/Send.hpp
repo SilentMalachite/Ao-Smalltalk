@@ -37,6 +37,19 @@ Oop abortDoesNotUnderstand(CallContext& ctx, Oop selector);
 // A send of selector answered the empty Oop (SPEC §3.3). Unless the frames are unwinding already,
 // aborts with "failed: #<selector>", or "out of memory" once the heap has run out. May collect.
 Oop abortFailedSend(CallContext& ctx, Oop selector);
+// SPEC §3.13 止める: the failures a live debugger halts on come here. When the running process may
+// halt (Scheduler::canHalt) it halts with reason: true once it is proceeded (the caller answers
+// nil, or pushes it for a failed send), false when it was aborted meanwhile. Otherwise it aborts
+// with reason (abortEvaluation, captured as always) and answers false. A proceedable false
+// (NonBoolean receiver, cannot return) halts too but can only be aborted. May collect and switch:
+// the caller reads receiver and args again from their rooted slots.
+bool stopOrAbort(CallContext& ctx, const char* reason, bool proceedable);
+bool stopOrAbort(CallContext& ctx, std::string_view reason, bool proceedable);
+// stopOrAbort with prefix followed by the selector's bytes (fallback when it is not a Symbol).
+bool stopWithSelector(CallContext& ctx, const char* prefix, Oop selector, const char* fallback);
+// abortFailedSend's stop (SPEC §3.13): "failed: #<selector>" halts; out of memory still aborts.
+// False (no stop) when the frames are unwinding already.
+bool stopFailedSend(CallContext& ctx, Oop selector);
 // The reason of the abort in progress as UTF-8, or "" when there is none. Each NUL byte becomes
 // the two characters \0 so the text survives C strings (SPEC §3.3).
 std::string abortReasonText(const CallContext& ctx);

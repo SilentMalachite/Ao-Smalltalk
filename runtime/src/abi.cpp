@@ -309,6 +309,27 @@ extern "C" int ao_debug_frame_temp_name(int i, int j, char* buf, int len) {
   return guarded(AO_ERR, [&] { return ao::debugTempName(i, j, buf, len); });
 }
 
+// SPEC §3.10 ライブデバッガの操作: reads only, like the snapshot reads.
+extern "C" int64_t ao_debug_halted_pid(void) {
+  try {
+    return ao::debugHaltedPid();
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" int ao_debug_halted_count(void) {
+  return guarded(-1, [] { return ao::debugHaltedCount(); });
+}
+
+extern "C" int ao_debug_can_proceed(int64_t pid) {
+  return guarded(0, [&] { return ao::debugCanProceed(pid); });
+}
+
+extern "C" int ao_debug_select(int64_t pid) {
+  return guarded(AO_ERR, [&] { return ao::debugSelect(pid); });
+}
+
 namespace {
 
 // A refused call still leaves a string buffer ending in NUL (SPEC §3.10 buffer rule).
@@ -358,6 +379,28 @@ extern "C" int ao_debug_clear(void) {
     return AO_ERR;
   }
   return guarded(AO_ERR, [] { return ao::debugClear(); });
+}
+
+// SPEC §3.10 ライブデバッガの操作: outermost entries, refused while busy.
+extern "C" int ao_debug_proceed(int64_t pid, char* out, int out_len, AoSpan* err) {
+  const AbiEntry entry;
+  const int rc = !entry.entered() ? -1 : guarded(-1, [&] {
+    return ao::sessionDebugResume(pid, out, out_len, err, g_inspectFn, g_inspectUser);
+  });
+  if (rc != -1) {
+    return rc;
+  }
+  clearSpan(err);
+  blankBuf(out, out_len);
+  return AO_ERR;
+}
+
+extern "C" int ao_debug_abort(int64_t pid) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
+  return guarded(AO_ERR, [&] { return ao::sessionDebugAbort(pid); });
 }
 
 extern "C" int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err) {

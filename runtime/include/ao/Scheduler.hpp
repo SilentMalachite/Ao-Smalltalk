@@ -115,9 +115,34 @@ class Scheduler {
   // The running process is an evaluating process.
   bool runningEval() const;
 
+  // SPEC §3.13 止める: at most this many processes are halted at once.
+  static constexpr std::size_t kMaxHalted = 8;
+  // The running process may halt now: it is the evaluating process the base waits for, ctx is
+  // not aborting, abandoning or in a cleanup of an abort, and fewer than kMaxHalted are halted.
+  bool canHalt(const CallContext& ctx) const;
+  // Halts the running process (canHalt said yes) with reason and switches to the base, whose
+  // awaitEval answers Halted. Returns once it is resumed: true to go on (Proceed, Step), false
+  // when it was terminated or abandoned meanwhile (ctx is then unwinding). A GC point.
+  bool halt(CallContext& ctx, std::string reason, bool proceedable);
+  std::size_t haltedCount() const;
+  // The pid of the process that halted last while it is still halted, else 0.
+  std::uint64_t lastHaltedPid() const;
+  // A halted process's context and reason (null when pid is not halted), and whether it can go
+  // on (Proceed, Step).
+  const CallContext* haltedContext(std::uint64_t pid, const std::string** reason) const;
+  bool canProceed(std::uint64_t pid) const;
+  bool isHalted(std::uint64_t pid) const;
+  // The ao_eval mode the evaluating process pid answers for (0 when there is none).
+  int evalModeOf(std::uint64_t pid) const;
+  // SPEC §3.13 操作, from the base. Proceed: the halted process pid (canProceed) goes on, and the
+  // base waits for it as awaitEval does. Abort: it is terminated (its cleanups run on it); false
+  // when pid is not halted. Both leave the base not unwinding.
+  EvalEnd proceed(std::uint64_t pid);
+  bool abortHalted(std::uint64_t pid);
+
  private:
   struct Record;
-  enum class State { Ready, Running, Waiting, Suspended, Dead };
+  enum class State { Ready, Running, Waiting, Suspended, Halted, Dead };
 
   static void fiberEntry(void* arg);
   void runFiber(Record& me);
@@ -146,6 +171,7 @@ class Scheduler {
   std::string lastFailure_;
   // SPEC §3.13: the evaluating process the base waits for (0: none), and how the last one ended.
   std::uint64_t awaited_ = 0;
+  std::uint64_t lastHalted_ = 0;
   EvalEnd evalEnd_ = EvalEnd::Failed;
   Oop evalValue_ = Oop::nil();  // a root
   std::string evalReason_;

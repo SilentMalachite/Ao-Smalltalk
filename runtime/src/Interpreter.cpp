@@ -349,9 +349,10 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   }
   // SPEC §3.3: an empty result is a failure, never a value on the stack. Unless the frames are
   // unwinding already, it aborts with the selector as the reason (sel is rooted). The send is
-  // still in flight for that abort's capture.
-  if (result.isEmpty() && !unwinding(ctx)) {
-    abortFailedSend(ctx, sel.slot);
+  // still in flight for that abort's capture. SPEC §3.13: a live debugger halts here instead, and
+  // Proceed makes nil the send's value.
+  if (result.isEmpty() && !unwinding(ctx) && stopFailedSend(ctx, sel.slot)) {
+    result = Oop::nil();
   }
   frame.sendReceiver = nullptr;
   const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);

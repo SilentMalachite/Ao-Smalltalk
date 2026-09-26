@@ -277,14 +277,14 @@ Oop ao_BlockContext_ifCurtailed_(CallContext& ctx, const Oop& receiver, const Oo
   return Oop{};
 }
 
-// SPEC §3.4: sent to a block activation whose ^ finds its home dead. Answers like error:.
-Oop ao_BlockContext_cannotReturn_(CallContext& ctx, const Oop& receiver, const Oop*,
-                                  std::uint32_t argc) {
+// SPEC §3.4: sent to a block activation whose ^ finds its home dead. Aborts with cannot return.
+Oop ao_BlockContext_cannotReturn_(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 1) {
     return Oop{};
   }
-  Oop msg = Str::fromUtf8(ctx, "cannot return");
-  return NativeMethod::invoke(ctx, ao_Object_error_, receiver, &msg, 1);
+  // SPEC §3.13: halts without Proceed (not through error:, so Proceed cannot answer nil here).
+  stopOrAbort(ctx, "cannot return", false);
+  return Oop{};
 }
 
 namespace Str {

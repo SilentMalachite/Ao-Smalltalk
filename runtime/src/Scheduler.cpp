@@ -253,6 +253,9 @@ struct Scheduler::Record {
   bool outOfMemory = false;         // its out-of-memory mark while it does not run (SPEC §3.4)
   bool isEval = false;              // an evaluating process (SPEC §3.13): block is the doIt
   int evalMode = 0;                 // the ao_eval mode it answers for
+  // While Halted (SPEC §3.13): why, and whether Proceed and Step may go on.
+  std::string haltReason;
+  bool proceedable = false;
   Record* resumeTo = nullptr;       // who it goes back to when it next switches away
   bool isBase() const { return ownCtx == nullptr; }
 };;
@@ -453,6 +456,11 @@ Scheduler::EvalEnd Scheduler::awaitEval(std::uint64_t pid) {
     if (r == nullptr || r->state == State::Dead) {
       break;  // runFiber set the outcome
     }
+    if (r->state == State::Halted) {
+      evalEnd_ = EvalEnd::Halted;
+      evalReason_ = r->haltReason;
+      break;
+    }
     // The base's own abort (a deadlock while it sat in the queue) is not the evaluation's.
     if (unwinding(base_)) {
       clearUnwinding(base_);
@@ -486,6 +494,94 @@ void Scheduler::runAwaited(Record& r) {
 }
 
 bool Scheduler::runningEval() const { return current_->isEval; }
+
+
+bool Scheduler::canHalt(const CallContext& ctx) const {
+  const Record& me = *current_;
+  return me.isEval && me.id == awaited_ && me.ctx == &ctx && !ctx.aborting && !ctx.abandoning &&
+         ctx.abortSetAside == 0 && !me.abandon && !me.terminateRequested &&
+         haltedCount() < kMaxHalted;
+}
+
+bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
+  Record& me = *current_;
+  assert(canHalt(ctx) && "halt needs canHalt");
+  me.haltReason = std::move(reason);
+  me.proceedable = proceedable;
+  me.state = State::Halted;
+  me.resumeTo = nullptr;
+  lastHalted_ = me.id;
+  // SPEC §3.13: back to the base, which waits for this process or sits in the ready queue.
+  Record& b = base();
+  leaveLists(b);
+  switchTo(b);
+  me.haltReason.clear();
+  me.proceedable = false;
+  return afterResume(ctx, me);
+}
+
+std::size_t Scheduler::haltedCount() const {
+  std::size_t n = 0;
+  for (const auto& r : records_) {
+    if (r->state == State::Halted) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+std::uint64_t Scheduler::lastHaltedPid() const { return isHalted(lastHalted_) ? lastHalted_ : 0; }
+
+const CallContext* Scheduler::haltedContext(std::uint64_t pid, const std::string** reason) const {
+  const Record* r = pid != 0 ? findId(pid) : nullptr;
+  if (r == nullptr || r->state != State::Halted) {
+    return nullptr;
+  }
+  if (reason != nullptr) {
+    *reason = &r->haltReason;
+  }
+  return r->ctx;
+}
+
+bool Scheduler::canProceed(std::uint64_t pid) const {
+  const Record* r = pid != 0 ? findId(pid) : nullptr;
+  return r != nullptr && r->state == State::Halted && r->proceedable;
+}
+
+bool Scheduler::isHalted(std::uint64_t pid) const {
+  const Record* r = pid != 0 ? findId(pid) : nullptr;
+  return r != nullptr && r->state == State::Halted;
+}
+
+
+int Scheduler::evalModeOf(std::uint64_t pid) const {
+  const Record* r = pid != 0 ? findId(pid) : nullptr;
+  return r != nullptr && r->isEval ? r->evalMode : 0;
+}
+
+Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid) {
+  assert(current_ == &base() && "proceed runs on the base process");
+  Record* r = findId(pid);
+  assert(r != nullptr && r->state == State::Halted && r->proceedable && "proceed needs canProceed");
+  // In no list: awaitEval switches to it, and its halt returns true.
+  r->state = State::Suspended;
+  return awaitEval(pid);
+}
+
+bool Scheduler::abortHalted(std::uint64_t pid) {
+  assert(current_ == &base() && "abortHalted runs on the base process");
+  Record* r = findId(pid);
+  if (r == nullptr || r->state != State::Halted) {
+    return false;
+  }
+  // SPEC §3.13: a terminate from the base. It comes back when the process ends or first switches
+  // away (a cleanup that waits); the rest runs in the drains to come.
+  terminate(base_, r->process);
+  if (unwinding(base_)) {
+    clearUnwinding(base_);
+  }
+  return true;
+}
 
 bool Scheduler::yield(CallContext& ctx) {
   Record& me = *current_;
@@ -572,7 +668,9 @@ bool Scheduler::signal(CallContext& ctx, Oop semaphore) {
 
 bool Scheduler::suspend(CallContext& ctx, Oop process) {
   Record* r = find(process);
-  if (r == nullptr || r->state == State::Dead || r->state == State::Suspended) {
+  // SPEC §3.13: a halted process stays halted; only the debugger or a terminate moves it.
+  if (r == nullptr || r->state == State::Dead || r->state == State::Suspended ||
+      r->state == State::Halted) {
     return true;
   }
   if (r != current_) {

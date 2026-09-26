@@ -1431,7 +1431,8 @@ TEST_F(SessionAbi, LiveModeRunsDoItOnEvalProcess) {
 }
 
 // SPEC §3.13: the evaluating process's abort is the ao_eval's failure, not a process failure, and
-// its capture replaces the snapshot as the base's does.
+// its capture replaces the snapshot as the base's does. (subclassResponsibility is a failure the
+// live debugger does not halt on.)
 TEST_F(SessionAbi, LiveModeErrorAnswersEvalErrorAndCaptures) {
   ao::setSessionDebugCapture(true);
   ao_set_debug_mode(AO_DEBUG_LIVE);
@@ -1439,15 +1440,16 @@ TEST_F(SessionAbi, LiveModeErrorAnswersEvalErrorAndCaptures) {
   ao::Session& s = *ao::session();
   char out[64];
   AoSpan err{};
-  EXPECT_EQ(AO_ERR_EVAL, evalPrint("[nil bar] fork. Processor yield. nil foo", out, 64, &err));
-  EXPECT_STREQ("doesNotUnderstand: #foo", err.message);
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("[nil bar] fork. Processor yield. nil subclassResponsibility",
+                                   out, 64, &err));
+  EXPECT_STREQ("subclassResponsibility", err.message);
   EXPECT_STREQ("", out);
   EXPECT_EQ(1u, s.scheduler->processFailures());
   EXPECT_EQ("doesNotUnderstand: #bar", s.scheduler->lastFailureReason());
   ASSERT_FALSE(s.debug.empty());
-  EXPECT_EQ("doesNotUnderstand: #foo", s.debug.reason());
+  EXPECT_EQ("subclassResponsibility", s.debug.reason());
   EXPECT_EQ(s.doItDebug->method, s.debug.method(1));
-  EXPECT_EQ(AO_ERR_EVAL, evalPrint("nil foo", out, 64, &err));
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("nil shouldNotImplement", out, 64, &err));
   EXPECT_EQ(1u, s.scheduler->processFailures());
   EXPECT_EQ(0u, s.scheduler->liveFibers());
 }

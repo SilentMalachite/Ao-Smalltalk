@@ -64,14 +64,21 @@ struct Session final : DebugSink {
     std::shared_ptr<const DebugInfo> debug;
     // What to take off a span to index the text (kDoItPrefix for the doIt, 0 otherwise).
     std::uint32_t sourceOffset = 0;
+    // SPEC §3.13: the evaluating process that runs this doIt (live mode); 0 otherwise.
+    std::uint64_t evalPid = 0;
   };
   std::vector<std::unique_ptr<MethodSource>> methodSources;
   // SPEC §3.10: the last ao_eval's doIt (method, blocks, text, debug info). Cleared when an
   // ao_eval starts and put in once the doIt is boxed. Browser reads never see it.
   std::unique_ptr<MethodSource> doItDebug;
+  // SPEC §3.13: the doIt entries of earlier evaluations whose processes are halted. Each goes at
+  // the first ao_eval that finds its process no longer halted.
+  std::vector<std::unique_ptr<MethodSource>> heldDoIts;
   // SPEC §3.13: the one snapshot of the session. Declared after roots, so it is destroyed (and
   // unroots its slots) first.
   DebugSnapshot debug{roots};
+  // SPEC §3.10 ao_debug_select: the pid of the halted process the reads follow; 0 the snapshot.
+  std::uint64_t debugSelected = 0;
 
   // SPEC §3.10 評価結果: the last ao_eval's printString (UTF-8, may hold NUL bytes). Empty in a new
   // session (boot, load) and from the start of each ao_eval until it answers AO_OK or AO_ERR_RANGE;
@@ -153,6 +160,17 @@ int debugTempPrint(int i, int j, char* classBuf, int classLen, char* buf, int le
 int debugInspect(int i, int j, AoInspectFn inspect, void* inspectUser);
 // SPEC §3.10 ao_debug_clear: sessionDebugClear, AO_ERR without a session.
 int debugClear();
+// SPEC §3.10 ライブデバッガの操作: the reads over the halted processes, and the selection the
+// ao_debug_* reads follow (0: the snapshot).
+// SPEC §3.10 ライブデバッガの操作: Proceed (answers as ao_eval does) and Abort of the halted process
+// pid; AO_ERR when it is not halted (or cannot go on), or there is no session.
+int sessionDebugResume(std::int64_t pid, char* out, int outLen, AoSpan* err, AoInspectFn inspect,
+                       void* inspectUser);
+int sessionDebugAbort(std::int64_t pid);
+std::int64_t debugHaltedPid();
+int debugHaltedCount();
+int debugCanProceed(std::int64_t pid);
+int debugSelect(std::int64_t pid);
 // `replaced`, when a heap object, is dropped from the rooted table (with its blocks) before
 // `method` is stored. `image`, when given, is what `method` was boxed from: its blocks are found
 // at the same literal indices (nested ones in preorder) and its debug info is kept. Never throws:

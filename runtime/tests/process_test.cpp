@@ -1214,13 +1214,13 @@ TEST(Process, EvalProcessRunsUntilItEndsAndLeavesNothing) {
   EXPECT_FALSE(b.ctx.aborting);
   EXPECT_EQ(base.slot, active(b));
   // A failure is the evaluation's reason, not a process failure.
-  auto bad = ao::compiler::compileMethod("doIt ^nil foo");
+  auto bad = ao::compiler::compileMethod("doIt ^nil subclassResponsibility");
   ASSERT_TRUE(bad.ok);
   ao::Root cm2(b.roots, ao::boxMethodImage(b.ctx, bad.image, b.wk.objectClass));
   const std::uint64_t pid2 = b.scheduler.forkEval(b.ctx, cm2.slot, 1);
   ASSERT_NE(pid, pid2);
   EXPECT_EQ(ao::Scheduler::EvalEnd::Failed, b.scheduler.awaitEval(pid2));
-  EXPECT_EQ("doesNotUnderstand: #foo", b.scheduler.evalReason());
+  EXPECT_EQ("subclassResponsibility", b.scheduler.evalReason());
   EXPECT_EQ(0u, b.scheduler.processFailures());
   EXPECT_EQ(0u, b.scheduler.liveFibers());
 }
