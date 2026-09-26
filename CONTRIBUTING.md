@@ -53,8 +53,8 @@ SPEC §2.4 defines the version, the assets, and when a tag may be made. With `V`
    cp -R image/vendor "$D/ao-cli-$V-macos-arm64/vendor"
    find "$D" -name .DS_Store -exec rm -f {} +
    (cd "$D" &&
-     ditto -c -k --keepParent "Ao-$V-macos-arm64" "Ao-$V-macos-arm64.zip" &&
-     tar -czf "ao-cli-$V-macos-arm64.tar.gz" "ao-cli-$V-macos-arm64" &&
+     ditto -c -k --norsrc --noextattr --noacl --keepParent "Ao-$V-macos-arm64" "Ao-$V-macos-arm64.zip" &&
+     tar --no-xattrs --no-acls -czf "ao-cli-$V-macos-arm64.tar.gz" "ao-cli-$V-macos-arm64" &&
      shasum -a 256 "Ao-$V-macos-arm64.zip" "ao-cli-$V-macos-arm64.tar.gz" > SHA256SUMS)
    ```
 

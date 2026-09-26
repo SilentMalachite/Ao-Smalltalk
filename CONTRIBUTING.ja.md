@@ -53,8 +53,8 @@ Apple Silicon の macOS 14 以降、CMake 3.28 以上、Ninja、C++20、Swift 6�
    cp -R image/vendor "$D/ao-cli-$V-macos-arm64/vendor"
    find "$D" -name .DS_Store -exec rm -f {} +
    (cd "$D" &&
-     ditto -c -k --keepParent "Ao-$V-macos-arm64" "Ao-$V-macos-arm64.zip" &&
-     tar -czf "ao-cli-$V-macos-arm64.tar.gz" "ao-cli-$V-macos-arm64" &&
+     ditto -c -k --norsrc --noextattr --noacl --keepParent "Ao-$V-macos-arm64" "Ao-$V-macos-arm64.zip" &&
+     tar --no-xattrs --no-acls -czf "ao-cli-$V-macos-arm64.tar.gz" "ao-cli-$V-macos-arm64" &&
      shasum -a 256 "Ao-$V-macos-arm64.zip" "ao-cli-$V-macos-arm64.tar.gz" > SHA256SUMS)
    ```
 
