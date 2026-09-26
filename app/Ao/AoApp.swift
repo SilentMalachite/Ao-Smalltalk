@@ -22,6 +22,34 @@ func openImageFile(at url: URL, transcript: TranscriptWindow?) -> (status: Int32
   return (status, spanMessage(err))
 }
 
+/// SPEC §3.9 起動と同梱: the vendor directory is AO_VENDOR_DIR when it is not empty, else
+/// `vendor` in the bundle's resources. The current directory is never looked at.
+func vendorDirectory(environment: [String: String], resources: URL) -> URL {
+  if let dir = environment["AO_VENDOR_DIR"], !dir.isEmpty {
+    return URL(fileURLWithPath: dir, isDirectory: true)
+  }
+  return resources.appendingPathComponent("vendor", isDirectory: true)
+}
+
+/// SPEC §3.9 起動と同梱: files in `<dir>/LOAD_ORDER` and writes one line to the Transcript and,
+/// after `ao: `, to stderr, which is the only way to see it from outside an app started by `open`.
+/// ao_filein_load_order answers only AO_OK or AO_ERR, so the line names the directory and no reason.
+@MainActor
+func fileInVendor(at dir: URL, transcript: TranscriptWindow) {
+  let order = dir.appendingPathComponent("LOAD_ORDER")
+  var isDirectory = ObjCBool(false)
+  let line: String
+  if !FileManager.default.fileExists(atPath: order.path, isDirectory: &isDirectory) || isDirectory.boolValue {
+    line = "vendor not found: \(dir.path)"
+  } else if order.path.withCString({ ao_filein_load_order($0) }) == Int32(AO_OK) {
+    line = "vendor loaded: \(dir.path)"
+  } else {
+    line = "vendor file-in failed: \(dir.path)"
+  }
+  transcript.append(line + "\n")
+  FileHandle.standardError.write(Data(("ao: " + line + "\n").utf8))
+}
+
 @MainActor
 public final class AoApp: NSObject, NSApplicationDelegate {
   private var launch: LaunchSet?
@@ -63,6 +91,9 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       showTranscript: { self.launch?.transcript.orderFront() },
       showWorkspace: { self.launch?.workspace.orderFront() },
       toggleFixedPitch: { item in self.toggleFixedPitch(item) },
+      makeTextBigger: { self.resizeText { ToolTextSize.step(by: 1) } },
+      makeTextSmaller: { self.resizeText { ToolTextSize.step(by: -1) } },
+      showActualSize: { self.resizeText { ToolTextSize.reset() } },
       showHelp: { self.showVersion() }
     )
     let menu = MainMenu.build(actions: actions)
@@ -73,7 +104,12 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     }
     let started = LaunchSet.make()
     launch = started
-    fileInVendorIfPresent(started)
+    // A bundle has resources; bundleURL stands in only so the line still names a directory.
+    let resources = Bundle.main.resourceURL ?? Bundle.main.bundleURL
+    fileInVendor(
+      at: vendorDirectory(environment: ProcessInfo.processInfo.environment, resources: resources),
+      transcript: started.transcript
+    )
     app.activate()
   }
 
@@ -152,6 +188,14 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     item.state = transcript.useFixedPitch ? .on : .off
   }
 
+  // SPEC §3.9 文字の大きさ: the open Transcript, Workspace and Browser take the new size at once.
+  private func resizeText(_ change: () -> Void) {
+    change()
+    launch?.transcript.applyFont()
+    launch?.workspace.applyFont()
+    browser?.applyFont()
+  }
+
   private func showVersion() {
     var bytes = [CChar](repeating: 0, count: 64)
     let status = ao_version(&bytes, Int32(bytes.count))
@@ -164,19 +208,5 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     let alert = NSAlert()
     alert.messageText = version
     alert.runModal()
-  }
-
-  private func fileInVendorIfPresent(_ started: LaunchSet) {
-    let relative = "image/vendor/LOAD_ORDER"
-    var isDirectory = ObjCBool(false)
-    let exists = FileManager.default.fileExists(atPath: relative, isDirectory: &isDirectory)
-    guard exists, !isDirectory.boolValue else {
-      return
-    }
-    let status = relative.withCString { ao_filein_load_order($0) }
-    if status != Int32(AO_OK) {
-      // ABI returns only AO_OK or AO_ERR, so the transcript gets a fixed line.
-      started.transcript.append("file-in failed\n")
-    }
   }
 }

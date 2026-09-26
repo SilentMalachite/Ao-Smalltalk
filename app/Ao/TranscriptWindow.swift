@@ -43,6 +43,69 @@ func configureSourceEditing(_ textView: NSTextView) {
   textView.smartInsertDeleteEnabled = false
 }
 
+/// SPEC §3.9 文字の大きさ: the Transcript, the Workspace and the Browser's source pane share one
+/// text size, kept as the points added to the default size of their font.
+@MainActor
+enum ToolTextSize {
+  private static let offsetKey = "AoTextSizeOffset"
+  private static let offsets = -4...24
+
+  // A value written outside the app is held to the range too.
+  static var offset: Int {
+    clamped(UserDefaults.standard.integer(forKey: offsetKey))
+  }
+
+  // A step past either end of the range leaves the offset at that end.
+  static func step(by points: Int) {
+    UserDefaults.standard.set(clamped(offset + points), forKey: offsetKey)
+  }
+
+  static func reset() {
+    UserDefaults.standard.removeObject(forKey: offsetKey)
+  }
+
+  static func font(fixedPitch: Bool) -> NSFont? {
+    let base = fixedPitch ? NSFont.userFixedPitchFont(ofSize: 0) : NSFont.userFont(ofSize: 0)
+    guard let base, offset != 0 else {
+      return base
+    }
+    let size = base.pointSize + CGFloat(offset)
+    return fixedPitch ? NSFont.userFixedPitchFont(ofSize: size) : NSFont.userFont(ofSize: size)
+  }
+
+  private static func clamped(_ value: Int) -> Int {
+    min(max(value, offsets.lowerBound), offsets.upperBound)
+  }
+}
+
+/// SPEC §3.9 文字の大きさ: keeps one font over a plain text view. Setting the view's font changes
+/// the text already there; characters that come in later with no font or an old one (Print it
+/// into empty text, undo of an edit made at another size) get it as the storage processes them.
+/// It is set before the storage fixes its attributes, so characters the font has no glyphs for
+/// (Japanese in Helvetica) still get a face that has them, at the same size.
+final class UniformFont: NSObject, NSTextStorageDelegate {
+  private var font: NSFont?
+
+  @MainActor
+  func apply(_ font: NSFont, to textView: NSTextView) {
+    self.font = font
+    textView.textStorage?.delegate = self
+    textView.font = font
+  }
+
+  func textStorage(
+    _ textStorage: NSTextStorage,
+    willProcessEditing editedMask: NSTextStorageEditActions,
+    range editedRange: NSRange,
+    changeInLength delta: Int
+  ) {
+    guard editedMask.contains(.editedCharacters), editedRange.length > 0, let font else {
+      return
+    }
+    textStorage.addAttribute(.font, value: font, range: editedRange)
+  }
+}
+
 @MainActor
 func makeToolTextWindow(title: String, frame: NSRect, editable: Bool) -> (window: NSWindow, textView: NSTextView) {
   _ = NSApplication.shared
@@ -86,7 +149,13 @@ func makeToolTextWindow(title: String, frame: NSRect, editable: Bool) -> (window
 final class TranscriptWindow {
   private let window: NSWindow
   private let textView: NSTextView
-  private(set) var text = ""
+  // Set by applyFont; every appended chunk carries them.
+  private var appendAttributes: [NSAttributedString.Key: Any] = [:]
+  private var scrollPending = false
+
+  var text: String {
+    textView.textStorage?.string ?? ""
+  }
 
   var title: String {
     window.title
@@ -116,8 +185,11 @@ final class TranscriptWindow {
   }
 
   func append(_ chunk: String) {
-    text += chunk
-    showText()
+    guard let storage = textView.textStorage else {
+      return
+    }
+    storage.append(NSAttributedString(string: chunk, attributes: appendAttributes))
+    scheduleScrollToEnd()
   }
 
   func closeWindow() {
@@ -134,8 +206,10 @@ final class TranscriptWindow {
 
   fileprivate func receiveHook(clear: Bool, chunk: String) {
     if clear {
-      text = ""
-      showText()
+      if let storage = textView.textStorage {
+        storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: "")
+      }
+      scheduleScrollToEnd()
       return
     }
     if chunk.isEmpty {
@@ -144,11 +218,24 @@ final class TranscriptWindow {
     append(chunk)
   }
 
-  private func showText() {
-    textView.string = text
-    applyFont()
-    let end = (text as NSString).length
-    textView.scrollRangeToVisible(NSRange(location: end, length: 0))
+  // SPEC §3.9: one scroll to the end after the eval, not one per chunk. The hook runs inside
+  // ao_eval on the main thread, so the queued block runs after the eval returns. The window may
+  // be gone by then (a test's run loop can run it later); weak self makes that harmless.
+  private func scheduleScrollToEnd() {
+    if scrollPending {
+      return
+    }
+    scrollPending = true
+    DispatchQueue.main.async { [weak self] in
+      MainActor.assumeIsolated {
+        guard let self else {
+          return
+        }
+        self.scrollPending = false
+        let end = self.textView.textStorage?.length ?? 0
+        self.textView.scrollRangeToVisible(NSRange(location: end, length: 0))
+      }
+    }
   }
 
   private func storeFixedPitch() {
@@ -156,14 +243,15 @@ final class TranscriptWindow {
     applyFont()
   }
 
-  private func applyFont() {
-    let font = useFixedPitch
-      ? NSFont.userFixedPitchFont(ofSize: 0)
-      : NSFont.userFont(ofSize: 0)
-    guard let font else {
+  // Also run when the text size changes (SPEC §3.9 文字の大きさ).
+  func applyFont() {
+    guard let font = ToolTextSize.font(fixedPitch: useFixedPitch) else {
       return
     }
     textView.font = font
-    textView.typingAttributes = [.font: font]
+    // SPEC §3.9: the system text color, so the text stays readable in Dark Mode.
+    let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.textColor]
+    textView.typingAttributes = attributes
+    appendAttributes = attributes
   }
 }

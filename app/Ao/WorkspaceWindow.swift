@@ -7,13 +7,17 @@ private let aoEvalOutCapacity = 65_536
 private func aoWorkspaceInspectHook(
   _ className: UnsafePointer<CChar>?,
   _ printUtf8: UnsafePointer<CChar>?,
+  _ printLen: Int32,
   _ user: UnsafeMutableRawPointer?
 ) {
   guard let user else {
     return
   }
   let classText = className.map { String(cString: $0) } ?? ""
-  let printText = printUtf8.map { String(cString: $0) } ?? ""
+  // SPEC §3.10: the printString may hold NUL bytes, so it is read by print_len, not up to a NUL.
+  let printText = printUtf8.map {
+    String(decoding: UnsafeRawBufferPointer(start: $0, count: max(Int(printLen), 0)), as: UTF8.self)
+  } ?? ""
   let bits = UInt(bitPattern: user)
   MainActor.assumeIsolated {
     guard let token = UnsafeMutableRawPointer(bitPattern: bits) else {
@@ -92,6 +96,60 @@ func spanMessage(_ span: AoSpan) -> String {
   }
 }
 
+// SPEC §3.8, §3.9: a span's UTF-8 byte offsets as a UTF-16 range of `text`, the source the span
+// counts in. An offset inside a scalar moves out of it: the start back to the scalar's first
+// byte, the end past its last byte. Offsets past the end of `text` stop at the end.
+func utf16Range(of span: AoSpan, in text: String) -> NSRange {
+  let byteCount = text.utf8.count
+  let start = min(Int(span.start), byteCount)
+  let end = min(max(Int(span.end), start), byteCount)
+  var bytes = 0
+  var units = 0
+  var lower: Int?
+  var upper: Int?
+  for scalar in text.unicodeScalars {
+    let nextBytes = bytes + UTF8.width(scalar)
+    if lower == nil, start < nextBytes {
+      lower = units
+    }
+    if upper == nil, end <= bytes {
+      upper = units
+    }
+    if lower != nil, upper != nil {
+      break
+    }
+    bytes = nextBytes
+    units += UTF16.width(scalar)
+  }
+  let from = lower ?? units
+  let to = max(upper ?? units, from)
+  return NSRange(location: from, length: to - from)
+}
+
+// SPEC §3.9: a compile error selects its span in `textView` and leaves the text alone. `source`
+// is the text the span counts in, and it starts at `base` in the view. AO_ERR_EVAL (span 0-0) and
+// an empty span leave the selection as it is.
+@MainActor
+func selectErrorSpan(
+  status: Int32,
+  span: AoSpan,
+  source: String,
+  base: Int,
+  in textView: NSTextView
+) {
+  guard status == Int32(AO_ERR_COMPILE), span.start < span.end else {
+    return
+  }
+  let local = utf16Range(of: span, in: source)
+  let range = NSRange(location: base + local.location, length: local.length)
+  guard range.length > 0, NSMaxRange(range) <= (textView.string as NSString).length else {
+    return
+  }
+  textView.setSelectedRange(range)
+  textView.scrollRangeToVisible(range)
+  textView.showFindIndicator(for: range)
+}
+
 func failureText(status: Int32, message: String) -> String {
   if !message.isEmpty {
     return message
@@ -105,11 +163,34 @@ func failureText(status: Int32, message: String) -> String {
   return "evaluation failed"
 }
 
+// SPEC §3.10: the whole result the runtime kept for the last Print it or Inspect it. It may hold
+// NUL bytes, so exactly `length` bytes are decoded. nil when the runtime kept no result.
+private func keptEvalResult() -> String? {
+  let length = Int(ao_eval_result_length())
+  guard length >= 0 else {
+    return nil
+  }
+  var bytes = [CChar](repeating: 0, count: length + 1)
+  let status = bytes.withUnsafeMutableBufferPointer { buf -> Int32 in
+    guard let base = buf.baseAddress else {
+      return Int32(AO_ERR)
+    }
+    return ao_eval_result_copy(base, Int32(buf.count))
+  }
+  guard status == Int32(AO_OK) else {
+    return nil
+  }
+  return bytes.withUnsafeBytes { raw in
+    String(decoding: raw.prefix(length), as: UTF8.self)
+  }
+}
+
 @MainActor
 final class WorkspaceWindow {
   let window: NSWindow
   let errorField: NSTextField
   private let textView: NSTextView
+  private let uniformFont = UniformFont()
   private var inspectors: [InspectorWindow] = []
   private var inspectClassName = ""
   private var inspectPrint = ""
@@ -158,7 +239,16 @@ final class WorkspaceWindow {
     textView = built.textView
     textView.setAccessibilityLabel("Workspace")
     errorField = installErrorField(on: built.window, textView: built.textView)
+    applyFont()
     window.makeKeyAndOrderFront(nil)
+  }
+
+  // SPEC §3.9 文字の大きさ: run at init and whenever the text size changes.
+  func applyFont() {
+    guard let font = ToolTextSize.font(fixedPitch: false) else {
+      return
+    }
+    uniformFont.apply(font, to: textView)
   }
 
   func orderFront() {
@@ -223,6 +313,14 @@ final class WorkspaceWindow {
     let result = evaluate(source, mode: mode)
     if result.status != Int32(AO_OK) {
       errorField.stringValue = failureText(status: result.status, message: result.message)
+      // SPEC §3.8: an ao_eval span counts from the start of the evaluated fragment.
+      selectErrorSpan(
+        status: result.status,
+        span: result.span,
+        source: source,
+        base: range.location,
+        in: textView
+      )
       return
     }
     errorField.stringValue = ""
@@ -247,10 +345,18 @@ final class WorkspaceWindow {
       existing.window.makeKeyAndOrderFront(nil)
       return
     }
-    inspectors.append(InspectorWindow(className: className, printString: printString))
+    // SPEC §3.9: a closed Inspector leaves the array, so the next Inspect it opens a new window.
+    // Weak: the close may come after this Workspace is gone (a test's tearDown closes every window).
+    let inspector = InspectorWindow(className: className, printString: printString) { [weak self] closed in
+      self?.inspectors.removeAll { $0 === closed }
+    }
+    inspectors.append(inspector)
   }
 
-  private func evaluate(_ source: String, mode: Int32) -> (status: Int32, output: String, message: String) {
+  private func evaluate(
+    _ source: String,
+    mode: Int32
+  ) -> (status: Int32, output: String, message: String, span: AoSpan) {
     var out = [CChar](repeating: 0, count: aoEvalOutCapacity)
     var err = AoSpan()
     let status: Int32 = source.withCString { src in
@@ -263,13 +369,19 @@ final class WorkspaceWindow {
         }
       }
     }
+    // SPEC §3.10: out stops at 64 KiB and at the first NUL, so an answered Print it or Inspect it
+    // reads the kept result whole. Without one, AO_ERR_RANGE stays `result does not fit`.
+    let answered = status == Int32(AO_OK) || status == Int32(AO_ERR_RANGE)
+    if answered, mode != Int32(AO_EVAL_DOIT), let whole = keptEvalResult() {
+      return (Int32(AO_OK), whole, spanMessage(err), err)
+    }
     let output = out.withUnsafeBufferPointer { buf -> String in
       guard let base = buf.baseAddress else {
         return ""
       }
       return String(cString: base)
     }
-    return (status, output, spanMessage(err))
+    return (status, output, spanMessage(err), err)
   }
 
   // Empty selection is the caret's line, without the line break, so Print it stays on that line.

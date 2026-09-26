@@ -161,7 +161,7 @@ TEST_F(SessionAbi, InspectItPrintsAndNotifiesHook) {
     int calls = 0;
   } seen;
   ao_set_inspect_hook(
-      [](const char* cls, const char* text, void* user) {
+      [](const char* cls, const char* text, int, void* user) {
         auto* slot = static_cast<Seen*>(user);
         slot->calls += 1;
         slot->cls = cls == nullptr ? "" : cls;
@@ -235,8 +235,8 @@ TEST_F(SessionAbi, HugeAllocationReportsOutOfMemory) {
 TEST_F(SessionAbi, OutOfMemoryInspectItDoesNotCallInspectHook) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   int calls = 0;
-  ao_set_inspect_hook([](const char*, const char*, void* user) { *static_cast<int*>(user) += 1; },
-                      &calls);
+  ao_set_inspect_hook(
+      [](const char*, const char*, int, void* user) { *static_cast<int*>(user) += 1; }, &calls);
   char out[64];
   AoSpan err{};
   const char* src = "(Array new: 600000000). 3";
@@ -627,7 +627,9 @@ TEST_F(SessionAbi, ReentrantCallsFromInspectHookAreRefused) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   Reentry r = reentryFixture(std::filesystem::temp_directory_path() / "ao-b6-reentry-inspect");
   ao_set_inspect_hook(
-      [](const char*, const char*, void* user) { reenterEverything(*static_cast<Reentry*>(user)); },
+      [](const char*, const char*, int, void* user) {
+        reenterEverything(*static_cast<Reentry*>(user));
+      },
       &r);
   char out[64];
   AoSpan err{};
@@ -1008,4 +1010,254 @@ TEST_F(SessionAbi, ForkOutOfMemoryKeepsBaseAnswer) {
   EXPECT_EQ("out of memory", ao::session()->scheduler->lastFailureReason());
   ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
   EXPECT_STREQ("7", out);
+}
+
+namespace {
+
+// The whole evaluation result, read by its length (it may hold NUL bytes).
+std::string wholeEvalResult() {
+  const int n = ao_eval_result_length();
+  if (n < 0) {
+    ADD_FAILURE() << "no evaluation result";
+    return {};
+  }
+  std::vector<char> buf(static_cast<std::size_t>(n) + 1, 'x');
+  EXPECT_EQ(AO_OK, ao_eval_result_copy(buf.data(), n + 1));
+  EXPECT_EQ('\0', buf[static_cast<std::size_t>(n)]);
+  return std::string(buf.data(), static_cast<std::size_t>(n));
+}
+
+}  // namespace
+
+// 07 Medium / SPEC §3.10 評価結果: a Print it past out answers AO_ERR_RANGE with out cut, and the
+// whole printString is read by its length without evaluating again (the side effect runs once).
+TEST_F(SessionAbi, EvalResultLengthGivesWholePrintStringPastOut) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalDoIt("b11n := 0"));
+  ASSERT_EQ(AO_ERR_RANGE, evalPrint("b11n := b11n + 1. Array new: 20000", out, 64, &err))
+      << err.message;
+  ASSERT_EQ(63u, std::strlen(out));
+  EXPECT_GT(ao_eval_result_length(), 65536);
+  const std::string whole = wholeEvalResult();
+  ASSERT_GT(whole.size(), 65536u);
+  EXPECT_EQ(std::string(out, 63), whole.substr(0, 63));
+  ASSERT_EQ(AO_OK, evalPrint("b11n", out, 64, &err)) << err.message;
+  EXPECT_STREQ("1", out);
+}
+
+// 07 Low / SPEC §3.10 評価結果: the result keeps NUL bytes; String new: 3 prints as ' NUL NUL NUL '.
+TEST_F(SessionAbi, EvalResultCopyKeepsNulBytes) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("String new: 3", out, 64, &err)) << err.message;
+  ASSERT_EQ(5, ao_eval_result_length());
+  EXPECT_EQ(std::string("'\0\0\0'", 5), wholeEvalResult());
+  ASSERT_EQ(AO_ERR_RANGE, evalPrint("String new: 70000", out, 64, &err)) << err.message;
+  ASSERT_EQ(70002, ao_eval_result_length());
+  EXPECT_EQ("'" + std::string(70000, '\0') + "'", wholeEvalResult());
+}
+
+// SPEC §3.10 文字列バッファ: ao_eval_result_copy cuts like the other buffers and ends in NUL.
+TEST_F(SessionAbi, EvalResultCopyCutsLikeOtherBuffers) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("12345", out, 64, &err)) << err.message;
+  ASSERT_EQ(5, ao_eval_result_length());
+  char cut[4] = {'x', 'x', 'x', 'x'};
+  EXPECT_EQ(AO_ERR_RANGE, ao_eval_result_copy(cut, 4));
+  EXPECT_EQ(std::string("123\0", 4), std::string(cut, 4));
+  char one[1] = {'x'};
+  EXPECT_EQ(AO_ERR_RANGE, ao_eval_result_copy(one, 1));
+  EXPECT_EQ('\0', one[0]);
+  char exact[6] = {'x', 'x', 'x', 'x', 'x', 'x'};
+  EXPECT_EQ(AO_OK, ao_eval_result_copy(exact, 6));
+  EXPECT_EQ(std::string("12345\0", 6), std::string(exact, 6));
+  EXPECT_EQ(AO_ERR, ao_eval_result_copy(nullptr, 8));
+  EXPECT_EQ(AO_ERR, ao_eval_result_copy(cut, 0));
+  EXPECT_EQ(AO_ERR, ao_eval_result_copy(cut, -1));
+  EXPECT_EQ(5, ao_eval_result_length());
+}
+
+// SPEC §3.10 評価結果: an ao_eval past the busy check empties the result first; only AO_OK and
+// AO_ERR_RANGE of a Print it or Inspect it put one in. Do it, a compile error, an evaluation
+// error and a call without out all leave it empty.
+TEST_F(SessionAbi, EvalResultEmptyAfterDoItAndFailures) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  const auto primeWith42 = [&] {
+    ASSERT_EQ(AO_OK, evalPrint("42", out, 64, &err)) << err.message;
+    ASSERT_EQ(2, ao_eval_result_length());
+  };
+  const auto expectEmpty = [](const char* after) {
+    EXPECT_EQ(0, ao_eval_result_length()) << after;
+    char buf[4] = {'x', 'x', 'x', 'x'};
+    EXPECT_EQ(AO_OK, ao_eval_result_copy(buf, 4)) << after;
+    EXPECT_EQ('\0', buf[0]) << after;
+  };
+  primeWith42();
+  ASSERT_EQ(AO_OK, evalDoIt("42"));
+  expectEmpty("Do it");
+  primeWith42();
+  ASSERT_EQ(AO_ERR_COMPILE, evalPrint("1 +", out, 64, &err));
+  expectEmpty("1 +");
+  primeWith42();
+  ASSERT_EQ(AO_ERR_EVAL, evalPrint("nil foo", out, 64, &err));
+  expectEmpty("nil foo");
+  primeWith42();
+  ASSERT_EQ(AO_ERR, evalPrint("42", nullptr, 0, &err));
+  expectEmpty("out NULL");
+}
+
+// SPEC §3.10 評価結果: no session, -1 and AO_ERR. Boot and a load start empty; a failed load keeps
+// the session and its result.
+TEST_F(SessionAbi, EvalResultFollowsSessionLifetime) {
+  ao_runtime_shutdown();
+  char buf[8] = "x";
+  EXPECT_EQ(-1, ao_eval_result_length());
+  EXPECT_EQ(AO_ERR, ao_eval_result_copy(buf, 8));
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  EXPECT_EQ(0, ao_eval_result_length());
+  const auto image = std::filesystem::temp_directory_path() / "ao-b11-result.aoimage";
+  const auto missing = std::filesystem::temp_directory_path() / "ao-b11-no-such.aoimage";
+  std::error_code ec;
+  std::filesystem::remove(missing, ec);
+  ASSERT_EQ(AO_OK, ao_image_save(image.string().c_str()));
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("42", out, 64, &err)) << err.message;
+  EXPECT_EQ(AO_ERR, ao_image_load(missing.string().c_str(), &err));
+  EXPECT_EQ("42", wholeEvalResult());
+  ASSERT_EQ(AO_OK, ao_image_load(image.string().c_str(), &err)) << err.message;
+  EXPECT_EQ(0, ao_eval_result_length());
+  ASSERT_EQ(AO_OK, evalPrint("42", out, 64, &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  EXPECT_EQ(-1, ao_eval_result_length());
+  EXPECT_EQ(AO_ERR, ao_eval_result_copy(buf, 8));
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  EXPECT_EQ(0, ao_eval_result_length());
+  std::filesystem::remove(image, ec);
+}
+
+namespace {
+
+// What a transcript hook read of the evaluation result while the runtime was busy, and what an
+// ao_eval called there answered.
+struct BusyRead {
+  std::vector<int> lengths;
+  std::vector<std::string> copies;
+  std::vector<int> evalCodes;
+};
+
+void readResultAndReenter(const char*, int, int is_clear, void* user) {
+  if (is_clear != 0) {
+    return;
+  }
+  auto* r = static_cast<BusyRead*>(user);
+  r->lengths.push_back(ao_eval_result_length());
+  char buf[16] = "unchanged";
+  if (ao_eval_result_copy(buf, 16) == AO_OK) {
+    r->copies.emplace_back(buf);
+  }
+  char out[16];
+  AoSpan err{};
+  r->evalCodes.push_back(ao_eval("7", 1, AO_EVAL_PRINTIT, out, 16, &err));
+  r->lengths.push_back(ao_eval_result_length());
+}
+
+}  // namespace
+
+// SPEC §3.10 再入, 評価結果: the two reads work while busy. In a hook of a running evaluation its
+// result is not there yet (empty), an ao_eval there is refused, and the evaluation's own 42 still
+// goes in afterwards.
+TEST_F(SessionAbi, EvalResultReadableWhileBusyAndRefusedEvalKeepsIt) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  BusyRead seen;
+  ao_set_transcript_hook(readResultAndReenter, &seen);
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("Transcript show: 'x'. 42", out, 64, &err)) << err.message;
+  EXPECT_EQ((std::vector<int>{0, 0}), seen.lengths);
+  EXPECT_EQ(std::vector<std::string>{""}, seen.copies);
+  EXPECT_EQ(std::vector<int>{AO_ERR}, seen.evalCodes);
+  EXPECT_EQ("42", wholeEvalResult());
+  ao_set_transcript_hook(nullptr, nullptr);
+}
+
+// SPEC §3.10 再入, 評価結果: busy with a result kept from before. ao_accept_class sends the
+// subclass-creation message, and B11Base's class-side override of it writes to the Transcript, so
+// the hook runs while the runtime is busy outside ao_eval. There the earlier Print it's 42 is
+// readable, an ao_eval is refused, and the refused call leaves the 42 as it was.
+TEST_F(SessionAbi, KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #B11Base\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'B11-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B11Base", 1,
+                                    "subclass: n instanceVariableNames: i classVariableNames: c "
+                                    "poolDictionaries: p category: k\n"
+                                    "  Transcript show: 'sub'.\n"
+                                    "  ^super subclass: n instanceVariableNames: i "
+                                    "classVariableNames: c poolDictionaries: p category: k\n",
+                                    &err))
+      << err.message;
+  char out[64];
+  ASSERT_EQ(AO_OK, evalPrint("42", out, 64, &err)) << err.message;
+  ASSERT_EQ("42", wholeEvalResult());
+  BusyRead seen;
+  ao_set_transcript_hook(readResultAndReenter, &seen);
+  const int accepted = ao_accept_class("B11Base subclass: #B11Sub\n  instanceVariableNames: ''\n"
+                                       "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                       "  category: 'B11-Test'\n",
+                                       &err);
+  ao_set_transcript_hook(nullptr, nullptr);
+  ASSERT_EQ(AO_OK, accepted) << err.message;
+  EXPECT_EQ((std::vector<int>{2, 2}), seen.lengths);
+  EXPECT_EQ(std::vector<std::string>{"42"}, seen.copies);
+  EXPECT_EQ(std::vector<int>{AO_ERR}, seen.evalCodes);
+  EXPECT_EQ("42", wholeEvalResult());
+}
+
+// 07 Low / SPEC §3.10: the inspect hook gets print_len, the byte count of print_utf8 (NUL bytes
+// included), and a NUL after it; the Inspect it result is the same string.
+TEST_F(SessionAbi, InspectHookGetsPrintLengthWithNul) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  struct Seen {
+    std::string cls;
+    std::string text;
+    int len = -1;
+    char after = 'x';
+    int calls = 0;
+  } seen;
+  ao_set_inspect_hook(
+      [](const char* cls, const char* text, int len, void* user) {
+        auto* slot = static_cast<Seen*>(user);
+        slot->calls += 1;
+        slot->cls = cls == nullptr ? "" : cls;
+        slot->len = len;
+        if (text != nullptr && len >= 0) {
+          slot->text.assign(text, static_cast<std::size_t>(len));
+          slot->after = text[len];
+        }
+      },
+      &seen);
+  char out[64];
+  AoSpan err{};
+  const char* src = "String new: 3";
+  ASSERT_EQ(AO_OK, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_INSPECTIT, out, 64,
+                           &err))
+      << err.message;
+  EXPECT_EQ(1, seen.calls);
+  EXPECT_EQ("String", seen.cls);
+  EXPECT_EQ(5, seen.len);
+  EXPECT_EQ(std::string("'\0\0\0'", 5), seen.text);
+  EXPECT_EQ('\0', seen.after);
+  EXPECT_EQ(std::string("'\0\0\0'", 5), wholeEvalResult());
 }

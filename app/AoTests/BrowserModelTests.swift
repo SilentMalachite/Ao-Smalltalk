@@ -5,8 +5,26 @@ import XCTest
 @MainActor
 final class BrowserModelTests: XCTestCase {
   override func tearDown() {
+    // tearDown is nonisolated; XCTest calls it on the main thread.
+    MainActor.assumeIsolated { Self.closeVisibleWindows() }
+    ao_set_transcript_hook(nil, nil)
+    ao_set_inspect_hook(nil, nil)
     ao_runtime_shutdown()
     super.tearDown()
+  }
+
+  // Nothing the test opened outlives it: sheets end first, then every visible window closes.
+  private static func closeVisibleWindows() {
+    let windows = NSApplication.shared.windows
+    for window in windows {
+      for sheet in window.sheets {
+        window.endSheet(sheet)
+      }
+    }
+    for window in windows where window.isVisible && !window.isSheet {
+      window.isReleasedWhenClosed = false
+      window.close()
+    }
   }
 
   func testObjectListsPrintStringAsNative() {

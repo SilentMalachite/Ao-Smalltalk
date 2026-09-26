@@ -11,8 +11,26 @@ final class AcceptTests: XCTestCase {
   }
 
   override func tearDown() {
+    // tearDown is nonisolated; XCTest calls it on the main thread.
+    MainActor.assumeIsolated { Self.closeVisibleWindows() }
+    ao_set_transcript_hook(nil, nil)
+    ao_set_inspect_hook(nil, nil)
     ao_runtime_shutdown()
     super.tearDown()
+  }
+
+  // Nothing the test opened outlives it: sheets end first, then every visible window closes.
+  private static func closeVisibleWindows() {
+    let windows = NSApplication.shared.windows
+    for window in windows {
+      for sheet in window.sheets {
+        window.endSheet(sheet)
+      }
+    }
+    for window in windows where window.isVisible && !window.isSheet {
+      window.isReleasedWhenClosed = false
+      window.close()
+    }
   }
 
   func testAcceptFooThenPrintItInsertsOneAndFailedAcceptKeepsText() {
@@ -42,6 +60,43 @@ final class AcceptTests: XCTestCase {
     browser.accept()
     XCTAssertEqual(browser.sourceText, bad)
     XCTAssertFalse(browser.errorText.isEmpty)
+  }
+
+  // SPEC §3.8, §3.9: a failed Accept keeps the text and selects the error span, converted from
+  // UTF-8 past Japanese and an emoji. A method's span counts from its source; a class
+  // definition's counts from the whole source (the method sits after the definition chunk).
+  func testFailedAcceptSelectsErrorSpanAfterJapaneseComment() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    guard let view = sourceView(in: browser) else {
+      XCTFail("missing source view")
+      return
+    }
+    selectProtocol("user", in: browser)
+    let method = "b11bad\n  \"日本語のコメント 😀\"\n  ^ + 1\n"
+    browser.replaceSource(method)
+    browser.accept()
+    XCTAssertEqual(browser.sourceText, method)
+    XCTAssertFalse(browser.errorText.isEmpty)
+    XCTAssertEqual(view.selectedRange(), (method as NSString).range(of: "+"))
+
+    // A second Browser: the first holds an unaccepted edit, so changing its selection would ask.
+    let classBrowser = BrowserWindow()
+    defer { classBrowser.window.close() }
+    guard let classView = sourceView(in: classBrowser) else {
+      XCTFail("missing class source view")
+      return
+    }
+    selectClass("Array", in: classBrowser)
+    let definition =
+      "\"日本\" Object subclass: #B11Span\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'B11-日本'!\n\n!B11Span methodsFor: 'b11'!\n"
+      + "bad\n  \"あ😀\"\n  ^ + 1! !\n"
+    classBrowser.replaceSource(definition)
+    classBrowser.accept()
+    XCTAssertEqual(classBrowser.sourceText, definition)
+    XCTAssertFalse(classBrowser.errorText.isEmpty)
+    XCTAssertEqual(classView.selectedRange(), (definition as NSString).range(of: "+"))
   }
 
   func testPrintStringOverwriteKeepsTextAndNativeResult() {

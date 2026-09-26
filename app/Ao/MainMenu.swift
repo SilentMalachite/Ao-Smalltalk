@@ -14,6 +14,9 @@ enum MainMenu {
     var showTranscript: () -> Void = {}
     var showWorkspace: () -> Void = {}
     var toggleFixedPitch: (NSMenuItem) -> Void = { _ in }
+    var makeTextBigger: () -> Void = {}
+    var makeTextSmaller: () -> Void = {}
+    var showActualSize: () -> Void = {}
     var showHelp: () -> Void = {}
   }
 
@@ -53,7 +56,12 @@ enum MainMenu {
       actionItem("Transcript", key: "", run: { _ in actions.showTranscript() }),
       actionItem("Workspace", key: "", run: { _ in actions.showWorkspace() }),
       .separator(),
-      fixedPitch
+      fixedPitch,
+      .separator(),
+      // SPEC §3.9 文字の大きさ. "+" takes Shift on the US and JIS layouts, as in TextEdit.
+      actionItem("Make Text Bigger", key: "+", run: { _ in actions.makeTextBigger() }),
+      actionItem("Make Text Smaller", key: "-", run: { _ in actions.makeTextSmaller() }),
+      actionItem("Actual Size", key: "0", run: { _ in actions.showActualSize() })
     ]))
     bar.addItem(top("Window", items: [
       responderItem("Minimize", key: "m", action: #selector(NSWindow.performMiniaturize(_:))),
