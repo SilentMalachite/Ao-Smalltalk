@@ -1037,7 +1037,7 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     installed[i] = method;
   }
   for (std::uint32_t i = 0; i < count; ++i) {
-    moveMethodSource(oldMethods[i], installed[i]);
+    moveMethodSource(oldMethods[i], installed[i], carried[i].image);
   }
   // SPEC §3.3: the class was replaced. installMethod dropped each selector already.
   invalidateMethodCache(ctx.cache, Oop{});
@@ -1406,7 +1406,9 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
     return false;
   }
   const Oop replaced = old.slot.isHeap() ? old.slot : Oop{};
-  rememberMethodSource(kept.slot, text.slot, replaced);
+  // SPEC §3.10, §3.13: kept was boxed from cr.image, so its blocks sit at the image's literal
+  // indices.
+  rememberMethodSource(kept.slot, text.slot, replaced, &cr.image);
   return true;
 }
 

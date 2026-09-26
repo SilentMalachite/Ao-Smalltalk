@@ -3,6 +3,7 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/ClassPool.hpp"
 #include "ao/Compile.hpp"
+#include "ao/CompiledMethod.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Context.hpp"
 #include "ao/Globals.hpp"
@@ -30,6 +31,22 @@ namespace {
 std::unique_ptr<Session> g_session;
 // SPEC §3.10: the transcript hook the ABI set. Every session boot and load make gets it.
 HostOopHook g_transcriptHook = nullptr;
+// SPEC §3.13: capture on or off, as the ABI set it (off by default). Every session boot and load
+// make gets it.
+bool g_debugCapture = false;
+// SPEC §3.10: the ao_debug_* prints and inspects running (DebugEntry). While one runs, capture stays
+// off and a new setting waits for its end.
+int g_debugEntries = 0;
+// SPEC §3.10 ao_debug_generation: process-wide, so a snapshot of a later session never shows an
+// earlier session's number.
+std::uint32_t g_debugGeneration = 0;
+
+// ao_eval compiles "doIt\n" + source (SPEC §3.10): spans and errors take this off.
+constexpr std::uint32_t kDoItPrefix = 5;
+
+void bumpDebugGeneration() {
+  g_debugGeneration = (g_debugGeneration + 1) & 0x7FFFFFFFu;
+}
 
 Oop workspaceBinding(CallContext& ctx, std::string_view name);
 
@@ -43,6 +60,9 @@ void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook ins
   session.ctx->transcriptHook = transcript;
   session.ctx->inspectHook = inspect;
   session.ctx->bindingHook = workspaceBinding;
+  // SPEC §3.13: the session is the sink while capture is on. The scheduler copies it into the
+  // fibers.
+  session.ctx->debug = g_debugCapture ? &session : nullptr;
   // SPEC §3.10: one scheduler per session. adoptImage comes after boot or load.
   session.scheduler = std::make_unique<Scheduler>(*session.ctx);
 }
@@ -94,23 +114,118 @@ bool loadedImageProbes(Session& session) {
   return answered;
 }
 
-void unrootMethodSources(Session& session) {
-  for (auto& pair : session.methodSources) {
-    session.roots.remove(&pair->method);
-    session.roots.remove(&pair->text);
+// An entry's slots: method, text, then its blocks. Removed in the reverse order (Roots::remove
+// looks from the newest registration back). All or nothing (SPEC §3.10): the room comes first, so
+// std::bad_alloc leaves before any slot is registered and none of the adds can throw.
+void rootEntry(Roots& roots, Session::MethodSource& entry) {
+  roots.reserveSlots(2 + entry.blocks.size());
+  roots.add(&entry.method);
+  roots.add(&entry.text);
+  for (Oop& block : entry.blocks) {
+    roots.add(&block);
   }
 }
 
-void rerootMethodSources(Session& session) {
-  for (auto& pair : session.methodSources) {
-    session.roots.add(&pair->method);
-    session.roots.add(&pair->text);
+void unrootEntry(Roots& roots, Session::MethodSource& entry) {
+  for (auto it = entry.blocks.rbegin(); it != entry.blocks.rend(); ++it) {
+    roots.remove(&*it);
+  }
+  roots.remove(&entry.text);
+  roots.remove(&entry.method);
+}
+
+// The CompiledMethod at literal `index` of `method`; the empty Oop when it is not one.
+Oop blockLiteral(const Session& s, Oop method, std::size_t index) {
+  const Oop lits = s.heap.slotAt(method, kCmSlotLiterals);
+  if (!lits.isHeap() || (s.heap.flags(lits) & kFlagBytes) != 0 || index >= s.heap.size(lits)) {
+    return Oop{};
+  }
+  const Oop block = s.heap.slotAt(lits, static_cast<std::uint32_t>(index));
+  return block.isHeap() && s.heap.klass(block) == s.wk.compiledMethodClass ? block : Oop{};
+}
+
+// Fills entry.blocks and entry.debug from `image`, the image entry.method was boxed from
+// (boxMethodImage): a Method literal at index i is the block CompiledMethod at literal i of the
+// boxed method, and nested blocks follow in preorder. Only reads the heap (no GC). May throw
+// std::bad_alloc before it changes the entry.
+void attachBlocks(const Session& s, Session::MethodSource& entry,
+                  const compiler::MethodImage& image) {
+  auto info = std::make_shared<DebugInfo>();
+  std::vector<Oop> blocks;
+  info->bodies.push_back(MethodDebugInfo{image.pcMap, image.temps});
+  struct Walk {
+    Oop method;
+    const compiler::MethodImage* image;
+    std::size_t next;
+  };
+  std::vector<Walk> stack{Walk{entry.method, &image, 0}};
+  while (!stack.empty()) {
+    Walk& walk = stack.back();
+    if (walk.next >= walk.image->literals.size()) {
+      stack.pop_back();
+      continue;
+    }
+    const std::size_t index = walk.next++;
+    const compiler::Literal& lit = walk.image->literals[index];
+    if (lit.kind != compiler::LitKind::Method || lit.method == nullptr) {
+      continue;
+    }
+    const Oop block = blockLiteral(s, walk.method, index);
+    if (block.isEmpty()) {
+      continue;
+    }
+    blocks.push_back(block);
+    info->bodies.push_back(MethodDebugInfo{lit.method->pcMap, lit.method->temps});
+    stack.push_back(Walk{block, lit.method.get(), 0});
+  }
+  entry.blocks = std::move(blocks);
+  entry.debug = std::move(info);
+}
+
+// The entry whose method or block is `method`: the accepted methods', then the doIt's. *index is
+// 0 for the method, k for blocks[k - 1].
+const Session::MethodSource* findEntry(const Session& s, Oop method, std::uint32_t* index) {
+  auto holds = [&](const Session::MethodSource& entry) {
+    if (entry.method == method) {
+      *index = 0;
+      return true;
+    }
+    for (std::size_t k = 0; k < entry.blocks.size(); ++k) {
+      if (entry.blocks[k] == method) {
+        *index = static_cast<std::uint32_t>(k + 1);
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const auto& entry : s.methodSources) {
+    if (holds(*entry)) {
+      return entry.get();
+    }
+  }
+  if (s.doItDebug != nullptr && holds(*s.doItDebug)) {
+    return s.doItDebug.get();
+  }
+  return nullptr;
+}
+
+void unrootMethodSources(Session& session) {
+  for (auto& entry : session.methodSources) {
+    unrootEntry(session.roots, *entry);
+  }
+}
+
+void dropDoItDebug(Session& session) {
+  if (session.doItDebug != nullptr) {
+    unrootEntry(session.roots, *session.doItDebug);
+    session.doItDebug.reset();
   }
 }
 
 void releaseMethodSources(Session& session) {
   unrootMethodSources(session);
   session.methodSources.clear();
+  dropDoItDebug(session);
 }
 
 }  // namespace
@@ -131,6 +246,21 @@ Session::~Session() {
   releaseMethodSources(*this);
 }
 
+void Session::onAbort(CallContext& aborting) noexcept {
+  // SPEC §3.10, §3.13: only the live session captures. ao_image_load's new session aborts (its
+  // workspace creation, its probes) before the swap; a failed load must not move the generation.
+  if (this != g_session.get()) {
+    return;
+  }
+  // A fiber runs on its own CallContext; the base on ctx.
+  const bool base = &aborting == ctx.get();
+  if (!base && !debug.empty()) {
+    return;
+  }
+  debug.capture(aborting);
+  bumpDebugGeneration();
+}
+
 Session* session() { return g_session.get(); }
 
 int sessionBoot() {
@@ -148,6 +278,8 @@ int sessionBoot() {
 }
 
 int sessionShutdown() {
+  // SPEC §3.13: shutdown clears the snapshot.
+  sessionDebugClear();
   g_session.reset();
   return 0;
 }
@@ -156,6 +288,30 @@ void setSessionTranscriptHook(HostOopHook hook) {
   g_transcriptHook = hook;
   if (g_session != nullptr && g_session->ctx != nullptr) {
     g_session->ctx->transcriptHook = hook;
+  }
+}
+
+void setSessionDebugCapture(bool on) {
+  g_debugCapture = on;
+  // SPEC §3.10: inside an ao_debug_* print or inspect (a hook calling in), the setting is only
+  // recorded; ~DebugEntry applies it, so an abort later in that print is still not captured.
+  if (g_debugEntries == 0 && g_session != nullptr && g_session->ctx != nullptr) {
+    g_session->ctx->debug = on ? g_session.get() : nullptr;
+  }
+}
+
+DebugSnapshot* sessionDebugSnapshot() {
+  return g_session != nullptr ? &g_session->debug : nullptr;
+}
+
+int sessionDebugGeneration() {
+  return g_session != nullptr ? static_cast<int>(g_debugGeneration) : -1;
+}
+
+void sessionDebugClear() {
+  if (g_session != nullptr) {
+    g_session->debug.clear();
+    bumpDebugGeneration();
   }
 }
 
@@ -179,17 +335,33 @@ int sessionImageSave(const char* path) {
       }
     }
   } hide(g_session.get());
-  // Source text is session state. Drop the roots so Image::save does not trace it.
+  // Source text, the blocks and the doIt the table holds, and the snapshot are session state
+  // (SPEC §3.10, §3.13). Drop their roots so Image::save does not trace them; Image::save does not
+  // move objects, so the slots are still right when they come back.
   struct HideMethodSources {
-    Session* session = nullptr;
-    explicit HideMethodSources(Session* s) : session(s) {
-      if (session != nullptr) {
-        unrootMethodSources(*session);
+    Roots* roots = nullptr;
+    std::vector<const Oop*> slots;
+    Oop* snapFirst = nullptr;
+    std::size_t snapCount = 0;
+    explicit HideMethodSources(Session* s) {
+      if (s != nullptr) {
+        roots = &s->roots;
+        // The table's are LIFO slots; the snapshot's are one pinned range.
+        slots = methodSourceRootSlots(false);
+        for (auto it = slots.rbegin(); it != slots.rend(); ++it) {
+          roots->remove(const_cast<Oop*>(*it));
+        }
+        snapFirst = s->debug.rootFirst();
+        snapCount = s->debug.rootCount();
+        roots->unpinRange(snapFirst, snapCount);
       }
     }
     ~HideMethodSources() {
-      if (session != nullptr) {
-        rerootMethodSources(*session);
+      if (roots != nullptr) {
+        roots->pinRange(snapFirst, snapCount);
+        for (const Oop* slot : slots) {
+          roots->add(const_cast<Oop*>(slot));
+        }
       }
     }
   } hideSources(g_session.get());
@@ -233,6 +405,8 @@ int sessionImageLoad(const char* path, std::string* reason) {
   // Dropping the current session abandons its processes (~Session).
   g_session = std::move(next);
   clearMethodSources();
+  // SPEC §3.13: the load replaces the snapshot with an empty one (a probe may have filled it).
+  sessionDebugClear();
   return 0;
 }
 
@@ -660,6 +834,43 @@ void blankOut(char* out, int outLen) {
   }
 }
 
+// Sends printString to `value` (a rooted slot, read again after the send) and puts the answer's
+// UTF-8 in *utf8. False when the send fails or aborts, the answer is not a bytes object, or the
+// heap ran out (SPEC §3.2: an evaluation that ran out of memory answers only the error).
+bool printStringOf(Session& session, const Oop& value, std::string* utf8) {
+  const Oop sel = session.wk.intern("printString");
+  if (!sel.isHeap()) {
+    return false;
+  }
+  Root printed(session.roots, send(*session.ctx, value, sel, nullptr, 0, nullptr));
+  if (!printed.slot.isHeap() || (session.heap.flags(printed.slot) & kFlagBytes) == 0) {
+    return false;
+  }
+  *utf8 = Str::toUtf8(session.heap, printed.slot);
+  return !session.heap.outOfMemory();
+}
+
+// SPEC §3.10 Inspect it (ao_eval's and ao_debug_inspect's): sends inspect to `value` (a rooted
+// slot), then printString, then hands the class name and the printString to the hook. False when
+// a send fails or the heap ran out: the hook is not called, so no Inspector opens for a failure.
+// A printString of INT_MAX bytes or more cannot be handed over as an int with its NUL: the hook is
+// not called for it either. *utf8 gets the printString.
+bool inspectValue(Session& session, const Oop& value, AoInspectFn inspect, void* inspectUser,
+                  std::string* utf8) {
+  const Oop sel = session.wk.intern("inspect");
+  if (!sel.isHeap() || send(*session.ctx, value, sel, nullptr, 0, nullptr).isEmpty()) {
+    return false;
+  }
+  if (!printStringOf(session, value, utf8)) {
+    return false;
+  }
+  if (inspect != nullptr && utf8->size() < static_cast<std::size_t>(INT_MAX)) {
+    const std::string cls = classNameOf(session.heap, session.wk.classOf(value));
+    inspect(cls.c_str(), utf8->c_str(), static_cast<int>(utf8->size()), inspectUser);
+  }
+  return true;
+}
+
 // *ran becomes true once the doIt is applied: the evaluation ran (SPEC §3.4 評価の終わり).
 // *printedOut gets a Print it's or Inspect it's whole printString (nullopt when it is INT_MAX
 // bytes or more); other outcomes leave it as it was.
@@ -701,7 +912,6 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
   const compiler::CompileResult compiled = compiler::compileMethod(text, env);
   if (!compiled.ok) {
     if (err != nullptr) {
-      constexpr unsigned kDoItPrefix = 5;
       unsigned start = compiled.error.span.start;
       unsigned end = compiled.error.span.end;
       err->start = start >= kDoItPrefix ? start - kDoItPrefix : 0;
@@ -729,6 +939,18 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
+  // SPEC §3.10: the doIt's entry (method, blocks, the user's text, debug info). Plain C++
+  // memory and root slots, no GC; without the memory the doIt just has no entry.
+  try {
+    auto entry = std::make_unique<Session::MethodSource>();
+    entry->method = method.slot;
+    entry->doItText.assign(text, kDoItPrefix, std::string::npos);
+    entry->sourceOffset = kDoItPrefix;
+    attachBlocks(session, *entry, image);
+    rootEntry(session.roots, *entry);
+    session.doItDebug = std::move(entry);
+  } catch (const std::bad_alloc&) {
+  }
 
   *ran = true;
   Root result(session.roots,
@@ -742,43 +964,18 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     return writeBuf("", out, outLen);
   }
 
-  if (mode == AO_EVAL_INSPECTIT) {
-    const Oop sel = session.wk.intern("inspect");
-    if (!sel.isHeap()) {
-      blankOut(out, outLen);
-      return AO_ERR_EVAL;
-    }
-    if (send(*session.ctx, result.slot, sel, nullptr, 0, nullptr).isEmpty()) {
-      blankOut(out, outLen);
-      return AO_ERR_EVAL;
-    }
-  }
-
-  const Oop printSel = session.wk.intern("printString");
-  if (!printSel.isHeap()) {
+  std::string utf8;
+  const bool printedOk =
+      mode == AO_EVAL_INSPECTIT
+          ? inspectValue(session, result.slot, inspect, inspectUser, &utf8)
+          : printStringOf(session, result.slot, &utf8);
+  if (!printedOk) {
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
-  Root printed(session.roots,
-                   send(*session.ctx, result.slot, printSel, nullptr, 0, nullptr));
-  if (!printed.slot.isHeap() || (session.heap.flags(printed.slot) & kFlagBytes) == 0) {
-    blankOut(out, outLen);
-    return AO_ERR_EVAL;
-  }
-  std::string utf8 = Str::toUtf8(session.heap, printed.slot);
-  // out of memory になった評価は、エラーだけを返す（文言は sessionEval が入れる）。Inspector を
-  // 開かないよう、フックより先に判定する。
-  if (session.heap.outOfMemory()) {
-    blankOut(out, outLen);
-    return AO_ERR_EVAL;
-  }
-  // SPEC §3.10 評価結果: a printString of INT_MAX bytes or more cannot be handed over as an int
-  // with its NUL. It is not kept and the inspect hook is not called; out is cut (AO_ERR_RANGE).
+  // SPEC §3.10 評価結果: a printString of INT_MAX bytes or more is not kept; out is cut
+  // (AO_ERR_RANGE).
   const bool fitsInt = utf8.size() < static_cast<std::size_t>(INT_MAX);
-  if (mode == AO_EVAL_INSPECTIT && inspect != nullptr && fitsInt) {
-    const std::string cls = classNameOf(session.heap, session.wk.classOf(result.slot));
-    inspect(cls.c_str(), utf8.c_str(), static_cast<int>(utf8.size()), inspectUser);
-  }
   const int rc = writeBuf(utf8, out, outLen);
   if (fitsInt) {
     *printedOut = std::move(utf8);
@@ -796,12 +993,17 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   // that reads it during this evaluation, or any outcome that does not put one in, sees empty.
   if (g_session != nullptr) {
     g_session->evalResult = std::string();
+    // SPEC §3.10, §3.13: the last doIt's entry and the snapshot go when an ao_eval starts.
+    dropDoItDebug(*g_session);
+    sessionDebugClear();
   }
   // 評価の前に立っていたフラグ（accept や file-in の途中のもの）を、この評価のせいにしない。
   if (g_session != nullptr && g_session->ctx != nullptr) {
     g_session->heap.clearOutOfMemory();
     clearUnwinding(*g_session->ctx);
     refreshStackLimit(*g_session->ctx);
+    // SPEC §3.13: a cleanup an escaped C++ exception left counted must not stop capture for good.
+    g_session->ctx->abortSetAside = 0;
   }
   bool ran = false;
   std::optional<std::string> printed = std::string();
@@ -867,48 +1069,74 @@ int sessionEvalResultCopy(char* buf, int bufLen) {
   return writeBuf(*g_session->evalResult, buf, bufLen);
 }
 
-void rememberMethodSource(Oop method, Oop text, Oop replaced) {
+void rememberMethodSource(Oop method, Oop text, Oop replaced, const compiler::MethodImage* image) {
   Session* s = session();
   if (s == nullptr || !method.isHeap() || !text.isHeap()) {
     return;
   }
-  if (replaced.isHeap()) {
+  // SPEC §3.10: the replaced method's entry goes with its blocks. So does an entry `method`
+  // already had.
+  for (const Oop gone : {replaced, method}) {
+    if (!gone.isHeap()) {
+      continue;
+    }
     for (auto it = s->methodSources.begin(); it != s->methodSources.end(); ++it) {
-      if ((*it)->method == replaced) {
-        s->roots.remove(&(*it)->method);
-        s->roots.remove(&(*it)->text);
+      if ((*it)->method == gone) {
+        unrootEntry(s->roots, **it);
         s->methodSources.erase(it);
         break;
       }
     }
   }
-  for (auto& pair : s->methodSources) {
-    if (pair->method == method) {
-      s->roots.remove(&pair->text);
-      pair->text = text;
-      s->roots.add(&pair->text);
-      return;
+  // Nothing below collects: `method` and `text` stay valid until they are in the rooted slots.
+  // SPEC §3.10: plain C++ memory and root slots. Without the memory the method, which is installed
+  // already, has no entry (as the doIt), and the accept still succeeds: nothing is rooted before
+  // the last step that can throw, and the table has room for the entry before it is rooted.
+  try {
+    auto entry = std::make_unique<Session::MethodSource>();
+    entry->method = method;
+    entry->text = text;
+    if (image != nullptr) {
+      attachBlocks(*s, *entry, *image);
     }
+    s->methodSources.reserve(s->methodSources.size() + 1);
+    rootEntry(s->roots, *entry);
+    s->methodSources.push_back(std::move(entry));
+  } catch (const std::bad_alloc&) {
   }
-  auto pair = std::make_unique<Session::MethodSource>();
-  pair->method = method;
-  pair->text = text;
-  s->roots.add(&pair->method);
-  s->roots.add(&pair->text);
-  s->methodSources.push_back(std::move(pair));
 }
 
-bool moveMethodSource(Oop from, Oop to) {
+bool moveMethodSource(Oop from, Oop to, const compiler::MethodImage& image) {
   Session* s = session();
   if (s == nullptr || !from.isHeap() || !to.isHeap()) {
     return false;
   }
-  for (auto& pair : s->methodSources) {
-    if (pair->method == from) {
-      // The slot itself is the root, so the new method is rooted as soon as it is stored.
-      pair->method = to;
-      return true;
+  for (auto& entry : s->methodSources) {
+    if (entry->method != from) {
+      continue;
     }
+    // SPEC §3.9, §3.10: `to` was boxed from `image`, so its blocks and debug info come from there.
+    // The new entry is built and rooted (all or nothing) before the old one lets go. Nothing here
+    // collects, so `to` and the text stay valid until they are in the rooted slots.
+    try {
+      auto moved = std::make_unique<Session::MethodSource>();
+      moved->method = to;
+      moved->text = entry->text;
+      moved->sourceOffset = entry->sourceOffset;
+      attachBlocks(*s, *moved, image);
+      rootEntry(s->roots, *moved);
+      unrootEntry(s->roots, *entry);
+      entry = std::move(moved);
+    } catch (const std::bad_alloc&) {
+      // Without the memory the entry still moves, with its text only. None of this allocates.
+      for (auto it = entry->blocks.rbegin(); it != entry->blocks.rend(); ++it) {
+        s->roots.remove(&*it);
+      }
+      entry->blocks.clear();
+      entry->debug.reset();
+      entry->method = to;
+    }
+    return true;
   }
   return false;
 }
@@ -918,22 +1146,77 @@ bool methodSource(Oop method, std::string& utf8) {
   if (s == nullptr || !method.isHeap()) {
     return false;
   }
-  for (const auto& pair : s->methodSources) {
-    if (pair->method == method && pair->text.isHeap()) {
-      utf8 = Str::toUtf8(s->heap, pair->text);
-      return true;
-    }
+  std::uint32_t index = 0;
+  const Session::MethodSource* entry = findEntry(*s, method, &index);
+  if (entry == nullptr) {
+    return false;
+  }
+  if (entry->text.isHeap()) {
+    utf8 = Str::toUtf8(s->heap, entry->text);
+    return true;
+  }
+  if (entry == s->doItDebug.get()) {
+    utf8 = entry->doItText;
+    return true;
   }
   return false;
 }
 
-std::vector<const Oop*> methodSourceRootSlots() {
+DebugInfoRef debugInfoFor(Oop method) {
+  DebugInfoRef ref;
+  Session* s = session();
+  if (s == nullptr || !method.isHeap()) {
+    return ref;
+  }
+  std::uint32_t index = 0;
+  const Session::MethodSource* entry = findEntry(*s, method, &index);
+  if (entry == nullptr || entry->debug == nullptr || index >= entry->debug->bodies.size()) {
+    return ref;
+  }
+  ref.source = entry;
+  ref.body = &entry->debug->bodies[index];
+  ref.index = index;
+  return ref;
+}
+
+bool debugSpanAt(Oop method, std::uint32_t pc, std::uint32_t& start, std::uint32_t& end) {
+  const DebugInfoRef ref = debugInfoFor(method);
+  if (!ref) {
+    return false;
+  }
+  const std::vector<compiler::PcSpan>& map = ref.body->pcMap;
+  // Ascending by pc: the last entry at or before pc.
+  auto it = std::upper_bound(map.begin(), map.end(), pc,
+                             [](std::uint32_t p, const compiler::PcSpan& e) { return p < e.pc; });
+  if (it == map.begin()) {
+    return false;
+  }
+  --it;
+  const std::uint32_t offset = ref.source->sourceOffset;
+  start = it->start >= offset ? it->start - offset : 0;
+  end = it->end >= offset ? it->end - offset : 0;
+  return true;
+}
+
+std::vector<const Oop*> methodSourceRootSlots(bool withSnapshot) {
   std::vector<const Oop*> slots;
   if (Session* s = session()) {
-    slots.reserve(2 * s->methodSources.size());
-    for (const auto& pair : s->methodSources) {
-      slots.push_back(&pair->method);
-      slots.push_back(&pair->text);
+    auto add = [&slots](const Session::MethodSource& entry) {
+      slots.push_back(&entry.method);
+      slots.push_back(&entry.text);
+      for (const Oop& block : entry.blocks) {
+        slots.push_back(&block);
+      }
+    };
+    for (const auto& entry : s->methodSources) {
+      add(*entry);
+    }
+    if (s->doItDebug != nullptr) {
+      add(*s->doItDebug);
+    }
+    if (withSnapshot) {
+      const std::vector<const Oop*> snapshot = s->debug.rootSlots();
+      slots.insert(slots.end(), snapshot.begin(), snapshot.end());
     }
   }
   return slots;
@@ -1116,6 +1399,362 @@ int browserSubclassAt(const char* className, int index, char* buf, int len) {
     return AO_ERR;
   }
   return writeBuf(names[static_cast<std::size_t>(index)], buf, len);
+}
+
+namespace {
+
+// The snapshot of the current session; null without one.
+DebugSnapshot* snapshotOf(Session* s) { return s != nullptr ? &s->debug : nullptr; }
+
+bool frameInRange(const DebugSnapshot& snap, int i) {
+  return i >= 0 && static_cast<std::uint32_t>(i) < snap.count();
+}
+
+// A CompiledMethod's class and selector, or the doIt's. The doIt is boxed with CompiledMethod as
+// its class and doIt as its selector (evalBody); the last one is also known by its source entry.
+struct MethodName {
+  std::string cls;
+  std::string selector;
+  bool doIt = false;
+};
+
+MethodName methodNameOf(Session& s, Oop method) {
+  MethodName name;
+  if (!pointerSlots(s.heap, method, kCmSlotCount)) {
+    return name;
+  }
+  const Oop cls = s.heap.slotAt(method, kCmSlotMethodClass);
+  name.selector = byteText(s.heap, s.heap.slotAt(method, kCmSlotSelector));
+  name.doIt = (s.doItDebug != nullptr && s.doItDebug->method == method) ||
+              (cls == s.wk.compiledMethodClass && name.selector == "doIt");
+  if (!name.doIt) {
+    // A metaclass is named "<Name> class" (SPEC §3.6), so this is the class side's label too.
+    name.cls = classNameOf(s.heap, cls);
+  }
+  return name;
+}
+
+// "Foo>>bar", "Foo class>>bar" or "doIt" (SPEC §3.13).
+std::string methodLabel(const MethodName& name) {
+  return name.doIt ? std::string("doIt") : name.cls + ">>" + name.selector;
+}
+
+// The home method of block frame i: the method of its home context (the context ^ returns from),
+// else the method whose source entry holds the block; the empty Oop when neither is known.
+Oop homeMethodOf(Session& s, std::uint32_t i) {
+  const Oop block = s.debug.context(i);
+  if (pointerSlots(s.heap, block, kBlockSlotCount)) {
+    const Oop home = s.heap.slotAt(block, kBlockHome);
+    if (home.isHeap() && s.heap.klass(home) == s.wk.methodContextClass &&
+        pointerSlots(s.heap, home, kCtxMethod + 1)) {
+      const Oop method = s.heap.slotAt(home, kCtxMethod);
+      if (method.isHeap() && s.heap.klass(method) == s.wk.compiledMethodClass) {
+        return method;
+      }
+    }
+  }
+  std::uint32_t index = 0;
+  if (const Session::MethodSource* entry = findEntry(s, s.debug.method(i), &index)) {
+    return entry->method;
+  }
+  return Oop{};
+}
+
+// What frame i's label and placeholder name: its method, a block's home method, or (kind 2) the
+// NativeMethod, nil for a DNU.
+Oop labelMethodOf(Session& s, std::uint32_t i) {
+  return s.debug.kind(i) == kDebugFrameBlock ? homeMethodOf(s, i) : s.debug.method(i);
+}
+
+std::string frameLabel(Session& s, std::uint32_t i) {
+  const Oop method = labelMethodOf(s, i);
+  switch (s.debug.kind(i)) {
+    case kDebugFrameMethod:
+      return methodLabel(methodNameOf(s, method));
+    case kDebugFrameBlock:
+      // No home known: the block's own class, with no selector.
+      return "[] in " + methodLabel(methodNameOf(s, method.isEmpty() ? s.debug.method(i) : method));
+    default: {
+      const std::string selector = byteText(s.heap, s.debug.selector(i));
+      if (!pointerSlots(s.heap, method, kNativeSlotCount)) {
+        return "#" + selector + " (doesNotUnderstand:)";
+      }
+      const std::string_view sym = NativeMethod::nameBytes(s.heap, method);
+      return classNameOf(s.heap, s.heap.slotAt(method, kNativeSlotMethodClass)) + ">>" + selector +
+             " native " + std::string(sym);
+    }
+  }
+}
+
+// The debug info of interpreted frame i; null for kind 2 or a method without it.
+const MethodDebugInfo* frameDebugInfo(const Session& s, std::uint32_t i) {
+  if (s.debug.kind(i) == kDebugFrameNative) {
+    return nullptr;
+  }
+  return debugInfoFor(s.debug.method(i)).body;
+}
+
+// The argument count in the header of the CompiledMethod `method`; 0 when it is not one.
+std::uint32_t argCountOf(Session& s, Oop method) {
+  if (!pointerSlots(s.heap, method, kCmSlotCount)) {
+    return 0;
+  }
+  const Oop header = s.heap.slotAt(method, kCmSlotHeader);
+  return header.isSmallInteger() ? static_cast<std::uint32_t>(header.smallIntegerValue() & 0xFF)
+                                 : 0;
+}
+
+std::uint32_t frameTempCount(const Session& s, std::uint32_t i) {
+  if (const MethodDebugInfo* info = frameDebugInfo(s, i)) {
+    return static_cast<std::uint32_t>(info->temps.size());
+  }
+  return s.debug.tempCount(i);
+}
+
+bool tempInRange(const Session& s, int i, int j) {
+  return frameInRange(s.debug, i) && j >= 0 &&
+         static_cast<std::uint32_t>(j) < frameTempCount(s, static_cast<std::uint32_t>(i));
+}
+
+// The receiver (j == -1) or temp j of frame i; a named temp is read through the temp vector that
+// holds it (SPEC §3.8). False when i or j is out of range. Only reads (no GC).
+bool frameValue(Session& s, int i, int j, Oop* value) {
+  if (!frameInRange(s.debug, i) || j < -1) {
+    return false;
+  }
+  const auto fi = static_cast<std::uint32_t>(i);
+  if (j == -1) {
+    *value = s.debug.receiver(fi);
+    return true;
+  }
+  if (!tempInRange(s, i, j)) {
+    return false;
+  }
+  const auto tj = static_cast<std::uint32_t>(j);
+  const MethodDebugInfo* info = frameDebugInfo(s, fi);
+  Oop v = s.debug.temp(fi, tj);
+  if (info != nullptr) {
+    const compiler::TempName& name = info->temps[tj];
+    v = s.debug.temp(fi, name.slot);
+    if (name.vecIndex >= 0) {
+      const auto at = static_cast<std::uint32_t>(name.vecIndex);
+      v = pointerSlots(s.heap, v, at + 1) ? s.heap.slotAt(v, at) : Oop::nil();
+    }
+  }
+  *value = v.isEmpty() ? Oop::nil() : v;
+  return true;
+}
+
+// SPEC §3.4, §3.10: one outermost ao_debug_* entry that sends printString (and inspect). It clears
+// what an earlier entry left and takes the stack range again; while it runs the base has no debug
+// sink (the scheduler copies the base's into the processes), so its own abort does not replace the
+// snapshot. The end reads and clears the abort, without a drain, and puts the sink back as the
+// capture setting then says.
+class DebugEntry {
+ public:
+  explicit DebugEntry(Session& s) : s_(s) {
+    CallContext& ctx = *s_.ctx;
+    s_.heap.clearOutOfMemory();
+    clearUnwinding(ctx);
+    refreshStackLimit(ctx);
+    ctx.debug = nullptr;
+    ++g_debugEntries;
+  }
+  ~DebugEntry() {
+    CallContext& ctx = *s_.ctx;
+    clearUnwinding(ctx);
+    s_.heap.clearOutOfMemory();
+    // The capture setting as the ABI last set it; a hook may have changed it meanwhile.
+    if (--g_debugEntries == 0) {
+      ctx.debug = g_debugCapture ? &s_ : nullptr;
+    }
+  }
+  DebugEntry(const DebugEntry&) = delete;
+  DebugEntry& operator=(const DebugEntry&) = delete;
+  // Its sends aborted or ran out of memory.
+  bool failed() const { return unwinding(*s_.ctx) || s_.heap.outOfMemory(); }
+
+ private:
+  Session& s_;
+};
+
+int debugPrint(int i, int j, char* classBuf, int classLen, char* buf, int len) {
+  Session* s = session();
+  Oop v;
+  if (s == nullptr || s->ctx == nullptr || classBuf == nullptr || classLen < 1 ||
+      buf == nullptr || len < 1 || !frameValue(*s, i, j, &v)) {
+    blankOut(classBuf, classLen);
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  Root value(s->roots, v);
+  const std::string cls = classNameOf(s->heap, s->wk.classOf(value.slot));
+  std::string utf8;
+  {
+    const DebugEntry entry(*s);
+    // SPEC §3.10: a printString that aborts leaves the print empty; the class name still shows.
+    if (!printStringOf(*s, value.slot, &utf8) || entry.failed()) {
+      utf8.clear();
+    }
+  }
+  const int classRc = writeBuf(cls, classBuf, classLen);
+  const int printRc = writeBuf(utf8, buf, len);
+  return classRc == AO_OK && printRc == AO_OK ? AO_OK : AO_ERR_RANGE;
+}
+
+}  // namespace
+
+int debugFrameCount() {
+  const DebugSnapshot* snap = snapshotOf(session());
+  return snap != nullptr ? static_cast<int>(snap->count()) : -1;
+}
+
+int debugFrameTotal() {
+  const DebugSnapshot* snap = snapshotOf(session());
+  return snap != nullptr ? static_cast<int>(snap->total()) : -1;
+}
+
+int debugReason(char* buf, int len) {
+  const DebugSnapshot* snap = snapshotOf(session());
+  if (snap == nullptr || snap->empty()) {
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  return writeBuf(snap->reason(), buf, len);
+}
+
+int debugFrameKind(int i) {
+  const DebugSnapshot* snap = snapshotOf(session());
+  return snap != nullptr && frameInRange(*snap, i) ? snap->kind(static_cast<std::uint32_t>(i)) : -1;
+}
+
+int debugFrameLabel(int i, char* buf, int len) {
+  Session* s = session();
+  if (s == nullptr || !frameInRange(s->debug, i)) {
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  return writeBuf(frameLabel(*s, static_cast<std::uint32_t>(i)), buf, len);
+}
+
+int debugFramePc(int i) {
+  const DebugSnapshot* snap = snapshotOf(session());
+  if (snap == nullptr || !frameInRange(*snap, i)) {
+    return -1;
+  }
+  const auto fi = static_cast<std::uint32_t>(i);
+  if (snap->kind(fi) == kDebugFrameNative) {
+    return -1;
+  }
+  return static_cast<int>(std::min<std::uint32_t>(snap->pc(fi), INT_MAX));
+}
+
+int debugFrameSource(int i, char* buf, int len, AoSpan* highlight) {
+  if (highlight != nullptr) {
+    highlight->start = 0;
+    highlight->end = 0;
+    highlight->message[0] = '\0';
+  }
+  Session* s = session();
+  if (s == nullptr || !frameInRange(s->debug, i) || buf == nullptr || len < 1) {
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  const auto fi = static_cast<std::uint32_t>(i);
+  const int kind = s->debug.kind(fi);
+  std::string text;
+  if (kind != kDebugFrameNative) {
+    const Oop method = s->debug.method(fi);
+    // The entry that holds the method or the block has the home method's text, the doIt's too.
+    if (methodSource(method, text)) {
+      std::uint32_t start = 0;
+      std::uint32_t end = 0;
+      if (highlight != nullptr && debugSpanAt(method, s->debug.pc(fi), start, end)) {
+        highlight->start = start;
+        highlight->end = end;
+      }
+      return writeBuf(text, buf, len);
+    }
+  }
+  // SPEC §3.10: the browser's placeholder (sourceOf) for a method or a native; the doIt and the
+  // DNU frame take the same shape with their labels.
+  const Oop method = labelMethodOf(*s, fi);
+  const MethodName name = methodNameOf(*s, method);
+  if (kind == kDebugFrameNative && pointerSlots(s->heap, method, kNativeSlotCount)) {
+    const std::string cls = classNameOf(s->heap, s->heap.slotAt(method, kNativeSlotMethodClass));
+    sourceOf(*s, cls, ListedMethod{byteText(s->heap, s->debug.selector(fi)), true, method}, text);
+  } else if (kind != kDebugFrameNative && !method.isEmpty() && !name.doIt) {
+    sourceOf(*s, name.cls, ListedMethod{name.selector, false, method}, text);
+  } else {
+    const std::string label = kind == kDebugFrameNative ? frameLabel(*s, fi) : methodLabel(name);
+    text = "\"" + label + " source not available\"";
+  }
+  // SPEC §3.10: AO_ERR_NOSOURCE wins over AO_ERR_RANGE; writeBuf still cuts and ends in NUL.
+  writeBuf(text, buf, len);
+  return AO_ERR_NOSOURCE;
+}
+
+int debugTempCount(int i) {
+  const Session* s = session();
+  if (s == nullptr || !frameInRange(s->debug, i)) {
+    return -1;
+  }
+  return static_cast<int>(frameTempCount(*s, static_cast<std::uint32_t>(i)));
+}
+
+int debugTempName(int i, int j, char* buf, int len) {
+  Session* s = session();
+  if (s == nullptr || !tempInRange(*s, i, j)) {
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  const auto fi = static_cast<std::uint32_t>(i);
+  const auto tj = static_cast<std::uint32_t>(j);
+  if (const MethodDebugInfo* info = frameDebugInfo(*s, fi)) {
+    return writeBuf(info->temps[tj].name, buf, len);
+  }
+  // SPEC §3.10: without debug info, arg1 ... then t1 ...; a native frame's are all arguments.
+  const std::uint32_t args = s->debug.kind(fi) == kDebugFrameNative
+                                 ? s->debug.tempCount(fi)
+                                 : argCountOf(*s, s->debug.method(fi));
+  const std::string name =
+      tj < args ? "arg" + std::to_string(tj + 1) : "t" + std::to_string(tj - args + 1);
+  return writeBuf(name, buf, len);
+}
+
+int debugReceiverPrint(int i, char* classBuf, int classLen, char* buf, int len) {
+  return debugPrint(i, -1, classBuf, classLen, buf, len);
+}
+
+int debugTempPrint(int i, int j, char* classBuf, int classLen, char* buf, int len) {
+  if (j < 0) {
+    blankOut(classBuf, classLen);
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  return debugPrint(i, j, classBuf, classLen, buf, len);
+}
+
+int debugInspect(int i, int j, AoInspectFn inspect, void* inspectUser) {
+  Session* s = session();
+  Oop v;
+  if (s == nullptr || s->ctx == nullptr || !frameValue(*s, i, j, &v)) {
+    return AO_ERR;
+  }
+  Root value(s->roots, v);
+  const DebugEntry entry(*s);
+  std::string utf8;
+  // SPEC §3.10: as Inspect it; an abort in inspect or printString calls no hook.
+  const bool ok = inspectValue(*s, value.slot, inspect, inspectUser, &utf8);
+  return ok && !entry.failed() ? AO_OK : AO_ERR;
+}
+
+int debugClear() {
+  if (session() == nullptr) {
+    return AO_ERR;
+  }
+  sessionDebugClear();
+  return AO_OK;
 }
 
 }  // namespace ao

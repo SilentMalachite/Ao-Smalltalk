@@ -44,6 +44,8 @@ void invalidateMethodCache(ClassMethodCache* cache, Oop selector);
 
 struct CallContext;
 class Scheduler;
+struct Frame;
+class DebugSink;
 
 using HostOopHook = void (*)(CallContext& ctx, Oop value);
 // Finds or makes the workspace binding (an Association) for name; empty Oop on failure.
@@ -103,6 +105,16 @@ struct CallContext {
   // SPEC §3.6 = と hash: how many Array and Point hash natives are sending hash to their elements
   // right now (HashNesting). At the limit they stop sending, so a self-holding Array ends.
   std::uint32_t hashNesting = 0;
+  // SPEC §3.13: the innermost interpreted frame of this process (the interpreter's private
+  // Frame, linked through prev). Natives are not linked. Each process has its own chain, so a
+  // switch neither saves nor restores it.
+  Frame* topFrame = nullptr;
+  // SPEC §3.13 捕捉: told when an abort starts (abortEvaluation), unless it is abandoning or
+  // abortSetAside > 0. Null: no capture. The scheduler copies the base's into each fiber's.
+  DebugSink* debug = nullptr;
+  // ensure:/ifCurtailed: cleanups running while an abort is set aside (runAside). An abort
+  // inside one keeps the first reason, so it is not captured either.
+  std::uint32_t abortSetAside = 0;
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, const Oop& receiver, const Oop* args,

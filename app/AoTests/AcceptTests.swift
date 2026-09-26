@@ -239,6 +239,38 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(pane.isEditable)
   }
 
+  // P10 受け入れ: a failure inside a method accepted in the Browser; the Debugger shows that
+  // method's source with the failing send selected.
+  func testDebuggerSelectsFailingSendInBrowserAcceptedMethod() {
+    ao_set_debug_capture(1)
+    defer { ao_set_debug_capture(0) }
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    let source = "p10Boom\n  | t |\n  t := 3.\n  ^nil zork: t\n"
+    browser.replaceSource(source)
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+
+    let workspace = WorkspaceWindow()
+    defer { workspace.window.close() }
+    workspace.replaceText("Object new p10Boom")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertFalse(workspace.debugButton.isHidden)
+    workspace.debugButton.performClick(nil)
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("Debug opened no Debugger")
+      return
+    }
+    XCTAssertEqual(debugger.frameLabels, ["#zork: (doesNotUnderstand:)", "Object>>p10Boom", "doIt"])
+    debugger.selectFrame(1)
+    XCTAssertEqual(debugger.sourceText, source)
+    XCTAssertEqual(debugger.sourceSelection, (source as NSString).range(of: "nil zork: t"))
+    XCTAssertEqual(debugger.variable(at: 1).name, "t")
+    XCTAssertEqual(debugger.variable(at: 1).value, "3")
+  }
+
   // 07 Medium: an unaccepted edit asks before any selection change; Cancel puts the rows back
   // and keeps the edit.
   func testUnacceptedEditAsksBeforeSelectionChangeAndCancelKeepsIt() {

@@ -190,6 +190,13 @@ Oop ao_Object_doesNotUnderstand_(CallContext& ctx, const Oop&, const Oop* args,
   return abortDoesNotUnderstand(ctx, selector);
 }
 
+// SPEC §3.3, §3.6, §3.13: halt aborts the evaluation with "halt" (P10: a failure that is captured
+// like the others; P11 stops the evaluating process instead).
+Oop ao_Object_halt(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
+  if (argc != 0) return Oop{};
+  return abortEvaluation(ctx, "halt");
+}
+
 // SPEC §3.3: aborts the evaluation. The reason is the argument's contents when it is a String
 // (a Symbol too), otherwise the contents of its printString.
 Oop ao_Object_error_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
@@ -490,6 +497,7 @@ void installObject(Heap& heap, WellKnown& wk) {
             ao_Object_perform_withArguments_);
   putNative(heap, wk, cls, "doesNotUnderstand:", 1, "ao_Object_doesNotUnderstand_",
             ao_Object_doesNotUnderstand_);
+  putNative(heap, wk, cls, "halt", 0, "ao_Object_halt", ao_Object_halt);
   putNative(heap, wk, cls, "error:", 1, "ao_Object_error_", ao_Object_error_);
   putNative(heap, wk, cls, "mustBeBoolean", 0, "ao_Object_mustBeBoolean", ao_Object_mustBeBoolean);
   putNative(heap, wk, cls, "subclassResponsibility", 0, "ao_Object_subclassResponsibility",

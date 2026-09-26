@@ -32,6 +32,7 @@ Oop ao_Object_perform_withArguments_(CallContext& ctx, const Oop& receiver, cons
                                      std::uint32_t argc);
 Oop ao_Object_doesNotUnderstand_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                  std::uint32_t argc);
+Oop ao_Object_halt(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
 Oop ao_Object_error_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
 Oop ao_Object_mustBeBoolean(CallContext& ctx, const Oop& receiver, const Oop* args,
                             std::uint32_t argc);

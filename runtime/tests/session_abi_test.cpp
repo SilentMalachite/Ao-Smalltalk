@@ -4,12 +4,15 @@
 
 #include "../src/Fiber.hpp"
 #include "../src/Session.hpp"
+#include "ao/Gc.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -25,6 +28,7 @@ class SessionAbi : public ::testing::Test {
     ao_runtime_shutdown();
     ao_set_transcript_hook(nullptr, nullptr);
     ao_set_inspect_hook(nullptr, nullptr);
+    ao::setSessionDebugCapture(false);
   }
 };
 
@@ -1260,4 +1264,145 @@ TEST_F(SessionAbi, InspectHookGetsPrintLengthWithNul) {
   EXPECT_EQ(std::string("'\0\0\0'", 5), seen.text);
   EXPECT_EQ('\0', seen.after);
   EXPECT_EQ(std::string("'\0\0\0'", 5), wholeEvalResult());
+}
+
+namespace {
+
+bool p10SlotListed(const std::vector<const ao::Oop*>& slots, const ao::Oop* slot) {
+  return std::find(slots.begin(), slots.end(), slot) != slots.end();
+}
+
+}  // namespace
+
+// SPEC §3.10 ソースはイメージに書かない, §3.13: the image does not hold what only the session's
+// source table (the last doIt, its blocks) and the snapshot reach. They are GC roots again after
+// the save.
+TEST_F(SessionAbi, ImageSaveDoesNotTraceSnapshotOrBlockSlots) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao::setSessionDebugCapture(true);
+  ASSERT_EQ(AO_OK, evalDoIt("Smalltalk at: #P10Kept put: 'P10GlobSeen'"));
+  ASSERT_EQ(AO_ERR_EVAL, evalDoIt("| a | a := 'P10SnapOnlyMarker'. [:k | k halt] value: a"));
+  ao::Session& s = *ao::session();
+  ASSERT_NE(nullptr, s.doItDebug);
+  ASSERT_EQ(1u, s.doItDebug->blocks.size());
+  ASSERT_FALSE(s.debug.empty());
+  ASSERT_GE(s.debug.count(), 3u);
+  EXPECT_EQ(ao::kDebugFrameBlock, s.debug.kind(1));
+  const std::uint32_t frames = s.debug.count();
+  const std::vector<const ao::Oop*> hidden = ao::methodSourceRootSlots();
+  EXPECT_TRUE(p10SlotListed(hidden, &s.doItDebug->method));
+  EXPECT_TRUE(p10SlotListed(hidden, &s.doItDebug->blocks[0]));
+  for (const ao::Oop* slot : s.debug.rootSlots()) {
+    EXPECT_TRUE(p10SlotListed(hidden, slot));
+  }
+
+  // The snapshot is one pinned range, apart from the LIFO slots (review of P10-03).
+  const ao::Roots::Counts rootsBefore = s.roots.counts();
+  EXPECT_EQ(s.debug.rootSlots().size(), rootsBefore.pinnedSlots);
+
+  const char* path = "session-abi-p10-hidden.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  // Hiding gives every root back as it was: none twice, none lost.
+  EXPECT_EQ(rootsBefore.slots, s.roots.counts().slots);
+  EXPECT_EQ(rootsBefore.pinnedSlots, s.roots.counts().pinnedSlots);
+  std::ifstream in(path, std::ios::binary);
+  const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  in.close();
+  std::remove(path);
+  EXPECT_NE(std::string::npos, bytes.find("P10GlobSeen"));
+  EXPECT_EQ(std::string::npos, bytes.find("OnlyMarker"));
+  EXPECT_EQ(std::string::npos, bytes.find("P10Snap"));
+
+  // Rooted again: a collection keeps the snapshot's values.
+  ASSERT_EQ(frames, s.debug.count());
+  {
+    ao::Gc gc(s.heap, s.roots);
+    gc.collectNursery();
+    gc.collectOld();
+  }
+  EXPECT_EQ(s.wk.stringClass, s.heap.klass(s.debug.receiver(0)));
+}
+
+// SPEC §3.10: the doIt's entry is the user's text; its spans read in that text (kDoItPrefix taken
+// off), as the captured frame's pc does.
+TEST_F(SessionAbi, DoItDebugInfoDropsPrefix) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao::setSessionDebugCapture(true);
+  const std::string src = "3 + 4. nil foo";
+  ASSERT_EQ(AO_ERR_EVAL, evalDoIt(src.c_str()));
+  ao::Session& s = *ao::session();
+  ASSERT_NE(nullptr, s.doItDebug);
+  EXPECT_EQ(5u, s.doItDebug->sourceOffset);
+  std::string text;
+  ASSERT_TRUE(ao::methodSource(s.doItDebug->method, text));
+  EXPECT_EQ(src, text);
+  const ao::DebugInfoRef info = ao::debugInfoFor(s.doItDebug->method);
+  ASSERT_TRUE(info);
+  EXPECT_EQ(s.doItDebug.get(), info.source);
+  bool found = false;
+  for (const auto& span : info.body->pcMap) {
+    std::uint32_t start = 0;
+    std::uint32_t end = 0;
+    ASSERT_TRUE(ao::debugSpanAt(s.doItDebug->method, span.pc, start, end));
+    EXPECT_EQ(span.start - 5, start);
+    EXPECT_EQ(span.end - 5, end);
+    found = found || src.substr(start, end - start) == "nil foo";
+  }
+  EXPECT_TRUE(found);
+  // The DNU frame is synthesized; the doIt's frame is next, at the send of foo.
+  ASSERT_GE(s.debug.count(), 2u);
+  EXPECT_EQ(ao::kDebugFrameNative, s.debug.kind(0));
+  EXPECT_EQ(s.doItDebug->method, s.debug.method(1));
+  std::uint32_t start = 0;
+  std::uint32_t end = 0;
+  ASSERT_TRUE(ao::debugSpanAt(s.debug.method(1), s.debug.pc(1), start, end));
+  EXPECT_EQ("nil foo", src.substr(start, end - start));
+}
+
+// SPEC §3.13 スナップショットの寿命: capture is off by default; ao_eval clears the snapshot at its
+// start; the base's failure is not hidden by a process failing in the drain, which fills an empty
+// snapshot only. Every capture and clear moves the generation.
+TEST_F(SessionAbi, NextEvalClearsSnapshot) {
+  ASSERT_EQ(-1, ao::sessionDebugGeneration());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao::Session& s = *ao::session();
+  ASSERT_EQ(AO_ERR_EVAL, evalDoIt("nil foo"));
+  EXPECT_TRUE(s.debug.empty());
+
+  ao::setSessionDebugCapture(true);
+  ASSERT_EQ(AO_ERR_EVAL, evalDoIt("nil foo"));
+  ASSERT_FALSE(s.debug.empty());
+  EXPECT_TRUE(s.debug.fromBase());
+  const int captured = ao::sessionDebugGeneration();
+  ASSERT_GE(captured, 0);
+  const ao::Oop failedDoIt = s.doItDebug->method;
+  EXPECT_EQ(failedDoIt, s.debug.method(1));
+
+  ASSERT_EQ(AO_OK, evalDoIt("3 + 4"));
+  EXPECT_TRUE(s.debug.empty());
+  EXPECT_LT(captured, ao::sessionDebugGeneration());
+  ASSERT_NE(nullptr, s.doItDebug);
+  EXPECT_NE(failedDoIt, s.doItDebug->method);
+  std::string text;
+  ASSERT_TRUE(ao::methodSource(s.doItDebug->method, text));
+  EXPECT_EQ("3 + 4", text);
+
+  ASSERT_EQ(AO_ERR_EVAL, evalDoIt("[nil bar] fork. nil foo"));
+  ASSERT_FALSE(s.debug.empty());
+  EXPECT_TRUE(s.debug.fromBase());
+  EXPECT_NE(std::string::npos, s.debug.reason().find("foo"));
+
+  ASSERT_EQ(AO_OK, evalDoIt("[nil bar] fork. 3"));
+  ASSERT_FALSE(s.debug.empty());
+  EXPECT_FALSE(s.debug.fromBase());
+  EXPECT_NE(std::string::npos, s.debug.reason().find("bar"));
+
+  const int before = ao::sessionDebugGeneration();
+  ao::sessionDebugClear();
+  EXPECT_TRUE(s.debug.empty());
+  EXPECT_LT(before, ao::sessionDebugGeneration());
+
+  ao::setSessionDebugCapture(false);
+  ASSERT_EQ(AO_ERR_EVAL, evalDoIt("nil foo"));
+  EXPECT_TRUE(s.debug.empty());
 }

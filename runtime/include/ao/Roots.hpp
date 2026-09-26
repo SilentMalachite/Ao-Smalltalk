@@ -59,8 +59,22 @@ class Roots {
     std::size_t frameCap_ = 0;
   };
 
+  // add throws std::bad_alloc when the slot table cannot grow. remove never throws.
   void add(Oop* slot);
   void remove(Oop* slot);
+  // Makes room for n more add calls, which then do not allocate and cannot throw. Throws
+  // std::bad_alloc before anything is registered, so a group of adds is all or nothing.
+  void reserveSlots(std::size_t n);
+  // Test seam: the slot table cannot grow once, after `adds` more adds succeed. That add throws
+  // std::bad_alloc, or a reserveSlots whose room covers it does.
+  void failSlotGrowthForTesting(std::size_t adds) { failAfter_ = adds; }
+
+  // Registers n contiguous slots as one pinned range: rooted until unpinRange, released in any
+  // order, and kept apart from the LIFO slots and the Stacks (a debug snapshot's; SPEC §3.13).
+  // Removing a LIFO slot never scans or shifts past a pinned range. Add and remove cost the
+  // number of pinned ranges, which stays small.
+  void pinRange(Oop* first, std::size_t n);
+  void unpinRange(Oop* first, std::size_t n);
 
   // Registers n contiguous slots as one root range of the running Stack. Ranges are released
   // LIFO.
@@ -93,6 +107,7 @@ class Roots {
   // What visitAll visits, by kind (the stack walker's aside). For tests and Debug checks.
   struct Counts {
     std::size_t slots = 0;           // add
+    std::size_t pinnedSlots = 0;     // pinRange: the slots of every pinned range
     std::size_t ranges = 0;          // pushRange: the running Stack and the attached ones
     std::size_t frameSlots = 0;      // pushFrame: the running Stack and the attached ones
     std::size_t handles = 0;         // live pushHandle entries
@@ -100,13 +115,16 @@ class Roots {
   };
   Counts counts() const;
 
-  // Every root once: the slots, the running Stack, each attached Stack, the handles, then the
-  // stack walker.
+  // Every root once: the slots, the pinned ranges, the running Stack, each attached Stack, the
+  // handles, then the stack walker.
   void visitAll(VisitFn visit, void* ctx);
 
  private:
   bool attached(const Stack* stack) const;
+  static constexpr std::size_t kNoFailure = static_cast<std::size_t>(-1);
   std::vector<Oop*> slots_;
+  std::size_t failAfter_ = kNoFailure;
+  std::vector<Stack::Range> pinned_;
   Stack stack_;
   std::vector<Stack*> attached_;
   std::vector<Oop> handles_;

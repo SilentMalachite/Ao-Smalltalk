@@ -68,9 +68,31 @@ void runAside(CallContext& ctx, Oop cleanup) {
   clearUnwinding(ctx);
   Oop ignored;
   // During a stack overflow abort the cleanup runs past the normal limit (SPEC §3.4).
-  ++ctx.cleanupDepth;
-  const bool ran = callBlock(ctx, blk.slot, nullptr, 0, &ignored);
-  --ctx.cleanupDepth;
+  // SPEC §3.13: an abort inside a cleanup of an aborting evaluation keeps the first reason, so
+  // it keeps the first capture too. The counts come back when a C++ exception leaves the cleanup.
+  struct AsideCounts {
+    CallContext& ctx;
+    bool aborting;
+    AsideCounts(CallContext& c, bool a) : ctx(c), aborting(a) {
+      ++ctx.cleanupDepth;
+      if (aborting) {
+        ++ctx.abortSetAside;
+      }
+    }
+    ~AsideCounts() {
+      if (aborting) {
+        --ctx.abortSetAside;
+      }
+      --ctx.cleanupDepth;
+    }
+    AsideCounts(const AsideCounts&) = delete;
+    AsideCounts& operator=(const AsideCounts&) = delete;
+  };
+  bool ran = false;
+  {
+    const AsideCounts counts(ctx, aborting);
+    ran = callBlock(ctx, blk.slot, nullptr, 0, &ignored);
+  }
   // SPEC §3.4: unwinding the cleanup started itself wins over a paused non-local return, but not
   // over a paused abort. Then the cleanup's ^ is dropped, and so is its own abort's reason: the
   // first reason stays (SPEC §3.3).

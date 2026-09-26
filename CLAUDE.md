@@ -132,7 +132,7 @@ graphify-out/graph.json
 やってはいけないこと:
 
 - 次フェーズの先取り（例: P3 で Browser を作り始める）
-- JIT、FFI、BitBlt、デバッガ、パッケージマネージャ
+- JIT、FFI、BitBlt、パッケージマネージャ
 - Squeak / Pharo / OpenSmalltalk / dbanay VM からのコピー
 - 「あると便利」なユーティリティクラスの量産
 - README の長文装飾、バッジ、スクリーンショット自動化

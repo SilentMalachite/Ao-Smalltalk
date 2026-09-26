@@ -78,6 +78,39 @@ private func installErrorField(on window: NSWindow, textView: NSTextView) -> NST
   return field
 }
 
+// SPEC §3.9 Workspace: the Debug button sits at the right end of the error band, hidden until an
+// evaluation leaves a snapshot. The field gives up the button's width.
+@MainActor
+private func installDebugButton(beside field: NSTextField, target: AnyObject, action: Selector) -> NSButton {
+  let button = NSButton(title: "Debug", target: target, action: action)
+  button.bezelStyle = .inline
+  button.controlSize = .small
+  button.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+  button.setAccessibilityLabel("Debug")
+  button.isHidden = true
+  button.sizeToFit()
+  guard let band = field.superview else {
+    return button
+  }
+  let width = max(button.frame.width, 48)
+  let bandWidth = band.bounds.width
+  button.frame = NSRect(x: max(bandWidth - width - 6, 0), y: 2, width: width, height: 18)
+  button.autoresizingMask = [.minXMargin]
+  field.frame.size.width = max(bandWidth - width - 18, 0)
+  band.addSubview(button)
+  return button
+}
+
+// NSButton.target is weak; the Workspace keeps this one.
+@MainActor
+private final class WorkspaceButtonAction: NSObject {
+  var run: (@MainActor () -> Void)?
+
+  @objc func invoke(_ sender: NSButton) {
+    run?()
+  }
+}
+
 func spanMessage(_ span: AoSpan) -> String {
   withUnsafeBytes(of: span.message) { raw in
     let bytes = raw.bindMemory(to: CChar.self)
@@ -189,9 +222,12 @@ private func keptEvalResult() -> String? {
 final class WorkspaceWindow {
   let window: NSWindow
   let errorField: NSTextField
+  let debugButton: NSButton
   private let textView: NSTextView
   private let uniformFont = UniformFont()
+  private let debugAction = WorkspaceButtonAction()
   private var inspectors: [InspectorWindow] = []
+  private(set) var debuggers: [DebuggerWindow] = []
   private var inspectClassName = ""
   private var inspectPrint = ""
   private(set) var inspectorLinesFromHook = ""
@@ -239,6 +275,14 @@ final class WorkspaceWindow {
     textView = built.textView
     textView.setAccessibilityLabel("Workspace")
     errorField = installErrorField(on: built.window, textView: built.textView)
+    debugButton = installDebugButton(
+      beside: errorField,
+      target: debugAction,
+      action: #selector(WorkspaceButtonAction.invoke(_:))
+    )
+    debugAction.run = { [weak self] in
+      self?.openDebugger()
+    }
     applyFont()
     window.makeKeyAndOrderFront(nil)
   }
@@ -311,6 +355,9 @@ final class WorkspaceWindow {
       }
     }
     let result = evaluate(source, mode: mode)
+    // SPEC §3.9: ao_eval clears the snapshot on entry, so frames now are this evaluation's.
+    let captured = ao_debug_frame_count() > 0
+    debugButton.isHidden = !captured
     if result.status != Int32(AO_OK) {
       errorField.stringValue = failureText(status: result.status, message: result.message)
       // SPEC §3.8: an ao_eval span counts from the start of the evaluated fragment.
@@ -323,7 +370,8 @@ final class WorkspaceWindow {
       )
       return
     }
-    errorField.stringValue = ""
+    // SPEC §3.9: AO_OK with a snapshot is a process that failed in the drain (§3.4).
+    errorField.stringValue = captured ? "process failed: " + DebuggerWindow.snapshotReason() : ""
     if mode == Int32(AO_EVAL_PRINTIT) {
       insert(result.output, after: range)
       return
@@ -351,6 +399,26 @@ final class WorkspaceWindow {
       self?.inspectors.removeAll { $0 === closed }
     }
     inspectors.append(inspector)
+  }
+
+  // SPEC §3.9: the Debug button. A Debugger already open on this snapshot (same generation) comes
+  // to the front; otherwise a new one reads the snapshot. A closed Debugger leaves the array.
+  @discardableResult
+  func openDebugger() -> DebuggerWindow? {
+    let generation = ao_debug_generation()
+    if let existing = debuggers.first(where: { $0.generation == generation }) {
+      existing.orderFront()
+      return existing
+    }
+    guard ao_debug_frame_count() > 0 else {
+      debugButton.isHidden = true
+      return nil
+    }
+    let debugger = DebuggerWindow { [weak self] closed in
+      self?.debuggers.removeAll { $0 === closed }
+    }
+    debuggers.append(debugger)
+    return debugger
   }
 
   private func evaluate(
