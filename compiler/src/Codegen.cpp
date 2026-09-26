@@ -509,6 +509,7 @@ class Emitter {
     image_.numArgs = static_cast<std::uint8_t>(real_->numArgs);
     image_.numTemps = static_cast<std::uint8_t>(real_->numTemps);
     image_.primitive = 0;
+    nameTemps();
 
     std::size_t body = 0;
     if (!method.kids.empty() && method.kids[0].kind == Ast::Kind::Primitive) {
@@ -534,6 +535,7 @@ class Emitter {
     image_.selector = "";
     image_.numArgs = static_cast<std::uint8_t>(real_->numArgs);
     image_.numTemps = static_cast<std::uint8_t>(real_->numTemps);
+    nameTemps();
     emitEntry(blk, false);
     if (blk.kids.empty()) {
       emit(Op::PushNil);
@@ -580,6 +582,52 @@ class Emitter {
   }
 
   void emitI16(Op op, std::int16_t a) { emitU16(op, static_cast<std::uint16_t>(a)); }
+
+  // SPEC §3.8: the next instruction runs span. A later mark at the same pc (an inner node, or
+  // the first instruction of a statement) replaces the earlier one, so pcs stay ascending.
+  void mark(SourceSpan span) {
+    const auto pc = static_cast<std::uint32_t>(image_.bytes.size());
+    if (!image_.pcMap.empty() && image_.pcMap.back().pc == pc) {
+      image_.pcMap.back() = PcSpan{pc, span.start, span.end};
+      return;
+    }
+    image_.pcMap.push_back(PcSpan{pc, span.start, span.end});
+  }
+
+  // SPEC §3.8: this real scope's named temps in declaration order (the hidden to:do: limit has
+  // no name), then the outer variables its closure copied.
+  void nameTemps() {
+    for (const Var* v : real_->vars) {
+      if (v->kind == VarKind::Hidden) {
+        continue;
+      }
+      TempName t;
+      t.name = v->name;
+      t.kind = v->kind == VarKind::Arg       ? TempKind::Arg
+               : v->kind == VarKind::LoopVar ? TempKind::LoopVar
+                                             : TempKind::Temp;
+      if (v->boxed) {
+        t.slot = vectorTemp(v->decl, real_);
+        t.vecIndex = static_cast<std::int16_t>(v->vecIndex);
+      } else {
+        t.slot = static_cast<std::uint8_t>(v->slot);
+      }
+      image_.temps.push_back(std::move(t));
+    }
+    for (const Capture& cap : real_->copied) {
+      const std::uint8_t at = copiedIndex(cap);
+      if (cap.var != nullptr) {
+        image_.temps.push_back(TempName{cap.var->name, TempKind::Copied, at, -1});
+        continue;
+      }
+      for (const Var* v : cap.owner->vars) {
+        if (v->boxed && v->decl == cap.vector) {
+          image_.temps.push_back(
+              TempName{v->name, TempKind::Copied, at, static_cast<std::int16_t>(v->vecIndex)});
+        }
+      }
+    }
+  }
 
   std::size_t emitJump(Op op) {
     const std::size_t at = image_.bytes.size();
@@ -769,6 +817,7 @@ class Emitter {
       if (last.kind == Ast::Kind::Return) {
         compileReturn(last, false);
       } else {
+        mark(last.span);
         compileExpr(last);
         if (!failed_) {
           emit(Op::ReturnTop);
@@ -780,6 +829,7 @@ class Emitter {
       compileReturn(body, false);
       return;
     }
+    mark(body.span);
     compileExpr(body);
     if (!failed_) {
       emit(Op::ReturnTop);
@@ -823,6 +873,7 @@ class Emitter {
         compileReturn(body, true);
         return;
       }
+      mark(body.span);
       compileExpr(body);
       emit(Op::ReturnTop);
       return;
@@ -839,6 +890,7 @@ class Emitter {
     if (last.kind == Ast::Kind::Return) {
       compileReturn(last, true);
     } else {
+      mark(last.span);
       compileExpr(last);
       emit(Op::ReturnTop);
     }
@@ -848,6 +900,7 @@ class Emitter {
     if (failed_) {
       return;
     }
+    mark(n.span);
     if (n.kind == Ast::Kind::Return) {
       compileReturn(n, real_->isBlock);
       return;
@@ -897,6 +950,7 @@ class Emitter {
         for (std::size_t i = 0; i + 1 < n.kids.size(); ++i) {
           compileStmt(n.kids[i]);
         }
+        mark(n.kids.back().span);
         compileExpr(n.kids.back());
         return;
       case Ast::Kind::Return:
@@ -933,6 +987,7 @@ class Emitter {
   }
 
   void compileReturn(const Ast& n, bool inBlock) {
+    mark(n.span);
     const Ast* expr = n.kids.empty() ? nullptr : &n.kids[0];
     if (inBlock) {
       if (expr == nullptr) {
@@ -940,6 +995,7 @@ class Emitter {
       } else {
         compileExpr(*expr);
       }
+      mark(n.span);
       emit(Op::ReturnBlock);
       return;
     }
@@ -953,6 +1009,7 @@ class Emitter {
       return;
     }
     compileExpr(*expr);
+    mark(n.span);
     emit(Op::ReturnTop);
   }
 
@@ -995,7 +1052,8 @@ class Emitter {
     fail(n.span, "cannot assign");
   }
 
-  void compileSend(const Ast& send, bool skipReceiver) {
+  // at: the send's source for the pc map when it is not send.span (a cascade part, SPEC §3.8).
+  void compileSend(const Ast& send, bool skipReceiver, const SourceSpan* at = nullptr) {
     if (!skipReceiver) {
       const Inline plan = inlinePlan(send);
       if (plan != Inline::None) {
@@ -1018,8 +1076,10 @@ class Emitter {
     if (failed_) {
       return;
     }
+    const SourceSpan span = at != nullptr ? *at : send.span;
     const int spec = specialIndex(send.name);
     if (spec >= 0 && !send.isSuper) {
+      mark(span);
       emitU8U8(Op::SendSpecial, static_cast<std::uint8_t>(spec), send.argc);
       return;
     }
@@ -1027,6 +1087,7 @@ class Emitter {
     lit.kind = LitKind::Symbol;
     lit.text = send.name;
     const std::uint8_t li = intern(std::move(lit), send.span);
+    mark(span);
     emitU8U8(send.isSuper ? Op::SendSuper : Op::Send, li, send.argc);
   }
 
@@ -1052,6 +1113,7 @@ class Emitter {
     for (std::size_t i = 0; i + 1 < body.kids.size(); ++i) {
       compileStmt(body.kids[i]);
     }
+    mark(body.kids.back().span);
     compileExpr(body.kids.back());
   }
 
@@ -1075,6 +1137,8 @@ class Emitter {
   // SPEC §3.5. Each form leaves one value, like the send it replaces.
   void compileInlined(const Ast& send, Inline plan) {
     const Ast& rcvr = send.kids[0];
+    // SPEC §3.8: a conditional jump runs the receiver (a NonBoolean receiver points at it); an
+    // unconditional one runs the inlined send.
     switch (plan) {
       case Inline::IfTrue:
       case Inline::IfFalse:
@@ -1082,8 +1146,10 @@ class Emitter {
       case Inline::Or: {
         compileExpr(rcvr);
         const bool onTrue = plan == Inline::IfFalse || plan == Inline::Or;
+        mark(rcvr.span);
         const std::size_t skip = emitJump(onTrue ? Op::JumpTrue : Op::JumpFalse);
         compileInlinedValue(send.kids[1]);
+        mark(send.span);
         const std::size_t done = emitJump(Op::Jump);
         patchJump(skip);
         emit(plan == Inline::And ? Op::PushFalse : plan == Inline::Or ? Op::PushTrue : Op::PushNil);
@@ -1093,9 +1159,11 @@ class Emitter {
       case Inline::IfTrueIfFalse:
       case Inline::IfFalseIfTrue: {
         compileExpr(rcvr);
+        mark(rcvr.span);
         const std::size_t other =
             emitJump(plan == Inline::IfTrueIfFalse ? Op::JumpFalse : Op::JumpTrue);
         compileInlinedValue(send.kids[1]);
+        mark(send.span);
         const std::size_t done = emitJump(Op::Jump);
         patchJump(other);
         compileInlinedValue(send.kids[2]);
@@ -1106,8 +1174,10 @@ class Emitter {
       case Inline::WhileFalse: {
         const std::size_t top = image_.bytes.size();
         compileInlinedValue(rcvr);
+        mark(rcvr.span);
         const std::size_t exit = emitJump(plan == Inline::WhileTrue ? Op::JumpFalse : Op::JumpTrue);
         compileInlinedEffect(send.kids[1]);
+        mark(send.span);
         emitJumpBack(Op::Jump, top);
         patchJump(exit);
         emit(Op::PushNil);
@@ -1117,6 +1187,7 @@ class Emitter {
       case Inline::WhileFalseUnary: {
         const std::size_t top = image_.bytes.size();
         compileInlinedValue(rcvr);
+        mark(rcvr.span);
         emitJumpBack(plan == Inline::WhileTrueUnary ? Op::JumpTrue : Op::JumpFalse, top);
         emit(Op::PushNil);
         return;
@@ -1148,7 +1219,10 @@ class Emitter {
     const std::size_t top = image_.bytes.size();
     emitLoad(loopVar);
     emitLoad(limit);
+    // SPEC §3.8: the compare, the increment and the jumps run the to:do: send.
+    mark(send.span);
     emitSpecial(down ? ">=" : "<=");
+    mark(send.span);
     const std::size_t exit = emitJump(Op::JumpFalse);
     compileInlinedEffect(body);
     emitLoad(loopVar);
@@ -1157,8 +1231,10 @@ class Emitter {
     } else {
       emit(Op::PushOne);
     }
+    mark(send.span);
     emitSpecial("+");
     emitStore(loopVar, true);
+    mark(send.span);
     emitJumpBack(Op::Jump, top);
     patchJump(exit);
   }
@@ -1185,7 +1261,7 @@ class Emitter {
       if (i == 0) {
         compileSend(casc.kids[0], true);
       } else {
-        compileCascadePart(casc.kids[i]);
+        compileCascadePart(casc.kids[i], first.span.start);
       }
       if (!last) {
         emit(Op::Pop);
@@ -1195,11 +1271,13 @@ class Emitter {
 
   // A cascade part after the first (SPEC §3.8): its first message has no receiver child and goes
   // to the cascade receiver on the stack; each next message goes to the previous one's result.
-  void compileCascadePart(const Ast& msg) {
+  void compileCascadePart(const Ast& msg, std::uint32_t start) {
     if (hasReceiverChild(msg)) {
-      compileCascadePart(msg.kids[0]);
+      compileCascadePart(msg.kids[0], start);
     }
-    compileSend(msg, true);
+    // SPEC §3.8: a part's send spans from the cascade receiver, not only its selector.
+    const SourceSpan at{start, msg.span.end};
+    compileSend(msg, true, &at);
   }
 
   void compileVariable(const Ast& n) {

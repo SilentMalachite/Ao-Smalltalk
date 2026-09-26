@@ -114,9 +114,9 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1790171125.4525805,
-    "seen": 1790186161.5144992,
-    "ast_hash": "cd8eb3d5c12b4b55954d8c5e936c92ed",
+    "mtime": 1790399975.8006406,
+    "seen": 1790400162.648306,
+    "ast_hash": "f29e43bb0117b7fdb6b5ee13a3ba29eb",
     "semantic_hash": ""
   },
   "CMakeLists.txt": {
@@ -126,15 +126,15 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1790393938.133997,
-    "seen": 1790393954.595361,
+    "mtime": 1790394542.7626965,
+    "seen": 1790400162.648309,
     "ast_hash": "b37f1262804ecd71e050b79af2007d76",
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1790393951.6763318,
-    "seen": 1790393954.595361,
-    "ast_hash": "b9a76ad012f5aef3583c2c30316d7cf9",
+    "mtime": 1790400154.057131,
+    "seen": 1790400162.64831,
+    "ast_hash": "d0f1d56c43339cca18056ba87e7ca78e",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -144,9 +144,9 @@
     "semantic_hash": ""
   },
   "docs/README.md": {
-    "mtime": 1790393908.379825,
-    "seen": 1790393954.595364,
-    "ast_hash": "41c2d2e3fda40d50d0b719232b6bafbd",
+    "mtime": 1790399464.7761462,
+    "seen": 1790400162.648313,
+    "ast_hash": "38d2681a920a18dd960762e13c455723",
     "semantic_hash": ""
   },
   "docs/phases/P0.md": {
@@ -1110,20 +1110,20 @@
     "semantic_hash": ""
   },
   "CONTRIBUTING.ja.md": {
-    "mtime": 1790393938.1352735,
-    "seen": 1790393954.595359,
-    "ast_hash": "8ff6c2712da6522bac3d5f5d76072b18",
+    "mtime": 1790394542.7621856,
+    "seen": 1790400162.6483068,
+    "ast_hash": "d13b8b81307b65555a3e6da237b5d3f9",
     "semantic_hash": ""
   },
   "CONTRIBUTING.md": {
-    "mtime": 1790393938.1349385,
-    "seen": 1790393954.595359,
-    "ast_hash": "bd05cf348aaa82634d0d3e32b0569446",
+    "mtime": 1790394542.7623267,
+    "seen": 1790400162.648308,
+    "ast_hash": "17ca4dea3e542d5a740dec829cfc990d",
     "semantic_hash": ""
   },
   "README.ja.md": {
-    "mtime": 1790393938.1345322,
-    "seen": 1790393954.59536,
+    "mtime": 1790394542.7625015,
+    "seen": 1790400162.648309,
     "ast_hash": "70af9e714d67fd6087beaeb86d0d6df8",
     "semantic_hash": ""
   },
@@ -1620,9 +1620,69 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1790393938.1356287,
-    "seen": 1790393954.595357,
+    "mtime": 1790394542.7619796,
+    "seen": 1790400162.648305,
     "ast_hash": "e62bb62dcc17755273ecf0edccc3c6b9",
+    "semantic_hash": ""
+  },
+  "docs/phases/P10.md": {
+    "mtime": 1790399318.7480812,
+    "seen": 1790400162.648323,
+    "ast_hash": "ddbc00655ff6934c39df4a4d16ec70b3",
+    "semantic_hash": ""
+  },
+  "docs/phases/P11.md": {
+    "mtime": 1790399318.7517488,
+    "seen": 1790400162.648324,
+    "ast_hash": "74b6e13e5292ad13e8bf6c95ff37d988",
+    "semantic_hash": ""
+  },
+  "docs/prs/P10-01.md": {
+    "mtime": 1790399446.0199792,
+    "seen": 1790400162.648341,
+    "ast_hash": "31ad04cb46db920f075006da727797a9",
+    "semantic_hash": ""
+  },
+  "docs/prs/P10-02.md": {
+    "mtime": 1790399446.0225184,
+    "seen": 1790400162.6483421,
+    "ast_hash": "0c2e512521e7e667f23d0b996e7bd93f",
+    "semantic_hash": ""
+  },
+  "docs/prs/P10-03.md": {
+    "mtime": 1790399446.0250654,
+    "seen": 1790400162.6483421,
+    "ast_hash": "abf6518b651eee8305ab324c72bbbb47",
+    "semantic_hash": ""
+  },
+  "docs/prs/P10-04.md": {
+    "mtime": 1790399446.0275533,
+    "seen": 1790400162.648343,
+    "ast_hash": "1353afb4864a2edb073d68a6b6cce9d9",
+    "semantic_hash": ""
+  },
+  "docs/prs/P10-05.md": {
+    "mtime": 1790399446.0299966,
+    "seen": 1790400162.648343,
+    "ast_hash": "79c15c854b8f336fc717f21b7fe8afc1",
+    "semantic_hash": ""
+  },
+  "docs/prs/P10-06.md": {
+    "mtime": 1790399446.0323887,
+    "seen": 1790400162.648344,
+    "ast_hash": "fc3e95dca737daf379a94356f7abb4f2",
+    "semantic_hash": ""
+  },
+  "docs/prs/P10-07.md": {
+    "mtime": 1790399446.034735,
+    "seen": 1790400162.648345,
+    "ast_hash": "58c7a2ecc11e55bfd98d368cdd15f1a4",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-09-26-p10-debugger.md": {
+    "mtime": 1790399260.1708443,
+    "seen": 1790400162.6483772,
+    "ast_hash": "d4343c5ddd98efbea1410438dde02f76",
     "semantic_hash": ""
   }
 }

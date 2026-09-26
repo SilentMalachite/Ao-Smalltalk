@@ -48,6 +48,33 @@ struct Literal {
   ~Literal();
 };
 
+// One entry of the pc-to-source map (SPEC §3.8): the instruction at pc and the source it runs,
+// as UTF-8 byte offsets [start, end) from where the compiled text begins (a doIt's `doIt\n`
+// prefix included). A block's map uses the coordinates of its method's source.
+struct PcSpan {
+  std::uint32_t pc = 0;
+  std::uint32_t start = 0;
+  std::uint32_t end = 0;
+};
+
+enum class TempKind : std::uint8_t {
+  Arg,
+  Temp,     // a declared temp, also one of an inlined block
+  LoopVar,  // the loop variable of an inlined to:do:
+  Copied,   // an outer variable a block's closure copied
+};
+
+// A named temp of a frame (SPEC §3.8). The temp at `slot` holds the value, or, when vecIndex is
+// not -1, the temp vector that holds it at vecIndex. For a captured and assigned local, slot is
+// the vector's temp; for a Copied variable, slot is the copied value's temp (the copied vector's
+// when vecIndex is not -1).
+struct TempName {
+  std::string name;
+  TempKind kind = TempKind::Temp;
+  std::uint8_t slot = 0;
+  std::int16_t vecIndex = -1;
+};
+
 struct MethodImage {
   std::string selector;
   std::uint8_t numArgs = 0;
@@ -55,6 +82,9 @@ struct MethodImage {
   std::uint16_t primitive = 0;
   std::vector<std::uint8_t> bytes;
   std::vector<Literal> literals;
+  // Debug information (SPEC §3.8). Not part of the CompiledMethod or the image.
+  std::vector<PcSpan> pcMap;  // ascending pc
+  std::vector<TempName> temps;
 };
 
 inline Literal::Literal() = default;

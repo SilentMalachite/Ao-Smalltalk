@@ -1,0 +1,175 @@
+#include "ao/Bytecode.hpp"
+#include "ao/Compiler.hpp"
+
+#include <gtest/gtest.h>
+
+#include <cstddef>
+#include <string>
+#include <string_view>
+
+using ao::compiler::compileMethod;
+using ao::compiler::LitKind;
+using ao::compiler::MethodImage;
+using ao::compiler::Op;
+using ao::compiler::PcSpan;
+using ao::compiler::TempKind;
+using ao::compiler::TempName;
+
+namespace {
+
+// The pc of the first instruction `op` in image, or -1.
+int pcOf(const MethodImage& image, Op op) {
+  std::size_t pc = 0;
+  while (pc < image.bytes.size()) {
+    const auto at = static_cast<Op>(image.bytes[pc]);
+    if (at == op) {
+      return static_cast<int>(pc);
+    }
+    pc += 1 + ao::compiler::operandBytes(at);
+  }
+  return -1;
+}
+
+// The source text of the entry whose pc is exactly pc, or "<none>".
+std::string spanAt(const MethodImage& image, std::string_view source, int pc) {
+  for (const PcSpan& e : image.pcMap) {
+    if (static_cast<int>(e.pc) == pc) {
+      return std::string(source.substr(e.start, e.end - e.start));
+    }
+  }
+  return "<none>";
+}
+
+const MethodImage* firstBlock(const MethodImage& image) {
+  for (const auto& lit : image.literals) {
+    if (lit.kind == LitKind::Method) {
+      return lit.method.get();
+    }
+  }
+  return nullptr;
+}
+
+const TempName* named(const MethodImage& image, const std::string& name) {
+  for (const TempName& t : image.temps) {
+    if (t.name == name) {
+      return &t;
+    }
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+TEST(PcMap, SendPcMapsToSendSpan) {
+  const std::string src = "foo\n  ^self bar: 1";
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const int pc = pcOf(r.image, Op::Send);
+  ASSERT_GE(pc, 0);
+  EXPECT_EQ("self bar: 1", spanAt(r.image, src, pc));
+  for (std::size_t i = 1; i < r.image.pcMap.size(); ++i) {
+    EXPECT_LT(r.image.pcMap[i - 1].pc, r.image.pcMap[i].pc);
+  }
+}
+
+TEST(PcMap, InlinedConditionJumpMapsToReceiverSpan) {
+  const std::string src = "foo: x\n  ^x ifTrue: [1]";
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const int pc = pcOf(r.image, Op::JumpFalse);
+  ASSERT_GE(pc, 0);
+  EXPECT_EQ("x", spanAt(r.image, src, pc));
+}
+
+TEST(PcMap, ReturnBlockMapsToReturnStatement) {
+  const std::string src = "foo\n  [^1] value";
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const MethodImage* blk = firstBlock(r.image);
+  ASSERT_NE(nullptr, blk);
+  const int pc = pcOf(*blk, Op::ReturnBlock);
+  ASSERT_GE(pc, 0);
+  EXPECT_EQ("^1", spanAt(*blk, src, pc));
+}
+
+TEST(PcMap, BlockMethodHasItsOwnMapInMethodCoordinates) {
+  const std::string src = "foo\n  ^[:a | [a bar] value] value: 3";
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const MethodImage* outer = firstBlock(r.image);
+  ASSERT_NE(nullptr, outer);
+  const MethodImage* inner = firstBlock(*outer);
+  ASSERT_NE(nullptr, inner);
+  // value and value: are special selectors.
+  EXPECT_EQ("[a bar] value", spanAt(*outer, src, pcOf(*outer, Op::SendSpecial)));
+  EXPECT_EQ("a bar", spanAt(*inner, src, pcOf(*inner, Op::Send)));
+  EXPECT_EQ("[:a | [a bar] value] value: 3", spanAt(r.image, src, pcOf(r.image, Op::SendSpecial)));
+}
+
+TEST(PcMap, TempNamesListArgsTempsAndLoopVars) {
+  const std::string src = "foo: a with: b\n  | t u |\n  1 to: 3 do: [:i | t := i].\n  ^t";
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const auto& temps = r.image.temps;
+  ASSERT_EQ(5u, temps.size());
+  EXPECT_EQ("a", temps[0].name);
+  EXPECT_EQ(TempKind::Arg, temps[0].kind);
+  EXPECT_EQ(0, temps[0].slot);
+  EXPECT_EQ("b", temps[1].name);
+  EXPECT_EQ(TempKind::Arg, temps[1].kind);
+  EXPECT_EQ(1, temps[1].slot);
+  EXPECT_EQ("t", temps[2].name);
+  EXPECT_EQ(TempKind::Temp, temps[2].kind);
+  EXPECT_EQ(2, temps[2].slot);
+  EXPECT_EQ("u", temps[3].name);
+  EXPECT_EQ(TempKind::Temp, temps[3].kind);
+  EXPECT_EQ(3, temps[3].slot);
+  EXPECT_EQ("i", temps[4].name);
+  EXPECT_EQ(TempKind::LoopVar, temps[4].kind);
+  // Slot 4 is the hidden limit of to:do:, which has no name.
+  EXPECT_EQ(5, temps[4].slot);
+  for (const TempName& t : temps) {
+    EXPECT_EQ(-1, t.vecIndex) << t.name;
+  }
+}
+
+TEST(PcMap, RemoteTempNamesVectorSlotAndIndex) {
+  const std::string src = "foo: x\n  | s t |\n  [t := x. s := 2] value.\n  ^t";
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const TempName* s = named(r.image, "s");
+  const TempName* t = named(r.image, "t");
+  ASSERT_NE(nullptr, s);
+  ASSERT_NE(nullptr, t);
+  EXPECT_EQ(TempKind::Temp, t->kind);
+  // [x][vector]: the vector sits after the argument; s and t are in it in declaration order.
+  EXPECT_EQ(1, s->slot);
+  EXPECT_EQ(0, s->vecIndex);
+  EXPECT_EQ(1, t->slot);
+  EXPECT_EQ(1, t->vecIndex);
+}
+
+TEST(PcMap, CopiedOuterTempIsNamedInBlockScope) {
+  const std::string src = "foo: x\n  | t |\n  ^[:a | t := a + x] value: 2";
+  auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const MethodImage* blk = firstBlock(r.image);
+  ASSERT_NE(nullptr, blk);
+  const TempName* a = named(*blk, "a");
+  const TempName* x = named(*blk, "x");
+  const TempName* t = named(*blk, "t");
+  ASSERT_NE(nullptr, a);
+  ASSERT_NE(nullptr, x);
+  ASSERT_NE(nullptr, t);
+  EXPECT_EQ(TempKind::Arg, a->kind);
+  EXPECT_EQ(0, a->slot);
+  // The copied values follow the block's own temps, in the order the closure copies them.
+  EXPECT_EQ(TempKind::Copied, t->kind);
+  EXPECT_EQ(TempKind::Copied, x->kind);
+  EXPECT_EQ(-1, x->vecIndex);
+  EXPECT_EQ(0, t->vecIndex);
+  EXPECT_NE(t->slot, x->slot);
+  EXPECT_GE(t->slot, 1);
+  EXPECT_GE(x->slot, 1);
+  EXPECT_EQ(3u, blk->temps.size());
+}
