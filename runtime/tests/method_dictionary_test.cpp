@@ -213,3 +213,33 @@ TEST(MethodDictionary, RemoveKeyLeavesTheOthersFindableAndReusesThePair) {
   EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, ao::Oop::nil(), a));
   EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, dict, ao::Oop::fromSmallInteger(1)));
 }
+
+// SPEC §3.9 削除: a class's method dictionary can be replaced by anything (instVarAt:put:). A
+// pointer object too small to hold the array slot, a bytes object, or a dictionary whose array is
+// bytes answers false and changes nothing, without reading out of range.
+TEST(MethodDictionary, RemoveKeyOnMalformedDictionaryAnswersFalse) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  const ao::Oop key = ao::Symbol::intern(wk, "rkMalformed");
+  const ao::Oop empty = heap.allocateNoGc(ao::Oop::nil(), 0, 0);
+  ASSERT_TRUE(empty.isHeap());
+  EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, empty, key));
+  const ao::Oop oneSlot = heap.allocateNoGc(ao::Oop::nil(), 1, 0);
+  ASSERT_TRUE(oneSlot.isHeap());
+  heap.slotAtPut(oneSlot, ao::kDictSlotTally, ao::Oop::fromSmallInteger(1));
+  EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, oneSlot, key));
+  EXPECT_EQ(1, heap.slotAt(oneSlot, ao::kDictSlotTally).smallIntegerValue());
+  const ao::Oop bytes = heap.allocateNoGc(ao::Oop::nil(), 8, ao::kFlagBytes);
+  ASSERT_TRUE(bytes.isHeap());
+  EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, bytes, key));
+  const ao::Oop bytesInner = heap.allocateNoGc(ao::Oop::nil(), 8, ao::kFlagBytes);
+  ASSERT_TRUE(bytesInner.isHeap());
+  const ao::Oop dict = heap.allocateNoGc(wk.methodDictionaryClass, 2, 0);
+  ASSERT_TRUE(dict.isHeap());
+  heap.slotAtPut(dict, ao::kDictSlotTally, ao::Oop::fromSmallInteger(1));
+  heap.slotAtPut(dict, ao::kDictSlotArray, bytesInner);
+  EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, dict, key));
+  EXPECT_EQ(1, heap.slotAt(dict, ao::kDictSlotTally).smallIntegerValue());
+}

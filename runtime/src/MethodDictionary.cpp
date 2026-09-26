@@ -94,11 +94,14 @@ bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
 }
 
 bool removeKey(Heap& heap, Oop dict, Oop key) {
-  if (!dict.isHeap() || !key.isHeap()) {
+  // 辞書の枠は instVarAt:put: で何でも入る。バイトのオブジェクトや、配列の枠まで届かない小さな
+  // オブジェクト、配列がバイトのものは辞書でない。範囲の外を読まずに false を返す。
+  if (!dict.isHeap() || !key.isHeap() || (heap.flags(dict) & kFlagBytes) != 0 ||
+      heap.size(dict) <= kDictSlotArray) {
     return false;
   }
   const Oop inner = heap.slotAt(dict, kDictSlotArray);
-  if (!inner.isHeap()) {
+  if (!inner.isHeap() || (heap.flags(inner) & kFlagBytes) != 0) {
     return false;
   }
   const auto n = heap.size(inner);

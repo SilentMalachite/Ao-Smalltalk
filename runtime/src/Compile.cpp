@@ -515,7 +515,8 @@ bool isClassObject(CallContext& ctx, Oop obj) {
          ctx.heap.slotAt(meta, kClassSlotThisClass) == obj;
 }
 
-// SPEC §3.9 削除: what the live subclasses of cls (hasSubclass's classes) say for the refusal.
+// SPEC §3.9 削除: what the live subclasses of cls (every descendant, not only the direct ones
+// hasSubclass looks at) say for the refusal.
 struct SubclassProbe {
   bool any = false;
   // The smallest name, bytewise, among the subclasses whose name slot is a string; "" when none is.
@@ -525,7 +526,10 @@ struct SubclassProbe {
 SubclassProbe probeSubclasses(CallContext& ctx, Oop cls) {
   SubclassProbe probe;
   for (const Oop each : liveClasses(ctx)) {
-    if (superclassOf(ctx.heap, each) != cls) {
+    // A subclass is any descendant (SPEC §3.9「クラス定義の再 Accept」冒頭): cls anywhere in its
+    // superclass chain, itself excluded. chainIncludes walks at most kMaxSuperclassDepth steps and
+    // stops at nil or anything not class-shaped, so a broken or cyclic chain ends too.
+    if (each == cls || !chainIncludes(ctx.heap, superclassOf(ctx.heap, each), cls)) {
       continue;
     }
     probe.any = true;
@@ -1532,8 +1536,21 @@ bool removeMethodNamed(CallContext& ctx, std::string_view className, bool meta,
   const Oop cls = ctx.wk.named(className);
   const Oop side = meta ? ctx.heap.klass(cls) : cls;
   const std::string where = removedMethodName(className, meta, selector);
-  const Oop dict =
+  Oop dict =
       isClassShaped(ctx.heap, side) ? ctx.heap.slotAt(side, kClassSlotMethodDict) : Oop::nil();
+  // The slot can hold anything after instVarAt:put:. Read it as a dictionary only when it has the
+  // shape forgetMethodSourcesOf checks (a pointer object with the array slot, the array a pointer
+  // object), so MethodDictionary::at reads nothing out of range; anything else holds no selector.
+  if (dict.isHeap() && ((ctx.heap.flags(dict) & kFlagBytes) != 0 ||
+                        ctx.heap.size(dict) <= kDictSlotArray)) {
+    dict = Oop::nil();
+  }
+  if (dict.isHeap()) {
+    const Oop inner = ctx.heap.slotAt(dict, kDictSlotArray);
+    if (!inner.isHeap() || (ctx.heap.flags(inner) & kFlagBytes) != 0) {
+      dict = Oop::nil();
+    }
+  }
   // findSymbol allocates nothing; an unknown selector is one no dictionary can hold.
   const Oop sel = ctx.wk.findSymbol(selector);
   const Oop method =

@@ -22,8 +22,9 @@ bool atPut(Heap& heap, Oop dict, Oop key, Oop value);
 
 // SPEC §3.9 削除: takes key's pair out: the pair goes nil/nil and the tally drops by one. The
 // other pairs stay where they are, so at finds each of them still, and the next atPut takes the
-// emptied pair. False when dict is not a dictionary, key is not a heap object, or dict does not
-// hold key. Allocates nothing.
+// emptied pair. False when dict is not a dictionary (not a pointer object with the array slot, or
+// its array is not a pointer object: a slot rewritten with instVarAt:put:), key is not a heap
+// object, or dict does not hold key. Reads nothing out of range. Allocates nothing.
 bool removeKey(Heap& heap, Oop dict, Oop key);
 }
 

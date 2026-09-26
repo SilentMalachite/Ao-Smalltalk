@@ -611,3 +611,48 @@ TEST_F(RemoveAbi, LongNameCutsTheMessageAt255Bytes) {
   EXPECT_EQ(255u, got.size());
   EXPECT_EQ(("not a class: " + name).substr(0, 255), got);
 }
+
+// SPEC §3.9 削除: the method dictionary slot can hold anything after instVarAt:put: (kClassSlotMethodDict
+// is slot 1, index 2). An empty Array, a one-slot Array, a String, and a two-slot Array whose array
+// slot is a String are no dictionary: the removal is refused as "selector not found" without
+// reading out of range, and nothing changes. Put back, the dictionary still answers the method.
+TEST_F(RemoveAbi, RemoveMethodFromMalformedDictionaryIsRefused) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, defineClass("B12Bad", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Bad", 0, "foo\n  ^1\n", &err)) << err.message;
+  EXPECT_EQ("1", printIt("B12Bad new foo"));
+  const std::string saved = printIt("b12dict := B12Bad instVarAt: 2");
+  ASSERT_NE(0u, saved.find('<')) << saved;
+  const std::string arr = printIt("b12arr := Array new: 2. b12arr at: 2 put: 'xy'");
+  ASSERT_NE(0u, arr.find('<')) << arr;
+  int rc = -9;
+  for (const char* bad : {"Array new: 0", "Array new: 1", "'abc'", "b12arr"}) {
+    const std::string put = std::string("B12Bad instVarAt: 2 put: (") + bad + ")";
+    ASSERT_NE(0u, printIt(put.c_str()).find('<')) << bad;
+    EXPECT_EQ("selector not found: B12Bad>>foo", tryRemoveMethod("B12Bad", 0, "foo", &rc)) << bad;
+    EXPECT_EQ(AO_ERR, rc) << bad;
+  }
+  ASSERT_NE(0u, printIt("B12Bad instVarAt: 2 put: b12dict").find('<'));
+  EXPECT_EQ("1", printIt("B12Bad new foo"));
+  EXPECT_EQ("", tryRemoveMethod("B12Bad", 0, "foo", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  expectDnu("B12Bad new foo", "foo");
+}
+
+// SPEC §3.9 削除: a subclass is any descendant, not only a direct child. With B12Deep → B12DeepZ →
+// B12DeepA the smallest name among all of them is B12DeepA.
+TEST_F(RemoveAbi, RemoveClassNamesTheSmallestDescendant) {
+  ASSERT_EQ(AO_OK, defineClass("B12Deep", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, defineClass("B12DeepZ", "B12Deep", "B12-Test"));
+  ASSERT_EQ(AO_OK, defineClass("B12DeepA", "B12DeepZ", "B12-Test"));
+  int rc = -9;
+  EXPECT_EQ("class removal refused: B12Deep has subclass B12DeepA", tryRemoveClass("B12Deep", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("class removal refused: B12DeepZ has subclass B12DeepA",
+            tryRemoveClass("B12DeepZ", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("", tryRemoveClass("B12DeepA", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ("class removal refused: B12Deep has subclass B12DeepZ", tryRemoveClass("B12Deep", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+}
