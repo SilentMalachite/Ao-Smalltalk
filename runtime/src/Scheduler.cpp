@@ -9,6 +9,7 @@
 #include "ao/Send.hpp"
 
 #include "Fiber.hpp"
+#include "InterpFrame.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -42,9 +43,20 @@ std::int64_t ocSize(Heap& heap, Oop oc) {
   return l < f ? 0 : l - f + 1;
 }
 
+// SPEC §3.13: the scheduler's own sends (its lists) never halt the process that runs them: a
+// halt there would leave a list and the C++ queue half updated.
+struct NoHalt {
+  CallContext& ctx;
+  explicit NoHalt(CallContext& c) : ctx(c) { ++ctx.haltSuppressed; }
+  ~NoHalt() { --ctx.haltSuppressed; }
+  NoHalt(const NoHalt&) = delete;
+  NoHalt& operator=(const NoHalt&) = delete;
+};
+
 // Sends add: (the Kernel native). May collect; unwinding afterwards when it failed, and then the
 // collection is as it was.
 Oop ocAdd(CallContext& ctx, Oop oc, Oop value) {
+  const NoHalt noHalt(ctx);
   Root list(ctx.roots, oc);
   Root v(ctx.roots, value);
   Root sel(ctx.roots, ctx.wk.intern("add:"));
@@ -173,6 +185,7 @@ bool ocRemoveIdentity(Heap& heap, Oop oc, Oop target) {
 // The OrderedCollection in holder's slot, made (OrderedCollection new) when the slot holds
 // something else. Empty when holder has no such slot, or when making one failed (unwinding).
 Oop ensureOc(CallContext& ctx, Root& holder, std::uint32_t slot) {
+  const NoHalt noHalt(ctx);
   if (!hasSlots(ctx.heap, holder.slot, slot)) {
     return Oop{};
   }
@@ -229,7 +242,7 @@ struct Scheduler::Record {
   Scheduler* owner = nullptr;
   std::uint64_t id = 0;
   Oop process = Oop::nil();
-  Oop block = Oop::nil();      // the forked block; nil for the base
+  Oop block = Oop::nil();      // the forked block (an evaluating process's doIt); nil for the base
   Oop waitingOn = Oop::nil();  // the Semaphore whose linkedList holds it, while it waits on one
   // The Semaphore whose signal took it out of the linkedList, until it runs again (returns from
   // wait): a terminate meanwhile gives the signal back (SPEC §3.4).
@@ -241,15 +254,24 @@ struct Scheduler::Record {
   Roots::Stack rootStack;  // its LIFO roots while it is parked; empty while it runs
   State state = State::Suspended;
   bool started = false;             // the block has begun (the base: always)
-  bool awaitingTerminate = false;   // waiting for a process it terminates to end or switch
+  // Waiting for the process it switched to (a terminate, or the base's evaluation) to end or
+  // switch away.
+  bool awaitingTerminate = false;
   bool terminateRequested = false;  // unwind with "process terminated" when it runs next
   bool terminated = false;          // ends by terminate: not a failure
   bool abandon = false;             // ends without cleanups (SPEC §3.4 abandon)
-  bool deadlockPending = false;     // the base: abort its blocked operation when it runs next
+  // Abort its blocked operation with the deadlock when it runs next: the base's (SPEC §3.4), or
+  // an evaluating process's (SPEC §3.13).
+  bool deadlockPending = false;
   bool outOfMemory = false;         // its out-of-memory mark while it does not run (SPEC §3.4)
+  bool isEval = false;              // an evaluating process (SPEC §3.13): block is the doIt
+  int evalMode = 0;                 // the ao_eval mode it answers for
+  // While Halted (SPEC §3.13): why, and whether Proceed and Step may go on.
+  std::string haltReason;
+  bool proceedable = false;
   Record* resumeTo = nullptr;       // who it goes back to when it next switches away
   bool isBase() const { return ownCtx == nullptr; }
-};
+};;
 
 namespace {
 
@@ -267,17 +289,24 @@ void unrootRecord(Roots& roots, Oop* process, Oop* block, Oop* waitingOn, Oop* s
   roots.remove(process);
 }
 
+// SPEC §3.10: a pid is never used again in this OS process, not even by a later session.
+std::uint64_t nextProcessId() {
+  static std::uint64_t next = 1;
+  return next++;
+}
+
 }  // namespace
 
 Scheduler::Scheduler(CallContext& base) : base_(base) {
   auto rec = std::make_unique<Record>();
   rec->owner = this;
-  rec->id = nextId_++;
+  rec->id = nextProcessId();
   rec->ctx = &base_;
   rec->state = State::Running;
   rec->started = true;
   rootRecord(base_.roots, &rec->process, &rec->block, &rec->waitingOn, &rec->signaledBy);
   base_.roots.attachStack(&rec->rootStack);
+  base_.roots.add(&evalValue_);
   current_ = rec.get();
   records_.push_back(std::move(rec));
   base_.scheduler = this;
@@ -289,6 +318,7 @@ Scheduler::~Scheduler() {
     terminateAll(true);
   }
   Record& b = base();
+  base_.roots.remove(&evalValue_);
   unrootRecord(base_.roots, &b.process, &b.block, &b.waitingOn, &b.signaledBy);
   base_.roots.detachStack(&b.rootStack);
   if (base_.scheduler == this) {
@@ -352,36 +382,237 @@ Oop Scheduler::fork(CallContext& ctx, Oop block) {
   if (unwinding(ctx) || !hasSlots(heap, proc.slot, kProcessSlotMyList)) {
     return Oop{};
   }
-  heap.slotAtPut(proc.slot, kProcessSlotNextLink, Oop::nil());
   heap.slotAtPut(proc.slot, kProcessSlotSuspendedContext, blk.slot);
-  heap.slotAtPut(proc.slot, kProcessSlotPriority, Oop::fromSmallInteger(0));
-  heap.slotAtPut(proc.slot, kProcessSlotMyList, Oop::nil());
+  Record* r = addFiber(ctx, proc.slot, blk.slot);
+  if (r == nullptr) {
+    return Oop{};
+  }
+  if (!enqueue(ctx, *r)) {
+    r->state = State::Dead;
+    reapDead();
+    return Oop{};
+  }
+  return r->process;
+}
+
+// A new fiber's record for the Process `process` (its slots set here but the suspendedContext)
+// running `block`, left suspended in no list. Null when no stack can be had: ctx then aborts with
+// too many processes (SPEC §3.4 fork).
+Scheduler::Record* Scheduler::addFiber(CallContext& ctx, Oop process, Oop block) {
+  Heap& heap = ctx.heap;
+  heap.slotAtPut(process, kProcessSlotNextLink, Oop::nil());
+  heap.slotAtPut(process, kProcessSlotPriority, Oop::fromSmallInteger(0));
+  heap.slotAtPut(process, kProcessSlotMyList, Oop::nil());
   FiberStack stack = FiberStack::acquire();
   if (!stack.valid()) {
-    return abortEvaluation(ctx, "too many processes");
+    abortEvaluation(ctx, "too many processes");
+    return nullptr;
   }
   auto rec = std::make_unique<Record>();
   Record& r = *rec;
   r.owner = this;
-  r.id = nextId_++;
+  r.id = nextProcessId();
   r.stack = std::move(stack);
   r.ownCtx.reset(new CallContext{base_.heap, base_.roots, base_.wk, base_.cache});
   r.ctx = r.ownCtx.get();
   r.ctx->scheduler = this;
   r.ctx->fiberStackLow = reinterpret_cast<std::uintptr_t>(r.stack.low());
   r.ctx->fiberStackHigh = reinterpret_cast<std::uintptr_t>(r.stack.high());
-  r.process = proc.slot;
-  r.block = blk.slot;
+  r.process = process;
+  r.block = block;
   rootRecord(base_.roots, &r.process, &r.block, &r.waitingOn, &r.signaledBy);
   base_.roots.attachStack(&r.rootStack);
   fiberInit(r.regs, r.stack, &Scheduler::fiberEntry, &r);
   records_.push_back(std::move(rec));
-  if (!enqueue(ctx, r)) {
-    r.state = State::Dead;
-    reapDead();
-    return Oop{};
+  return &r;
+}
+
+std::uint64_t Scheduler::forkEval(CallContext& ctx, Oop method, int mode, bool debugIt) {
+  assert(current_ == &base() && "forkEval runs on the base process");
+  Heap& heap = ctx.heap;
+  WellKnown& wk = ctx.wk;
+  Root meth(ctx.roots, method);
+  // SPEC §3.13: an evaluating process counts against the limit as a fork does.
+  if (liveFibers() >= kMaxFibers) {
+    abortEvaluation(ctx, "too many processes");
+    return 0;
   }
-  return r.process;
+  Root proc(ctx.roots, send(ctx, wk.processClass, wk.selNew, nullptr, 0, nullptr));
+  if (unwinding(ctx)) {
+    return 0;
+  }
+  if (!hasSlots(heap, proc.slot, kProcessSlotMyList)) {
+    abortEvaluation(ctx, "evaluation failed");
+    return 0;
+  }
+  heap.slotAtPut(proc.slot, kProcessSlotSuspendedContext, Oop::nil());
+  Record* r = addFiber(ctx, proc.slot, meth.slot);
+  if (r == nullptr) {
+    return 0;
+  }
+  r->isEval = true;
+  r->evalMode = mode;
+  if (debugIt) {
+    r->ctx->stepMode = StepMode::DebugIt;
+  }
+  return r->id;
+}
+
+Scheduler::EvalEnd Scheduler::awaitEval(std::uint64_t pid) {
+  assert(current_ == &base() && "awaitEval runs on the base process");
+  awaited_ = pid;
+  evalEnd_ = EvalEnd::Failed;
+  evalReason_ = "evaluation failed";
+  evalValue_ = Oop::nil();
+  if (Record* r = findId(pid); r != nullptr && r->state != State::Dead) {
+    runAwaited(*r);
+  }
+  for (;;) {
+    Record* r = findId(pid);
+    if (r == nullptr || r->state == State::Dead) {
+      break;  // runFiber set the outcome
+    }
+    if (r->state == State::Halted) {
+      evalEnd_ = EvalEnd::Halted;
+      evalReason_ = r->haltReason;
+      break;
+    }
+    // The base's own abort (a deadlock while it sat in the queue) is not the evaluation's.
+    if (unwinding(base_)) {
+      clearUnwinding(base_);
+    }
+    if (ready_.empty()) {
+      // SPEC §3.13: it waits and nothing else can run. Its operation is undone and it aborts with
+      // the deadlock, on itself, so its cleanups run there.
+      leaveLists(*r);
+      r->deadlockPending = true;
+      runAwaited(*r);
+      continue;
+    }
+    yield(base_);
+  }
+  if (unwinding(base_)) {
+    clearUnwinding(base_);
+  }
+  awaited_ = 0;
+  return evalEnd_;
+}
+
+// Switches from the base to r (in no list) until r ends or switches away: the base waits for it
+// the way a terminate waits (takeNext brings it back).
+void Scheduler::runAwaited(Record& r) {
+  Record& b = base();
+  r.resumeTo = &b;
+  b.state = State::Waiting;
+  b.awaitingTerminate = true;
+  switchTo(r);
+  afterResume(base_, b);
+}
+
+bool Scheduler::runningEval() const { return current_->isEval; }
+
+
+bool Scheduler::canHalt(const CallContext& ctx) const {
+  const Record& me = *current_;
+  return me.isEval && me.id == awaited_ && me.ctx == &ctx && !ctx.aborting && !ctx.abandoning &&
+         ctx.abortSetAside == 0 && ctx.haltSuppressed == 0 && !me.abandon &&
+         !me.terminateRequested && haltedCount() < kMaxHalted;
+}
+
+bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
+  Record& me = *current_;
+  assert(canHalt(ctx) && "halt needs canHalt");
+  // Any halt ends a step: the next Step sets its own mark.
+  ctx.stepMode = StepMode::None;
+  me.haltReason = std::move(reason);
+  me.proceedable = proceedable;
+  me.state = State::Halted;
+  me.resumeTo = nullptr;
+  lastHalted_ = me.id;
+  // SPEC §3.13: back to the base, which waits for this process or sits in the ready queue.
+  Record& b = base();
+  leaveLists(b);
+  switchTo(b);
+  me.haltReason.clear();
+  me.proceedable = false;
+  if (!afterResume(ctx, me)) {
+    return false;
+  }
+  ++ctx.haltProceeds;
+  ctx.proceededAt = ctx.topFrame;
+  return true;
+}
+
+std::size_t Scheduler::haltedCount() const {
+  std::size_t n = 0;
+  for (const auto& r : records_) {
+    if (r->state == State::Halted) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+std::uint64_t Scheduler::lastHaltedPid() const { return isHalted(lastHalted_) ? lastHalted_ : 0; }
+
+const CallContext* Scheduler::haltedContext(std::uint64_t pid, const std::string** reason) const {
+  const Record* r = pid != 0 ? findId(pid) : nullptr;
+  if (r == nullptr || r->state != State::Halted) {
+    return nullptr;
+  }
+  if (reason != nullptr) {
+    *reason = &r->haltReason;
+  }
+  return r->ctx;
+}
+
+bool Scheduler::canProceed(std::uint64_t pid) const {
+  const Record* r = pid != 0 ? findId(pid) : nullptr;
+  return r != nullptr && r->state == State::Halted && r->proceedable;
+}
+
+bool Scheduler::isHalted(std::uint64_t pid) const {
+  const Record* r = pid != 0 ? findId(pid) : nullptr;
+  return r != nullptr && r->state == State::Halted;
+}
+
+
+int Scheduler::evalModeOf(std::uint64_t pid) const {
+  const Record* r = pid != 0 ? findId(pid) : nullptr;
+  return r != nullptr && r->isEval ? r->evalMode : 0;
+}
+
+Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid) {
+  assert(current_ == &base() && "proceed runs on the base process");
+  Record* r = findId(pid);
+  assert(r != nullptr && r->state == State::Halted && r->proceedable && "proceed needs canProceed");
+  // In no list: awaitEval switches to it, and its halt returns true.
+  r->state = State::Suspended;
+  return awaitEval(pid);
+}
+
+Scheduler::EvalEnd Scheduler::step(std::uint64_t pid, StepMode mode) {
+  Record* r = findId(pid);
+  assert(r != nullptr && r->state == State::Halted && r->proceedable && "step needs canProceed");
+  CallContext& c = *r->ctx;
+  c.stepMode = mode;
+  c.stepDepth = c.topFrame != nullptr ? c.topFrame->depth : 0;
+  return proceed(pid);
+}
+
+bool Scheduler::abortHalted(std::uint64_t pid) {
+  assert(current_ == &base() && "abortHalted runs on the base process");
+  Record* r = findId(pid);
+  if (r == nullptr || r->state != State::Halted) {
+    return false;
+  }
+  // SPEC §3.13: a terminate from the base. It comes back when the process ends or first switches
+  // away (a cleanup that waits); the rest runs in the drains to come.
+  terminate(base_, r->process);
+  if (unwinding(base_)) {
+    clearUnwinding(base_);
+  }
+  return true;
 }
 
 bool Scheduler::yield(CallContext& ctx) {
@@ -469,7 +700,9 @@ bool Scheduler::signal(CallContext& ctx, Oop semaphore) {
 
 bool Scheduler::suspend(CallContext& ctx, Oop process) {
   Record* r = find(process);
-  if (r == nullptr || r->state == State::Dead || r->state == State::Suspended) {
+  // SPEC §3.13: a halted process stays halted; only the debugger or a terminate moves it.
+  if (r == nullptr || r->state == State::Dead || r->state == State::Suspended ||
+      r->state == State::Halted) {
     return true;
   }
   if (r != current_) {
@@ -543,6 +776,8 @@ bool Scheduler::terminate(CallContext& ctx, Oop process) {
 }
 
 bool Scheduler::nextPut(CallContext& ctx, Oop queue, Oop value) {
+  // SPEC §3.13: the element is taken out again when the signal fails; no halt in between.
+  const NoHalt noHalt(ctx);
   Heap& heap = ctx.heap;
   Root q(ctx.roots, queue);
   Root v(ctx.roots, value);
@@ -685,22 +920,32 @@ void Scheduler::runFiber(Record& me) {
   try {
     clearUnwinding(ctx);
     refreshStackLimit(ctx);
-    const Oop result = send(ctx, me.block, base_.wk.selValue, nullptr, 0, nullptr);
-    if (!me.terminated && !me.abandon) {
-      if (result.isEmpty() && ctx.aborting) {
-        recordFailure(abortReasonText(ctx));
-      } else if (base_.heap.outOfMemory()) {
-        // SPEC §3.4: an allocation failed, yet the body ran to its end without an abort.
-        recordFailure("out of memory");
-      } else if (result.isEmpty()) {
-        // Not an abort: a ^ whose home is in another process came back to the body (SPEC §3.4).
-        recordFailure("non-local return to another process");
+    if (me.isEval) {
+      // SPEC §3.13: the doIt is applied, not sent value; its outcome is the base's to answer.
+      const Oop result = applyMethod(ctx, me.block, Oop::nil(), nullptr, 0, Oop::nil());
+      endEval(me, ctx, result);
+    } else {
+      const Oop result = send(ctx, me.block, base_.wk.selValue, nullptr, 0, nullptr);
+      if (!me.terminated && !me.abandon) {
+        if (result.isEmpty() && ctx.aborting) {
+          recordFailure(abortReasonText(ctx));
+        } else if (base_.heap.outOfMemory()) {
+          // SPEC §3.4: an allocation failed, yet the body ran to its end without an abort.
+          recordFailure("out of memory");
+        } else if (result.isEmpty()) {
+          // Not an abort: a ^ whose home is in another process came back to the body (SPEC §3.4).
+          recordFailure("non-local return to another process");
+        }
       }
     }
   } catch (...) {
     // SPEC §3.4 プロセスの失敗: no exception crosses a fiber's entry (Fiber.hpp). The native
     // frames on the way were popped as it unwound.
-    if (!me.terminated && !me.abandon) {
+    if (me.isEval) {
+      clearUnwinding(ctx);
+      abortEvaluationQuiet(ctx, "internal error");
+      endEval(me, ctx, Oop{});
+    } else if (!me.terminated && !me.abandon) {
       recordFailure("internal error");
     }
   }
@@ -708,6 +953,30 @@ void Scheduler::runFiber(Record& me) {
   ctx.abandoning = false;
   base_.heap.clearOutOfMemory();
   assert(base_.roots.runningStack().empty() && "a fiber ends with no LIFO roots");
+}
+
+// SPEC §3.13: how the evaluating process me ended, for the base that waits for it. Nothing when
+// no one waits (it was abandoned, or aborted while halted).
+void Scheduler::endEval(Record& me, CallContext& ctx, Oop result) {
+  if (me.abandon || me.id != awaited_) {
+    return;
+  }
+  evalEnd_ = EvalEnd::Failed;
+  if (me.terminated) {
+    evalReason_ = "process terminated";
+  } else if (ctx.aborting) {
+    evalReason_ = abortReasonText(ctx);
+    if (evalReason_.empty()) {
+      evalReason_ = "evaluation aborted";
+    }
+  } else if (base_.heap.outOfMemory()) {
+    evalReason_ = "out of memory";
+  } else if (result.isEmpty()) {
+    evalReason_ = "evaluation failed";
+  } else {
+    evalEnd_ = EvalEnd::Finished;
+    evalValue_ = result;
+  }
 }
 
 // The fiber is done: it switches away for good, to whoever it goes back to, else to the next
@@ -893,6 +1162,7 @@ void Scheduler::switchTo(Record& to) {
     to.ctx->inspectHook = base_.inspectHook;
     to.ctx->bindingHook = base_.bindingHook;
     to.ctx->debug = base_.debug;
+    to.ctx->statementHook = base_.statementHook;
   }
   if (hasSlots(heap, base_.wk.processor, kSchedulerSlotActive)) {
     heap.slotAtPut(base_.wk.processor, kSchedulerSlotActive, to.process);

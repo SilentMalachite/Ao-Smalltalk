@@ -85,6 +85,9 @@ struct MethodImage {
   // Debug information (SPEC §3.8). Not part of the CompiledMethod or the image.
   std::vector<PcSpan> pcMap;  // ascending pc
   std::vector<TempName> temps;
+  // The pc of each statement's first instruction, the statements of inlined blocks too;
+  // ascending, no repeats (SPEC §3.8 文の先頭表, the step of §3.13).
+  std::vector<std::uint32_t> statementPcs;
 };
 
 inline Literal::Literal() = default;

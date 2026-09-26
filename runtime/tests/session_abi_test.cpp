@@ -5,6 +5,7 @@
 #include "../src/Fiber.hpp"
 #include "../src/Session.hpp"
 #include "ao/Gc.hpp"
+#include "ao/Interpreter.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -29,6 +30,7 @@ class SessionAbi : public ::testing::Test {
     ao_set_transcript_hook(nullptr, nullptr);
     ao_set_inspect_hook(nullptr, nullptr);
     ao::setSessionDebugCapture(false);
+    ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
   }
 };
 
@@ -1405,4 +1407,156 @@ TEST_F(SessionAbi, NextEvalClearsSnapshot) {
   ao::setSessionDebugCapture(false);
   ASSERT_EQ(AO_ERR_EVAL, evalDoIt("nil foo"));
   EXPECT_TRUE(s.debug.empty());
+}
+
+// ---- P11: the evaluating process of the live mode (SPEC §3.13 評価プロセス) ----
+
+// SPEC §3.13: in live mode the doIt runs on its own process. Processor activeProcess there is not
+// the base, the Print it answers the doIt's value, and the process is gone afterwards.
+TEST_F(SessionAbi, LiveModeRunsDoItOnEvalProcess) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalDoIt("base := Processor activeProcess"));
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == base", out, 64, &err)) << err.message;
+  EXPECT_STREQ("false", out);
+  ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+  EXPECT_FALSE(ao::interpreterRunning(*ao::session()->ctx));
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == base", out, 64, &err)) << err.message;
+  EXPECT_STREQ("true", out);
+}
+
+// SPEC §3.13: the evaluating process's abort is the ao_eval's failure, not a process failure, and
+// its capture replaces the snapshot as the base's does. (subclassResponsibility is a failure the
+// live debugger does not halt on.)
+TEST_F(SessionAbi, LiveModeErrorAnswersEvalErrorAndCaptures) {
+  ao::setSessionDebugCapture(true);
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ao::Session& s = *ao::session();
+  char out[64];
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("[nil bar] fork. Processor yield. nil subclassResponsibility",
+                                   out, 64, &err));
+  EXPECT_STREQ("subclassResponsibility", err.message);
+  EXPECT_STREQ("", out);
+  EXPECT_EQ(1u, s.scheduler->processFailures());
+  EXPECT_EQ("doesNotUnderstand: #bar", s.scheduler->lastFailureReason());
+  ASSERT_FALSE(s.debug.empty());
+  EXPECT_EQ("subclassResponsibility", s.debug.reason());
+  EXPECT_EQ(s.doItDebug->method, s.debug.method(1));
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("nil shouldNotImplement", out, 64, &err));
+  EXPECT_EQ(1u, s.scheduler->processFailures());
+  EXPECT_EQ(0u, s.scheduler->liveFibers());
+}
+
+// SPEC §3.13: an evaluating process that waits with nothing else to run fails with the deadlock;
+// its ensure: blocks run on it, and the base goes on.
+TEST_F(SessionAbi, LiveModeDeadlockFailsEvalProcessAndRunsEnsure) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectTranscript, &seen);
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR_EVAL,
+            evalPrint("[Semaphore new wait] ensure: [Transcript show: 'done']", out, 64, &err));
+  EXPECT_STREQ("deadlock: no runnable process", err.message);
+  EXPECT_EQ(std::vector<std::string>{"done"}, seen);
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+  EXPECT_EQ(0u, ao::session()->scheduler->processFailures());
+  ASSERT_EQ(AO_OK, evalPrint("3 + 4", out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+}
+
+// SPEC §3.13: workspace bindings are shared between the base and the evaluating processes.
+TEST_F(SessionAbi, LiveModeSharesWorkspaceBindings) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalDoIt("x := 4"));
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, evalDoIt("y := x + 1"));
+  ASSERT_EQ(AO_OK, evalPrint("y * 2", out, 64, &err)) << err.message;
+  EXPECT_STREQ("10", out);
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_OK, evalPrint("y", out, 64, &err)) << err.message;
+  EXPECT_STREQ("5", out);
+}
+
+// SPEC §3.13: the evaluating process switches as the base would; the answer and the drain match.
+TEST_F(SessionAbi, LiveModeForkAndYieldMatchesBase) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectTranscript, &seen);
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalPrint("| n | n := 0. [n := n + 1] fork. Processor yield. n", out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("1", out);
+  ASSERT_EQ(AO_OK, evalPrint("n := 0. [n := 5] fork. n", out, 64, &err)) << err.message;
+  EXPECT_STREQ("0", out);
+  ASSERT_EQ(AO_OK, evalPrint("n", out, 64, &err)) << err.message;
+  EXPECT_STREQ("5", out);
+  ASSERT_EQ(AO_OK, evalDoIt("s := Semaphore new. [s signal] fork. s wait. Transcript show: 'ok'"));
+  EXPECT_EQ(std::vector<std::string>{"ok"}, seen);
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+}
+
+// SPEC §3.13: terminating the evaluating process from itself is no failure and not captured; the
+// ao_eval has no value and answers process terminated.
+TEST_F(SessionAbi, LiveModeSelfTerminateAnswersProcessTerminated) {
+  ao::setSessionDebugCapture(true);
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR_EVAL, evalPrint("Processor activeProcess terminate. 3", out, 64, &err));
+  EXPECT_STREQ("process terminated", err.message);
+  EXPECT_TRUE(ao::session()->debug.empty());
+  EXPECT_EQ(0u, ao::session()->scheduler->processFailures());
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+}
+
+// SPEC §3.13: without the live mode nothing changes (the base runs the doIt), and an unknown mode
+// value leaves the setting as it was.
+TEST_F(SessionAbi, DefaultModeUnchanged) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalDoIt("base := Processor activeProcess"));
+  ao_set_debug_mode(7);
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == base", out, 64, &err)) << err.message;
+  EXPECT_STREQ("true", out);
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ao_set_debug_mode(-1);
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == base", out, 64, &err)) << err.message;
+  EXPECT_STREQ("false", out);
+}
+
+// SPEC §3.10: the mode is kept across shutdown, boot and load, like the capture setting.
+TEST_F(SessionAbi, DebugModeSurvivesBootAndLoad) {
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, evalDoIt("base := Processor activeProcess"));
+  const char* path = "session-abi-debug-mode.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ASSERT_EQ(AO_OK, ao_image_load(path, &err)) << err.message;
+  ASSERT_EQ(AO_OK, evalPrint("Processor activeProcess == Processor activeProcess", out, 64, &err));
+  ASSERT_EQ(AO_OK, evalDoIt("b2 := Processor activeProcess"));
+  ASSERT_EQ(AO_OK, evalPrint("b2 == Processor activeProcess", out, 64, &err)) << err.message;
+  EXPECT_STREQ("false", out);
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("b3 := Processor activeProcess"));
+  ASSERT_EQ(AO_OK, evalPrint("b3 == Processor activeProcess", out, 64, &err)) << err.message;
+  EXPECT_STREQ("false", out);
+  std::remove(path);
 }

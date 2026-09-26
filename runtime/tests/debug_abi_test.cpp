@@ -4,6 +4,7 @@
 
 // The snapshot's pinned roots (ClearDropsRoots). Not a public header.
 #include "../src/Session.hpp"
+#include "ao/Gc.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -28,11 +29,17 @@ class DebugAbi : public ::testing::Test {
     ao_set_transcript_hook(nullptr, nullptr);
     ao_set_inspect_hook(nullptr, nullptr);
     ao_set_debug_capture(0);
+    ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
   }
 
   int doIt(const char* src) {
     err_ = AoSpan{};
     return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DOIT, out_, sizeof out_, &err_);
+  }
+  int printIt(const char* src) {
+    err_ = AoSpan{};
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out_, sizeof out_,
+                   &err_);
   }
 
   void defineClass(const char* name) {
@@ -591,6 +598,614 @@ TEST_F(DebugAbi, CaptureSettingSurvivesBootAndLoad) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   ASSERT_EQ(AO_ERR_EVAL, doIt("nil foo"));
   EXPECT_EQ(0, ao_debug_frame_count());
+}
+
+
+// ---- P11: the live debugger (SPEC §3.13 ライブデバッガ, §3.10 ライブデバッガの操作) ----
+
+void collectChunks(const char* utf8, int len, int is_clear, void* user) {
+  auto* chunks = static_cast<std::vector<std::string>*>(user);
+  if (is_clear == 0 && utf8 != nullptr && len >= 0) {
+    chunks->emplace_back(utf8, static_cast<std::size_t>(len));
+  }
+}
+
+class LiveDebug : public DebugAbi {
+ protected:
+  void SetUp() override {
+    ao_set_debug_mode(AO_DEBUG_LIVE);
+    DebugAbi::SetUp();
+  }
+  // DbgLive: haltIn: x | y | y := x + 1. self halt. ^y (and friends).
+  void defineDbgLive() {
+    defineClass("DbgLive");
+    accept("DbgLive", 0, "haltIn: x\n  | y |\n  y := x + 1.\n  self halt.\n  ^y");
+    accept("DbgLive", 0, "recurse\n  ^self recurse");
+  }
+  // The halted pid after an AO_ERR_HALT, selected for the reads.
+  std::int64_t selectHalted() {
+    const std::int64_t pid = ao_debug_halted_pid();
+    EXPECT_GT(pid, 0);
+    EXPECT_EQ(AO_OK, ao_debug_select(pid));
+    return pid;
+  }
+};
+
+// SPEC §3.13: halt stops the evaluating process; the frames are its live chain, innermost the
+// synthesized halt native, and the temps are readable. The snapshot is left as it was (empty).
+TEST_F(LiveDebug, HaltStopsWithHaltCodeAndLiveTemps) {
+  defineDbgLive();
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgLive new haltIn: 3"));
+  EXPECT_STREQ("halt", err_.message);
+  EXPECT_STREQ("", out_);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  EXPECT_EQ(0, ao_debug_frame_count());  // the snapshot, selected by default
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(1, ao_debug_can_proceed(pid));
+  EXPECT_EQ("halt", reason());
+  ASSERT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ(3, ao_debug_frame_total());
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  EXPECT_EQ("DbgLive>>haltIn:", label(1));
+  EXPECT_EQ("doIt", label(2));
+  ASSERT_EQ(2, ao_debug_frame_temp_count(1));
+  EXPECT_EQ("x", tempName(1, 0));
+  EXPECT_EQ("y", tempName(1, 1));
+  EXPECT_EQ("3", tempPrint(1, 0).print);
+  EXPECT_EQ("4", tempPrint(1, 1).print);
+  EXPECT_EQ("DbgLive", receiverPrint(1).cls);
+  const Source src = source(1);
+  EXPECT_EQ(AO_OK, src.rc);
+  EXPECT_EQ("self halt", src.highlighted());
+  EXPECT_EQ(AO_OK, ao_debug_select(0));
+  EXPECT_EQ(0, ao_debug_frame_count());
+}
+
+// SPEC §3.13: DNU, error: (a native's failure with a message too) and a failed send halt with
+// their reasons, and each can be proceeded.
+TEST_F(LiveDebug, DnuAndErrorAndFailedSendStop) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("nil foo"));
+  EXPECT_STREQ("doesNotUnderstand: #foo", err_.message);
+  std::int64_t pid = selectHalted();
+  EXPECT_EQ(1, ao_debug_can_proceed(pid));
+  EXPECT_EQ("#foo (doesNotUnderstand:)", label(0));
+  ASSERT_EQ(AO_ERR_HALT, doIt("self error: 'boom'"));
+  EXPECT_STREQ("boom", err_.message);
+  pid = selectHalted();
+  EXPECT_EQ(1, ao_debug_can_proceed(pid));
+  ASSERT_EQ(AO_ERR_HALT, doIt("#(1 2) at: 5"));
+  EXPECT_STREQ("basicAt: index out of range", err_.message);
+  selectHalted();
+  EXPECT_EQ("ArrayedCollection>>at: native ao_ArrayedCollection_at_", label(0));
+  ASSERT_EQ(AO_ERR_HALT, doIt("[:a | a] value"));
+  EXPECT_STREQ("failed: #value", err_.message);
+  pid = selectHalted();
+  EXPECT_EQ(1, ao_debug_can_proceed(pid));
+  EXPECT_EQ(4, ao_debug_halted_count());
+}
+
+// SPEC §3.13: NonBoolean receiver and cannot return halt, but Proceed and Step are refused.
+TEST_F(LiveDebug, NonBooleanAndCannotReturnStopWithoutProceed) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("3 ifTrue: [4]"));
+  EXPECT_STREQ("NonBoolean receiver", err_.message);
+  std::int64_t pid = selectHalted();
+  EXPECT_EQ(0, ao_debug_can_proceed(pid));
+  ASSERT_EQ(AO_OK, doIt("blk := [:x | ^x]"));
+  ASSERT_EQ(AO_ERR_HALT, doIt("blk value: 1"));
+  EXPECT_STREQ("cannot return", err_.message);
+  pid = selectHalted();
+  EXPECT_EQ(0, ao_debug_can_proceed(pid));
+  EXPECT_EQ(2, ao_debug_halted_count());
+}
+
+// SPEC §3.13: stack overflow and out of memory are not halted: they abort and are captured.
+TEST_F(LiveDebug, StackOverflowAndOomStillAbort) {
+  defineDbgLive();
+  ASSERT_EQ(AO_ERR_EVAL, doIt("DbgLive new recurse"));
+  EXPECT_STREQ("stack overflow", err_.message);
+  EXPECT_GT(ao_debug_frame_count(), 0);
+  ASSERT_EQ(AO_ERR_EVAL, printIt("(Array new: 600000000) size"));
+  EXPECT_STREQ("out of memory", err_.message);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ(0, ao_debug_halted_pid());
+}
+
+// SPEC §3.13: at most eight halted processes; the ninth failure aborts and is captured.
+TEST_F(LiveDebug, NinthHaltAborts) {
+  for (int k = 0; k < 8; ++k) {
+    ASSERT_EQ(AO_ERR_HALT, doIt("self halt")) << k;
+  }
+  EXPECT_EQ(8, ao_debug_halted_count());
+  ASSERT_EQ(AO_ERR_EVAL, doIt("self halt"));
+  EXPECT_STREQ("halt", err_.message);
+  EXPECT_EQ(8, ao_debug_halted_count());
+  EXPECT_EQ(AO_OK, ao_debug_select(0));
+  EXPECT_EQ(2, ao_debug_frame_count());
+}
+
+// SPEC §3.10, §3.13: a halted process does not run, so the runtime is not busy: evaluations and
+// the outermost ao_debug_* entries go on.
+TEST_F(LiveDebug, HaltedProcessIsNotBusy) {
+  defineDbgLive();
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgLive new haltIn: 3"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, printIt("3 + 4"));
+  EXPECT_STREQ("7", out_);
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ(AO_OK, tempPrint(1, 0).rc);
+  EXPECT_EQ(AO_OK, ao_debug_clear());
+  EXPECT_EQ(AO_OK, ao_workspace_reset());
+  EXPECT_EQ(pid, ao_debug_halted_pid());
+}
+
+// SPEC §3.10 ao_debug_select: a pid that is not halted answers AO_ERR and reads as nothing.
+TEST_F(LiveDebug, SelectUnknownPidFails) {
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("nil foo"));
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_GT(ao_debug_frame_count(), 0);
+  EXPECT_EQ(AO_ERR, ao_debug_select(987654321));
+  EXPECT_EQ(AO_ERR, ao_debug_select(-1));
+  EXPECT_EQ(0, ao_debug_frame_count());
+  EXPECT_EQ(0, ao_debug_frame_total());
+  char buf[16];
+  EXPECT_EQ(AO_ERR, ao_debug_reason(buf, sizeof buf));
+  EXPECT_EQ(AO_ERR, ao_debug_frame_label(0, buf, sizeof buf));
+  EXPECT_EQ(0, ao_debug_can_proceed(987654321));
+  EXPECT_EQ(AO_OK, ao_debug_select(0));
+  EXPECT_GT(ao_debug_frame_count(), 0);
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  EXPECT_EQ(AO_ERR, ao_debug_select(0));
+  EXPECT_EQ(-1, ao_debug_halted_count());
+  EXPECT_EQ(0, ao_debug_halted_pid());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+}
+
+// SPEC §3.13: the halted frames' values are GC roots; they move and stay through collections.
+TEST_F(LiveDebug, HaltedFramesSurviveGc) {
+  defineClass("DbgGc");
+  accept("DbgGc", 0,
+         "hold\n  | a |\n  a := Array new: 2.\n  a at: 1 put: 'kept' copy; at: 2 put: 42.\n"
+         "  self halt.\n  ^a");
+  ASSERT_EQ(AO_ERR_HALT, doIt("DbgGc new hold"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, doIt("junk := (1 to: 300) collect: [:i | i printString]. junk := nil"));
+  ao::Session& s = *ao::session();
+  ao::Gc gc(s.heap, s.roots);
+  gc.collectNursery();
+  gc.collectOld();
+  gc.collectNursery();
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("#('kept' 42)", tempPrint(1, 0).print);
+}
+
+// SPEC §3.13: a halted evaluation's doIt keeps its source while the process is halted, even
+// after later evaluations.
+TEST_F(LiveDebug, HaltedDoItKeepsSourceAcrossEvals) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("| a | a := 5. self halt. a"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, printIt("3 + 4"));
+  ASSERT_EQ(AO_OK, printIt("4 + 5"));
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("doIt", label(1));
+  const Source src = source(1);
+  EXPECT_EQ(AO_OK, src.rc);
+  EXPECT_EQ("| a | a := 5. self halt. a", src.text);
+  EXPECT_EQ("self halt", src.highlighted());
+  EXPECT_EQ("5", tempPrint(1, 0).print);
+}
+
+// SPEC §3.13: a load and a shutdown abandon the halted processes: no cleanup runs.
+TEST_F(LiveDebug, ShutdownAndLoadAbandonHaltedProcesses) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  const std::string path =
+      (std::filesystem::temp_directory_path() / "ao-live-debug-abandon.aoimage").string();
+  ASSERT_EQ(AO_OK, ao_image_save(path.c_str()));
+  ASSERT_EQ(AO_ERR_HALT, doIt("[self halt] ensure: [Transcript show: 'cleanup']"));
+  EXPECT_EQ(1, ao_debug_halted_count());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_image_load(path.c_str(), &err)) << err.message;
+  std::remove(path.c_str());
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ(0, ao_debug_halted_pid());
+  ASSERT_EQ(AO_ERR_HALT, doIt("[self halt] ensure: [Transcript show: 'cleanup']"));
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  EXPECT_TRUE(seen.empty());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+}
+
+// SPEC §3.11: an image is not saved while a process is halted.
+TEST_F(LiveDebug, SaveWithHaltedProcessIsRefused) {
+  const std::string path =
+      (std::filesystem::temp_directory_path() / "ao-live-debug-save.aoimage").string();
+  std::remove(path.c_str());
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt"));
+  EXPECT_EQ(AO_ERR, ao_image_save(path.c_str()));
+  EXPECT_FALSE(std::filesystem::exists(path));
+}
+
+// ---- P11-04: Proceed and Abort (SPEC §3.13 操作) ----
+
+struct ProceedFromHook {
+  std::int64_t pid = 0;
+  std::vector<int> answers;
+};
+
+void proceedFromHook(const char*, int, int is_clear, void* user) {
+  if (is_clear != 0) {
+    return;
+  }
+  auto* p = static_cast<ProceedFromHook*>(user);
+  char out[16];
+  AoSpan err{};
+  p->answers.push_back(ao_debug_proceed(p->pid, out, sizeof out, &err));
+  p->answers.push_back(ao_debug_abort(p->pid));
+  p->answers.push_back(ao_debug_can_proceed(p->pid));
+}
+
+class LiveProceed : public LiveDebug {
+ protected:
+  int proceed(std::int64_t pid) {
+    err_ = AoSpan{};
+    return ao_debug_proceed(pid, out_, sizeof out_, &err_);
+  }
+};
+
+// SPEC §3.13: Proceed answers nil from halt and runs on; the Print it's value comes back as
+// ao_eval's would, with the result kept, and the process is gone.
+TEST_F(LiveProceed, ProceedAnswersNilAndFinishesPrintIt) {
+  defineDbgLive();
+  ASSERT_EQ(AO_ERR_HALT, printIt("(DbgLive new haltIn: 3) + (self halt) printString size"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, proceed(pid));  // the second halt, in the doIt
+  EXPECT_STREQ("halt", err_.message);
+  EXPECT_EQ(pid, ao_debug_halted_pid());
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("7", out_);  // 4 + 'nil' size
+  EXPECT_EQ(1, ao_eval_result_length());
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ(0, ao_debug_halted_pid());
+  EXPECT_EQ(AO_ERR, ao_debug_select(pid));
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+}
+
+// SPEC §3.13: a proceeded process can halt again, with its new reason.
+TEST_F(LiveProceed, ProceedCanHaltAgain) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt. nil foo. 3"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, proceed(pid));
+  EXPECT_STREQ("doesNotUnderstand: #foo", err_.message);
+  EXPECT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("doesNotUnderstand: #foo", reason());
+  ASSERT_EQ(AO_OK, proceed(pid));
+  EXPECT_STREQ("", out_);
+}
+
+// SPEC §3.13: Proceed after a failed send makes nil the send's value.
+TEST_F(LiveProceed, ProceedFailedSendPushesNil) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("([:a | a] value) isNil"));
+  EXPECT_STREQ("failed: #value", err_.message);
+  ASSERT_EQ(AO_OK, proceed(ao_debug_halted_pid())) << err_.message;
+  EXPECT_STREQ("true", out_);
+}
+
+// SPEC §3.13: Abort terminates the halted process; its ensure: blocks run, and nothing more of
+// the evaluation does.
+TEST_F(LiveProceed, AbortRunsEnsureBlocks) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[self error: 'x'. Transcript show: 'after'] ensure: "
+                              "[Transcript show: 'done']"));
+  EXPECT_STREQ("x", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  EXPECT_EQ(std::vector<std::string>{"done"}, seen);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ(AO_ERR, ao_debug_abort(pid));
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+  EXPECT_EQ(0u, ao::session()->scheduler->processFailures());
+}
+
+// SPEC §3.13: a failure in a cleanup while aborting does not halt again.
+TEST_F(LiveProceed, ErrorInCleanupDuringAbortDoesNotStop) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  ASSERT_EQ(AO_ERR_HALT,
+            doIt("[self halt] ensure: [nil foo. Transcript show: 'never']"));
+  EXPECT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_TRUE(seen.empty());
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+}
+
+// SPEC §3.13: Proceed on a halt that cannot go on is refused; Abort still ends it.
+TEST_F(LiveProceed, ProceedOnNonProceedableIsRefused) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("3 ifTrue: [4]"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  std::strcpy(out_, "unset");
+  err_.message[0] = 'x';
+  EXPECT_EQ(AO_ERR, ao_debug_proceed(pid, out_, sizeof out_, &err_));
+  EXPECT_STREQ("", out_);
+  EXPECT_STREQ("", err_.message);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  EXPECT_EQ(AO_ERR, ao_debug_proceed(pid, nullptr, 0, &err_));
+}
+
+// SPEC §3.13: aborting a halt that cannot be proceeded runs the cleanups too.
+TEST_F(LiveProceed, AbortNonProceedableRunsEnsure) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[3 ifTrue: [4]] ensure: [Transcript show: 'done']"));
+  EXPECT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+  EXPECT_EQ(std::vector<std::string>{"done"}, seen);
+  EXPECT_EQ(0, ao_debug_halted_count());
+}
+
+// SPEC §3.10: Proceed and Abort are outermost entries: refused while busy (from a hook), and the
+// halted process stays as it was.
+TEST_F(LiveProceed, ProceedWhileBusyIsRefused) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt"));
+  ProceedFromHook hook;
+  hook.pid = ao_debug_halted_pid();
+  ao_set_transcript_hook(proceedFromHook, &hook);
+  ASSERT_EQ(AO_OK, doIt("Transcript show: 'x'"));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ((std::vector<int>{AO_ERR, AO_ERR, 1}), hook.answers);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  EXPECT_EQ(AO_OK, proceed(hook.pid));
+}
+
+// SPEC §3.10: an unknown pid (or no session) is AO_ERR for Proceed and Abort.
+TEST_F(LiveProceed, ProceedUnknownPidFails) {
+  EXPECT_EQ(AO_ERR, proceed(424242));
+  EXPECT_EQ(AO_ERR, ao_debug_abort(424242));
+  EXPECT_EQ(AO_ERR, proceed(0));
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  EXPECT_EQ(AO_ERR, proceed(1));
+  EXPECT_EQ(AO_ERR, ao_debug_abort(1));
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+}
+
+// SPEC §3.13: terminate from Smalltalk ends a halted process like Abort (its cleanups run);
+// resume and suspend leave it halted.
+TEST_F(LiveProceed, TerminateFromSmalltalkEndsHaltedProcess) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  ASSERT_EQ(AO_ERR_HALT,
+            doIt("p := Processor activeProcess. [self halt] ensure: [Transcript show: 'done']"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, doIt("p resume. p suspend"));
+  EXPECT_EQ(pid, ao_debug_halted_pid());
+  EXPECT_TRUE(seen.empty());
+  ASSERT_EQ(AO_OK, doIt("p terminate"));
+  EXPECT_EQ(std::vector<std::string>{"done"}, seen);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ(AO_ERR, ao_debug_select(pid));
+}
+
+// ---- P11-05: Step and Debug it (SPEC §3.13 操作) ----
+
+class LiveStep : public LiveProceed {
+ protected:
+  using StepFn = int (*)(int64_t, char*, int, AoSpan*);
+  int step(StepFn fn, std::int64_t pid) {
+    err_ = AoSpan{};
+    const int rc = fn(pid, out_, sizeof out_, &err_);
+    if (rc == AO_ERR_HALT) {
+      EXPECT_EQ(AO_OK, ao_debug_select(pid));
+    }
+    return rc;
+  }
+  // The text the innermost frame's pc selects.
+  std::string at() { return source(0).highlighted(); }
+  void defineDbgStep() {
+    defineClass("DbgStep");
+    accept("DbgStep", 0, "two\n  | t |\n  t := 1.\n  ^t + 1");
+    accept("DbgStep", 0, "inner\n  self halt.\n  ^3");
+    accept("DbgStep", 0, "outer\n  | r |\n  r := self inner.\n  ^r + 1");
+  }
+};
+
+// SPEC §3.13: step over stops at the next statement start of the same frame.
+TEST_F(LiveStep, StepOverMovesToNextStatement) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("| a | self halt. a := 1. a := 2. a"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_STREQ("step", err_.message);
+  EXPECT_EQ("step", reason());
+  EXPECT_EQ("doIt", label(0));
+  EXPECT_EQ("a := 1", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("a := 2", at());
+  EXPECT_EQ("1", tempPrint(0, 0).print);
+}
+
+// SPEC §3.13: step over does not stop in a block the statement runs; the evaluation's value
+// comes back when it steps past the end.
+TEST_F(LiveStep, StepOverDoesNotEnterBlocks) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("| s | self halt. s := 0. #(1 2) do: [:e | s := s + e]. s"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("s := 0", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("#(1 2) do: [:e | s := s + e]", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("doIt", label(0));
+  EXPECT_EQ(1, ao_debug_frame_count());
+  ASSERT_EQ(AO_OK, step(ao_debug_step_over, pid)) << err_.message;
+  EXPECT_STREQ("3", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+}
+
+// SPEC §3.13: step into enters an interpreted method at its first instruction.
+TEST_F(LiveStep, StepIntoEntersInterpretedMethod) {
+  defineDbgStep();
+  ASSERT_EQ(AO_ERR_HALT, printIt("self halt. DbgStep new two"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("DbgStep new two", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("DbgStep>>two", label(0));
+  EXPECT_EQ(0, ao_debug_frame_pc(0));
+  EXPECT_EQ("doIt", label(1));
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("DbgStep>>two", label(0));
+  EXPECT_EQ("^t + 1", at());
+  ASSERT_EQ(AO_OK, proceed(pid));
+  EXPECT_STREQ("2", out_);
+}
+
+// SPEC §3.13: step into does not enter a native; it stops at the next statement.
+TEST_F(LiveStep, StepIntoSkipsNative) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("self halt. #(1 2) size. 3"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("#(1 2) size", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("3", at());
+  EXPECT_EQ(1, ao_debug_frame_count());
+}
+
+// SPEC §3.13: step out stops in the sender once the frame has returned.
+TEST_F(LiveStep, StepOutStopsInSender) {
+  defineDbgStep();
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgStep new outer"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("DbgStep>>inner", label(1));
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_out, pid));
+  EXPECT_EQ("DbgStep>>outer", label(0));
+  EXPECT_EQ("doIt", label(1));
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("^r + 1", at());
+  EXPECT_EQ("3", tempPrint(0, 0).print);
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_out, pid));
+  EXPECT_EQ("doIt", label(0));
+  ASSERT_EQ(AO_OK, step(ao_debug_step_out, pid));
+  EXPECT_STREQ("4", out_);
+}
+
+// SPEC §3.13: a step past the end of the evaluation answers as ao_eval; the non-proceedable halt
+// refuses steps.
+TEST_F(LiveStep, StepPastEndFinishesEval) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("self halt. 3 + 4"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  ASSERT_EQ(AO_OK, step(ao_debug_step_over, pid)) << err_.message;
+  EXPECT_STREQ("7", out_);
+  ASSERT_EQ(AO_ERR_HALT, doIt("3 ifTrue: [4]"));
+  const std::int64_t stuck = ao_debug_halted_pid();
+  EXPECT_EQ(AO_ERR, step(ao_debug_step_into, stuck));
+  EXPECT_EQ(AO_ERR, step(ao_debug_step_over, stuck));
+  EXPECT_EQ(AO_ERR, step(ao_debug_step_out, stuck));
+  EXPECT_EQ(AO_OK, ao_debug_abort(stuck));
+}
+
+// SPEC §3.13 Debug it: it halts before the doIt's first instruction; it ends like a Do it.
+TEST_F(LiveStep, DebugItStopsAtFirstBytecode) {
+  err_ = AoSpan{};
+  const char* src = "x := 3. x + 1";
+  ASSERT_EQ(AO_ERR_HALT, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DEBUGIT, out_,
+                                 sizeof out_, &err_));
+  EXPECT_STREQ("debug it", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("debug it", reason());
+  ASSERT_EQ(1, ao_debug_frame_count());
+  EXPECT_EQ("doIt", label(0));
+  EXPECT_EQ(0, ao_debug_frame_pc(0));
+  EXPECT_EQ("x := 3", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("x + 1", at());
+  ASSERT_EQ(AO_OK, proceed(pid));
+  EXPECT_STREQ("", out_);
+  ASSERT_EQ(AO_OK, printIt("x"));
+  EXPECT_STREQ("3", out_);
+}
+
+// SPEC §3.10: Debug it outside the live mode evaluates nothing.
+TEST_F(DebugAbi, DebugItOutsideLiveModeIsRefused) {
+  const char* src = "y := 3";
+  err_ = AoSpan{};
+  EXPECT_EQ(AO_ERR, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DEBUGIT, out_,
+                            sizeof out_, &err_));
+  ASSERT_EQ(AO_OK, printIt("y"));
+  EXPECT_STREQ("nil", out_);
+}
+
+// ---- Review fixes (Codex) ----
+
+// SPEC §3.13: the scheduler's own list updates do not halt; a failure there aborts and leaves the
+// ready queue consistent, so a later terminate is safe.
+TEST_F(LiveProceed, SchedulerListFailureAbortsInsteadOfHalting) {
+  ASSERT_EQ(AO_OK, doIt("p := [1] fork. p suspend"));
+  ASSERT_EQ(AO_ERR_EVAL, doIt("q := Processor instVarAt: 1. q instVarAt: 2 put: 0. p resume"));
+  EXPECT_EQ(0, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, doIt("q instVarAt: 2 put: 1. p terminate"));
+  ASSERT_EQ(AO_OK, printIt("3 + 4"));
+  EXPECT_STREQ("7", out_);
+  EXPECT_EQ(0u, ao::session()->scheduler->liveFibers());
+}
+
+// SPEC §3.13: after Proceed from a native's failure with a message, the native's own failure
+// mark does not halt again: the send answers nil.
+TEST_F(LiveProceed, ProceedFromNativeFailureDoesNotHaltAgain) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("s := Semaphore new. s instVarAt: 1 put: 4611686018427387903. "
+                                 "s signal"));
+  EXPECT_STREQ("signal: excess signals out of range", err_.message);
+  ASSERT_EQ(AO_OK, proceed(ao_debug_halted_pid())) << err_.message;
+  EXPECT_STREQ("nil", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+}
+
+// SPEC §3.13: Debug it with eight processes halted aborts before running anything.
+TEST_F(LiveStep, DebugItPastTheHaltLimitAborts) {
+  for (int k = 0; k < 8; ++k) {
+    ASSERT_EQ(AO_ERR_HALT, doIt("self halt")) << k;
+  }
+  err_ = AoSpan{};
+  const char* src = "x := 1";
+  EXPECT_EQ(AO_ERR_EVAL, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DEBUGIT, out_,
+                                 sizeof out_, &err_));
+  EXPECT_STREQ("debug it", err_.message);
+  EXPECT_EQ(8, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, printIt("x"));
+  EXPECT_STREQ("nil", out_);
+}
+
+// SPEC §3.3: a halt's reason writes a NUL byte as \0, as an abort's does.
+TEST_F(LiveDebug, HaltReasonEscapesNul) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("nil error: ((String new: 3) at: 1 put: $a; at: 3 put: $b; "
+                              "yourself)"));
+  EXPECT_STREQ("a\\0b", err_.message);
+  selectHalted();
+  EXPECT_EQ("a\\0b", reason());
+}
+
+// SPEC §3.13: a proceeded halt deeper down (in an interpreted method) does not turn a later,
+// unrelated failure of the native into nil.
+TEST_F(LiveProceed, ProceededHaltDeeperDoesNotHideLaterFailure) {
+  defineClass("DbgPsA");
+  defineClass("DbgPsB");
+  accept("DbgPsA", 0, "printString\n  self halt.\n  ^'ok'");
+  accept("DbgPsB", 0, "printString\n  ^nil");
+  ASSERT_EQ(AO_ERR_HALT, doIt("(Array new: 2) at: 1 put: DbgPsA new; at: 2 put: DbgPsB new; "
+                              "yourself; printString"));
+  EXPECT_STREQ("halt", err_.message);
+  ASSERT_EQ(AO_ERR_HALT, proceed(ao_debug_halted_pid()));
+  EXPECT_STREQ("failed: #printString", err_.message);
+}
+
+// SPEC §3.13: a SharedQueue's nextPut: whose signal fails takes its element out again without
+// halting in between.
+TEST_F(LiveProceed, SharedQueueNextPutFailureDoesNotHalt) {
+  ASSERT_EQ(AO_ERR_EVAL, doIt("q := SharedQueue new. s := q instVarAt: 2. "
+                              "s instVarAt: 1 put: 4611686018427387903. q nextPut: 1"));
+  EXPECT_STREQ("signal: excess signals out of range", err_.message);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, printIt("(q instVarAt: 1) size"));
+  EXPECT_STREQ("0", out_);
 }
 
 }  // namespace

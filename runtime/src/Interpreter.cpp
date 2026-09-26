@@ -129,6 +129,7 @@ struct FrameLink {
     frame.temps = &temps;
     frame.stack = &stack;
     frame.prev = ctx.topFrame;
+    frame.depth = ctx.topFrame != nullptr ? ctx.topFrame->depth + 1 : 0;
     ctx.topFrame = &frame;
   }
   ~FrameLink() { ctx.topFrame = frame.prev; }
@@ -340,6 +341,7 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   frame.sendReceiver = &rcvr.slot;
   frame.sendArgs = argp;
   frame.sendArgc = argc;
+  const std::uint32_t proceeds = ctx.haltProceeds;
   Oop result;
   if (isSuper) {
     const Oop methodClass = ctx.heap.slotAt(frame.method, kCmSlotMethodClass);
@@ -349,9 +351,12 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   }
   // SPEC §3.3: an empty result is a failure, never a value on the stack. Unless the frames are
   // unwinding already, it aborts with the selector as the reason (sel is rooted). The send is
-  // still in flight for that abort's capture.
-  if (result.isEmpty() && !unwinding(ctx)) {
-    abortFailedSend(ctx, sel.slot);
+  // still in flight for that abort's capture. SPEC §3.13: a live debugger halts here instead, and
+  // Proceed makes nil the send's value. A native that fails after a halt right in it was
+  // proceeded (its error: answered nil) answers nil too, without halting again.
+  const bool proceededHere = ctx.haltProceeds != proceeds && ctx.proceededAt == &frame;
+  if (result.isEmpty() && !unwinding(ctx) && (proceededHere || stopFailedSend(ctx, sel.slot))) {
+    result = Oop::nil();
   }
   frame.sendReceiver = nullptr;
   const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);
@@ -388,6 +393,47 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
     return false;
   }
   return kAssocValue < ctx.heap.size(*assoc);
+}
+
+// SPEC §3.13 step: whether the stepping process has come where it stops, before the instruction at
+// frame.pc; if so it halts there (reason step, or debug it). False when it was aborted while it
+// was halted. Out of line: only a stepping process comes here.
+[[gnu::noinline]] bool stepCheck(CallContext& ctx, const Frame& frame) {
+  const std::uint32_t d = frame.depth;
+  auto statementStart = [&ctx, &frame] {
+    return ctx.statementHook != nullptr && ctx.statementHook(frame.method, frame.pc);
+  };
+  bool reached = false;
+  const char* reason = "step";
+  switch (ctx.stepMode) {
+    case StepMode::DebugIt:
+      reached = true;
+      reason = "debug it";
+      break;
+    case StepMode::Into:
+      reached = d != ctx.stepDepth || statementStart();
+      break;
+    case StepMode::Over:
+      reached = d < ctx.stepDepth || (d == ctx.stepDepth && statementStart());
+      break;
+    case StepMode::Out:
+      reached = d < ctx.stepDepth;
+      break;
+    case StepMode::None:
+      break;
+  }
+  // Not while an abort unwinds or its cleanups run: the mark stays for later.
+  if (!reached || ctx.scheduler == nullptr || ctx.aborting || ctx.abortSetAside > 0 ||
+      ctx.abandoning) {
+    return true;
+  }
+  if (!ctx.scheduler->canHalt(ctx)) {
+    // SPEC §3.13: too many halted processes: it aborts, as a failure that cannot halt does.
+    ctx.stepMode = StepMode::None;
+    abortEvaluation(ctx, reason);
+    return false;
+  }
+  return ctx.scheduler->halt(ctx, reason, true);
 }
 
 }  // namespace
@@ -480,6 +526,12 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
       return Oop{};
     }
     mirror(ctx, *frame, stack.depth());
+    // SPEC §3.13: the one branch the live debugger's step adds to the loop.
+    if (ctx.stepMode != StepMode::None) [[unlikely]] {
+      if (!stepCheck(ctx, *frame)) {
+        return Oop{};
+      }
+    }
     const std::uint32_t pc = frame->pc;
     const std::uint32_t nBytes = byteCount(ctx, frame->method);
     if (pc >= nBytes) {

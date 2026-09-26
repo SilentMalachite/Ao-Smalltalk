@@ -13,8 +13,10 @@ namespace ao {
 
 struct Image {
   // False when nothing was written; *reason (when given) then says why (SPEC §3.11).
+  // haltedProcesses is how many processes a live debugger holds halted (SPEC §3.13): with any,
+  // nothing is written ("halted processes").
   static bool save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
-                   std::string* reason = nullptr);
+                   std::string* reason = nullptr, std::size_t haltedProcesses = 0);
   // False when the image is refused; *reason (when given) then says why (SPEC §3.11).
   static bool load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
                    std::string* reason = nullptr);

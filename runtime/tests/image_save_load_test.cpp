@@ -1777,3 +1777,18 @@ TEST(ImageSaveLoad, EscapedCollectionThunksRunAfterSaveAndLoad) {
   ao_runtime_shutdown();
   std::filesystem::remove(path);
 }
+
+// SPEC §3.11, §3.13: with halted processes (their count comes from the caller) nothing is written
+// and the reason says why; an existing image stays as it was.
+TEST(ImageSave, SaveWithHaltedProcessIsRefused) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "halted.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const auto before = std::filesystem::last_write_time(path);
+  const auto size = std::filesystem::file_size(path);
+  std::string why;
+  EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &why, 1));
+  EXPECT_EQ("halted processes", why);
+  EXPECT_EQ(before, std::filesystem::last_write_time(path));
+  EXPECT_EQ(size, std::filesystem::file_size(path));
+}

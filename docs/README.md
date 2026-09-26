@@ -28,12 +28,12 @@ GitHub 向けの案内（英語が正本）: [`README.md`](../README.md) / [`REA
 | P7 イメージ | [phases/P7.md](phases/P7.md) | done |
 | P8 AppKit ツール | [phases/P8.md](phases/P8.md) | done |
 | P9 統合 | [phases/P9.md](phases/P9.md) | done |
-| P10 事後デバッガ | [phases/P10.md](phases/P10.md) | planned |
-| P11 ライブデバッガ | [phases/P11.md](phases/P11.md) | design |
+| P10 事後デバッガ | [phases/P10.md](phases/P10.md) | done |
+| P11 ライブデバッガ | [phases/P11.md](phases/P11.md) | done |
 
 依存は直線: P0 → P1 → P2 → P3 → P4 → P5 → P6 → P6b → P7 → P8 → P9 → P10 → P11。
 
-P9 の完了が v1 で、1.0.0 としてリリースした（SPEC §2.4、[`CHANGELOG.md`](../CHANGELOG.md)）。v1 のあとの変更は SPEC を先に直す。 P10 以降の計画書は [`superpowers/plans/`](superpowers/plans/) に置く（P10: [2026-09-26-p10-debugger.md](superpowers/plans/2026-09-26-p10-debugger.md)。P11 の PR 指示書は P10 完了後に書く）。リリースの手順は [`CONTRIBUTING.ja.md`](../CONTRIBUTING.ja.md) の「リリース」にある。
+P9 の完了が v1 で、1.0.0 としてリリースした（SPEC §2.4、[`CHANGELOG.md`](../CHANGELOG.md)）。v1 のあとの変更は SPEC を先に直す。 P10 以降の計画書は [`superpowers/plans/`](superpowers/plans/) に置く（P10: [2026-09-26-p10-debugger.md](superpowers/plans/2026-09-26-p10-debugger.md)。P11: [p11-ancient-matsumoto.md](plans/p11-ancient-matsumoto.md)）。リリースの手順は [`CONTRIBUTING.ja.md`](../CONTRIBUTING.ja.md) の「リリース」にある。
 
 ## PR
 
@@ -102,3 +102,10 @@ P9 の完了が v1 で、1.0.0 としてリリースした（SPEC §2.4、[`CHAN
 | [P10-05](prs/P10-05.md) | `ao_debug_*` ABI | P10 |
 | [P10-06](prs/P10-06.md) | Debugger 窓と Workspace の Debug ボタン | P10 |
 | [P10-07](prs/P10-07.md) | 受け入れ、CHANGELOG、Graphify deep | P10 |
+| [P11-01](prs/P11-01.md) | SPEC の詳細化、PR 指示書、PHASE、ABI の定数 | P11 |
+| [P11-02](prs/P11-02.md) | 評価プロセス | P11 |
+| [P11-03](prs/P11-03.md) | 止める、止まったプロセスのフレーム、保存の拒否 | P11 |
+| [P11-04](prs/P11-04.md) | Proceed / Abort | P11 |
+| [P11-05](prs/P11-05.md) | Step into / over / out と Debug it | P11 |
+| [P11-06](prs/P11-06.md) | Debugger 窓の操作、Debug it、保存の拒否の警告 | P11 |
+| [P11-07](prs/P11-07.md) | 受け入れ、CHANGELOG、Graphify deep | P11 |

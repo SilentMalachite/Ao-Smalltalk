@@ -48,7 +48,7 @@ bool sentToSuper(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
 
 // What the frame's send in flight finds (SPEC §3.3 探索, which allocates nothing): a method, or
 // nil when it found none (doesNotUnderstand:).
-Oop sendTarget(CallContext& ctx, const Frame& f, std::uint32_t pc) {
+Oop sendTarget(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
   Oop start = ctx.wk.classOf(*f.sendReceiver);
   if (sentToSuper(ctx, f, pc)) {
     start = superclassOf(ctx.heap, ctx.heap.slotAt(f.method, kCmSlotMethodClass));
@@ -58,6 +58,25 @@ Oop sendTarget(CallContext& ctx, const Frame& f, std::uint32_t pc) {
 
 bool hasSendInFlight(const Frame& f) {
   return f.sendReceiver != nullptr && f.sendSelector != nullptr;
+}
+
+// SPEC §3.13: a send in flight in the innermost frame that found a native (or nothing, a DNU) is
+// where the failure is: true, and *method is that native (nil for a DNU). One that found a
+// CompiledMethod is a stack guard abort before the callee's frame: nothing to synthesize.
+bool synthesizesNative(const CallContext& ctx, const Frame* top, Oop* method) {
+  *method = Oop::nil();
+  if (top == nullptr || !hasSendInFlight(*top)) {
+    return false;
+  }
+  const Oop found = sendTarget(ctx, *top, contextPc(ctx, *top));
+  if (!found.isHeap()) {
+    return true;
+  }
+  if (ctx.heap.klass(found) == ctx.wk.nativeMethodClass) {
+    *method = found;
+    return true;
+  }
+  return false;
 }
 
 }  // namespace
@@ -70,20 +89,8 @@ bool DebugSnapshot::capture(CallContext& ctx) noexcept {
     for (const Frame* f = top; f != nullptr; f = f->prev) {
       ++interpreted;
     }
-    // SPEC §3.13: a send in flight in the innermost frame that found a native (or nothing, a
-    // DNU) is where the failure is. One that found a CompiledMethod is a stack guard abort
-    // before the callee's frame: nothing to synthesize.
-    bool synthesize = false;
     Oop synthMethod = Oop::nil();
-    if (top != nullptr && hasSendInFlight(*top)) {
-      const Oop found = sendTarget(ctx, *top, contextPc(ctx, *top));
-      if (!found.isHeap()) {
-        synthesize = true;
-      } else if (ctx.heap.klass(found) == ctx.wk.nativeMethodClass) {
-        synthesize = true;
-        synthMethod = found;
-      }
-    }
+    const bool synthesize = synthesizesNative(ctx, top, &synthMethod);
     const std::uint64_t all = interpreted + (synthesize ? 1 : 0);
     total_ = static_cast<std::uint32_t>(
         std::min<std::uint64_t>(all, std::numeric_limits<std::uint32_t>::max()));
@@ -219,5 +226,111 @@ Oop DebugSnapshot::sendArg(std::uint32_t i, std::uint32_t j) const {
 }
 
 Oop DebugSnapshot::process() const { return held_ ? slots_[slotCount_ - 1] : Oop::nil(); }
+
+LiveFrames::LiveFrames(const CallContext& ctx, const std::string& reason)
+    : ctx_(ctx), reason_(reason) {
+  const Frame* const top = ctx.topFrame;
+  Oop ignored;
+  synth_ = synthesizesNative(ctx, top, &ignored);
+  std::uint64_t all = synth_ ? 1 : 0;
+  for (const Frame* f = top; f != nullptr; f = f->prev) {
+    ++all;
+    if (frames_.size() + (synth_ ? 1 : 0) < DebugSnapshot::kMaxFrames) {
+      frames_.push_back(f);
+    }
+  }
+  count_ = frames_.size() + (synth_ ? 1 : 0);
+  total_ = static_cast<std::uint32_t>(
+      std::min<std::uint64_t>(all, std::numeric_limits<std::uint32_t>::max()));
+}
+
+const Frame* LiveFrames::frameAt(std::uint32_t i) const {
+  if (i >= count_ || synthesized(i)) {
+    return nullptr;
+  }
+  return frames_[synth_ ? i - 1 : i];
+}
+
+int LiveFrames::kind(std::uint32_t i) const {
+  if (i >= count_) {
+    return -1;
+  }
+  if (synthesized(i)) {
+    return kDebugFrameNative;
+  }
+  return frameAt(i)->isBlock ? kDebugFrameBlock : kDebugFrameMethod;
+}
+
+Oop LiveFrames::method(std::uint32_t i) const {
+  if (synthesized(i)) {
+    Oop found;
+    synthesizesNative(ctx_, ctx_.topFrame, &found);
+    return found;
+  }
+  const Frame* f = frameAt(i);
+  return f != nullptr ? f->method : Oop{};
+}
+
+Oop LiveFrames::receiver(std::uint32_t i) const {
+  if (synthesized(i)) {
+    return *ctx_.topFrame->sendReceiver;
+  }
+  const Frame* f = frameAt(i);
+  return f != nullptr ? f->receiver : Oop{};
+}
+
+Oop LiveFrames::context(std::uint32_t i) const {
+  if (synthesized(i)) {
+    return Oop::nil();
+  }
+  const Frame* f = frameAt(i);
+  return f != nullptr ? f->context : Oop{};
+}
+
+std::uint32_t LiveFrames::pc(std::uint32_t i) const {
+  const Frame* f = frameAt(i);
+  return f != nullptr ? contextPc(ctx_, *f) : 0;
+}
+
+Oop LiveFrames::selector(std::uint32_t i) const {
+  if (synthesized(i)) {
+    return *ctx_.topFrame->sendSelector;
+  }
+  const Frame* f = frameAt(i);
+  if (f == nullptr) {
+    return Oop{};
+  }
+  return hasSendInFlight(*f) ? *f->sendSelector : Oop::nil();
+}
+
+std::uint32_t LiveFrames::tempCount(std::uint32_t i) const {
+  if (synthesized(i)) {
+    return ctx_.topFrame->sendArgc;
+  }
+  const Frame* f = frameAt(i);
+  return f != nullptr && f->temps != nullptr ? f->temps->n : 0;
+}
+
+Oop LiveFrames::temp(std::uint32_t i, std::uint32_t j) const {
+  if (j >= tempCount(i)) {
+    return Oop{};
+  }
+  if (synthesized(i)) {
+    return ctx_.topFrame->sendArgs[j];
+  }
+  return frameAt(i)->temps->slots[j];
+}
+
+std::uint32_t LiveFrames::sendArgCount(std::uint32_t i) const {
+  const Frame* f = frameAt(i);
+  return f != nullptr && hasSendInFlight(*f) ? f->sendArgc : 0;
+}
+
+Oop LiveFrames::sendArg(std::uint32_t i, std::uint32_t j) const {
+  if (j >= sendArgCount(i)) {
+    return Oop{};
+  }
+  return frameAt(i)->sendArgs[j];
+}
 
 }  // namespace ao

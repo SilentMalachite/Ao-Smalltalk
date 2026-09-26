@@ -97,12 +97,61 @@ class Scheduler {
   // The running process (SPEC §3.4: never nil once adoptImage ran).
   Oop activeProcess() const;
 
+  // SPEC §3.13 評価プロセス (live mode). How the evaluation the base waited for ended.
+  enum class EvalEnd { Finished, Failed, Halted };
+  // From the base: a new process that will apply method (a 0-argument doIt) to nil. It is not
+  // queued; awaitEval runs it. Its pid, or 0 when it cannot be made (ctx is then unwinding:
+  // too many processes, out of memory). May collect. mode is the ao_eval mode it answers for.
+  // debugIt: it steps from its first instruction (SPEC §3.13 Debug it).
+  std::uint64_t forkEval(CallContext& ctx, Oop method, int mode, bool debugIt = false);
+  // From the base: runs the evaluating process pid, and the ready ones whenever it switches away,
+  // until it ends (Finished with evalValue, or Failed with evalReason). A wait with nothing left
+  // to run aborts it with the deadlock (SPEC §3.13). The base is left not unwinding.
+  EvalEnd awaitEval(std::uint64_t pid);
+  // The value of the last Finished evaluation (a GC root) until clearEvalValue; the reason of the
+  // last Failed one.
+  const Oop& evalValue() const { return evalValue_; }
+  void clearEvalValue() { evalValue_ = Oop::nil(); }
+  const std::string& evalReason() const { return evalReason_; }
+  // The running process is an evaluating process.
+  bool runningEval() const;
+
+  // SPEC §3.13 止める: at most this many processes are halted at once.
+  static constexpr std::size_t kMaxHalted = 8;
+  // The running process may halt now: it is the evaluating process the base waits for, ctx is
+  // not aborting, abandoning or in a cleanup of an abort, and fewer than kMaxHalted are halted.
+  bool canHalt(const CallContext& ctx) const;
+  // Halts the running process (canHalt said yes) with reason and switches to the base, whose
+  // awaitEval answers Halted. Returns once it is resumed: true to go on (Proceed, Step), false
+  // when it was terminated or abandoned meanwhile (ctx is then unwinding). A GC point.
+  bool halt(CallContext& ctx, std::string reason, bool proceedable);
+  std::size_t haltedCount() const;
+  // The pid of the process that halted last while it is still halted, else 0.
+  std::uint64_t lastHaltedPid() const;
+  // A halted process's context and reason (null when pid is not halted), and whether it can go
+  // on (Proceed, Step).
+  const CallContext* haltedContext(std::uint64_t pid, const std::string** reason) const;
+  bool canProceed(std::uint64_t pid) const;
+  bool isHalted(std::uint64_t pid) const;
+  // The ao_eval mode the evaluating process pid answers for (0 when there is none).
+  int evalModeOf(std::uint64_t pid) const;
+  // SPEC §3.13 操作, from the base. Proceed: the halted process pid (canProceed) goes on, and the
+  // base waits for it as awaitEval does. Abort: it is terminated (its cleanups run on it); false
+  // when pid is not halted. Both leave the base not unwinding.
+  EvalEnd proceed(std::uint64_t pid);
+  // Step: proceed with the step mark set (SPEC §3.13 Step); the depth is its innermost frame's.
+  EvalEnd step(std::uint64_t pid, StepMode mode);
+  bool abortHalted(std::uint64_t pid);
+
  private:
   struct Record;
-  enum class State { Ready, Running, Waiting, Suspended, Dead };
+  enum class State { Ready, Running, Waiting, Suspended, Halted, Dead };
 
   static void fiberEntry(void* arg);
   void runFiber(Record& me);
+  void endEval(Record& me, CallContext& ctx, Oop result);
+  Record* addFiber(CallContext& ctx, Oop process, Oop block);
+  void runAwaited(Record& r);
   [[noreturn]] void finishFiber(Record& me);
   Record& base() const;
   Record* find(Oop process) const;
@@ -121,9 +170,14 @@ class Scheduler {
   std::vector<std::unique_ptr<Record>> records_;  // front: the base
   Record* current_ = nullptr;
   std::deque<Record*> ready_;
-  std::uint64_t nextId_ = 1;
   std::uint64_t failures_ = 0;
   std::string lastFailure_;
+  // SPEC §3.13: the evaluating process the base waits for (0: none), and how the last one ended.
+  std::uint64_t awaited_ = 0;
+  std::uint64_t lastHalted_ = 0;
+  EvalEnd evalEnd_ = EvalEnd::Failed;
+  Oop evalValue_ = Oop::nil();  // a root
+  std::string evalReason_;
 };
 
 }  // namespace ao

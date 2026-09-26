@@ -116,6 +116,8 @@ struct Frame {
   // The chain, set by the interpreter's link guard: the caller's frame (null at the outermost
   // activation of the process), and this activation's temps and operand stack.
   Frame* prev = nullptr;
+  // Its place in the chain: 0 at the outermost activation of the process (SPEC §3.13 step).
+  std::uint32_t depth = 0;
   const Temps* temps = nullptr;
   const OperandStack* stack = nullptr;
   // The send in flight (performSend): pointers into its rooted slots, so they follow GC. A null

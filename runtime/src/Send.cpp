@@ -7,9 +7,11 @@
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/Lookup.hpp"
+#include "ao/Scheduler.hpp"
 #include "ao/Symbol.hpp"
 
 #include <iterator>
+#include <new>
 #include <string>
 
 namespace ao {
@@ -290,6 +292,63 @@ Oop abortFailedSend(CallContext& ctx, Oop selector) {
   return abortWithSelector(ctx, "failed: #", selector, "failed");
 }
 
+bool stopOrAbort(CallContext& ctx, const char* reason, bool proceedable) {
+  if (ctx.scheduler != nullptr && ctx.scheduler->canHalt(ctx)) {
+    std::string text;
+    try {
+      text = reason;
+    } catch (const std::bad_alloc&) {
+      abortEvaluation(ctx, reason);
+      return false;
+    }
+    return ctx.scheduler->halt(ctx, std::move(text), proceedable);
+  }
+  abortEvaluation(ctx, reason);
+  return false;
+}
+
+bool stopOrAbort(CallContext& ctx, std::string_view reason, bool proceedable) {
+  if (ctx.scheduler != nullptr && ctx.scheduler->canHalt(ctx)) {
+    std::string text;
+    try {
+      // SPEC §3.3: a NUL byte becomes the two characters \0, as abortReasonText writes it.
+      for (const char c : reason) {
+        if (c == '\0') {
+          text += "\\0";
+        } else {
+          text += c;
+        }
+      }
+    } catch (const std::bad_alloc&) {
+      abortEvaluation(ctx, "out of memory");
+      return false;
+    }
+    return ctx.scheduler->halt(ctx, std::move(text), proceedable);
+  }
+  abortEvaluation(ctx, reason);
+  return false;
+}
+
+bool stopWithSelector(CallContext& ctx, const char* prefix, Oop selector, const char* fallback) {
+  if (!selector.isHeap() || (ctx.heap.flags(selector) & kFlagBytes) == 0) {
+    return stopOrAbort(ctx, fallback, true);
+  }
+  std::string reason(prefix);
+  reason += Str::toUtf8(ctx.heap, selector);
+  return stopOrAbort(ctx, std::string_view(reason), true);
+}
+
+bool stopFailedSend(CallContext& ctx, Oop selector) {
+  if (unwinding(ctx)) {
+    return false;
+  }
+  if (ctx.heap.outOfMemory()) {
+    abortEvaluation(ctx, "out of memory");
+    return false;
+  }
+  return stopWithSelector(ctx, "failed: #", selector, "failed");
+}
+
 std::string abortReasonText(const CallContext& ctx) {
   if (!ctx.aborting) {
     return {};
@@ -360,7 +419,8 @@ bool truthOf(CallContext& ctx, Oop value, bool* truth) {
     return false;
   }
   if (!answer.isTrue() && !answer.isFalse()) {
-    abortEvaluation(ctx, "NonBoolean receiver");
+    // SPEC §3.13: halts without Proceed; only an abort ends it, so this never answers a truth.
+    stopOrAbort(ctx, "NonBoolean receiver", false);
     return false;
   }
   *truth = answer.isTrue();

@@ -372,13 +372,17 @@ bool writeFile(std::string_view path, const std::byte* data, std::size_t n, std:
 }  // namespace
 
 bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
-                 std::string* reason) {
+                 std::string* reason, std::size_t haltedProcesses) {
   auto refuse = [reason](std::string why) {
     if (reason != nullptr) {
       *reason = std::move(why);
     }
     return false;
   };
+  // SPEC §3.11, §3.13: a halted process has a fiber's C++ stack, which no image can hold.
+  if (haltedProcesses > 0) {
+    return refuse("halted processes");
+  }
   // SPEC §3.11: the global dictionary goes with the heap. Nothing else records a global.
   if (!Globals::isDictionary(wk, wk.smalltalk)) {
     return refuse("Smalltalk is not the global dictionary");

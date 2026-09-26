@@ -187,41 +187,53 @@ Oop ao_Object_doesNotUnderstand_(CallContext& ctx, const Oop&, const Oop* args,
   if (msg.isHeap() && (ctx.heap.flags(msg) & kFlagBytes) == 0 && ctx.heap.size(msg) > 0) {
     selector = ctx.heap.slotAt(msg, 0);
   }
-  return abortDoesNotUnderstand(ctx, selector);
+  // SPEC §3.13: a live debugger halts here; Proceed answers nil.
+  return stopWithSelector(ctx, "doesNotUnderstand: #", selector, "doesNotUnderstand:")
+             ? Oop::nil()
+             : Oop{};
 }
 
-// SPEC §3.3, §3.6, §3.13: halt aborts the evaluation with "halt" (P10: a failure that is captured
-// like the others; P11 stops the evaluating process instead).
+// SPEC §3.3, §3.6, §3.13: halt aborts the evaluation with "halt", a failure captured like the
+// others; a live debugger halts the evaluating process instead, and Proceed answers nil.
 Oop ao_Object_halt(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return abortEvaluation(ctx, "halt");
+  return stopOrAbort(ctx, "halt", true) ? Oop::nil() : Oop{};
 }
 
-// SPEC §3.3: aborts the evaluation. The reason is the argument's contents when it is a String
-// (a Symbol too), otherwise the contents of its printString.
+// SPEC §3.3: aborts the evaluation (or halts it, §3.13). The reason is the argument's contents
+// when it is a String (a Symbol too), otherwise the contents of its printString.
 Oop ao_Object_error_(CallContext& ctx, const Oop&, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
   if (args[0].isEmpty()) {
     // A native's message String could not be allocated.
-    return abortEvaluation(ctx, ctx.heap.outOfMemory() ? "out of memory" : "error:");
+    if (ctx.heap.outOfMemory()) {
+      return abortEvaluation(ctx, "out of memory");
+    }
+    return stopOrAbort(ctx, "error:", true) ? Oop::nil() : Oop{};
   }
+  // SPEC §3.13: a live debugger halts here (the Kernel natives' failures with a message too);
+  // Proceed answers nil.
   if (isBytesString(ctx, args[0])) {
-    return abortEvaluation(ctx, std::string_view(Str::toUtf8(ctx.heap, args[0])));
+    const std::string reason = Str::toUtf8(ctx.heap, args[0]);
+    return stopOrAbort(ctx, std::string_view(reason), true) ? Oop::nil() : Oop{};
   }
   const Oop printed = send(ctx, args[0], ctx.wk.intern("printString"), nullptr, 0, nullptr);
   if (unwinding(ctx)) {
     return Oop{};
   }
   if (isBytesString(ctx, printed)) {
-    return abortEvaluation(ctx, std::string_view(Str::toUtf8(ctx.heap, printed)));
+    const std::string reason = Str::toUtf8(ctx.heap, printed);
+    return stopOrAbort(ctx, std::string_view(reason), true) ? Oop::nil() : Oop{};
   }
-  return abortEvaluation(ctx, "error:");
+  return stopOrAbort(ctx, "error:", true) ? Oop::nil() : Oop{};
 }
 
 // SPEC §3.5: sent when a jump finds a non-Boolean. The default aborts the evaluation.
 Oop ao_Object_mustBeBoolean(CallContext& ctx, const Oop&, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  return abortEvaluation(ctx, "NonBoolean receiver");
+  // SPEC §3.13: halts without Proceed, so it never answers a Boolean.
+  stopOrAbort(ctx, "NonBoolean receiver", false);
+  return Oop{};
 }
 
 // SPEC §3.3: both abort the evaluation with their selector as the reason.

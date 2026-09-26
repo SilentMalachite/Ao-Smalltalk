@@ -76,6 +76,9 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       inspectIt: {
         sendToKeyWorkspace(self.launch?.workspace, keyWindow: NSApplication.shared.keyWindow) { $0.inspectIt() }
       },
+      debugIt: {
+        sendToKeyWorkspace(self.launch?.workspace, keyWindow: NSApplication.shared.keyWindow) { $0.debugIt() }
+      },
       accept: {
         sendToKeyBrowser(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.accept() }
       },
@@ -118,10 +121,12 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     _ = alert.runModal()
   }
 
-  // The ABI answers only AO_OK or AO_ERR, so the alert names the file and no reason.
+  // The ABI answers only AO_OK or AO_ERR, so the alert names the file and no reason, but for the
+  // halted processes a live Debugger holds (SPEC §3.9, §3.11): then it says so.
   func saveImage(to url: URL) -> Bool {
     guard saveImageFile(at: url) == Int32(AO_OK) else {
-      reportImageFailure("Could not save the image", url: url)
+      let reason = ao_debug_halted_count() > 0 ? "halted processes" : ""
+      reportImageFailure("Could not save the image", url: url, reason: reason)
       return false
     }
     return true

@@ -21,6 +21,7 @@
 #include <climits>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,6 +35,8 @@ HostOopHook g_transcriptHook = nullptr;
 // SPEC §3.13: capture on or off, as the ABI set it (off by default). Every session boot and load
 // make gets it.
 bool g_debugCapture = false;
+// SPEC §3.13: the live mode, as the ABI set it (post-mortem by default). Each ao_eval reads it.
+int g_debugMode = AO_DEBUG_POSTMORTEM;
 // SPEC §3.10: the ao_debug_* prints and inspects running (DebugEntry). While one runs, capture stays
 // off and a new setting waits for its end.
 int g_debugEntries = 0;
@@ -50,6 +53,17 @@ void bumpDebugGeneration() {
 
 Oop workspaceBinding(CallContext& ctx, std::string_view name);
 
+// SPEC §3.13 step: statement starts come from the source table's debug info (SPEC §3.8). A
+// method without it has none. Only reads.
+bool statementStart(Oop method, std::uint32_t pc) {
+  const DebugInfoRef ref = debugInfoFor(method);
+  if (!ref) {
+    return false;
+  }
+  const std::vector<std::uint32_t>& pcs = ref.body->statementPcs;
+  return std::binary_search(pcs.begin(), pcs.end(), pc);
+}
+
 void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook inspect) {
   // The scheduler's base process runs on ctx: it goes before ctx does and comes back with it.
   session.scheduler.reset();
@@ -60,6 +74,7 @@ void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook ins
   session.ctx->transcriptHook = transcript;
   session.ctx->inspectHook = inspect;
   session.ctx->bindingHook = workspaceBinding;
+  session.ctx->statementHook = statementStart;
   // SPEC §3.13: the session is the sink while capture is on. The scheduler copies it into the
   // fibers.
   session.ctx->debug = g_debugCapture ? &session : nullptr;
@@ -152,7 +167,7 @@ void attachBlocks(const Session& s, Session::MethodSource& entry,
                   const compiler::MethodImage& image) {
   auto info = std::make_shared<DebugInfo>();
   std::vector<Oop> blocks;
-  info->bodies.push_back(MethodDebugInfo{image.pcMap, image.temps});
+  info->bodies.push_back(MethodDebugInfo{image.pcMap, image.temps, image.statementPcs});
   struct Walk {
     Oop method;
     const compiler::MethodImage* image;
@@ -175,7 +190,8 @@ void attachBlocks(const Session& s, Session::MethodSource& entry,
       continue;
     }
     blocks.push_back(block);
-    info->bodies.push_back(MethodDebugInfo{lit.method->pcMap, lit.method->temps});
+    info->bodies.push_back(
+        MethodDebugInfo{lit.method->pcMap, lit.method->temps, lit.method->statementPcs});
     stack.push_back(Walk{block, lit.method.get(), 0});
   }
   entry.blocks = std::move(blocks);
@@ -206,6 +222,11 @@ const Session::MethodSource* findEntry(const Session& s, Oop method, std::uint32
   if (s.doItDebug != nullptr && holds(*s.doItDebug)) {
     return s.doItDebug.get();
   }
+  for (const auto& entry : s.heldDoIts) {
+    if (holds(*entry)) {
+      return entry.get();
+    }
+  }
   return nullptr;
 }
 
@@ -222,10 +243,40 @@ void dropDoItDebug(Session& session) {
   }
 }
 
+// SPEC §3.13: the doIt entries of evaluations that are no longer halted go; the last doIt's
+// moves to heldDoIts while its process is halted, and goes otherwise.
+void retireDoItDebug(Session& session) {
+  auto halted = [&session](const Session::MethodSource& entry) {
+    return entry.evalPid != 0 && session.scheduler != nullptr &&
+           session.scheduler->isHalted(entry.evalPid);
+  };
+  auto& held = session.heldDoIts;
+  for (auto it = held.begin(); it != held.end();) {
+    if (halted(**it)) {
+      ++it;
+      continue;
+    }
+    unrootEntry(session.roots, **it);
+    it = held.erase(it);
+  }
+  if (session.doItDebug != nullptr && halted(*session.doItDebug)) {
+    try {
+      held.push_back(std::move(session.doItDebug));
+      return;
+    } catch (const std::bad_alloc&) {
+    }
+  }
+  dropDoItDebug(session);
+}
+
 void releaseMethodSources(Session& session) {
   unrootMethodSources(session);
   session.methodSources.clear();
   dropDoItDebug(session);
+  for (auto it = session.heldDoIts.rbegin(); it != session.heldDoIts.rend(); ++it) {
+    unrootEntry(session.roots, **it);
+  }
+  session.heldDoIts.clear();
 }
 
 }  // namespace
@@ -252,8 +303,10 @@ void Session::onAbort(CallContext& aborting) noexcept {
   if (this != g_session.get()) {
     return;
   }
-  // A fiber runs on its own CallContext; the base on ctx.
-  const bool base = &aborting == ctx.get();
+  // A fiber runs on its own CallContext; the base on ctx. SPEC §3.13: an evaluating process's
+  // failure is the evaluation's, so it replaces the snapshot as the base's does.
+  const bool base = &aborting == ctx.get() ||
+                    (scheduler != nullptr && scheduler->runningEval());
   if (!base && !debug.empty()) {
     return;
   }
@@ -297,6 +350,12 @@ void setSessionDebugCapture(bool on) {
   // recorded; ~DebugEntry applies it, so an abort later in that print is still not captured.
   if (g_debugEntries == 0 && g_session != nullptr && g_session->ctx != nullptr) {
     g_session->ctx->debug = on ? g_session.get() : nullptr;
+  }
+}
+
+void setSessionDebugMode(int mode) {
+  if (mode == AO_DEBUG_POSTMORTEM || mode == AO_DEBUG_LIVE) {
+    g_debugMode = mode;
   }
 }
 
@@ -365,7 +424,11 @@ int sessionImageSave(const char* path) {
       }
     }
   } hideSources(g_session.get());
-  return Image::save(g_session->heap, g_session->roots, g_session->wk, path) ? 0 : 1;
+  // SPEC §3.11: the halted processes (SPEC §3.13) are counted by the caller.
+  const std::size_t halted =
+      g_session->scheduler != nullptr ? g_session->scheduler->haltedCount() : 0;
+  return Image::save(g_session->heap, g_session->roots, g_session->wk, path, nullptr, halted) ? 0
+                                                                                               : 1;
 }
 
 int sessionImageLoad(const char* path, std::string* reason) {
@@ -828,6 +891,20 @@ Oop workspaceBinding(CallContext& ctx, std::string_view name) {
   return kv[1];
 }
 
+// err's message becomes text (cut to fit), at 0-0. Nothing for a null err.
+void spanMessage(AoSpan* err, const std::string& text) {
+  if (err == nullptr) {
+    return;
+  }
+  const std::size_t n = std::min(text.size(), sizeof(err->message) - 1);
+  err->start = 0;
+  err->end = 0;
+  if (n != 0) {
+    std::memcpy(err->message, text.data(), n);
+  }
+  err->message[n] = '\0';
+}
+
 void blankOut(char* out, int outLen) {
   if (outLen > 0 && out != nullptr) {
     out[0] = '\0';
@@ -871,12 +948,62 @@ bool inspectValue(Session& session, const Oop& value, AoInspectFn inspect, void*
   return true;
 }
 
+// SPEC §3.10: the answer for a doIt whose value is `result` (a rooted slot): empty for a Do it,
+// else the printString (and inspect first, for an Inspect it). *printedOut gets a Print it's or
+// Inspect it's whole printString (nullopt when it is INT_MAX bytes or more).
+int answerEval(Session& session, int mode, const Oop& result, char* out, int outLen,
+               AoInspectFn inspect, void* inspectUser, std::optional<std::string>* printedOut) {
+  if (mode != AO_EVAL_PRINTIT && mode != AO_EVAL_INSPECTIT) {
+    return writeBuf("", out, outLen);
+  }
+  std::string utf8;
+  const bool printedOk = mode == AO_EVAL_INSPECTIT
+                             ? inspectValue(session, result, inspect, inspectUser, &utf8)
+                             : printStringOf(session, result, &utf8);
+  if (!printedOk) {
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
+  // SPEC §3.10 評価結果: a printString of INT_MAX bytes or more is not kept; out is cut
+  // (AO_ERR_RANGE).
+  const bool fitsInt = utf8.size() < static_cast<std::size_t>(INT_MAX);
+  const int rc = writeBuf(utf8, out, outLen);
+  if (fitsInt) {
+    *printedOut = std::move(utf8);
+  } else {
+    *printedOut = std::nullopt;
+  }
+  return rc;
+}
+
+// SPEC §3.13: the answer for how the evaluating process the base waited for ended: its value's
+// (answerEval), AO_ERR_HALT with the reason in err (out empty), or AO_ERR_EVAL with *failure.
+int answerAwaited(Session& session, Scheduler::EvalEnd end, int mode, char* out, int outLen,
+                  AoSpan* err, AoInspectFn inspect, void* inspectUser,
+                  std::optional<std::string>* printedOut, std::string* failure) {
+  Scheduler& sched = *session.scheduler;
+  if (end == Scheduler::EvalEnd::Halted) {
+    spanMessage(err, sched.evalReason());
+    blankOut(out, outLen);
+    return AO_ERR_HALT;
+  }
+  if (end != Scheduler::EvalEnd::Finished) {
+    *failure = sched.evalReason();
+    blankOut(out, outLen);
+    return AO_ERR_EVAL;
+  }
+  Root result(session.roots, sched.evalValue());
+  sched.clearEvalValue();
+  return answerEval(session, mode, result.slot, out, outLen, inspect, inspectUser, printedOut);
+}
+
 // *ran becomes true once the doIt is applied: the evaluation ran (SPEC §3.4 評価の終わり).
 // *printedOut gets a Print it's or Inspect it's whole printString (nullopt when it is INT_MAX
-// bytes or more); other outcomes leave it as it was.
+// bytes or more); other outcomes leave it as it was. *failure gets the reason of a live-mode
+// evaluation that failed on its process (SPEC §3.13); the base is then not unwinding.
 int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
              AoInspectFn inspect, void* inspectUser, bool* ran,
-             std::optional<std::string>* printedOut) {
+             std::optional<std::string>* printedOut, std::string* failure) {
   if (err != nullptr) {
     err->start = 0;
     err->end = 0;
@@ -886,7 +1013,10 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR;
   }
-  if (mode != AO_EVAL_DOIT && mode != AO_EVAL_PRINTIT && mode != AO_EVAL_INSPECTIT) {
+  const bool live = g_debugMode == AO_DEBUG_LIVE && g_session->scheduler != nullptr;
+  // SPEC §3.13: Debug it only in live mode.
+  if (mode != AO_EVAL_DOIT && mode != AO_EVAL_PRINTIT && mode != AO_EVAL_INSPECTIT &&
+      !(mode == AO_EVAL_DEBUGIT && live)) {
     blankOut(out, outLen);
     return AO_ERR;
   }
@@ -953,36 +1083,29 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
   }
 
   *ran = true;
-  Root result(session.roots,
-              applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil()));
+  Root result(session.roots);
+  if (live) {
+    // SPEC §3.13 評価プロセス: the doIt runs on its own process; the base waits for it.
+    Scheduler& sched = *session.scheduler;
+    const std::uint64_t pid =
+        sched.forkEval(*session.ctx, method.slot, mode, mode == AO_EVAL_DEBUGIT);
+    if (pid == 0) {
+      blankOut(out, outLen);
+      return AO_ERR_EVAL;
+    }
+    if (session.doItDebug != nullptr) {
+      session.doItDebug->evalPid = pid;
+    }
+    return answerAwaited(session, sched.awaitEval(pid), mode, out, outLen, err, inspect,
+                         inspectUser, printedOut, failure);
+  } else {
+    result.slot = applyMethod(*session.ctx, method.slot, Oop::nil(), nullptr, 0, Oop::nil());
+  }
   if (result.slot.isEmpty()) {
     blankOut(out, outLen);
     return AO_ERR_EVAL;
   }
-
-  if (mode == AO_EVAL_DOIT) {
-    return writeBuf("", out, outLen);
-  }
-
-  std::string utf8;
-  const bool printedOk =
-      mode == AO_EVAL_INSPECTIT
-          ? inspectValue(session, result.slot, inspect, inspectUser, &utf8)
-          : printStringOf(session, result.slot, &utf8);
-  if (!printedOk) {
-    blankOut(out, outLen);
-    return AO_ERR_EVAL;
-  }
-  // SPEC §3.10 評価結果: a printString of INT_MAX bytes or more is not kept; out is cut
-  // (AO_ERR_RANGE).
-  const bool fitsInt = utf8.size() < static_cast<std::size_t>(INT_MAX);
-  const int rc = writeBuf(utf8, out, outLen);
-  if (fitsInt) {
-    *printedOut = std::move(utf8);
-  } else {
-    *printedOut = std::nullopt;
-  }
-  return rc;
+  return answerEval(session, mode, result.slot, out, outLen, inspect, inspectUser, printedOut);
 }
 
 }  // namespace
@@ -993,8 +1116,9 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   // that reads it during this evaluation, or any outcome that does not put one in, sees empty.
   if (g_session != nullptr) {
     g_session->evalResult = std::string();
-    // SPEC §3.10, §3.13: the last doIt's entry and the snapshot go when an ao_eval starts.
-    dropDoItDebug(*g_session);
+    // SPEC §3.10, §3.13: the last doIt's entry and the snapshot go when an ao_eval starts. A
+    // halted evaluation's doIt entry stays while its process is halted.
+    retireDoItDebug(*g_session);
     sessionDebugClear();
   }
   // 評価の前に立っていたフラグ（accept や file-in の途中のもの）を、この評価のせいにしない。
@@ -1007,8 +1131,17 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   }
   bool ran = false;
   std::optional<std::string> printed = std::string();
-  const int rc =
-      evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser, &ran, &printed);
+  std::string failure;
+  const int rc = evalBody(source, sourceLen, mode, out, outLen, err, inspect, inspectUser, &ran,
+                          &printed, &failure);
+  return finishEval(rc, ran, std::move(printed), failure, out, outLen, err);
+}
+
+// SPEC §3.4, §3.10: the end of an evaluation, once its answer is made (rc, out, *printed): the
+// base's abort (or the live evaluation's `failure`) is read and cleared, the ready queue drains
+// when the evaluation ran, and the result is kept.
+int finishEval(int rc, bool ran, std::optional<std::string> printed, const std::string& failure,
+               char* out, int outLen, AoSpan* err) {
   if (g_session == nullptr || g_session->ctx == nullptr) {
     return rc;
   }
@@ -1016,7 +1149,9 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
   // abort にならずに走り切ったときも「out of memory」。SPEC §3.10: AO_ERR_EVAL の理由は空にしない。
   CallContext& ctx = *g_session->ctx;
   std::string reason;
-  if (ctx.aborting) {
+  if (!failure.empty()) {
+    reason = failure;
+  } else if (ctx.aborting) {
     reason = abortReasonText(ctx);
     if (reason.empty()) {
       reason = "evaluation aborted";
@@ -1059,6 +1194,55 @@ int sessionEvalResultLength() {
   }
   // Only a result shorter than INT_MAX bytes is kept (evalBody).
   return static_cast<int>(g_session->evalResult->size());
+}
+
+int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, AoSpan* err,
+                       AoInspectFn inspect, void* inspectUser) {
+  spanMessage(err, std::string());
+  Session* s = g_session.get();
+  if (s == nullptr || s->ctx == nullptr || s->scheduler == nullptr || out == nullptr ||
+      outLen < 1 || pid <= 0 || !s->scheduler->canProceed(static_cast<std::uint64_t>(pid))) {
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  // SPEC §3.10 ライブデバッガの操作: an outermost entry like ao_eval: the result and the snapshot go
+  // first, and what an earlier entry left is not blamed on it.
+  s->evalResult = std::string();
+  sessionDebugClear();
+  CallContext& ctx = *s->ctx;
+  s->heap.clearOutOfMemory();
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
+  ctx.abortSetAside = 0;
+  const auto id = static_cast<std::uint64_t>(pid);
+  const int mode = s->scheduler->evalModeOf(id);
+  const Scheduler::EvalEnd end =
+      step == StepMode::None ? s->scheduler->proceed(id) : s->scheduler->step(id, step);
+  std::optional<std::string> printed = std::string();
+  std::string failure;
+  const int rc = answerAwaited(*s, end, mode, out, outLen, err, inspect, inspectUser, &printed,
+                               &failure);
+  return finishEval(rc, true, std::move(printed), failure, out, outLen, err);
+}
+
+int sessionDebugAbort(std::int64_t pid) {
+  Session* s = g_session.get();
+  if (s == nullptr || s->ctx == nullptr || s->scheduler == nullptr || pid <= 0) {
+    return AO_ERR;
+  }
+  CallContext& ctx = *s->ctx;
+  s->heap.clearOutOfMemory();
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
+  ctx.abortSetAside = 0;
+  if (!s->scheduler->abortHalted(static_cast<std::uint64_t>(pid))) {
+    return AO_ERR;
+  }
+  // SPEC §3.13: the cleanups ran on the process; what they made ready runs in the drain.
+  s->scheduler->drain(Scheduler::kDrainRounds);
+  clearUnwinding(ctx);
+  s->heap.clearOutOfMemory();
+  return AO_OK;
 }
 
 int sessionEvalResultCopy(char* buf, int bufLen) {
@@ -1155,7 +1339,8 @@ bool methodSource(Oop method, std::string& utf8) {
     utf8 = Str::toUtf8(s->heap, entry->text);
     return true;
   }
-  if (entry == s->doItDebug.get()) {
+  // A doIt's entry (the last one, or a halted evaluation's) has no String: its text is doItText.
+  if (entry->text.isNil()) {
     utf8 = entry->doItText;
     return true;
   }
@@ -1213,6 +1398,9 @@ std::vector<const Oop*> methodSourceRootSlots(bool withSnapshot) {
     }
     if (s->doItDebug != nullptr) {
       add(*s->doItDebug);
+    }
+    for (const auto& entry : s->heldDoIts) {
+      add(*entry);
     }
     if (withSnapshot) {
       const std::vector<const Oop*> snapshot = s->debug.rootSlots();
@@ -1403,11 +1591,62 @@ int browserSubclassAt(const char* className, int index, char* buf, int len) {
 
 namespace {
 
-// The snapshot of the current session; null without one.
-DebugSnapshot* snapshotOf(Session* s) { return s != nullptr ? &s->debug : nullptr; }
+// SPEC §3.10 ao_debug_select: a selected pid that is not halted reads as nothing.
+class NoFrames final : public DebugFrames {
+ public:
+  bool empty() const override { return true; }
+  std::uint32_t count() const override { return 0; }
+  std::uint32_t total() const override { return 0; }
+  const std::string& reason() const override { return reason_; }
+  int kind(std::uint32_t) const override { return -1; }
+  Oop method(std::uint32_t) const override { return Oop{}; }
+  Oop receiver(std::uint32_t) const override { return Oop{}; }
+  Oop context(std::uint32_t) const override { return Oop{}; }
+  std::uint32_t pc(std::uint32_t) const override { return 0; }
+  Oop selector(std::uint32_t) const override { return Oop{}; }
+  std::uint32_t tempCount(std::uint32_t) const override { return 0; }
+  Oop temp(std::uint32_t, std::uint32_t) const override { return Oop{}; }
+  std::uint32_t sendArgCount(std::uint32_t) const override { return 0; }
+  Oop sendArg(std::uint32_t, std::uint32_t) const override { return Oop{}; }
 
-bool frameInRange(const DebugSnapshot& snap, int i) {
-  return i >= 0 && static_cast<std::uint32_t>(i) < snap.count();
+ private:
+  std::string reason_;
+};
+
+// SPEC §3.10 ao_debug_select: what the ao_debug_* reads read: the snapshot (0), the selected
+// halted process's live chain (SPEC §3.13), or nothing. Made for each read, since a live chain
+// changes whenever its process runs.
+class SelectedFrames {
+ public:
+  explicit SelectedFrames(Session& s) {
+    if (s.debugSelected == 0) {
+      frames_ = &s.debug;
+      return;
+    }
+    const std::string* reason = nullptr;
+    const CallContext* halted = s.scheduler != nullptr
+                                    ? s.scheduler->haltedContext(s.debugSelected, &reason)
+                                    : nullptr;
+    if (halted == nullptr) {
+      frames_ = &none_;
+      return;
+    }
+    live_.emplace(*halted, *reason);
+    frames_ = &*live_;
+  }
+  SelectedFrames(const SelectedFrames&) = delete;
+  SelectedFrames& operator=(const SelectedFrames&) = delete;
+  const DebugFrames& operator*() const { return *frames_; }
+  const DebugFrames* operator->() const { return frames_; }
+
+ private:
+  NoFrames none_;
+  std::optional<LiveFrames> live_;
+  const DebugFrames* frames_ = nullptr;
+};
+
+bool frameInRange(const DebugFrames& f, int i) {
+  return i >= 0 && static_cast<std::uint32_t>(i) < f.count();
 }
 
 // A CompiledMethod's class and selector, or the doIt's. The doIt is boxed with CompiledMethod as
@@ -1441,8 +1680,8 @@ std::string methodLabel(const MethodName& name) {
 
 // The home method of block frame i: the method of its home context (the context ^ returns from),
 // else the method whose source entry holds the block; the empty Oop when neither is known.
-Oop homeMethodOf(Session& s, std::uint32_t i) {
-  const Oop block = s.debug.context(i);
+Oop homeMethodOf(Session& s, const DebugFrames& f, std::uint32_t i) {
+  const Oop block = f.context(i);
   if (pointerSlots(s.heap, block, kBlockSlotCount)) {
     const Oop home = s.heap.slotAt(block, kBlockHome);
     if (home.isHeap() && s.heap.klass(home) == s.wk.methodContextClass &&
@@ -1454,7 +1693,7 @@ Oop homeMethodOf(Session& s, std::uint32_t i) {
     }
   }
   std::uint32_t index = 0;
-  if (const Session::MethodSource* entry = findEntry(s, s.debug.method(i), &index)) {
+  if (const Session::MethodSource* entry = findEntry(s, f.method(i), &index)) {
     return entry->method;
   }
   return Oop{};
@@ -1462,20 +1701,20 @@ Oop homeMethodOf(Session& s, std::uint32_t i) {
 
 // What frame i's label and placeholder name: its method, a block's home method, or (kind 2) the
 // NativeMethod, nil for a DNU.
-Oop labelMethodOf(Session& s, std::uint32_t i) {
-  return s.debug.kind(i) == kDebugFrameBlock ? homeMethodOf(s, i) : s.debug.method(i);
+Oop labelMethodOf(Session& s, const DebugFrames& f, std::uint32_t i) {
+  return f.kind(i) == kDebugFrameBlock ? homeMethodOf(s, f, i) : f.method(i);
 }
 
-std::string frameLabel(Session& s, std::uint32_t i) {
-  const Oop method = labelMethodOf(s, i);
-  switch (s.debug.kind(i)) {
+std::string frameLabel(Session& s, const DebugFrames& f, std::uint32_t i) {
+  const Oop method = labelMethodOf(s, f, i);
+  switch (f.kind(i)) {
     case kDebugFrameMethod:
       return methodLabel(methodNameOf(s, method));
     case kDebugFrameBlock:
       // No home known: the block's own class, with no selector.
-      return "[] in " + methodLabel(methodNameOf(s, method.isEmpty() ? s.debug.method(i) : method));
+      return "[] in " + methodLabel(methodNameOf(s, method.isEmpty() ? f.method(i) : method));
     default: {
-      const std::string selector = byteText(s.heap, s.debug.selector(i));
+      const std::string selector = byteText(s.heap, f.selector(i));
       if (!pointerSlots(s.heap, method, kNativeSlotCount)) {
         return "#" + selector + " (doesNotUnderstand:)";
       }
@@ -1487,11 +1726,11 @@ std::string frameLabel(Session& s, std::uint32_t i) {
 }
 
 // The debug info of interpreted frame i; null for kind 2 or a method without it.
-const MethodDebugInfo* frameDebugInfo(const Session& s, std::uint32_t i) {
-  if (s.debug.kind(i) == kDebugFrameNative) {
+const MethodDebugInfo* frameDebugInfo(const DebugFrames& f, std::uint32_t i) {
+  if (f.kind(i) == kDebugFrameNative) {
     return nullptr;
   }
-  return debugInfoFor(s.debug.method(i)).body;
+  return debugInfoFor(f.method(i)).body;
 }
 
 // The argument count in the header of the CompiledMethod `method`; 0 when it is not one.
@@ -1504,38 +1743,38 @@ std::uint32_t argCountOf(Session& s, Oop method) {
                                  : 0;
 }
 
-std::uint32_t frameTempCount(const Session& s, std::uint32_t i) {
-  if (const MethodDebugInfo* info = frameDebugInfo(s, i)) {
+std::uint32_t frameTempCount(const DebugFrames& f, std::uint32_t i) {
+  if (const MethodDebugInfo* info = frameDebugInfo(f, i)) {
     return static_cast<std::uint32_t>(info->temps.size());
   }
-  return s.debug.tempCount(i);
+  return f.tempCount(i);
 }
 
-bool tempInRange(const Session& s, int i, int j) {
-  return frameInRange(s.debug, i) && j >= 0 &&
-         static_cast<std::uint32_t>(j) < frameTempCount(s, static_cast<std::uint32_t>(i));
+bool tempInRange(const DebugFrames& f, int i, int j) {
+  return frameInRange(f, i) && j >= 0 &&
+         static_cast<std::uint32_t>(j) < frameTempCount(f, static_cast<std::uint32_t>(i));
 }
 
 // The receiver (j == -1) or temp j of frame i; a named temp is read through the temp vector that
 // holds it (SPEC §3.8). False when i or j is out of range. Only reads (no GC).
-bool frameValue(Session& s, int i, int j, Oop* value) {
-  if (!frameInRange(s.debug, i) || j < -1) {
+bool frameValue(Session& s, const DebugFrames& f, int i, int j, Oop* value) {
+  if (!frameInRange(f, i) || j < -1) {
     return false;
   }
   const auto fi = static_cast<std::uint32_t>(i);
   if (j == -1) {
-    *value = s.debug.receiver(fi);
+    *value = f.receiver(fi);
     return true;
   }
-  if (!tempInRange(s, i, j)) {
+  if (!tempInRange(f, i, j)) {
     return false;
   }
   const auto tj = static_cast<std::uint32_t>(j);
-  const MethodDebugInfo* info = frameDebugInfo(s, fi);
-  Oop v = s.debug.temp(fi, tj);
+  const MethodDebugInfo* info = frameDebugInfo(f, fi);
+  Oop v = f.temp(fi, tj);
   if (info != nullptr) {
     const compiler::TempName& name = info->temps[tj];
-    v = s.debug.temp(fi, name.slot);
+    v = f.temp(fi, name.slot);
     if (name.vecIndex >= 0) {
       const auto at = static_cast<std::uint32_t>(name.vecIndex);
       v = pointerSlots(s.heap, v, at + 1) ? s.heap.slotAt(v, at) : Oop::nil();
@@ -1578,11 +1817,18 @@ class DebugEntry {
   Session& s_;
 };
 
+// The value of frame i's receiver (j == -1) or temp j in the selected frames, rooted by the
+// caller before anything collects. False out of range.
+bool selectedValue(Session& s, int i, int j, Oop* value) {
+  const SelectedFrames f(s);
+  return frameValue(s, *f, i, j, value);
+}
+
 int debugPrint(int i, int j, char* classBuf, int classLen, char* buf, int len) {
   Session* s = session();
   Oop v;
   if (s == nullptr || s->ctx == nullptr || classBuf == nullptr || classLen < 1 ||
-      buf == nullptr || len < 1 || !frameValue(*s, i, j, &v)) {
+      buf == nullptr || len < 1 || !selectedValue(*s, i, j, &v)) {
     blankOut(classBuf, classLen);
     blankOut(buf, len);
     return AO_ERR;
@@ -1605,48 +1851,74 @@ int debugPrint(int i, int j, char* classBuf, int classLen, char* buf, int len) {
 }  // namespace
 
 int debugFrameCount() {
-  const DebugSnapshot* snap = snapshotOf(session());
-  return snap != nullptr ? static_cast<int>(snap->count()) : -1;
+  Session* s = session();
+  if (s == nullptr) {
+    return -1;
+  }
+  const SelectedFrames f(*s);
+  return static_cast<int>(f->count());
 }
 
 int debugFrameTotal() {
-  const DebugSnapshot* snap = snapshotOf(session());
-  return snap != nullptr ? static_cast<int>(snap->total()) : -1;
+  Session* s = session();
+  if (s == nullptr) {
+    return -1;
+  }
+  const SelectedFrames f(*s);
+  return static_cast<int>(std::min<std::uint32_t>(f->total(), INT_MAX));
 }
 
 int debugReason(char* buf, int len) {
-  const DebugSnapshot* snap = snapshotOf(session());
-  if (snap == nullptr || snap->empty()) {
+  Session* s = session();
+  if (s == nullptr) {
     blankOut(buf, len);
     return AO_ERR;
   }
-  return writeBuf(snap->reason(), buf, len);
+  const SelectedFrames f(*s);
+  if (f->empty()) {
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  return writeBuf(f->reason(), buf, len);
 }
 
 int debugFrameKind(int i) {
-  const DebugSnapshot* snap = snapshotOf(session());
-  return snap != nullptr && frameInRange(*snap, i) ? snap->kind(static_cast<std::uint32_t>(i)) : -1;
+  Session* s = session();
+  if (s == nullptr) {
+    return -1;
+  }
+  const SelectedFrames f(*s);
+  return frameInRange(*f, i) ? f->kind(static_cast<std::uint32_t>(i)) : -1;
 }
 
 int debugFrameLabel(int i, char* buf, int len) {
   Session* s = session();
-  if (s == nullptr || !frameInRange(s->debug, i)) {
+  if (s == nullptr) {
     blankOut(buf, len);
     return AO_ERR;
   }
-  return writeBuf(frameLabel(*s, static_cast<std::uint32_t>(i)), buf, len);
+  const SelectedFrames f(*s);
+  if (!frameInRange(*f, i)) {
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  return writeBuf(frameLabel(*s, *f, static_cast<std::uint32_t>(i)), buf, len);
 }
 
 int debugFramePc(int i) {
-  const DebugSnapshot* snap = snapshotOf(session());
-  if (snap == nullptr || !frameInRange(*snap, i)) {
+  Session* s = session();
+  if (s == nullptr) {
+    return -1;
+  }
+  const SelectedFrames f(*s);
+  if (!frameInRange(*f, i)) {
     return -1;
   }
   const auto fi = static_cast<std::uint32_t>(i);
-  if (snap->kind(fi) == kDebugFrameNative) {
+  if (f->kind(fi) == kDebugFrameNative) {
     return -1;
   }
-  return static_cast<int>(std::min<std::uint32_t>(snap->pc(fi), INT_MAX));
+  return static_cast<int>(std::min<std::uint32_t>(f->pc(fi), INT_MAX));
 }
 
 int debugFrameSource(int i, char* buf, int len, AoSpan* highlight) {
@@ -1656,20 +1928,25 @@ int debugFrameSource(int i, char* buf, int len, AoSpan* highlight) {
     highlight->message[0] = '\0';
   }
   Session* s = session();
-  if (s == nullptr || !frameInRange(s->debug, i) || buf == nullptr || len < 1) {
+  if (s == nullptr || buf == nullptr || len < 1) {
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  const SelectedFrames f(*s);
+  if (!frameInRange(*f, i)) {
     blankOut(buf, len);
     return AO_ERR;
   }
   const auto fi = static_cast<std::uint32_t>(i);
-  const int kind = s->debug.kind(fi);
+  const int kind = f->kind(fi);
   std::string text;
   if (kind != kDebugFrameNative) {
-    const Oop method = s->debug.method(fi);
+    const Oop method = f->method(fi);
     // The entry that holds the method or the block has the home method's text, the doIt's too.
     if (methodSource(method, text)) {
       std::uint32_t start = 0;
       std::uint32_t end = 0;
-      if (highlight != nullptr && debugSpanAt(method, s->debug.pc(fi), start, end)) {
+      if (highlight != nullptr && debugSpanAt(method, f->pc(fi), start, end)) {
         highlight->start = start;
         highlight->end = end;
       }
@@ -1678,15 +1955,15 @@ int debugFrameSource(int i, char* buf, int len, AoSpan* highlight) {
   }
   // SPEC §3.10: the browser's placeholder (sourceOf) for a method or a native; the doIt and the
   // DNU frame take the same shape with their labels.
-  const Oop method = labelMethodOf(*s, fi);
+  const Oop method = labelMethodOf(*s, *f, fi);
   const MethodName name = methodNameOf(*s, method);
   if (kind == kDebugFrameNative && pointerSlots(s->heap, method, kNativeSlotCount)) {
     const std::string cls = classNameOf(s->heap, s->heap.slotAt(method, kNativeSlotMethodClass));
-    sourceOf(*s, cls, ListedMethod{byteText(s->heap, s->debug.selector(fi)), true, method}, text);
+    sourceOf(*s, cls, ListedMethod{byteText(s->heap, f->selector(fi)), true, method}, text);
   } else if (kind != kDebugFrameNative && !method.isEmpty() && !name.doIt) {
     sourceOf(*s, name.cls, ListedMethod{name.selector, false, method}, text);
   } else {
-    const std::string label = kind == kDebugFrameNative ? frameLabel(*s, fi) : methodLabel(name);
+    const std::string label = kind == kDebugFrameNative ? frameLabel(*s, *f, fi) : methodLabel(name);
     text = "\"" + label + " source not available\"";
   }
   // SPEC §3.10: AO_ERR_NOSOURCE wins over AO_ERR_RANGE; writeBuf still cuts and ends in NUL.
@@ -1695,28 +1972,36 @@ int debugFrameSource(int i, char* buf, int len, AoSpan* highlight) {
 }
 
 int debugTempCount(int i) {
-  const Session* s = session();
-  if (s == nullptr || !frameInRange(s->debug, i)) {
+  Session* s = session();
+  if (s == nullptr) {
     return -1;
   }
-  return static_cast<int>(frameTempCount(*s, static_cast<std::uint32_t>(i)));
+  const SelectedFrames f(*s);
+  if (!frameInRange(*f, i)) {
+    return -1;
+  }
+  return static_cast<int>(frameTempCount(*f, static_cast<std::uint32_t>(i)));
 }
 
 int debugTempName(int i, int j, char* buf, int len) {
   Session* s = session();
-  if (s == nullptr || !tempInRange(*s, i, j)) {
+  if (s == nullptr) {
+    blankOut(buf, len);
+    return AO_ERR;
+  }
+  const SelectedFrames f(*s);
+  if (!tempInRange(*f, i, j)) {
     blankOut(buf, len);
     return AO_ERR;
   }
   const auto fi = static_cast<std::uint32_t>(i);
   const auto tj = static_cast<std::uint32_t>(j);
-  if (const MethodDebugInfo* info = frameDebugInfo(*s, fi)) {
+  if (const MethodDebugInfo* info = frameDebugInfo(*f, fi)) {
     return writeBuf(info->temps[tj].name, buf, len);
   }
   // SPEC §3.10: without debug info, arg1 ... then t1 ...; a native frame's are all arguments.
-  const std::uint32_t args = s->debug.kind(fi) == kDebugFrameNative
-                                 ? s->debug.tempCount(fi)
-                                 : argCountOf(*s, s->debug.method(fi));
+  const std::uint32_t args = f->kind(fi) == kDebugFrameNative ? f->tempCount(fi)
+                                                              : argCountOf(*s, f->method(fi));
   const std::string name =
       tj < args ? "arg" + std::to_string(tj + 1) : "t" + std::to_string(tj - args + 1);
   return writeBuf(name, buf, len);
@@ -1738,7 +2023,7 @@ int debugTempPrint(int i, int j, char* classBuf, int classLen, char* buf, int le
 int debugInspect(int i, int j, AoInspectFn inspect, void* inspectUser) {
   Session* s = session();
   Oop v;
-  if (s == nullptr || s->ctx == nullptr || !frameValue(*s, i, j, &v)) {
+  if (s == nullptr || s->ctx == nullptr || !selectedValue(*s, i, j, &v)) {
     return AO_ERR;
   }
   Root value(s->roots, v);
@@ -1755,6 +2040,41 @@ int debugClear() {
   }
   sessionDebugClear();
   return AO_OK;
+}
+
+std::int64_t debugHaltedPid() {
+  Session* s = session();
+  return s != nullptr && s->scheduler != nullptr
+             ? static_cast<std::int64_t>(s->scheduler->lastHaltedPid())
+             : 0;
+}
+
+int debugHaltedCount() {
+  Session* s = session();
+  if (s == nullptr) {
+    return -1;
+  }
+  return s->scheduler != nullptr ? static_cast<int>(s->scheduler->haltedCount()) : 0;
+}
+
+int debugCanProceed(std::int64_t pid) {
+  Session* s = session();
+  return s != nullptr && s->scheduler != nullptr && pid > 0 &&
+                 s->scheduler->canProceed(static_cast<std::uint64_t>(pid))
+             ? 1
+             : 0;
+}
+
+int debugSelect(std::int64_t pid) {
+  Session* s = session();
+  if (s == nullptr || pid < 0) {
+    return AO_ERR;
+  }
+  s->debugSelected = static_cast<std::uint64_t>(pid);
+  if (pid == 0) {
+    return AO_OK;
+  }
+  return s->scheduler != nullptr && s->scheduler->isHalted(s->debugSelected) ? AO_OK : AO_ERR;
 }
 
 }  // namespace ao

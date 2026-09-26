@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <vector>
 #include <string>
 #include <string_view>
 
@@ -236,4 +238,52 @@ TEST(PcMap, ImplicitReturnsMapToLastStatement) {
     ASSERT_TRUE(r.ok) << r.error.message;
     EXPECT_EQ("5 + 6", spanAt(r.image, src, pcOf(r.image, Op::ReturnTop)));
   }
+}
+
+namespace {
+
+bool strictlyAscending(const std::vector<std::uint32_t>& pcs) {
+  for (std::size_t i = 1; i < pcs.size(); ++i) {
+    if (pcs[i - 1] >= pcs[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+// SPEC §3.8 文の先頭表: every statement's first instruction, inlined blocks' statements included,
+// ascending; a block has its own. The bytecode does not change.
+TEST(PcMap, StatementPcsListEveryStatementStart) {
+  const std::string src =
+      "foo\n  | a |\n  a := 1.\n  a > 0 ifTrue: [a := 2. a := 3].\n  ^[:x | x. x + 1]";
+  const auto r = compileMethod(src);
+  ASSERT_TRUE(r.ok) << r.error.message;
+  const std::vector<std::uint32_t>& pcs = r.image.statementPcs;
+  ASSERT_EQ(5u, pcs.size());
+  EXPECT_TRUE(strictlyAscending(pcs));
+  EXPECT_EQ(0u, pcs[0]);
+  // The inlined statements come after the conditional jump, before the ^.
+  const int jump = pcOf(r.image, Op::JumpFalse);
+  ASSERT_GE(jump, 0);
+  EXPECT_GT(pcs[2], static_cast<std::uint32_t>(jump));
+  EXPECT_LT(pcs[3], pcs[4]);
+  EXPECT_EQ("a := 2", spanAt(r.image, src, static_cast<int>(pcs[2])));
+  const MethodImage* block = firstBlock(r.image);
+  ASSERT_NE(nullptr, block);
+  ASSERT_EQ(2u, block->statementPcs.size());
+  EXPECT_EQ(0u, block->statementPcs[0]);
+  EXPECT_TRUE(strictlyAscending(block->statementPcs));
+  // A workspace doIt: each statement, the last one too.
+  ao::compiler::CompileEnv env;
+  env.undeclaredAreBindings = true;
+  const auto d = compileMethod("doIt\nx := 3. y := x + 1. y", env);
+  ASSERT_TRUE(d.ok) << d.error.message;
+  EXPECT_EQ(3u, d.image.statementPcs.size());
+  EXPECT_TRUE(strictlyAscending(d.image.statementPcs));
+  // An empty inlined block has no statement; its loop's increment is none either.
+  const auto e = compileMethod("doIt\n1 to: 3 do: [:i | ]. 4", env);
+  ASSERT_TRUE(e.ok) << e.error.message;
+  EXPECT_EQ(2u, e.image.statementPcs.size());
 }

@@ -13,6 +13,7 @@
 namespace ao {
 
 struct CallContext;
+struct Frame;
 class Roots;
 
 // Frame kinds (SPEC §3.13 フレームの種類とラベル, §3.10 ao_debug_frame_kind).
@@ -30,16 +31,25 @@ class DebugSink {
   virtual void onAbort(CallContext& ctx) noexcept = 0;
 };
 
-// Frames, innermost first (index 0). Out of range: kind -1, the empty Oop, 0.
+// Frames, innermost first (index 0). Out of range: kind -1, the empty Oop, 0. SPEC §3.13: the
+// ao_debug_* reads go through this, for a snapshot and for a halted process's live chain alike.
 class DebugFrames {
  public:
   virtual ~DebugFrames() = default;
+  // Nothing to read (no capture; not a halted process).
+  virtual bool empty() const = 0;
   virtual std::uint32_t count() const = 0;
+  // Frames before the cap (SPEC §3.10 ao_debug_frame_total).
+  virtual std::uint32_t total() const = 0;
+  // Why it stopped: the abort's reason, or the halt's.
+  virtual const std::string& reason() const = 0;
   virtual int kind(std::uint32_t i) const = 0;
   // The CompiledMethod (a block's own for a block frame), the NativeMethod of a synthesized
   // native frame, or nil for a synthesized DNU frame.
   virtual Oop method(std::uint32_t i) const = 0;
   virtual Oop receiver(std::uint32_t i) const = 0;
+  // The frame's context (nil for a synthesized frame).
+  virtual Oop context(std::uint32_t i) const = 0;
   // The pc of the frame's context (the start of the bytecode it runs: a Send's own); 0 for a
   // synthesized frame.
   virtual std::uint32_t pc(std::uint32_t i) const = 0;
@@ -50,6 +60,9 @@ class DebugFrames {
   // Synthesized frames: the arguments of the send.
   virtual std::uint32_t tempCount(std::uint32_t i) const = 0;
   virtual Oop temp(std::uint32_t i, std::uint32_t j) const = 0;
+  // The arguments of the send in flight in an interpreted frame (0 for a synthesized frame).
+  virtual std::uint32_t sendArgCount(std::uint32_t i) const = 0;
+  virtual Oop sendArg(std::uint32_t i, std::uint32_t j) const = 0;
 };
 
 // A copy of one process's chain at the start of an abort. The values are GC roots (one
@@ -71,7 +84,7 @@ class DebugSnapshot final : public DebugFrames {
   bool capture(CallContext& ctx) noexcept;
   void clear() noexcept;
   // Nothing captured (a capture with no interpreted frame is not empty: it has a reason).
-  bool empty() const noexcept { return !held_; }
+  bool empty() const noexcept override { return !held_; }
   // Every slot it registered, for what must not trace them (image save, the shape change's
   // liveness; P10-04 methodSourceRootSlots).
   std::vector<const Oop*> rootSlots() const;
@@ -81,23 +94,19 @@ class DebugSnapshot final : public DebugFrames {
   std::uint32_t rootCount() const noexcept { return registered_; }
 
   std::uint32_t count() const override { return static_cast<std::uint32_t>(frames_.size()); }
+  std::uint32_t total() const noexcept override { return total_; }
+  // abortReasonText at the capture.
+  const std::string& reason() const noexcept override { return reason_; }
   int kind(std::uint32_t i) const override;
   Oop method(std::uint32_t i) const override;
   Oop receiver(std::uint32_t i) const override;
+  Oop context(std::uint32_t i) const override;
   std::uint32_t pc(std::uint32_t i) const override;
   Oop selector(std::uint32_t i) const override;
   std::uint32_t tempCount(std::uint32_t i) const override;
   Oop temp(std::uint32_t i, std::uint32_t j) const override;
-
-  // The frame's context (nil for a synthesized frame).
-  Oop context(std::uint32_t i) const;
-  // The arguments of the send in flight in an interpreted frame (0 for a synthesized frame).
-  std::uint32_t sendArgCount(std::uint32_t i) const;
-  Oop sendArg(std::uint32_t i, std::uint32_t j) const;
-  // Frames before the cap (SPEC §3.10 ao_debug_frame_total).
-  std::uint32_t total() const noexcept { return total_; }
-  // abortReasonText at the capture.
-  const std::string& reason() const noexcept { return reason_; }
+  std::uint32_t sendArgCount(std::uint32_t i) const override;
+  Oop sendArg(std::uint32_t i, std::uint32_t j) const override;
   // The process that failed (nil outside a scheduler), and whether it is the base.
   Oop process() const;
   bool fromBase() const noexcept { return fromBase_; }
@@ -125,6 +134,43 @@ class DebugSnapshot final : public DebugFrames {
   std::string reason_;
   bool fromBase_ = false;
   bool held_ = false;
+};
+
+// SPEC §3.13 止まったプロセスのフレーム: a halted process's chain, walked when it is made and read
+// in place (the frames' slots are rooted and follow GC). The same shape as a snapshot: the
+// innermost kMaxFrames, a native frame synthesized as capture does, total and reason. Valid while
+// the process stays halted; make a new one after anything that may run it. Allocates nothing on
+// the Smalltalk heap.
+class LiveFrames final : public DebugFrames {
+ public:
+  LiveFrames(const CallContext& ctx, const std::string& reason);
+
+  bool empty() const override { return false; }
+  std::uint32_t count() const override { return static_cast<std::uint32_t>(count_); }
+  std::uint32_t total() const override { return total_; }
+  const std::string& reason() const override { return reason_; }
+  int kind(std::uint32_t i) const override;
+  Oop method(std::uint32_t i) const override;
+  Oop receiver(std::uint32_t i) const override;
+  Oop context(std::uint32_t i) const override;
+  std::uint32_t pc(std::uint32_t i) const override;
+  Oop selector(std::uint32_t i) const override;
+  std::uint32_t tempCount(std::uint32_t i) const override;
+  Oop temp(std::uint32_t i, std::uint32_t j) const override;
+  std::uint32_t sendArgCount(std::uint32_t i) const override;
+  Oop sendArg(std::uint32_t i, std::uint32_t j) const override;
+
+ private:
+  // The interpreted frame at i (null for the synthesized one and out of range).
+  const Frame* frameAt(std::uint32_t i) const;
+  bool synthesized(std::uint32_t i) const { return synth_ && i == 0; }
+
+  const CallContext& ctx_;
+  std::vector<const Frame*> frames_;  // interpreted frames, innermost first, up to the cap
+  std::size_t count_ = 0;
+  std::uint32_t total_ = 0;
+  bool synth_ = false;
+  std::string reason_;
 };
 
 }  // namespace ao

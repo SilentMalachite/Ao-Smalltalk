@@ -596,6 +596,15 @@ class Emitter {
     image_.pcMap.push_back(PcSpan{pc, span.start, span.end});
   }
 
+  // SPEC §3.8 文の先頭表: mark, and the next instruction starts a statement.
+  void markStatement(SourceSpan span) {
+    mark(span);
+    const auto pc = static_cast<std::uint32_t>(image_.bytes.size());
+    if (image_.statementPcs.empty() || image_.statementPcs.back() < pc) {
+      image_.statementPcs.push_back(pc);
+    }
+  }
+
   // SPEC §3.8: this real scope's named temps in declaration order (the hidden to:do: limit has
   // no name), then the outer variables its closure copied.
   void nameTemps() {
@@ -820,7 +829,7 @@ class Emitter {
       if (last.kind == Ast::Kind::Return) {
         compileReturn(last, false);
       } else {
-        mark(last.span);
+        markStatement(last.span);
         compileExpr(last);
         if (!failed_) {
           mark(last.span);
@@ -833,7 +842,7 @@ class Emitter {
       compileReturn(body, false);
       return;
     }
-    mark(body.span);
+    markStatement(body.span);
     compileExpr(body);
     if (!failed_) {
       mark(body.span);
@@ -885,7 +894,7 @@ class Emitter {
         compileReturn(body, true);
         return;
       }
-      mark(body.span);
+      markStatement(body.span);
       compileExpr(body);
       mark(body.span);
       emit(Op::ReturnTop);
@@ -904,7 +913,7 @@ class Emitter {
     if (last.kind == Ast::Kind::Return) {
       compileReturn(last, true);
     } else {
-      mark(last.span);
+      markStatement(last.span);
       compileExpr(last);
       mark(last.span);
       emit(Op::ReturnTop);
@@ -915,19 +924,21 @@ class Emitter {
     if (failed_) {
       return;
     }
-    mark(n.span);
+    if (n.kind == Ast::Kind::Sequence) {
+      // Its statements start where they do; the sequence itself emits nothing (it may be empty).
+      mark(n.span);
+      for (const Ast& k : n.kids) {
+        compileStmt(k);
+      }
+      return;
+    }
+    markStatement(n.span);
     if (n.kind == Ast::Kind::Return) {
       compileReturn(n, real_->isBlock);
       return;
     }
     if (n.kind == Ast::Kind::Assign) {
       compileAssign(n, true);
-      return;
-    }
-    if (n.kind == Ast::Kind::Sequence) {
-      for (const Ast& k : n.kids) {
-        compileStmt(k);
-      }
       return;
     }
     compileExpr(n);
@@ -965,7 +976,7 @@ class Emitter {
         for (std::size_t i = 0; i + 1 < n.kids.size(); ++i) {
           compileStmt(n.kids[i]);
         }
-        mark(n.kids.back().span);
+        markStatement(n.kids.back().span);
         compileExpr(n.kids.back());
         return;
       case Ast::Kind::Return:
@@ -1002,7 +1013,7 @@ class Emitter {
   }
 
   void compileReturn(const Ast& n, bool inBlock) {
-    mark(n.span);
+    markStatement(n.span);
     const Ast* expr = n.kids.empty() ? nullptr : &n.kids[0];
     if (inBlock) {
       if (expr == nullptr) {
@@ -1128,7 +1139,7 @@ class Emitter {
     for (std::size_t i = 0; i + 1 < body.kids.size(); ++i) {
       compileStmt(body.kids[i]);
     }
-    mark(body.kids.back().span);
+    markStatement(body.kids.back().span);
     compileExpr(body.kids.back());
   }
 
