@@ -251,6 +251,55 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(workspace.debugButton.title, "Debug")
   }
 
+  // P10 受け入れ: a DNU in a doIt; the doIt frame selects the whole send `nil foo`.
+  func testNilFooDebugSelectsTheSendInTheDoIt() {
+    guard let debugger = debugAfterDoIt("nil foo") else {
+      return
+    }
+    XCTAssertEqual(debugger.frameLabels, ["#foo (doesNotUnderstand:)", "doIt"])
+    debugger.selectFrame(1)
+    XCTAssertEqual(debugger.sourceText, "nil foo")
+    XCTAssertEqual(debugger.sourceSelection, NSRange(location: 0, length: 7))
+  }
+
+  // P10 受け入れ: `self halt` aborts with the reason `halt` and shows the Debug button.
+  func testHaltShowsDebugButtonWithHaltReason() {
+    let workspace = workspace("self halt")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertEqual(workspace.errorText, "halt")
+    XCTAssertFalse(workspace.debugButton.isHidden)
+    workspace.debugButton.performClick(nil)
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("Debug opened no Debugger")
+      return
+    }
+    XCTAssertEqual(debugger.frameLabels, ["Object>>halt native ao_Object_halt", "doIt"])
+    XCTAssertEqual(debugger.title, "Debugger: halt")
+  }
+
+  // P10 受け入れ: the `[] in` frame lists the block argument with its value; a double click
+  // inspects it.
+  func testBlockFrameShowsArgumentAndDoubleClickInspectsIt() {
+    guard let debugger = debugAfterDoIt("#(1 2) do: [:e | e foo]") else {
+      return
+    }
+    XCTAssertEqual(debugger.frameLabels.first, "#foo (doesNotUnderstand:)")
+    XCTAssertEqual(debugger.frameLabels.dropFirst().first, "[] in doIt")
+    debugger.selectFrame(1)
+    XCTAssertEqual((0..<debugger.variableCount).map { debugger.variable(at: $0).name }, ["self", "e"])
+    XCTAssertEqual(debugger.variable(at: 1).className, "SmallInteger")
+    XCTAssertEqual(debugger.variable(at: 1).value, "1")
+    XCTAssertEqual(debugger.sourceSelection, ("#(1 2) do: [:e | e foo]" as NSString).range(of: "e foo"))
+    guard let table = table(labelled: "Variables", in: debugger.window) else {
+      XCTFail("missing variables table")
+      return
+    }
+    doubleClick(row: 1, in: table)
+    XCTAssertEqual(debugger.inspectorCount, 1)
+    XCTAssertEqual(debugger.inspectorText, "SmallInteger\n1")
+  }
+
   // MARK: - helpers
 
   private static let outerSource = "outer: x\n  | y |\n  y := x.\n  ^self inner: y"

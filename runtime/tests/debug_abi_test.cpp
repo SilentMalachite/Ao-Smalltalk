@@ -451,6 +451,29 @@ TEST_F(DebugAbi, NoSourceMethodAnswersPlaceholderAndGenericTempNames) {
   EXPECT_EQ("3", tempPrint(1, 2).print);
 }
 
+// P10 受け入れ: a failure inside a vendor method (filed in from image/vendor, no source recorded)
+// shows the placeholder with no selection; the doIt below it still selects its send.
+TEST_F(DebugAbi, VendorMethodFrameAnswersPlaceholder) {
+  const std::string order = std::string(AO_SOURCE_DIR) + "/image/vendor/LOAD_ORDER";
+  ASSERT_EQ(AO_OK, ao_filein_load_order(order.c_str()));
+  const char* src = "Bag new add: 3 withOccurrences: nil";
+  ASSERT_EQ(AO_ERR_EVAL, doIt(src));
+  const int count = ao_debug_frame_count();
+  ASSERT_LE(3, count);
+  EXPECT_EQ("Bag>>add:withOccurrences:", label(count - 2));
+  EXPECT_EQ(0, ao_debug_frame_kind(count - 2));
+  const Source vendor = source(count - 2);
+  EXPECT_EQ(AO_ERR_NOSOURCE, vendor.rc);
+  EXPECT_EQ("\"Bag>>add:withOccurrences: source not available\"", vendor.text);
+  EXPECT_EQ(0u, vendor.span.start);
+  EXPECT_EQ(0u, vendor.span.end);
+  ASSERT_EQ(2, ao_debug_frame_temp_count(count - 2));
+  EXPECT_EQ("arg1", tempName(count - 2, 0));
+  EXPECT_EQ("3", tempPrint(count - 2, 0).print);
+  EXPECT_EQ("doIt", label(count - 1));
+  EXPECT_EQ(src, source(count - 1).highlighted());
+}
+
 // SPEC §3.10 ao_debug_inspect: like Inspect it, the hook gets the class name and the printString;
 // j -1 is the receiver.
 TEST_F(DebugAbi, InspectFiresHookWithTempValue) {
