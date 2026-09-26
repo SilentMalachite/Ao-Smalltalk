@@ -188,12 +188,16 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     item.state = transcript.useFixedPitch ? .on : .off
   }
 
-  // SPEC §3.9 文字の大きさ: the open Transcript, Workspace and Browser take the new size at once.
+  // SPEC §3.9 文字の大きさ: the open Transcript, Workspace, Browser and Debuggers (held weakly by
+  // DebuggerWindow.open) take the new size at once.
   private func resizeText(_ change: () -> Void) {
     change()
     launch?.transcript.applyFont()
     launch?.workspace.applyFont()
     browser?.applyFont()
+    for debugger in DebuggerWindow.open {
+      debugger.applyFont()
+    }
   }
 
   private func showVersion() {

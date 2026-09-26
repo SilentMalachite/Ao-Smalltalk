@@ -1278,9 +1278,9 @@
     "semantic_hash": ""
   },
   "app/Ao/AoApp.swift": {
-    "mtime": 1790392377.454745,
-    "seen": 1790393357.465547,
-    "ast_hash": "989b13e6926d4979509b570b8c85878c",
+    "mtime": 1790409435.303432,
+    "seen": 1790410056.038242,
+    "ast_hash": "ef7e797d6511a830e8b1f0ce07a9e634",
     "semantic_hash": ""
   },
   "app/Ao/BrowserModel.swift": {
@@ -1296,9 +1296,9 @@
     "semantic_hash": ""
   },
   "app/Ao/LaunchSet.swift": {
-    "mtime": 1790262316.3314936,
-    "seen": 1790266632.916627,
-    "ast_hash": "f309e0f197b78276d7918695141fa548",
+    "mtime": 1790409435.0892315,
+    "seen": 1790410056.038254,
+    "ast_hash": "1c7e7914a0692a037425fc450098db2c",
     "semantic_hash": ""
   },
   "app/Ao/MainMenu.swift": {
@@ -1314,9 +1314,9 @@
     "semantic_hash": ""
   },
   "app/Ao/WorkspaceWindow.swift": {
-    "mtime": 1790392377.4556036,
-    "seen": 1790393357.465555,
-    "ast_hash": "08bb798ed2caa672d52ee4b9adbca7c5",
+    "mtime": 1790409460.458254,
+    "seen": 1790410056.0382562,
+    "ast_hash": "c3880f4ec778b54ce189f25b499fdd84",
     "semantic_hash": ""
   },
   "app/AoApp/main.swift": {
@@ -1719,6 +1719,18 @@
     "mtime": 1790407262.6960917,
     "seen": 1790408753.461165,
     "ast_hash": "e348c867533ba47393e1cbe623817d34",
+    "semantic_hash": ""
+  },
+  "app/Ao/DebuggerWindow.swift": {
+    "mtime": 1790409460.45823,
+    "seen": 1790410056.038252,
+    "ast_hash": "1ee06d71fcf56bbee37df9309bb3a409",
+    "semantic_hash": ""
+  },
+  "app/AoTests/DebuggerWindowTests.swift": {
+    "mtime": 1790409460.458265,
+    "seen": 1790410056.038259,
+    "ast_hash": "6e75b146b49e8602d055f8c67692051a",
     "semantic_hash": ""
   }
 }
