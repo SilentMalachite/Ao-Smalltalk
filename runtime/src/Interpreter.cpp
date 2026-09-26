@@ -129,6 +129,7 @@ struct FrameLink {
     frame.temps = &temps;
     frame.stack = &stack;
     frame.prev = ctx.topFrame;
+    frame.depth = ctx.topFrame != nullptr ? ctx.topFrame->depth + 1 : 0;
     ctx.topFrame = &frame;
   }
   ~FrameLink() { ctx.topFrame = frame.prev; }
@@ -391,6 +392,40 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
   return kAssocValue < ctx.heap.size(*assoc);
 }
 
+// SPEC §3.13 step: whether the stepping process has come where it stops, before the instruction at
+// frame.pc; if so it halts there (reason step, or debug it). False when it was aborted while it
+// was halted. Out of line: only a stepping process comes here.
+[[gnu::noinline]] bool stepCheck(CallContext& ctx, const Frame& frame) {
+  const std::uint32_t d = frame.depth;
+  auto statementStart = [&ctx, &frame] {
+    return ctx.statementHook != nullptr && ctx.statementHook(frame.method, frame.pc);
+  };
+  bool reached = false;
+  const char* reason = "step";
+  switch (ctx.stepMode) {
+    case StepMode::DebugIt:
+      reached = true;
+      reason = "debug it";
+      break;
+    case StepMode::Into:
+      reached = d != ctx.stepDepth || statementStart();
+      break;
+    case StepMode::Over:
+      reached = d < ctx.stepDepth || (d == ctx.stepDepth && statementStart());
+      break;
+    case StepMode::Out:
+      reached = d < ctx.stepDepth;
+      break;
+    case StepMode::None:
+      break;
+  }
+  // Not while an abort unwinds or its cleanups run: the mark stays for later.
+  if (!reached || ctx.scheduler == nullptr || !ctx.scheduler->canHalt(ctx)) {
+    return true;
+  }
+  return ctx.scheduler->halt(ctx, reason, true);
+}
+
 }  // namespace
 
 Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc,
@@ -481,6 +516,12 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
       return Oop{};
     }
     mirror(ctx, *frame, stack.depth());
+    // SPEC §3.13: the one branch the live debugger's step adds to the loop.
+    if (ctx.stepMode != StepMode::None) [[unlikely]] {
+      if (!stepCheck(ctx, *frame)) {
+        return Oop{};
+      }
+    }
     const std::uint32_t pc = frame->pc;
     const std::uint32_t nBytes = byteCount(ctx, frame->method);
     if (pc >= nBytes) {

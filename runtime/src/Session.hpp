@@ -20,6 +20,8 @@ namespace ao {
 struct MethodDebugInfo {
   std::vector<compiler::PcSpan> pcMap;
   std::vector<compiler::TempName> temps;
+  // SPEC §3.8 文の先頭表 (the step of §3.13): ascending.
+  std::vector<std::uint32_t> statementPcs;
 };
 
 // A method's debug info and its blocks': bodies[0] is the method, bodies[k] the k-th block of the
@@ -164,8 +166,9 @@ int debugClear();
 // ao_debug_* reads follow (0: the snapshot).
 // SPEC §3.10 ライブデバッガの操作: Proceed (answers as ao_eval does) and Abort of the halted process
 // pid; AO_ERR when it is not halted (or cannot go on), or there is no session.
-int sessionDebugResume(std::int64_t pid, char* out, int outLen, AoSpan* err, AoInspectFn inspect,
-                       void* inspectUser);
+// step None proceeds; Into, Over and Out step (SPEC §3.13).
+int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, AoSpan* err,
+                       AoInspectFn inspect, void* inspectUser);
 int sessionDebugAbort(std::int64_t pid);
 std::int64_t debugHaltedPid();
 int debugHaltedCount();

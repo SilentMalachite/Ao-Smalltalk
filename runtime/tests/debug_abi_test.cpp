@@ -984,4 +984,154 @@ TEST_F(LiveProceed, TerminateFromSmalltalkEndsHaltedProcess) {
   EXPECT_EQ(AO_ERR, ao_debug_select(pid));
 }
 
+// ---- P11-05: Step and Debug it (SPEC §3.13 操作) ----
+
+class LiveStep : public LiveProceed {
+ protected:
+  using StepFn = int (*)(int64_t, char*, int, AoSpan*);
+  int step(StepFn fn, std::int64_t pid) {
+    err_ = AoSpan{};
+    const int rc = fn(pid, out_, sizeof out_, &err_);
+    if (rc == AO_ERR_HALT) {
+      EXPECT_EQ(AO_OK, ao_debug_select(pid));
+    }
+    return rc;
+  }
+  // The text the innermost frame's pc selects.
+  std::string at() { return source(0).highlighted(); }
+  void defineDbgStep() {
+    defineClass("DbgStep");
+    accept("DbgStep", 0, "two\n  | t |\n  t := 1.\n  ^t + 1");
+    accept("DbgStep", 0, "inner\n  self halt.\n  ^3");
+    accept("DbgStep", 0, "outer\n  | r |\n  r := self inner.\n  ^r + 1");
+  }
+};
+
+// SPEC §3.13: step over stops at the next statement start of the same frame.
+TEST_F(LiveStep, StepOverMovesToNextStatement) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("| a | self halt. a := 1. a := 2. a"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_STREQ("step", err_.message);
+  EXPECT_EQ("step", reason());
+  EXPECT_EQ("doIt", label(0));
+  EXPECT_EQ("a := 1", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("a := 2", at());
+  EXPECT_EQ("1", tempPrint(0, 0).print);
+}
+
+// SPEC §3.13: step over does not stop in a block the statement runs; the evaluation's value
+// comes back when it steps past the end.
+TEST_F(LiveStep, StepOverDoesNotEnterBlocks) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("| s | self halt. s := 0. #(1 2) do: [:e | s := s + e]. s"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("s := 0", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("#(1 2) do: [:e | s := s + e]", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("doIt", label(0));
+  EXPECT_EQ(1, ao_debug_frame_count());
+  ASSERT_EQ(AO_OK, step(ao_debug_step_over, pid)) << err_.message;
+  EXPECT_STREQ("3", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+}
+
+// SPEC §3.13: step into enters an interpreted method at its first instruction.
+TEST_F(LiveStep, StepIntoEntersInterpretedMethod) {
+  defineDbgStep();
+  ASSERT_EQ(AO_ERR_HALT, printIt("self halt. DbgStep new two"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("DbgStep new two", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("DbgStep>>two", label(0));
+  EXPECT_EQ(0, ao_debug_frame_pc(0));
+  EXPECT_EQ("doIt", label(1));
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("DbgStep>>two", label(0));
+  EXPECT_EQ("^t + 1", at());
+  ASSERT_EQ(AO_OK, proceed(pid));
+  EXPECT_STREQ("2", out_);
+}
+
+// SPEC §3.13: step into does not enter a native; it stops at the next statement.
+TEST_F(LiveStep, StepIntoSkipsNative) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("self halt. #(1 2) size. 3"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("#(1 2) size", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_into, pid));
+  EXPECT_EQ("3", at());
+  EXPECT_EQ(1, ao_debug_frame_count());
+}
+
+// SPEC §3.13: step out stops in the sender once the frame has returned.
+TEST_F(LiveStep, StepOutStopsInSender) {
+  defineDbgStep();
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgStep new outer"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("DbgStep>>inner", label(1));
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_out, pid));
+  EXPECT_EQ("DbgStep>>outer", label(0));
+  EXPECT_EQ("doIt", label(1));
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("^r + 1", at());
+  EXPECT_EQ("3", tempPrint(0, 0).print);
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_out, pid));
+  EXPECT_EQ("doIt", label(0));
+  ASSERT_EQ(AO_OK, step(ao_debug_step_out, pid));
+  EXPECT_STREQ("4", out_);
+}
+
+// SPEC §3.13: a step past the end of the evaluation answers as ao_eval; the non-proceedable halt
+// refuses steps.
+TEST_F(LiveStep, StepPastEndFinishesEval) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("self halt. 3 + 4"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  ASSERT_EQ(AO_OK, step(ao_debug_step_over, pid)) << err_.message;
+  EXPECT_STREQ("7", out_);
+  ASSERT_EQ(AO_ERR_HALT, doIt("3 ifTrue: [4]"));
+  const std::int64_t stuck = ao_debug_halted_pid();
+  EXPECT_EQ(AO_ERR, step(ao_debug_step_into, stuck));
+  EXPECT_EQ(AO_ERR, step(ao_debug_step_over, stuck));
+  EXPECT_EQ(AO_ERR, step(ao_debug_step_out, stuck));
+  EXPECT_EQ(AO_OK, ao_debug_abort(stuck));
+}
+
+// SPEC §3.13 Debug it: it halts before the doIt's first instruction; it ends like a Do it.
+TEST_F(LiveStep, DebugItStopsAtFirstBytecode) {
+  err_ = AoSpan{};
+  const char* src = "x := 3. x + 1";
+  ASSERT_EQ(AO_ERR_HALT, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DEBUGIT, out_,
+                                 sizeof out_, &err_));
+  EXPECT_STREQ("debug it", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("debug it", reason());
+  ASSERT_EQ(1, ao_debug_frame_count());
+  EXPECT_EQ("doIt", label(0));
+  EXPECT_EQ(0, ao_debug_frame_pc(0));
+  EXPECT_EQ("x := 3", at());
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid));
+  EXPECT_EQ("x + 1", at());
+  ASSERT_EQ(AO_OK, proceed(pid));
+  EXPECT_STREQ("", out_);
+  ASSERT_EQ(AO_OK, printIt("x"));
+  EXPECT_STREQ("3", out_);
+}
+
+// SPEC §3.10: Debug it outside the live mode evaluates nothing.
+TEST_F(DebugAbi, DebugItOutsideLiveModeIsRefused) {
+  const char* src = "y := 3";
+  err_ = AoSpan{};
+  EXPECT_EQ(AO_ERR, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DEBUGIT, out_,
+                            sizeof out_, &err_));
+  ASSERT_EQ(AO_OK, printIt("y"));
+  EXPECT_STREQ("nil", out_);
+}
+
 }  // namespace

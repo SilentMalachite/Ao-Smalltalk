@@ -53,6 +53,17 @@ void bumpDebugGeneration() {
 
 Oop workspaceBinding(CallContext& ctx, std::string_view name);
 
+// SPEC §3.13 step: statement starts come from the source table's debug info (SPEC §3.8). A
+// method without it has none. Only reads.
+bool statementStart(Oop method, std::uint32_t pc) {
+  const DebugInfoRef ref = debugInfoFor(method);
+  if (!ref) {
+    return false;
+  }
+  const std::vector<std::uint32_t>& pcs = ref.body->statementPcs;
+  return std::binary_search(pcs.begin(), pcs.end(), pc);
+}
+
 void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook inspect) {
   // The scheduler's base process runs on ctx: it goes before ctx does and comes back with it.
   session.scheduler.reset();
@@ -63,6 +74,7 @@ void installEmptyCache(Session& session, HostOopHook transcript, HostOopHook ins
   session.ctx->transcriptHook = transcript;
   session.ctx->inspectHook = inspect;
   session.ctx->bindingHook = workspaceBinding;
+  session.ctx->statementHook = statementStart;
   // SPEC §3.13: the session is the sink while capture is on. The scheduler copies it into the
   // fibers.
   session.ctx->debug = g_debugCapture ? &session : nullptr;
@@ -155,7 +167,7 @@ void attachBlocks(const Session& s, Session::MethodSource& entry,
                   const compiler::MethodImage& image) {
   auto info = std::make_shared<DebugInfo>();
   std::vector<Oop> blocks;
-  info->bodies.push_back(MethodDebugInfo{image.pcMap, image.temps});
+  info->bodies.push_back(MethodDebugInfo{image.pcMap, image.temps, image.statementPcs});
   struct Walk {
     Oop method;
     const compiler::MethodImage* image;
@@ -178,7 +190,8 @@ void attachBlocks(const Session& s, Session::MethodSource& entry,
       continue;
     }
     blocks.push_back(block);
-    info->bodies.push_back(MethodDebugInfo{lit.method->pcMap, lit.method->temps});
+    info->bodies.push_back(
+        MethodDebugInfo{lit.method->pcMap, lit.method->temps, lit.method->statementPcs});
     stack.push_back(Walk{block, lit.method.get(), 0});
   }
   entry.blocks = std::move(blocks);
@@ -1000,7 +1013,10 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR;
   }
-  if (mode != AO_EVAL_DOIT && mode != AO_EVAL_PRINTIT && mode != AO_EVAL_INSPECTIT) {
+  const bool live = g_debugMode == AO_DEBUG_LIVE && g_session->scheduler != nullptr;
+  // SPEC §3.13: Debug it only in live mode.
+  if (mode != AO_EVAL_DOIT && mode != AO_EVAL_PRINTIT && mode != AO_EVAL_INSPECTIT &&
+      !(mode == AO_EVAL_DEBUGIT && live)) {
     blankOut(out, outLen);
     return AO_ERR;
   }
@@ -1068,10 +1084,11 @@ int evalBody(const char* source, int sourceLen, int mode, char* out, int outLen,
 
   *ran = true;
   Root result(session.roots);
-  if (g_debugMode == AO_DEBUG_LIVE && session.scheduler != nullptr) {
+  if (live) {
     // SPEC §3.13 評価プロセス: the doIt runs on its own process; the base waits for it.
     Scheduler& sched = *session.scheduler;
-    const std::uint64_t pid = sched.forkEval(*session.ctx, method.slot, mode);
+    const std::uint64_t pid =
+        sched.forkEval(*session.ctx, method.slot, mode, mode == AO_EVAL_DEBUGIT);
     if (pid == 0) {
       blankOut(out, outLen);
       return AO_ERR_EVAL;
@@ -1179,7 +1196,7 @@ int sessionEvalResultLength() {
   return static_cast<int>(g_session->evalResult->size());
 }
 
-int sessionDebugResume(std::int64_t pid, char* out, int outLen, AoSpan* err,
+int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, AoSpan* err,
                        AoInspectFn inspect, void* inspectUser) {
   spanMessage(err, std::string());
   Session* s = g_session.get();
@@ -1199,7 +1216,8 @@ int sessionDebugResume(std::int64_t pid, char* out, int outLen, AoSpan* err,
   ctx.abortSetAside = 0;
   const auto id = static_cast<std::uint64_t>(pid);
   const int mode = s->scheduler->evalModeOf(id);
-  const Scheduler::EvalEnd end = s->scheduler->proceed(id);
+  const Scheduler::EvalEnd end =
+      step == StepMode::None ? s->scheduler->proceed(id) : s->scheduler->step(id, step);
   std::optional<std::string> printed = std::string();
   std::string failure;
   const int rc = answerAwaited(*s, end, mode, out, outLen, err, inspect, inspectUser, &printed,

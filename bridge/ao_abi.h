@@ -201,6 +201,15 @@ int ao_debug_select(int64_t pid);
    run on it), drains and answers AO_OK; AO_ERR when pid is not halted or there is no session. */
 int ao_debug_proceed(int64_t pid, char* out, int out_len, AoSpan* err);
 int ao_debug_abort(int64_t pid);
+/* The steps go on as Proceed does, and halt again (AO_ERR_HALT, reason "step") where they stop,
+   before the instruction there: step into at the first instruction of a deeper interpreted frame
+   (a method or block sent to, natives are not entered), at a statement start of the frame, or in
+   the sender; step over at a statement start of the frame or in the sender; step out in the
+   sender. The frame is the innermost interpreted one when it halted. An evaluation that ends
+   answers as Proceed does. */
+int ao_debug_step_into(int64_t pid, char* out, int out_len, AoSpan* err);
+int ao_debug_step_over(int64_t pid, char* out, int out_len, AoSpan* err);
+int ao_debug_step_out(int64_t pid, char* out, int out_len, AoSpan* err);
 /* AO_ERR when class_name does not name a class (Processor, Smalltalk, an undefined name).
    AO_ERR_COMPILE for a compile error or a refused native overwrite. */
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);

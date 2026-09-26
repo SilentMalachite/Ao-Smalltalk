@@ -48,6 +48,12 @@ struct Frame;
 class DebugSink;
 
 using HostOopHook = void (*)(CallContext& ctx, Oop value);
+// SPEC §3.8 文の先頭表: pc starts a statement of method (a CompiledMethod or a block's).
+using StatementHook = bool (*)(Oop method, std::uint32_t pc);
+
+// SPEC §3.13 step: what a stepping process stops at (None: it does not step). DebugIt stops at
+// the first instruction it reaches.
+enum class StepMode : std::uint8_t { None, Into, Over, Out, DebugIt };
 // Finds or makes the workspace binding (an Association) for name; empty Oop on failure.
 using BindingHook = Oop (*)(CallContext& ctx, std::string_view name);
 
@@ -115,6 +121,13 @@ struct CallContext {
   // ensure:/ifCurtailed: cleanups running while an abort is set aside (runAside). An abort
   // inside one keeps the first reason, so it is not captured either.
   std::uint32_t abortSetAside = 0;
+  // SPEC §3.13 step: set on a halted evaluating process before it goes on; the interpreter looks
+  // at stepMode at the top of each instruction. stepDepth is the depth (Frame::depth) of the
+  // innermost interpreted frame when it halted. This process's own: never copied.
+  StepMode stepMode = StepMode::None;
+  std::uint32_t stepDepth = 0;
+  // Tells the step where statements start. The scheduler copies the base's into each fiber's.
+  StatementHook statementHook = nullptr;
 };
 
 using NativeFn = Oop (*)(CallContext& ctx, const Oop& receiver, const Oop* args,

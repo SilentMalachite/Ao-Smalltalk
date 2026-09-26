@@ -102,7 +102,8 @@ class Scheduler {
   // From the base: a new process that will apply method (a 0-argument doIt) to nil. It is not
   // queued; awaitEval runs it. Its pid, or 0 when it cannot be made (ctx is then unwinding:
   // too many processes, out of memory). May collect. mode is the ao_eval mode it answers for.
-  std::uint64_t forkEval(CallContext& ctx, Oop method, int mode);
+  // debugIt: it steps from its first instruction (SPEC §3.13 Debug it).
+  std::uint64_t forkEval(CallContext& ctx, Oop method, int mode, bool debugIt = false);
   // From the base: runs the evaluating process pid, and the ready ones whenever it switches away,
   // until it ends (Finished with evalValue, or Failed with evalReason). A wait with nothing left
   // to run aborts it with the deadlock (SPEC §3.13). The base is left not unwinding.
@@ -138,6 +139,8 @@ class Scheduler {
   // base waits for it as awaitEval does. Abort: it is terminated (its cleanups run on it); false
   // when pid is not halted. Both leave the base not unwinding.
   EvalEnd proceed(std::uint64_t pid);
+  // Step: proceed with the step mark set (SPEC §3.13 Step); the depth is its innermost frame's.
+  EvalEnd step(std::uint64_t pid, StepMode mode);
   bool abortHalted(std::uint64_t pid);
 
  private:

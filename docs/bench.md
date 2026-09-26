@@ -56,3 +56,18 @@ ms (ns per iteration):
 - Release `sample` of the fast path: 98 % of the loop is `Interpreter::run` and what it calls (Heap accessors 42 %, `run` itself 38 %, operand stack with `Roots` 14 %).
 - Ratio 5.76 (P6): it compared the native `to:do:` with a native block and with a bytecode block. Since B2 the method compiles `to:do:` into jumps and makes no block, so the ratio is not recomputed; compare commits in the table above instead.
 - Startup (`ao_runtime_boot` and the `image/vendor/LOAD_ORDER` file-in): 30 ms (2026-09-23)
+
+## P11 step branch
+
+- Machine: Apple Silicon (`Apple M1 Max`). Date: 2026-09-26.
+- Commits: `7f6d1ed` (before the step branch) and the P11-05 commit (one `ctx.stepMode` test at the top of each instruction, `Frame::depth` set when a frame is linked).
+- Method: `KernelBench.InlinedToDoMillion` (1M iterations of the inlined `to:do:`) and `KernelBench.TenMillionToDo` (native), the two builds run alternately 5 times each; medians. The ratio is the inlined ns per iteration over the native one.
+
+| Build | Commit | inlined ms | native ms | ratio |
+|---|---|---|---|---|
+| Debug | `7f6d1ed` | 3890 | 11498 | 3.38 |
+| Debug | P11-05 | 3889 | 11390 | 3.41 |
+| Release | `7f6d1ed` | 257 | 1132 | 2.27 |
+| Release | P11-05 | 259 | 1142 | 2.27 |
+
+- The inlined loop is unchanged within the noise (Release runs of `7f6d1ed` spread 256–264 ms).

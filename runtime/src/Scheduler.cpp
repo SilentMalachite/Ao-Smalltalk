@@ -9,6 +9,7 @@
 #include "ao/Send.hpp"
 
 #include "Fiber.hpp"
+#include "InterpFrame.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -414,7 +415,7 @@ Scheduler::Record* Scheduler::addFiber(CallContext& ctx, Oop process, Oop block)
   return &r;
 }
 
-std::uint64_t Scheduler::forkEval(CallContext& ctx, Oop method, int mode) {
+std::uint64_t Scheduler::forkEval(CallContext& ctx, Oop method, int mode, bool debugIt) {
   assert(current_ == &base() && "forkEval runs on the base process");
   Heap& heap = ctx.heap;
   WellKnown& wk = ctx.wk;
@@ -439,6 +440,9 @@ std::uint64_t Scheduler::forkEval(CallContext& ctx, Oop method, int mode) {
   }
   r->isEval = true;
   r->evalMode = mode;
+  if (debugIt) {
+    r->ctx->stepMode = StepMode::DebugIt;
+  }
   return r->id;
 }
 
@@ -506,6 +510,8 @@ bool Scheduler::canHalt(const CallContext& ctx) const {
 bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   Record& me = *current_;
   assert(canHalt(ctx) && "halt needs canHalt");
+  // Any halt ends a step: the next Step sets its own mark.
+  ctx.stepMode = StepMode::None;
   me.haltReason = std::move(reason);
   me.proceedable = proceedable;
   me.state = State::Halted;
@@ -566,6 +572,15 @@ Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid) {
   // In no list: awaitEval switches to it, and its halt returns true.
   r->state = State::Suspended;
   return awaitEval(pid);
+}
+
+Scheduler::EvalEnd Scheduler::step(std::uint64_t pid, StepMode mode) {
+  Record* r = findId(pid);
+  assert(r != nullptr && r->state == State::Halted && r->proceedable && "step needs canProceed");
+  CallContext& c = *r->ctx;
+  c.stepMode = mode;
+  c.stepDepth = c.topFrame != nullptr ? c.topFrame->depth : 0;
+  return proceed(pid);
 }
 
 bool Scheduler::abortHalted(std::uint64_t pid) {
@@ -1128,6 +1143,7 @@ void Scheduler::switchTo(Record& to) {
     to.ctx->inspectHook = base_.inspectHook;
     to.ctx->bindingHook = base_.bindingHook;
     to.ctx->debug = base_.debug;
+    to.ctx->statementHook = base_.statementHook;
   }
   if (hasSlots(heap, base_.wk.processor, kSchedulerSlotActive)) {
     heap.slotAtPut(base_.wk.processor, kSchedulerSlotActive, to.process);
