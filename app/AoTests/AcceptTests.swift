@@ -823,6 +823,145 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(browser.sourceText, "b12z\n  ^3\n")
   }
 
+
+  // SPEC §3.9 削除, §4.3: the Smalltalk menu's two items, without keys, enabled only while the
+  // Browser is key and has a selector (Remove Method…) or a class (Remove Class…).
+  func testRemoveMenuItemsFollowSelection() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    let workspace = WorkspaceWindow()
+    defer { workspace.window.close() }
+    var key: NSWindow? = browser.window
+    var actions = MainMenu.Actions()
+    actions.canRemoveMethod = { keyBrowserAllows(browser, keyWindow: key) { $0.canRemoveMethod } }
+    actions.canRemoveClass = { keyBrowserAllows(browser, keyWindow: key) { $0.canRemoveClass } }
+    var removed: [String] = []
+    actions.removeMethod = { removed.append("method") }
+    actions.removeClass = { removed.append("class") }
+    let menu = MainMenu.build(actions: actions)
+    let smalltalk = menu.item(withTitle: "Smalltalk")?.submenu
+    XCTAssertEqual(
+      smalltalk?.items.map(\.title),
+      ["Do it", "Print it", "Inspect it", "Debug it", "Accept", "Remove Method…", "Remove Class…", "Show Hierarchy"]
+    )
+    guard let method = smalltalk?.item(withTitle: "Remove Method…"),
+          let cls = smalltalk?.item(withTitle: "Remove Class…") else {
+      XCTFail("missing Remove items")
+      return
+    }
+    XCTAssertEqual(method.keyEquivalent, "")
+    XCTAssertEqual(cls.keyEquivalent, "")
+    func enabled(_ item: NSMenuItem) -> Bool {
+      (item.target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
+    }
+    // Kernel / Object / native / printString: both.
+    XCTAssertTrue(enabled(method))
+    XCTAssertTrue(enabled(cls))
+    selectProtocol(nil, in: browser)
+    XCTAssertFalse(enabled(method))
+    XCTAssertTrue(enabled(cls))
+    key = workspace.window
+    XCTAssertFalse(enabled(method))
+    XCTAssertFalse(enabled(cls))
+    key = nil
+    XCTAssertFalse(enabled(cls))
+    // Items without a test stay enabled.
+    if let accept = smalltalk?.item(withTitle: "Accept") {
+      XCTAssertTrue(enabled(accept))
+    }
+    XCTAssertTrue(method.target?.perform(method.action, with: method) != nil || removed == ["method"])
+    XCTAssertTrue(cls.target?.perform(cls.action, with: cls) != nil || removed == ["method", "class"])
+    XCTAssertEqual(removed, ["method", "class"])
+    // The app's wiring: not the key window, nothing runs.
+    sendToKeyBrowser(browser, keyWindow: workspace.window) { $0.removeMethod() }
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+  }
+
+  // SPEC §3.9 削除: the class and selector lists offer one item each, labelled as titled, enabled
+  // for a clicked row; choosing it selects that row (asking to discard an edit first) and asks the
+  // removal question. A question already up ignores a second choice.
+  func testContextMenusOfferRemove() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    guard let classes = classTable(in: browser), let selectors = selectorTable(in: browser),
+          let classMenu = classes.menu, let selectorMenu = selectors.menu else {
+      XCTFail("missing context menus")
+      return
+    }
+    XCTAssertEqual(classMenu.items.map(\.title), ["Remove Class…"])
+    XCTAssertEqual(selectorMenu.items.map(\.title), ["Remove Method…"])
+    XCTAssertEqual(classMenu.items.first?.accessibilityLabel(), "Remove Class…")
+    XCTAssertEqual(selectorMenu.items.first?.accessibilityLabel(), "Remove Method…")
+    XCTAssertTrue(classMenu.items.first?.target === browser)
+    XCTAssertTrue(selectorMenu.items.first?.target === browser)
+    XCTAssertFalse(classMenu.autoenablesItems)
+    // No click yet (clickedRow -1): the items are disabled.
+    browser.menuNeedsUpdate(classMenu)
+    browser.menuNeedsUpdate(selectorMenu)
+    XCTAssertFalse(classMenu.items.first?.isEnabled ?? true)
+    XCTAssertFalse(selectorMenu.items.first?.isEnabled ?? true)
+
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12m\n  ^1\n")
+    browser.accept()
+    browser.replaceSource("b12n\n  ^2\n")
+    browser.accept()
+    XCTAssertEqual(browser.model.selectedSelector, "b12n")
+    var asked: [String] = []
+    browser.confirmRemove = { _, message, decide in
+      // The clicked row is selected before the question.
+      XCTAssertEqual(browser.model.selectedSelector, "b12m")
+      asked.append(message)
+      decide(true)
+    }
+    guard let row = browser.model.selectors.firstIndex(of: "b12m") else {
+      XCTFail("missing b12m")
+      return
+    }
+    browser.removeMethod(atRow: row)
+    XCTAssertEqual(asked, ["Remove Object>>b12m?"])
+    XCTAssertEqual(browser.model.selectors, ["b12n"])
+    XCTAssertNil(browser.model.selectedSelector)
+    XCTAssertNil(printIt("Object new b12m"))
+    // Out of range: nothing.
+    browser.removeMethod(atRow: -1)
+    browser.removeClass(atRow: browser.model.classes.count)
+    XCTAssertEqual(asked.count, 1)
+
+    // An edit: the discard question comes first, and a second choice while it waits is ignored.
+    selectSelector("b12n", in: browser)
+    browser.replaceSource("b12n\n  ^9\n")
+    var pending: (@MainActor (Bool) -> Void)?
+    var discardAsked = 0
+    browser.confirmDiscard = { _, decide in
+      discardAsked += 1
+      pending = decide
+    }
+    guard let objectRow = browser.model.classes.firstIndex(of: "Object") else {
+      XCTFail("missing Object")
+      return
+    }
+    browser.removeClass(atRow: objectRow)
+    browser.removeClass(atRow: objectRow)
+    XCTAssertEqual(discardAsked, 1)
+    XCTAssertEqual(asked.count, 1)
+    pending?(false)
+    XCTAssertEqual(asked.count, 1)
+    XCTAssertEqual(browser.sourceText, "b12n\n  ^9\n")
+    XCTAssertEqual(browser.model.selectedSelector, "b12n")
+    browser.confirmRemove = { _, message, decide in
+      asked.append(message)
+      decide(false)
+    }
+    browser.removeClass(atRow: objectRow)
+    XCTAssertEqual(discardAsked, 2)
+    pending?(true)
+    XCTAssertEqual(asked, ["Remove Object>>b12m?", "Remove class Object?"])
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+    XCTAssertEqual(printIt("Object new b12n"), "2")
+  }
+
   func testAcceptRunsOnlyWhenBrowserIsKey() {
     let browser = BrowserWindow()
     defer { browser.window.close() }

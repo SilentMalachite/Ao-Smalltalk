@@ -8,6 +8,12 @@ enum MainMenu {
     var inspectIt: () -> Void = {}
     var debugIt: () -> Void = {}
     var accept: () -> Void = {}
+    // SPEC §3.9 削除: the Remove items, and whether each is enabled (the key Browser has a
+    // selector / a class).
+    var removeMethod: () -> Void = {}
+    var removeClass: () -> Void = {}
+    var canRemoveMethod: () -> Bool = { false }
+    var canRemoveClass: () -> Bool = { false }
     var showHierarchy: () -> Void = {}
     var saveImage: () -> Void = {}
     var openImage: () -> Void = {}
@@ -54,6 +60,8 @@ enum MainMenu {
       actionItem("Inspect it", key: "", run: { _ in actions.inspectIt() }),
       debugIt,
       actionItem("Accept", key: "", run: { _ in actions.accept() }),
+      actionItem("Remove Method…", key: "", run: { _ in actions.removeMethod() }, enabled: actions.canRemoveMethod),
+      actionItem("Remove Class…", key: "", run: { _ in actions.removeClass() }, enabled: actions.canRemoveClass),
       actionItem("Show Hierarchy", key: "", run: { _ in actions.showHierarchy() })
     ]))
     bar.addItem(top("Tools", items: [
@@ -113,16 +121,18 @@ enum MainMenu {
     return item
   }
 
+  // enabled nil: always enabled (the items before SPEC §3.9 削除).
   private static func actionItem(
     _ title: String,
     key: String,
-    run: @escaping (NSMenuItem) -> Void
+    run: @escaping (NSMenuItem) -> Void,
+    enabled: (() -> Bool)? = nil
   ) -> NSMenuItem {
     let item = NSMenuItem(title: title, action: #selector(MenuAction.invoke(_:)), keyEquivalent: key)
     if !key.isEmpty {
       item.keyEquivalentModifierMask = .command
     }
-    let target = MenuAction(run)
+    let target = MenuAction(run, enabled: enabled)
     item.target = target
     item.representedObject = target
     return item
@@ -131,14 +141,21 @@ enum MainMenu {
 
 // Retained by NSMenuItem.representedObject. target itself is weak.
 @MainActor
-private final class MenuAction: NSObject {
+private final class MenuAction: NSObject, NSMenuItemValidation {
   private let run: (NSMenuItem) -> Void
+  private let enabled: (() -> Bool)?
 
-  init(_ run: @escaping (NSMenuItem) -> Void) {
+  init(_ run: @escaping (NSMenuItem) -> Void, enabled: (() -> Bool)? = nil) {
     self.run = run
+    self.enabled = enabled
   }
 
   @objc func invoke(_ sender: NSMenuItem) {
     run(sender)
+  }
+
+  // SPEC §3.9 削除: AppKit asks before showing the menu; an item without a test stays enabled.
+  func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+    enabled?() ?? true
   }
 }

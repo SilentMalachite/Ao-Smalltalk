@@ -115,6 +115,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     configure(classTable)
     configure(protocolTable)
     configure(selectorTable)
+    classTable.menu = contextMenu(title: "Remove Class…", action: #selector(removeClassFromMenu(_:)))
+    selectorTable.menu = contextMenu(title: "Remove Method…", action: #selector(removeMethodFromMenu(_:)))
     categoryTable.setAccessibilityLabel("Class categories")
     classTable.setAccessibilityLabel("Classes")
     protocolTable.setAccessibilityLabel("Protocols")
@@ -234,6 +236,34 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
         self.selectorName = name
       }
     }
+  }
+
+  // SPEC §3.9 削除: one item, for the clicked row; menuNeedsUpdate enables it for a row. The
+  // VoiceOver label is the title.
+  private func contextMenu(title: String, action: Selector) -> NSMenu {
+    let menu = NSMenu(title: title)
+    menu.autoenablesItems = false
+    menu.delegate = self
+    let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+    item.target = self
+    item.setAccessibilityLabel(title)
+    menu.addItem(item)
+    return menu
+  }
+
+  func menuNeedsUpdate(_ menu: NSMenu) {
+    let table = menu === classTable.menu ? classTable : selectorTable
+    for item in menu.items {
+      item.isEnabled = table.clickedRow >= 0
+    }
+  }
+
+  @objc private func removeClassFromMenu(_ sender: NSMenuItem) {
+    removeClass(atRow: classTable.clickedRow)
+  }
+
+  @objc private func removeMethodFromMenu(_ sender: NSMenuItem) {
+    removeMethod(atRow: selectorTable.clickedRow)
   }
 
   func ownsWindow(_ candidate: NSWindow?) -> Bool {
@@ -919,4 +949,17 @@ func sendToKeyBrowser(
     return
   }
   command(browser)
+}
+
+// SPEC §3.9 削除: a Remove item's test: false unless the Browser is the key window.
+@MainActor
+func keyBrowserAllows(
+  _ browser: BrowserWindow?,
+  keyWindow: NSWindow?,
+  _ test: (BrowserWindow) -> Bool
+) -> Bool {
+  guard let browser, browser.ownsWindow(keyWindow) else {
+    return false
+  }
+  return test(browser)
 }
