@@ -42,10 +42,12 @@ typedef struct AoSpan {
 
 /* SPEC §3.10. The runtime is busy while ao_runtime_boot, ao_runtime_shutdown, ao_image_save,
    ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method,
-   ao_accept_class, ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
+   ao_accept_class, ao_remove_method, ao_remove_class, ao_debug_frame_receiver_print,
+   ao_debug_frame_temp_print, ao_debug_inspect,
    ao_debug_clear, ao_debug_proceed, ao_debug_step_into, ao_debug_step_over, ao_debug_step_out
    or ao_debug_abort runs, or the interpreter does. Called then (from a transcript or inspect
-   hook, or a native), each of these eighteen does nothing and answers AO_ERR: ao_image_load
+   hook, or a native), each of these twenty does nothing and answers AO_ERR: ao_image_load,
+   ao_remove_method and ao_remove_class
    with the reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
    setters, ao_version, the ao_browser_* reads, ao_eval_result_length, ao_eval_result_copy,
    ao_set_debug_capture, ao_set_debug_mode, the snapshot reads (ao_debug_generation to

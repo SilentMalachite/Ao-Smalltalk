@@ -164,6 +164,52 @@ std::int64_t globalsTally() {
   return s->heap.slotAt(s->wk.smalltalk, ao::Globals::kSmalltalkSlotTally).smallIntegerValue();
 }
 
+// SPEC §6: every pair left in a native-required dictionary (both sides) holds a NativeMethod; an
+// emptied pair (nil key) is skipped.
+bool kernelDictsAreNative() {
+  struct Scan {
+    ao::Session* s;
+    bool ok = true;
+    void visit(ao::Oop cls) {
+      if (!cls.isHeap()) return;
+      const ao::Oop dict = s->heap.slotAt(cls, ao::kClassSlotMethodDict);
+      if (!dict.isHeap()) return;
+      const ao::Oop inner = s->heap.slotAt(dict, ao::kDictSlotArray);
+      if (!inner.isHeap()) return;
+      for (std::uint32_t i = 0; i + 1 < s->heap.size(inner); i += 2) {
+        if (s->heap.slotAt(inner, i).isNil()) continue;
+        const ao::Oop v = s->heap.slotAt(inner, i + 1);
+        if (!v.isHeap() || s->heap.klass(v) != s->wk.nativeMethodClass) ok = false;
+      }
+    }
+  } scan{ao::session()};
+  scan.s->wk.eachNativeRequiredClass(
+      [](void* p, ao::Oop cls) {
+        auto* sc = static_cast<Scan*>(p);
+        sc->visit(cls);
+        sc->visit(sc->s->heap.klass(cls));
+      },
+      &scan);
+  return scan.ok;
+}
+
+struct BusyRemove {
+  int methodRc = -9;
+  int classRc = -9;
+  std::string methodMsg;
+  std::string classMsg;
+};
+
+// A transcript hook: the runtime is busy here (SPEC §3.10 再入).
+void removeFromHook(const char*, int, int, void* user) {
+  auto* b = static_cast<BusyRemove*>(user);
+  AoSpan err{};
+  b->methodRc = ao_remove_method("Object", 0, "b12busy", &err);
+  b->methodMsg = err.message;
+  b->classRc = ao_remove_class("B12Busy", &err);
+  b->classMsg = err.message;
+}
+
 }  // namespace
 
 // SPEC §3.9 削除, §6: a method accepted on a Kernel class goes, and the send falls to
@@ -443,4 +489,125 @@ TEST_F(RemoveAbi, RemovedGlobalSlotIsReused) {
   EXPECT_EQ(index, pairIndexOf("B12Next"));
   EXPECT_EQ(tally, globalsTally());
   EXPECT_EQ("3", printIt("B12Next"));
+}
+
+// SPEC §3.10 再入と例外: from a hook the runtime is busy, and both calls do nothing.
+TEST_F(RemoveAbi, RemoveWhileBusyIsRefused) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "b12busy\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, defineClass("B12Busy", "Object", "B12-Test"));
+  BusyRemove seen;
+  ao_set_transcript_hook(removeFromHook, &seen);
+  EXPECT_EQ("7", printIt("Transcript show: 'x'. 7"));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(AO_ERR, seen.methodRc);
+  EXPECT_EQ("runtime is busy", seen.methodMsg);
+  EXPECT_EQ(AO_ERR, seen.classRc);
+  EXPECT_EQ("runtime is busy", seen.classMsg);
+  EXPECT_EQ("1", printIt("3 b12busy"));
+  EXPECT_TRUE(browserLists("B12Busy"));
+}
+
+// SPEC §3.9 削除: a refused call leaves the dictionaries, the cache, the globals version and the
+// source table as they were.
+TEST_F(RemoveAbi, RefusedRemoveChangesNothing) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, defineClass("B12Par", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, defineClass("B12Kid2", "B12Par", "B12-Test"));
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Par", 0, "who\n  ^'par'\n", &err)) << err.message;
+  EXPECT_EQ("'par'", printIt("B12Kid2 new who"));
+  const int classes = ao_browser_class_count();
+  const std::int64_t tally = globalsTally();
+  const std::uint64_t version = ao::session()->wk.globalsVersion();
+  const std::size_t slots = ao::methodSourceRootSlots(false).size();
+  const int protocols = ao_browser_protocol_count("Object", 0);
+  int rc = -9;
+  EXPECT_EQ(AO_ERR, ao_remove_method("Object", 0, "printString", &err));
+  EXPECT_EQ(AO_ERR, ao_remove_method("B12Kid2", 0, "who", &err));
+  EXPECT_EQ(AO_ERR, ao_remove_class("Object", &err));
+  EXPECT_EQ(AO_ERR, ao_remove_class("B12Par", &err));
+  EXPECT_EQ("class removal refused: B12Par has subclass B12Kid2", tryRemoveClass("B12Par", &rc));
+  EXPECT_EQ(classes, ao_browser_class_count());
+  EXPECT_EQ(tally, globalsTally());
+  EXPECT_EQ(version, ao::session()->wk.globalsVersion());
+  EXPECT_EQ(slots, ao::methodSourceRootSlots(false).size());
+  EXPECT_EQ(protocols, ao_browser_protocol_count("Object", 0));
+  EXPECT_EQ("'par'", printIt("B12Kid2 new who"));
+  EXPECT_EQ("'3'", printIt("3 printString"));
+  char shown[64];
+  EXPECT_EQ(AO_OK, ao_browser_source("B12Par", 0, "who", shown, sizeof(shown)));
+}
+
+// SPEC §3.9 削除, §6: a removal is in the saved image: the method and the binding stay gone.
+TEST_F(RemoveAbi, RemovalSurvivesSaveAndLoad) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, defineClass("B12Keep", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, defineClass("B12Gone", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Keep", 0, "foo\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Keep", 0, "bar\n  ^2\n", &err)) << err.message;
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveMethod("B12Keep", 0, "foo", &rc));
+  EXPECT_EQ("", tryRemoveClass("B12Gone", &rc));
+  const char* path = "remove-abi.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path, &err)) << err.message;
+  std::remove(path);
+  expectDnu("B12Keep new foo", "foo");
+  EXPECT_EQ("2", printIt("B12Keep new bar"));
+  EXPECT_EQ("nil", printIt("B12Gone"));
+  EXPECT_FALSE(browserLists("B12Gone"));
+  EXPECT_TRUE(browserLists("B12Keep"));
+  // A loaded image's method has no source; removing it still works.
+  EXPECT_EQ("", tryRemoveMethod("B12Keep", 0, "bar", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  expectDnu("B12Keep new bar", "bar");
+}
+
+// SPEC §6: accepting a CompiledMethod on Kernel classes and removing it leaves every Kernel
+// dictionary all-native, holes included.
+TEST_F(RemoveAbi, KernelScanStaysGreenAfterRemovals) {
+  AoSpan err{};
+  ASSERT_TRUE(kernelDictsAreNative());
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "b12scan\n  ^1\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("SmallInteger", 0, "b12scanInt\n  ^2\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 1, "b12scanMeta\n  ^3\n", &err)) << err.message;
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveMethod("Object", 0, "b12scan", &rc));
+  EXPECT_EQ("", tryRemoveMethod("SmallInteger", 0, "b12scanInt", &rc));
+  EXPECT_EQ("", tryRemoveMethod("Object", 1, "b12scanMeta", &rc));
+  EXPECT_TRUE(kernelDictsAreNative());
+  EXPECT_EQ("'3'", printIt("3 printString"));
+  EXPECT_EQ("7", printIt("3 + 4"));
+}
+
+// SPEC §3.9 削除: a halted process keeps running the method it was in; Proceed answers from it.
+TEST_F(RemoveAbi, RemovedMethodKeepsRunningInHaltedProcess) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "b12halt\n  self halt.\n  ^5\n", &err))
+      << err.message;
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  char out[64];
+  ASSERT_EQ(AO_ERR_HALT, ao_eval("Object new b12halt", 18, AO_EVAL_PRINTIT, out, 64, &err));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_NE(0, pid);
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveMethod("Object", 0, "b12halt", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out, 64, &err)) << err.message;
+  EXPECT_STREQ("5", out);
+  // Back to a plain eval (SPEC §3.13: a DNU under AO_DEBUG_LIVE halts instead).
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  expectDnu("Object new b12halt", "b12halt");
+}
+
+// SPEC §3.10: AoSpan.message holds 255 bytes; a longer reason is cut, never emptied.
+TEST_F(RemoveAbi, LongNameCutsTheMessageAt255Bytes) {
+  const std::string name(300, 'N');
+  int rc = -9;
+  const std::string got = tryRemoveClass(name.c_str(), &rc);
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ(255u, got.size());
+  EXPECT_EQ(("not a class: " + name).substr(0, 255), got);
 }
