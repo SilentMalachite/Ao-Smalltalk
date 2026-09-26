@@ -23,13 +23,15 @@ GitHub 向けの案内（英語が正本）: [`README.md`](../README.md) / [`REA
 | P3 ネイティブディスパッチ | [phases/P3.md](phases/P3.md) | done |
 | P4 Kernel ネイティブ | [phases/P4.md](phases/P4.md) | done |
 | P5 コンパイラ | [phases/P5.md](phases/P5.md) | done |
-| P6 インタプリタ | [phases/P6.md](phases/P6.md) | planned |
-| P6b vendor file-in | [phases/P6b.md](phases/P6b.md) | planned |
+| P6 インタプリタ | [phases/P6.md](phases/P6.md) | done |
+| P6b vendor file-in | [phases/P6b.md](phases/P6b.md) | done |
 | P7 イメージ | [phases/P7.md](phases/P7.md) | done |
-| P8 AppKit ツール | [phases/P8.md](phases/P8.md) | planned |
-| P9 統合 | [phases/P9.md](phases/P9.md) | planned |
+| P8 AppKit ツール | [phases/P8.md](phases/P8.md) | done |
+| P9 統合 | [phases/P9.md](phases/P9.md) | done |
 
 依存は直線: P0 → P1 → P2 → P3 → P4 → P5 → P6 → P6b → P7 → P8 → P9。
+
+P9 の完了が v1 で、1.0.0 としてリリースした（SPEC §2.4、[`CHANGELOG.md`](../CHANGELOG.md)）。v1 のあとの変更は SPEC を先に直す。リリースの手順は [`CONTRIBUTING.ja.md`](../CONTRIBUTING.ja.md) の「リリース」にある。
 
 ## PR
 
