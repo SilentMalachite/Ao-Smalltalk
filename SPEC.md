@@ -54,10 +54,12 @@ Ao はどちらでもない。ホストは macOS / AppKit。実行のホット�
 - 1983 Xerox 仮想イメージ（`.im`）のバイナリロード。ソースの file-in とは別物
 - クラスライブラリの自作（既存の許諾付き `.st` を取り込む。§3.12）
 - ネットワーク、FFI の一般化、Objective-C ブリッジの全面公開
-- デバッガ / チェンジセット UI / モンティチェロ相当
+- チェンジセット UI / モンティチェロ相当
 - JIT（ユーザーメソッドのネイティブ化）。設計上の差し込み口だけ用意する
 - Windows / Linux
 - SwiftUI を主 UI にすること（AppKit が正。SwiftUI は補助のみ）
+
+デバッガは v1 のあとのフェーズで足す（§2.3、§3.13）。P10 は事後デバッガで、失敗の直前のスタックを見るだけである。評価の中断はライブデバッガ（P11）で扱う（`halt` と失敗で止め、Proceed / Abort / Step する）。
 
 ---
 
@@ -123,8 +125,10 @@ ao-smalltalk/
 | P7 | イメージ | `.aoimage` の save / load、起動 |
 | P8 | AppKit ツール | System Browser / Transcript / Workspace |
 | P9 | 統合 | Do it / Print it / accept、階層閲覧、エラー表示 |
+| P10 | 事後デバッガ | abort の直前のスタックの捕捉、pc→ソース表、`ao_debug_*`、Debugger 窓（§3.13） |
+| P11 | ライブデバッガ | `halt` と失敗で評価を止める、Proceed / Abort / Step、Debug it（§3.13） |
 
-P9 完了が v1。
+P9 完了が v1。P10 と P11 は v1 のあとのフェーズである。
 
 ### 2.4 リリース
 
@@ -241,6 +245,7 @@ lookup(receiver, selector)
 | `Object>>doesNotUnderstand:` の既定。`doesNotUnderstand:` も見つからない送信 | `doesNotUnderstand: #` とセレクタ（例: `doesNotUnderstand: #foo`） |
 | `Object>>error: anObject` | 下の細則 |
 | `Object>>subclassResponsibility`、`Object>>shouldNotImplement`、メタクラスへの `new` | `subclassResponsibility`、`shouldNotImplement` |
+| `Object>>halt`（§3.13。P11 では評価プロセスを止める） | `halt` |
 | Kernel ネイティブの、文言のある失敗（範囲外の添字、0 除算、引数の型など） | その文言（例: `at: index out of range`、`division by zero`） |
 | 送信の結果が空 OOP で、巻き戻しの最中でない（文言の無いネイティブの失敗、ブロックの引数個数の不一致など） | `failed: #` とセレクタ（例: `failed: #value`）。ただし old の上限で割り当てられなかった後なら `out of memory` |
 | 空 OOP をレシーバにした送信 | 同上 |
@@ -282,14 +287,16 @@ v1 の実行モデル:
 - abort は評価の中断である。ホームの無い非局所リターンとして扱い、どのフレームでも止まらずに最外（下記）まで戻る。途中の `ensure:` は実行する。abort を始めるのは `abortEvaluation` だけである。
 - abort は理由の文字列を持つ。理由には 2 種類ある。割り当てなしで入れる固定の文言（`stack overflow`、`NonBoolean receiver`、`out of memory` など）と、実行時に組み立てた文字列（ヒープの String）である。後者は、最外で読んで消すまで GC のルートに置く。後者を割り当てられなければ、理由は `out of memory` にする。`ensure:` の後始末の間も、退避した理由を保つ。
 - abort の状態は最外で読んで消す。前の評価の abort を次の評価に持ち越さない。
+- 捕捉が有効なら（§3.10 の `ao_set_debug_capture`）、abort は巻き戻す前にスタックを写す（捕捉）。`terminate` と abandon の巻き戻しと、後始末の間の再 abort は捕捉しない。捕捉の意味論は §3.13 に書く。
 - 最外は、C++ から Smalltalk へ送る入口の 1 回である。次のものが最外である。
   - `ao_eval` の 1 回
   - `ao --test` の 1 ファイルと、テストクラス（`AoTest`）の作成
   - file-in と `ao_accept_class` の、クラス定義チャンク 1 つ（C++ から `subclass:…category:` を送るところ）
   - ワークスペースの作成（起動、`ao_workspace_reset`、`ao_image_load`）
   - `ao_image_load` のロード後の探針（§3.10）
+  - `ao_debug_*` の printString と inspect の 1 回（§3.10 の「デバッガの読み出し」）
   - fork したプロセスの本体（そのプロセスのスタックで、fork したブロックに `value` を送るところ。下の「プロセスと協調スケジューラ」）
-- 最外は、入る前に前の abort と非局所リターンを消して、スタックの範囲を取り直す。出るときに abort の理由を読んで消す。最外での abort は、その入口の失敗である。`ao_eval` は `AO_ERR_EVAL` と理由を返す（§3.3）。クラス定義チャンクの abort は、そのチャンクの file-in エラー `subclass failed: <クラス名>: <理由>` にする（§3.12）。ワークスペースの作成と探針の abort は、その ABI の失敗（`AO_ERR`）にする。テストクラスの作成の abort は `ao --test` の失敗（exit 1）にする。プロセスの本体の abort は、そのプロセスの失敗（下）にする。ただし `terminate` による巻き戻しは失敗にしない。
+- 最外は、入る前に前の abort と非局所リターンを消して、スタックの範囲を取り直す。出るときに abort の理由を読んで消す。最外での abort は、その入口の失敗である。`ao_eval` は `AO_ERR_EVAL` と理由を返す（§3.3）。クラス定義チャンクの abort は、そのチャンクの file-in エラー `subclass failed: <クラス名>: <理由>` にする（§3.12）。ワークスペースの作成と探針の abort は、その ABI の失敗（`AO_ERR`）にする。`ao_debug_*` の printString と inspect の abort は §3.10 の規則にする（drain しない。捕捉しない）。テストクラスの作成の abort は `ao --test` の失敗（exit 1）にする。プロセスの本体の abort は、そのプロセスの失敗（下）にする。ただし `terminate` による巻き戻しは失敗にしない。
 - スタックガード: メソッド（ネイティブを含む）を適用する前に、C スタックの残りが予約分（`min(512 KiB, スタックの大きさの 1/4)`）を下回っていれば、「stack overflow」で abort する。無限再帰でプロセスは落ちない。
   - スタックの範囲は、最外（上記）の入口と、最外の `Interpreter::run` で必ず取り直す。前のスレッドの範囲を使い続けない。
   - ベースプロセス（下）はホストのスレッドのスタックの範囲を使う。ほかのプロセスは、そのプロセスのスタック（8 MiB。下）の範囲を使い、予約分もその大きさから求める。どちらも、ほかのスタックの範囲を使わない。
@@ -428,6 +435,8 @@ Blue Book 第 28 章の集合を現代化した **Ao バイトコード** を定
 
 JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し、v1 では常に `nil`。
 
+デバッグ情報: コンパイラは pc→ソース表と temp 名を出す（§3.8）。これはセッションのソース表（§3.10）に置く。CompiledMethod の形（6 スロット）は変えず、イメージの版も上げない。
+
 ### 3.6 Kernel クラス（ネイティブ実装必須）
 
 次のクラスの **インスタンスメソッドとクラスメソッドはすべて NativeMethod** とする。Smalltalk ソースで書いてインタプリタ実行してはならない。対応する `.st` ファイルは **コメントとプロトコル分類のためだけ** に置いてよい。実行定義は C++。
@@ -440,7 +449,7 @@ JIT 差し込み口: `CompiledMethod` に `nativeCode` スロットを予約し�
 
 必須セレクタ（最小。実装時に Blue Book プロトコルを充足して増やす）:
 
-`Object`: `class`, `==`, `~~`, `=`, `hash`, `identityHash`, `yourself`, `isNil`, `notNil`, `ifNil:`, `ifNotNil:`, `perform:`, `perform:with:`, `perform:withArguments:`, `doesNotUnderstand:`, `error:`, `subclassResponsibility`, `shouldNotImplement`, `isKindOf:`, `isMemberOf:`, `respondsTo:`, `copy`, `shallowCopy`, `instVarAt:`, `instVarAt:put:`, `instVarNamed:`, `basicSize`, `basicAt:`, `basicAt:put:`, `printString`, `printOn:`, `storeOn:`, `inspect`（ホスト Inspector を開くブリッジ）, `mustBeBoolean`
+`Object`: `class`, `==`, `~~`, `=`, `hash`, `identityHash`, `yourself`, `isNil`, `notNil`, `ifNil:`, `ifNotNil:`, `perform:`, `perform:with:`, `perform:withArguments:`, `doesNotUnderstand:`, `error:`, `subclassResponsibility`, `shouldNotImplement`, `halt`（§3.3、§3.13）, `isKindOf:`, `isMemberOf:`, `respondsTo:`, `copy`, `shallowCopy`, `instVarAt:`, `instVarAt:put:`, `instVarNamed:`, `basicSize`, `basicAt:`, `basicAt:put:`, `printString`, `printOn:`, `storeOn:`, `inspect`（ホスト Inspector を開くブリッジ）, `mustBeBoolean`
 
 `Boolean`: `ifTrue:`, `ifFalse:`, `ifTrue:ifFalse:`, `ifFalse:ifTrue:`, `and:`, `or:`, `not`, `&`, `|`, `eqv:`, `xor:`
 
@@ -854,6 +863,24 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - `ao_accept_class`: ソース全体の先頭。
 - `AO_ERR_EVAL` の区間は 0-0 で、位置を表さない。
 
+#### pc→ソース表と temp 名
+
+コンパイラは、メソッドとブロックごとに、pc→ソース表と temp 名を出す（デバッガ。§3.13）。バイトコードは変えない。逆アセンブルの出力も変えない。
+
+- pc→ソース表の項目は `{pc, start, end}` である。区間の単位と数え始めは上の区間と同じである。
+- 項目は、Send / SendSuper / SendSpecial / Jump / JumpTrue / JumpFalse / Return* / ReturnBlock の直前と、各文の先頭で足す。pc はその命令（文の先頭では文の最初の命令）の先頭である。区間は次のとおり。
+  - 送信（カスケードの各パートを含む）: 送信の式全体（レシーバから最後の引数まで）。セレクタだけを指さない。
+  - `^`: return の文全体。
+  - 展開した条件（§3.5）の JumpTrue / JumpFalse: レシーバの式。`NonBoolean receiver` が条件式を指す。
+  - `to:do:` を展開した比較と増分の SendSpecial: `to:do:` の送信全体。
+  - 各文の先頭: その文。
+- 表は pc の昇順である。pc から区間を引くときは、pc 以下で最大の項目を使う。Send の pc には一致する項目がある。
+- ブロックは自分の表を持つ。座標は外側のメソッドのソースと同じである（入れ子のブロックも同じ）。
+- doIt（`ao_eval`）の座標は、評価した断片の先頭から数える。前置する `doIt\n` の分を引く。
+- temp 名は、引数、temp、持ち上げた temp（展開したブロックの temp、`to:do:` のループ変数）を宣言順に並べる。コンパイラが足した名前の無い temp は出さない。temp ベクタに置いた temp は、ベクタを入れたスロットとベクタの中の添字で指す。
+- ブロックの temp 名には、コピーした外側の変数も、コピーした値の添字で載せる。コピーしたのが temp ベクタなら、そのベクタに置いた各変数を、添字とベクタの中の添字で載せる。
+- 表と temp 名はセッションのソース表（§3.10）だけに置く。CompiledMethod にもイメージにも書かない。
+
 #### チャンク形式
 
 - チャンクは、文字列とコメントの外にある単独の `!` で終わる。`!!` は `!` 1 文字に戻す。文字列とコメントの中でも `!!` は `!` に戻す（`^'Hello!!'` のメソッドは `'Hello!'` を返す）。
@@ -888,7 +915,10 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - Print it と Inspect it は、結果の長さによらず全体を挿入・表示する。結果が NUL を含んでも切らない（§3.10 の `ao_eval_result_length` と `ao_eval_result_copy`）。
 - コンパイルエラーは、テキストを変えずに、その区間（§3.8）を選択して示す。区間は UTF-16 に換算する。空の区間では選択を変えない。Browser の Accept も同じにする。
 - 閉じた Inspector は捨てる。次の Inspect it は新しいウィンドウを開く。
-- 評価の中断は v1 の範囲外とする。`ao_eval` はメインスレッドで同期に走る（§3.2）。そのため、`yield` しない無限ループ（`[true] whileTrue`）はアプリを止める。止めるには強制終了するしかなく、保存していないイメージと編集中のテキストは失われる。
+- 評価のあと、スナップショット（§3.13）があれば、エラー表示の帯の右端に `Debug` ボタン（accessibility label `Debug`）を出す。無ければ隠す。押すと Debugger（下）を開く。同じ generation の Debugger が開いていれば、それを前面に戻す。コンパイルエラーでは出さない（捕捉が無い）。
+- `AO_ERR_EVAL` の表示は今までどおりである。`AO_OK` でスナップショットがあるとき（drain の間のプロセスの失敗。§3.4）は、帯に `process failed: <理由>` を出す。
+- アプリは boot の直後に捕捉を有効にする（`ao_set_debug_capture(1)`。§3.10）。
+- 評価の中断は P11（ライブデバッガ。§3.13）で扱う。P11 が止めるのは `halt` と失敗だけで、走っている評価を外から止める手段は無い。`ao_eval` はメインスレッドで同期に走る（§3.2）。そのため、`yield` しない無限ループ（`[true] whileTrue`）はアプリを止める。止めるには強制終了するしかなく、保存していないイメージと編集中のテキストは失われる。
 
 #### System Browser
 
@@ -918,12 +948,31 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 
 アクセシビリティ: VoiceOver ラベルを主要コントロールに付ける。動的な過度なアニメーションを使わない。
 
+#### Debugger
+
+P10 の事後デバッガである。スナップショット（§3.13）を読むだけで、評価を止めず、続けない。Proceed / Abort / Step と Debug it は P11 である（§3.13）。
+
+```
+[ frames: NSTableView（最内が先頭。ラベル）              ]
+[ source: NSTextView（読み取り専用。pc の送信を選択で示す） ]
+[ variables: NSTableView（name | class | value）          ]
+```
+
+- 独立した `NSWindow` に、`NSSplitView` で 3 段に置く。タイトルは `Debugger: <理由>` である。閉じたら捨てる（Inspector と同じ）。
+- 開いたときに、generation、理由、全フレームのラベル・種類・ソース・区間・temp 名を読み切る（§3.10 の「デバッガの読み出し」。どれも busy でも読める）。
+- フレームを選ぶと、ソース枠をそのフレームのソースに替え、pc の区間（§3.8）を UTF-16 に換算して選択し、見える位置へスクロールする。プレースホルダ（`AO_ERR_NOSOURCE`）では選択しない。
+- variables は、選んだフレームの `self` を先頭に、引数と temp を宣言順に並べる。値の printString は、その行を出すときに読む（遅延。printString は重いことも副作用があることもある）。printString が失敗した行は class だけで、value は空である。
+- 行をダブルクリックすると、その値の Inspector を開く（`ao_debug_inspect`）。窓は自分の Inspector を 1 枚持ち、Workspace と同じく使い回す。
+- 開いたときと generation が違えば（次の評価でスナップショットが消えた）、print と inspect をしない。値は `-` にする。
+- VoiceOver ラベルを frames、source、variables と各列に付ける。
+- Browser のエラー表示は変えない。
+
 #### 文字の大きさ
 
-- Transcript の本文、Workspace の本文、Browser のソース枠は、文字の大きさを 1 つ共有する。Browser の一覧枠、エラー表示、Inspector はシステムの大きさのままにする。
+- Transcript の本文、Workspace の本文、Browser のソース枠、Debugger のソース枠は、文字の大きさを 1 つ共有する。Browser と Debugger の一覧枠、エラー表示、Inspector はシステムの大きさのままにする。
 - 大きさは、フォントの既定の大きさに足すポイント数で持つ。既定の大きさは `NSFont.userFont(ofSize: 0)` の大きさ、Transcript が等幅なら `NSFont.userFixedPitchFont(ofSize: 0)` の大きさである。足す数の既定は 0、範囲は −4 から +24 である。
 - Tools → Make Text Bigger（`⌘+`）で 1 pt 大きく、Make Text Smaller（`⌘-`）で 1 pt 小さくする。範囲の端では変えない。Actual Size（`⌘0`）で 0 に戻す。
-- 変えると、開いている 3 つの枠の全文がすぐにその大きさになる。あとから足す文字も、あとで開くウィンドウも同じ大きさを使う。等幅を切り替えても足す数は変わらない。
+- 変えると、開いているこれらの枠の全文がすぐにその大きさになる。あとから足す文字も、あとで開くウィンドウも同じ大きさを使う。等幅を切り替えても足す数は変わらない。
 - 共有するのは大きさで、書体ではない。フォントに字形の無い文字（Helvetica の中の日本語など）は、字形を持つ書体（ヒラギノなど）で同じ大きさに描く。
 - 足す数は UserDefaults の `AoTextSizeOffset` に保存し、次の起動でも使う。Actual Size はこのキーを消す。
 
@@ -931,7 +980,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 
 既にあるクラスの定義を `ao_accept_class` で受け付けたときの規則である。メソッドを黙って捨てない。Kernel クラスの再定義は今までどおり拒む（§3.12）。file-in（§3.12）のクラス定義の扱いは変えない。
 
-この節でサブクラス（子孫すべて）と言うときは、生きているクラスのうち、スーパークラスの連鎖にそのクラスを含むもの（そのクラス自身は除く）すべてを指す。Smalltalk に名前で束縛されているかどうかは問わない。名前を外したクラスでも、インスタンスや変数から届くものは数え、形の変更で残った旧クラスも数える。生きているとは、GC のルート（§3.2）から、各オブジェクトのクラスとポインタのスロットをたどって届くことである（弱い参照はたどらない）。ただし、メソッドのキャッシュ（§3.3）とソース表（§3.10）はルートからたどらない。どちらも Smalltalk のオブジェクトからは届かないセッションの表で、そこからしか届かないクラスのメソッドは、もう動かないからである。届かないクラスは、GC がまだ回収していなくても数えない。
+この節でサブクラス（子孫すべて）と言うときは、生きているクラスのうち、スーパークラスの連鎖にそのクラスを含むもの（そのクラス自身は除く）すべてを指す。Smalltalk に名前で束縛されているかどうかは問わない。名前を外したクラスでも、インスタンスや変数から届くものは数え、形の変更で残った旧クラスも数える。生きているとは、GC のルート（§3.2）から、各オブジェクトのクラスとポインタのスロットをたどって届くことである（弱い参照はたどらない）。ただし、メソッドのキャッシュ（§3.3）、ソース表（§3.10）、デバッガのスナップショット（§3.13）はルートからたどらない。どれも Smalltalk のオブジェクトからは届かないセッションの表で、そこからしか届かないクラスのメソッドは、もう動かないからである。届かないクラスは、GC がまだ回収していなくても数えない。
 
 - superclass が、定義するクラスの名前が今指しているクラスそのものか、そのクラスを上位に持つクラスなら（`Foo subclass: #Foo …`）、何も変えずに `AO_ERR_COMPILE` を返す。メッセージは `superclass refused: <Super> is <Name> or its subclass` である。受け付けると、新しいクラスが旧クラスのサブクラスになり、Browser が表示した定義を Accept し直すたびに継承が 1 段深くなるからである。
 - 形が同じとき（superclass が、名前で引いた同じクラスで、instVarNames が同じ名前の同じ順のとき）は、既存のクラスオブジェクトを保つ。メソッド辞書（インスタンス側とクラス側）、メタクラス、既存インスタンスはそのままである。更新するのは category と classVariableNames（classPool。§3.6）だけである。classPool は次のように更新する。
@@ -976,6 +1025,7 @@ C ABI（`bridge/ao_abi.h`）のみが runtime と app の境界。
 - クラス一覧、セレクタ一覧、ソース取得、accept
 - Transcript コールバック（ランタイム → アプリ）
 - 評価エラーの理由の文字列化（`AoSpan.message`。§3.3 の失敗の規則）
+- デバッガの読み出し（`ao_set_debug_capture` と `ao_debug_*`。下の「デバッガの読み出し」、§3.13）
 
 AppKit オブジェクトを OOP としてヒープに直接置かない。ホストハンドル表で結ぶ。
 
@@ -996,8 +1046,9 @@ OS のプロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ�
 - `ao_runtime_boot`、`ao_runtime_shutdown`
 - `ao_image_save`、`ao_image_load`、`ao_filein_load_order`
 - `ao_workspace_reset`、`ao_eval`、`ao_accept_method`、`ao_accept_class`
+- `ao_debug_frame_receiver_print`、`ao_debug_frame_temp_print`、`ao_debug_inspect`、`ao_debug_clear`
 
-拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）、ブラウザの読み取り（`ao_browser_*`、`ao_version`）、評価結果の読み出し（`ao_eval_result_length`、`ao_eval_result_copy`。下の「評価結果」）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
+拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`）、ブラウザの読み取り（`ao_browser_*`、`ao_version`）、評価結果の読み出し（`ao_eval_result_length`、`ao_eval_result_copy`。下の「評価結果」）、捕捉の設定とスナップショットの読み（`ao_set_debug_capture`、`ao_debug_generation` から `ao_debug_frame_temp_name` まで。下の「デバッガの読み出し」）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
 
 ABI の関数は C++ の例外を境界の外へ出さない。関数の中で捕捉し、int を返す関数は `AO_ERR`（件数を返す関数は -1）を返す。`ao_image_load` の理由は `image load failed` である。
 
@@ -1078,6 +1129,20 @@ int ao_accept_class(const char* source, AoSpan* err);
 
 メソッドソースはセッションのルート表（`(Oop method, Oop string)` を `Roots` に登録したベクタ）だけが持つ。`.aoimage` には書かない。上書きした古い対はルートから外す。`ao_runtime_boot` と `ao_image_load` は表を空にする。
 
+表の項目は、デバッガ（§3.13）のために次も持つ。
+
+- そのメソッドのブロックの CompiledMethod（入れ子を含む。リテラルを前順に歩いた順）。ブロックもルート表に登録する。
+- デバッグ情報（本体と各ブロックの pc→ソース表と temp 名。§3.8）。C++ のデータで、GC はたどらない。
+- ソースの座標の起点。
+
+規則は次のとおりである。
+
+- 項目を入れるのは、今までどおり Accept（`ao_accept_method` と、`ao_accept_class` の形の変更で移したメソッド）だけである。file-in、vendor、ロードしたイメージのメソッドは項目を持たない（プレースホルダ）。
+- 形の変更（§3.9）で移したメソッドは、新しく箱詰めしたブロックを同じ前順で付け直す。デバッグ情報はそのまま使う。
+- 再 Accept で置き換えた古いメソッドの項目は、そのブロックとともに消える。スナップショットに残った古いメソッドのフレームは、プレースホルダになる。
+- セッションは、直前の `ao_eval` の doIt 1 件（メソッド、ブロック、テキスト、デバッグ情報）も持つ。`ao_eval` の入口で消し、コンパイルのあとに入れる。doIt はクラスに属さないので、Browser の読み出しには出ない。
+- イメージの保存（§3.11）と形の変更の生存の判定（§3.9）は、ソース表のブロックとスナップショット（§3.13）のルートもたどらない。
+
 #### プロトコルとカテゴリ
 
 プロトコルはメソッド辞書の各値を見て、クラスが `NativeMethod` なら `native`、それ以外なら `user`。空の側は返さない。順序は `native` の次に `user`。セレクタはプロトコルで絞り、UTF-8 でソートする。継承したメソッドは含めない。カテゴリ（`kClassSlotCategory`）が nil または空なら、一覧上の見出しは `Kernel`。定義テキストの category は、nil なら空文字 `''`、それ以外はそのバイト列を文字列リテラルにしたもの。定義テキストはチャンクとして Accept し直すので、`'` を `''` に、`!` を `!!` に二重にする（§3.8 チャンク形式）。表示した定義を Accept し直しても、カテゴリは変わらない。定義テキストの classVariableNames は、そのクラスの classPool の名前（§3.6。スーパークラスのものは含めない）を、名前のバイト列の昇順に空白 1 つで区切ったもの。poolDictionaries は常に空文字 `''`。表示した定義を Accept し直しても、クラス変数は変わらない（§3.9）。
@@ -1143,6 +1208,59 @@ Object の `printString` はクラス名のまま。次だけネイティブで�
 LargeInteger とそれ以外はクラス名のまま。
 
 `Object>>printOn: aStream` は、レシーバに `printString` を送り、その答えを `aStream` に `nextPutAll:` で書き、レシーバを答える（`nextPutAll:` の答えではない）。上の表のネイティブも、ユーザーが上書きした `printString` も、そのまま出る。`storeOn:` も同じである。`printString` が評価を中断したら、`nextPutAll:` を送らずにその理由のまま中断する（§3.3）。
+
+#### デバッガの読み出し
+
+スナップショット（§3.13）をホストが読む ABI である。文字列バッファの規則と件数の規則（失敗は -1）は上と同じである。どの関数も C++ の例外を外に出さない。
+
+```c
+/* 設定。いつでも呼べる */
+void ao_set_debug_capture(int on);
+
+/* 読み。busy でも呼べる */
+int ao_debug_generation(void);
+int ao_debug_frame_count(void);
+int ao_debug_frame_total(void);
+int ao_debug_reason(char* buf, int len);
+int ao_debug_frame_kind(int i);
+int ao_debug_frame_label(int i, char* buf, int len);
+int ao_debug_frame_pc(int i);
+int ao_debug_frame_source(int i, char* buf, int len, AoSpan* highlight);
+int ao_debug_frame_temp_count(int i);
+int ao_debug_frame_temp_name(int i, int j, char* buf, int len);
+
+/* 最外の入口。busy なら AO_ERR */
+int ao_debug_frame_receiver_print(int i, char* class_buf, int class_len, char* buf, int len);
+int ao_debug_frame_temp_print(int i, int j, char* class_buf, int class_len, char* buf, int len);
+int ao_debug_inspect(int i, int j);
+int ao_debug_clear(void);
+```
+
+設定:
+
+- `ao_set_debug_capture` は捕捉を有効（0 以外）か無効（0）にする。既定は無効である。値は ABI 側が持ち、boot、shutdown、ロードをまたいで残る（transcript フックと同じ持ち方）。CLI と `ao --test` は呼ばない。無効の間は捕捉しない。
+
+読み:
+
+- フレームの添字 `i` は 0 が最内である。temp の添字 `j` は 0 から数え、receiver を含まない。
+- `ao_debug_generation` は、捕捉と消去のたびに 1 増える値を返す。セッションが無ければ -1。
+- `ao_debug_frame_count` は、スナップショットのフレーム数（上限で切ったあと。§3.13）を返す。スナップショットが無ければ 0、セッションが無ければ -1。`ao_debug_frame_total` は、上限で切る前の総数を返す（無ければ 0、セッションが無ければ -1）。
+- `ao_debug_reason` は理由（§3.3 の文言）を書く。`ao_eval` の `AoSpan.message` と違い、255 バイトで切らない。スナップショットが無ければ `AO_ERR`。
+- `ao_debug_frame_kind` は、0（メソッド）、1（ブロック）、2（ネイティブ。合成）のどれかを返す。範囲外は -1。
+- `ao_debug_frame_label` はラベル（§3.13）を書く。範囲外は `AO_ERR`。
+- `ao_debug_frame_pc` は、そのフレームのコンテキストの pc（実行中の命令の先頭）を返す。種類 2 と範囲外は -1。
+- `ao_debug_frame_source` は、そのフレームのメソッドがソース表（doIt を含む。上の「ソースはイメージに書かない」）にあれば、そのソースを `buf` に書いて `AO_OK` を返す（入り切らなければ `AO_ERR_RANGE`）。`highlight` の `start` と `end` は pc の区間（§3.8。doIt は前置分を引いた値）で、`message` は空である。ブロックのフレームはホームのメソッドのソースを書く。
+  - ソース表に無ければ、`ao_browser_source` と同じプレースホルダ（§3.10）を書いて `AO_ERR_NOSOURCE` を返す。`highlight` は 0-0 である。種類 2 も `AO_ERR_NOSOURCE` で、NativeMethod のプレースホルダ（`native <シンボル名>`）を書く。method の無い合成フレーム（DNU）のプレースホルダは `"<ラベル> source not available"` である。
+  - `highlight` は NULL でよい。範囲外は `AO_ERR`。
+- `ao_debug_frame_temp_count` は、引数と temp の数（§3.8 の temp 名の数）を返す。種類 2 は進行中の送信の引数の数である。範囲外は -1。
+- `ao_debug_frame_temp_name` は temp の名前を書く。デバッグ情報が無ければ、引数は `arg1`、`arg2` …、temp は `t1`、`t2` … とする。種類 2 の引数も `arg1` … である。範囲外は `AO_ERR`。
+
+最外の入口（§3.4）:
+
+- 次の 4 つは最外の入口である。busy なら何もせずに `AO_ERR` を返す（上の「再入と例外」）。入る前に前の abort を消してスタックの範囲を取り直し、出るときに abort を読んで消す。drain はしない。この中の abort は捕捉しない（スナップショットを置き換えない）。
+- `ao_debug_frame_receiver_print` と `ao_debug_frame_temp_print` は、receiver か temp のクラス名を `class_buf` に、`printString` を `buf` に書く。`printString` が abort したら、`buf` を空にしてクラス名だけで `AO_OK` を返す。範囲外は `AO_ERR`。
+- `ao_debug_inspect` は、`j` が -1 なら receiver、そうでなければ temp `j` の値について、Inspect it と同じく inspect フックを呼ぶ（クラス名と printString）。範囲外は `AO_ERR`。
+- `ao_debug_clear` はスナップショットを消して generation を増やす。
 
 ### 3.11 イメージ形式 `.aoimage`
 
@@ -1275,6 +1393,63 @@ v1 で載せない:
 
 vendor のライセンスを落とさない。新規の C++ / Swift は **Apache License 2.0**。混在する場合は `NOTICE` に origin を列挙する。ライセンス条文の正本は英語の `LICENSE`。
 
+### 3.13 デバッガ
+
+P10 は事後（post-mortem）デバッガである。失敗は今までどおり abort で最外まで巻き戻る（§3.3、§3.4）。変わるのは、巻き戻す前にスタックを写して残すこと（捕捉）と、それを見る Debugger 窓（§3.9）が増えることだけである。評価の意味論、`ao_eval` の返り値、`ao --test`、CLI、イメージ形式は変えない。
+
+#### フレーム連鎖
+
+- 解釈フレーム（メソッドとブロックの活性化）は、プロセスごとの連鎖（`CallContext::topFrame`）でたどれる。各フレームは、method、receiver、コンテキスト、pc、temps、進行中の送信（selector、receiver、引数）を持つ。
+- ネイティブは連鎖に入れない。`NativeMethod::invoke` と Kernel のホットパスは変えない（§1.3）。失敗したネイティブのフレームは、捕捉のときに合成する（下の「フレームの種類とラベル」）。
+- 連鎖はプロセスごとである。プロセスを切り替えても保存も復元もしない。
+
+#### 捕捉
+
+- 捕捉は、`abortEvaluation` が最初の理由を固定した直後、巻き戻しを始める前に行う。そのとき、連鎖は最外まで無傷である。
+- 捕捉するのは、§3.3 の失敗すべて（`halt` を含む）である。ベースへの `terminate`（`process terminated`）、デッドロック、`too many processes`、`process cannot run` も §3.3 の失敗なので捕捉する。`ensure:` のレシーバが正常に終わったあとの後始末の失敗も捕捉する。
+- 次は捕捉しない。
+  - 捕捉が無効のとき（§3.10 の `ao_set_debug_capture`。既定は無効）
+  - 自分への `terminate`（ベースでないプロセス）、ほかのプロセスからの `terminate`、abandon の巻き戻し（どれも失敗でない。§3.4）
+  - abort の途中で走る後始末の中の再 abort（最初の理由を保つので、最初の捕捉を保つ。§3.4）
+  - `ao_debug_*` の printString と inspect の中の abort（§3.10）
+- 捕捉は Smalltalk のヒープを割り当てない（GC を起こさない）。値は C++ のメモリに写し、写し終えてからルートに登録する。C++ のメモリが足りなければ、捕捉を捨てる。評価の失敗と理由は変わらない。
+- 最内から 256 フレームまで写し、総数も記録する（§3.10 の `ao_debug_frame_total`）。捕捉は再帰しない。stack overflow でもスタックガードの予約分（§3.4）の中で終わる。
+- フレームごとに写すのは、種類、method、receiver、コンテキスト、pc、進行中の送信の selector と引数、temps の値である。オペランドスタックの値は写さない。スナップショット全体では、理由（C++ の文字列）、失敗したプロセス、それがベースかどうかを写す。
+
+#### スナップショットの寿命
+
+- スナップショットはセッションに 1 つである。ベースの捕捉は、前のスナップショットを常に置き換える。ベース以外のプロセスの捕捉（プロセスの失敗。§3.4）は、空のときだけ入れる。drain の間のプロセスの失敗が、ベースの失敗を隠さない。
+- 消すのは、`ao_eval` の入口、`ao_debug_clear`、`ao_image_load` のセッションの差し替え、shutdown である。
+- 捕捉と消去のたびに generation を 1 増やす。Debugger 窓は、開いたときと generation が違えば値を読まない（§3.9）。
+- スナップショットの値（method、receiver、コンテキスト、引数、temps、プロセス）は GC のルートで、消すまで生きる。次の評価まで大きなオブジェクトも残る。イメージには書かない。イメージの保存と形の変更の生存の判定（§3.9）は、スナップショットのルートをたどらない。
+- 再 Accept で置き換えたメソッドのフレームは、ソース表の項目が消えているので（§3.10）、プレースホルダになる。
+
+#### フレームの種類とラベル
+
+| 種類 | 値 | ラベル |
+|---|---|---|
+| メソッド | 0 | `Foo>>bar`。クラス側は `Foo class>>bar`。doIt は `doIt` |
+| ブロック | 1 | `[] in Foo>>bar`（ホームのメソッドで書く）。doIt の中のブロックは `[] in doIt` |
+| ネイティブ（合成） | 2 | `Array>>at: native ao_Array_at_`（ネイティブを見つけたクラス、セレクタ、シンボル名）。DNU は `#foo (doesNotUnderstand:)` |
+
+- 最内の解釈フレームに進行中の送信があり、その送信の探索（§3.3。割り当てずに引く）がネイティブに当たれば、そのネイティブを種類 2 のフレームとして最内に合成する。receiver と引数は進行中の送信のものである。
+- 探索がセレクタに当たらなければ（DNU）、method の無い種類 2 のフレームを最内に合成する。
+- 探索が CompiledMethod に当たれば（スタックガードの abort。§3.4）、合成しない。最内は、進行中の送信のある呼び出し元である。
+- 例: `nil foo` の最内は `#foo (doesNotUnderstand:)`、次が `doIt` である。`#(1 2) at: 5` の最内は `Array>>at: native …`、次の `doIt` で `at: 5` の送信を選択する。
+
+#### P11 ライブデバッガの設計判断
+
+**P11 で実装する。P10 では捕捉だけ。** P10 の ABI（§3.10）のシグネチャは P11 でも変えない。P11 の詳細は P11 の最初の PR で本節に書き足す。
+
+- 評価プロセス: ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)` を有効にしたとき、`ao_eval` の doIt をベースでなく fork したプロセス（評価プロセス）で走らせる。ベースは、`terminate` が相手の終わりを待つのと同じ形で待つ。評価プロセスが切り替えたら drain と同じ規則で回し、評価プロセスが終わるか止まるかで `ao_eval` から戻る。ライブモードでない評価（CLI、`ao --test`、既定）は変えない。ワークスペースの束縛は共有のままである。
+- 止める: 評価プロセスでは、`halt`、`error:`、DNU、`failed: #sel`、`NonBoolean receiver`、`cannot return` は、巻き戻す前にそのプロセスを止める（`suspend` と同じ状態に理由を足す）。`ao_eval` は `AO_ERR_HALT`（6）と理由を返す。stack overflow、out of memory、deadlock、プロセスの操作の失敗は止めず、今までどおり abort する（P10 の捕捉が残る）。
+- フレームの供給元: 止まったプロセスのフレームは、スナップショットでなく連鎖（`CallContext::topFrame`）から直接読む。ファイバのスタックは止まっている間は有効である。P10 の `ao_debug_frame_*` は、スナップショットと止まったプロセスを同じ形で読める抽象（`DebugFrames`: `count`、`kind`、`method`、`receiver`、`pc`、`selector`、`tempCount`、`temp`）の上に置く。
+- 操作: `ao_debug_proceed(pid)` は resume し、止めた送信の値として nil を返す（Blue Book）。`ao_debug_abort(pid)` は terminate する（後始末を走らせる）。`ao_debug_step_into`、`ao_debug_step_over`、`ao_debug_step_out`（`pid`）は、プロセスごとの step の印を立てて resume する。インタプリタループの先頭に足すのは 1 分岐だけである。step over は同じフレームの次の文の先頭（§3.8 の文の項目）、step into は次の解釈フレームの先頭、step out はフレームが sender に戻ったところで止まる。ネイティブには入らない。どれも `ao_eval` の末尾と同じく、終わるか止まるまで回して結果（`out`、`AO_ERR_HALT`、`AO_ERR_EVAL`）を返す。
+- Debug it: Smalltalk メニューに `Debug it`（`⌘⇧D`）を足す。最初のバイトコードで止める。
+- busy とイメージ: 止まったプロセスは走っていないので busy でない。Debugger を開いたまま別の Do it ができる。同時に止まれる評価プロセスは 8 までである。止まったプロセスはファイバの C++ スタックを持つので、イメージに書けない。`ao_image_save` は、止まったプロセスがあれば `AO_ERR` で拒む（`ao_image_save` は理由を返さない。§3.11。`Image::save` の理由は `halted processes`）。
+- 窓: P10 の Debugger 窓に Proceed / Abort / Step over / Step into / Step out のボタンを足す。止まったプロセスの窓は generation でなく pid で識別する。
+- やらない: Restart（フレームの再実行）、Debugger の中の編集と Accept、temp の書き換え、ネイティブへの step into、ベースの停止。
+
 ---
 
 ## 4. TDD
@@ -1299,7 +1474,10 @@ vendor のライセンスを落とさない。新規の C++ / Swift は **Apache
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
-- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）。評価結果（§3.10）: `out` を超える Print it の全体と、副作用が 1 回であること（`EvalResultLengthGivesWholePrintStringPastOut`）、NUL を含む結果（`EvalResultCopyKeepsNulBytes`）、切り詰めと `AO_ERR` の規則（`EvalResultCopyCutsLikeOtherBuffers`）、Do it と失敗のあとの空文字（`EvalResultEmptyAfterDoItAndFailures`）、shutdown・boot・ロードとの関係（`EvalResultFollowsSessionLifetime`）、busy の間の読み出しと、拒まれた評価が結果に触れないこと（`EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`）、`ao_accept_class` の送信から呼ばれたフックでも、前の評価の結果 `42` が読め、拒まれた評価のあとも残ること（`KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt`）、inspect フックの `print_len`（`InspectHookGetsPrintLengthWithNul`）
+- `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）。評価結果（§3.10）: `out` を超える Print it の全体と、副作用が 1 回であること（`EvalResultLengthGivesWholePrintStringPastOut`）、NUL を含む結果（`EvalResultCopyKeepsNulBytes`）、切り詰めと `AO_ERR` の規則（`EvalResultCopyCutsLikeOtherBuffers`）、Do it と失敗のあとの空文字（`EvalResultEmptyAfterDoItAndFailures`）、shutdown・boot・ロードとの関係（`EvalResultFollowsSessionLifetime`）、busy の間の読み出しと、拒まれた評価が結果に触れないこと（`EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`）、`ao_accept_class` の送信から呼ばれたフックでも、前の評価の結果 `42` が読め、拒まれた評価のあとも残ること（`KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt`）、inspect フックの `print_len`（`InspectHookGetsPrintLengthWithNul`）。デバッガ（§3.10、§3.13）: イメージの保存がスナップショットとブロックのスロットをたどらない（`ImageSaveDoesNotTraceSnapshotOrBlockSlots`）、doIt のデバッグ情報の座標が前置分を引いた値（`DoItDebugInfoDropsPrefix`）、次の評価がスナップショットを消す（`NextEvalClearsSnapshot`）
+- `accept_abi_test`（追加分。§3.10 の「ソースはイメージに書かない」）: Accept したメソッドとブロックの pc→ソース表がソース表に残る（`AcceptKeepsPcMapForMethodAndBlocks`）、再 Accept で古いメソッドとブロックの項目が消える（`ReacceptDropsOldMethodAndItsBlocks`）、形の変更でブロックを付け直す（`ReshapeKeepsBlockPcMaps`）
+- `debug_snapshot_test`: 捕捉（§3.13）。入れ子のメソッドの失敗で最内が先頭（`ErrorInNestedMethodCapturesInnermostFirst`）、ブロックのフレームの temps とホーム（`BlockFrameKeepsTempsAndHome`）、ネイティブの失敗の合成（`FailedNativeSendSynthesizesNativeFrameWithReceiverAndArgs`）、DNU の合成（`DoesNotUnderstandSynthesizesFrameWithoutMethod`）、stack overflow の上限と総数（`StackOverflowCapturesCappedFramesAndTotal`）、後始末の abort が最初の捕捉を保つ（`CleanupAbortKeepsFirstSnapshot`）、正常終了のあとの後始末の失敗（`CleanupFailureAfterNormalEndIsCaptured`）、`terminate` と abandon（`SelfTerminateDoesNotCapture`、`TerminateBaseCaptures`、`AbandonDoesNotCapture`）、ベースのデッドロック（`DeadlockOnBaseCaptures`）、ファイバの失敗は自分の連鎖（`FiberFailureCapturesOnItsOwnChain`）、nursery と old の GC をまたぐ（`SnapshotSurvivesNurseryAndOldCollections`）、`halt`（`HaltAbortsWithHaltReason`）
+- `debug_abi_test`: デバッガの読み出し（§3.10）。最内が先頭（`EvalErrorFillsFramesInnermostFirst`）、失敗した送信の区間（`FrameSourceHighlightsFailingSend`）、doIt の座標（`DoItFrameSourceDropsPrefix`）、ラベル（`BlockFrameLabelIsBracketsIn`、`NativeFrameLabelNamesSymbol`）、busy の拒否（`TempPrintIsRefusedWhileBusy`）、printString の abort がスナップショットを置き換えない（`TempPrintAbortDoesNotReplaceSnapshot`）、次の評価と generation（`NextEvalClearsSnapshotAndBumpsGeneration`）、消去でルートの数が戻る（`ClearDropsRoots`）、捕捉が無効ならフレーム無し（`CaptureOffLeavesNoFrames`）、プレースホルダと `arg1` / `t1`（`NoSourceMethodAnswersPlaceholderAndGenericTempNames`）、inspect フック（`InspectFiresHookWithTempValue`）、drain 中のプロセスの失敗（`ProcessFailureIsReadableAfterEval`）、バッファの規則（`BuffersFollowRangeRule`）、設定が boot とロードをまたぐ（`CaptureSettingSurvivesBootAndLoad`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
 - `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる
@@ -1311,6 +1489,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - パース成功 / 失敗区間
 - カスケード、キーワード、ブロックの AST
 - 生成バイトコードのスナップショットテスト（安定したら固定）
+- `pc_map_test`: pc→ソース表と temp 名（§3.8）。Send の区間（`SendPcMapsToSendSpan`）、展開した条件のレシーバ（`InlinedConditionJumpMapsToReceiverSpan`）、ブロックの `^`（`ReturnBlockMapsToReturnStatement`）、ブロックの表が外側のソースの座標（`BlockMethodHasItsOwnMapInMethodCoordinates`）、temp 名の宣言順（`TempNamesListArgsTempsAndLoopVars`）、temp ベクタ（`RemoteTempNamesVectorSlotAndIndex`）、コピーした外側変数（`CopiedOuterTempIsNamedInBlockScope`）。バイトコードのスナップショット（`Codegen.*`）はバイト一致のまま
 
 ### 4.3 app（XCTest）
 
@@ -1325,6 +1504,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - 起動と同梱（§3.9）: vendor の場所の選び方（`testVendorDirectoryPrefersEnvironmentOverBundleResources`）、読み込んだ行とクラス（`testVendorFileInWritesLoadedLineAndDefinesTimespan`）、見つからない行（`testMissingVendorWritesNotFoundLine`）
 - Tools メニュー: Tools → Browser で System Browser が開く（`testToolsBrowserMenuItemOpensSystemBrowser`）
 - 文字の大きさ（§3.9）: Tools の項目とキー（`testToolsMenuHasTextSizeItemsWithCommandKeys`）、3 つの枠への反映、あとで足す文字とあとで開くウィンドウ、等幅との組み合わせ、Actual Size（`testTextSizeMenuItemsResizeTranscriptWorkspaceAndBrowserSource`）、空の Workspace への Print it と、大きさを変える前の削除の Undo（`testPrintItIntoEmptyWorkspaceAndUndoAfterResizeUseCurrentSize`）、日本語の字形を持つ書体と大きさ（`testJapaneseTypedAfterResizeKeepsCoveringFontAtCurrentSize`）、範囲の端（`testTextSizeOffsetStopsAtRangeEnds`）
+- Debugger（§3.9、§3.13）: Debug ボタンと最内が先頭のフレーム（`testDoItErrorShowsDebugButtonAndOpensDebuggerWithInnermostFrameFirst`）、失敗した送信の選択（`testSelectingFrameSelectsFailingSendSpanInSource`）、`self` と引数と temps の値（`testVariablesListSelfArgsAndTempsWithPrintStrings`）、ダブルクリックで Inspector（`testDoubleClickVariableOpensInspector`）、プレースホルダ（`testNoSourceFrameShowsPlaceholderReadOnly`）、次の評価のあとの Inspect（`testNextEvalDisablesInspectInOpenDebugger`）、文字の大きさ（`testDebuggerSourceFollowsTextSize`）、コンパイルエラーでは Debug を出さない（`testCompileErrorShowsNoDebugButton`）、`process failed:`（`testProcessFailureShowsReasonAndDebugButton`）、VoiceOver ラベル（`testDebuggerControlsHaveAccessibilityLabels`）
 - ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
 
 `scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。
@@ -1371,7 +1551,7 @@ GitHub Actions（`.github/workflows/ci.yml`）が、`main` への push と `main
 1. **VM は新規実装。** 他処理系の C/C++/Swift VM をコピーしない。クラスライブラリの `.st` は §3.12 に従い取り込む。
 2. **Kernel はネイティブ。** Kernel メソッドを `.st` の実行定義にしない。
 3. **チャットは正本ではない。** 仕様変更は `SPEC.md` を先に直す。
-4. **余計なものを作らない。** 依頼されていないデバッガ、パッケージマネージャ、シンタックステーマ、ウェブサイトを追加しない。
+4. **余計なものを作らない。** 依頼されていないパッケージマネージャ、シンタックステーマ、ウェブサイトを追加しない。
 5. **依存は最小。** runtime は C++20 標準ライブラリ + 必要なら mimalloc 程度。OS の API として mmap / mprotect / madvise を使ってよい（old の予約とコミット、プロセスのスタックとガードページ）。プロセスの切り替え（§3.4）は arm64 のアセンブリで自前で書く。ucontext、Boost.Context、OS のスレッドを使わない。GUI は AppKit のみ。Boost、Qt、SDL、SwiftUI 主系統は使わない。
 6. **Apple Silicon を第一対象。** Intel Mac は考慮しない。
 7. **C ABI 以外で Swift が C++ テンプレートに依存しない。**
@@ -1425,6 +1605,20 @@ v1 は次をすべて満たす。
 - [x] `graphify-out/GRAPH_REPORT.md` がリポジトリにあり、主要モジュールをコミュニティとして記述している
 - [x] Serena で `Object` 相当のネイティブ実装シンボルが解決できる
 - [x] `CLAUDE.md` の Graphify / Serena 手順を実装エージェントが破っていない
+
+### デバッガ
+
+P10（§3.13）は次をすべて満たす。上の v1 の項目は変えない。
+
+- [ ] Workspace で `nil foo` の Do it → Debug で、最内が `#foo (doesNotUnderstand:)`、次が doIt で `nil foo` が選択される
+- [ ] `#(1 2) at: 5` → 最内が `Array>>at: native …`、次の doIt で `at: 5` が選択される
+- [ ] `#(1 2) do: [:e | e foo]` → `[] in` フレームの variables に `e` が値付きで見える。ダブルクリックで Inspector が開く
+- [ ] `self halt` → 理由 `halt` で捕捉され、Debug が出る
+- [ ] Browser で Accept したメソッドの中の失敗 → そのメソッドのソースで失敗した送信が選択される。vendor メソッドの中の失敗 → プレースホルダで選択なし
+- [ ] 次の Do it でスナップショットが消え、開いていた Debugger の Inspect は何もしない
+- [ ] `ao --test image/tests` と CLI は変わらない（捕捉は既定オフ）
+- [ ] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
+- [ ] この小節がすべて `[x]`、`PHASE` は `P10`、CHANGELOG の `[Unreleased]` に項目
 
 ---
 
