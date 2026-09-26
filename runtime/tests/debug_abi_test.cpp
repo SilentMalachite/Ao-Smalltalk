@@ -1183,4 +1183,29 @@ TEST_F(LiveDebug, HaltReasonEscapesNul) {
   EXPECT_EQ("a\\0b", reason());
 }
 
+// SPEC §3.13: a proceeded halt deeper down (in an interpreted method) does not turn a later,
+// unrelated failure of the native into nil.
+TEST_F(LiveProceed, ProceededHaltDeeperDoesNotHideLaterFailure) {
+  defineClass("DbgPsA");
+  defineClass("DbgPsB");
+  accept("DbgPsA", 0, "printString\n  self halt.\n  ^'ok'");
+  accept("DbgPsB", 0, "printString\n  ^nil");
+  ASSERT_EQ(AO_ERR_HALT, doIt("(Array new: 2) at: 1 put: DbgPsA new; at: 2 put: DbgPsB new; "
+                              "yourself; printString"));
+  EXPECT_STREQ("halt", err_.message);
+  ASSERT_EQ(AO_ERR_HALT, proceed(ao_debug_halted_pid()));
+  EXPECT_STREQ("failed: #printString", err_.message);
+}
+
+// SPEC §3.13: a SharedQueue's nextPut: whose signal fails takes its element out again without
+// halting in between.
+TEST_F(LiveProceed, SharedQueueNextPutFailureDoesNotHalt) {
+  ASSERT_EQ(AO_ERR_EVAL, doIt("q := SharedQueue new. s := q instVarAt: 2. "
+                              "s instVarAt: 1 put: 4611686018427387903. q nextPut: 1"));
+  EXPECT_STREQ("signal: excess signals out of range", err_.message);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, printIt("(q instVarAt: 1) size"));
+  EXPECT_STREQ("0", out_);
+}
+
 }  // namespace

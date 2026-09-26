@@ -289,7 +289,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
         queue: nil
       ) { [weak self] _ in
         MainActor.assumeIsolated {
-          self?.updateButtons()
+          self?.refreshLive()
         }
       }
     }
@@ -474,6 +474,26 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       return false
     }
     return isLive ? !finished : ao_debug_generation() == generation
+  }
+
+  // SPEC §3.9: once its process is gone (ended elsewhere), the buttons go off and the shown
+  // values become `-`.
+  private func refreshLive() {
+    updateButtons()
+    guard isLive, finished || ao_debug_select(pid) != Int32(AO_OK) else {
+      return
+    }
+    values = [:]
+    variableTable.reloadData()
+  }
+
+  // The value column's text of variable row `row` as the table shows it (for tests).
+  func shownValue(row: Int) -> String? {
+    guard let column = variableTable.tableColumns.firstIndex(where: { $0.identifier.rawValue == "value" }),
+          row >= 0, row < variableTable.numberOfRows else {
+      return nil
+    }
+    return (variableTable.view(atColumn: column, row: row, makeIfNecessary: true) as? NSTextField)?.stringValue
   }
 
   // SPEC §3.9: Proceed and the Steps only when the halt can go on; nothing once it is gone.

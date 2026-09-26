@@ -1540,7 +1540,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 
 操作:
 
-- Proceed: 止めた送信の値として nil を返し、続きを走らせる（Blue Book）。`halt`、`error:`、`doesNotUnderstand:` は nil を答える。失敗した送信（`failed: #sel`）は、送信の値として nil をオペランドスタックに積む。ネイティブの中の `error:`（文言のある失敗）を Proceed したあと、そのネイティブが失敗の印（空 OOP）を返したときも、インタプリタの送信の値は nil とし、もう一度止めない。step と Debug it の停止からは、止めた命令から続ける。Proceed できない停止には `AO_ERR` を返す。
+- Proceed: 止めた送信の値として nil を返し、続きを走らせる（Blue Book）。`halt`、`error:`、`doesNotUnderstand:` は nil を答える。失敗した送信（`failed: #sel`）は、送信の値として nil をオペランドスタックに積む。ネイティブがじかに（間に解釈フレームを挟まずに）送った `error:` など（文言のある失敗）を Proceed したあと、そのネイティブが失敗の印（空 OOP）を返したときも、インタプリタの送信の値は nil とし、もう一度止めない。より深い解釈メソッドの中の停止を Proceed したあとの、ネイティブの別の失敗は今までどおり止める。step と Debug it の停止からは、止めた命令から続ける。Proceed できない停止には `AO_ERR` を返す。
 - Step: プロセスに step の印を立てて Proceed と同じく続ける。インタプリタのループの先頭（命令を実行する前）で印を見て、下の位置に来たら理由 `step` で止める。深さは、そのプロセスの連鎖の解釈フレームの段数である。基準の深さは、止まったときの最内の解釈フレームの深さである。
   - Step into: 基準より深いフレーム（送信した先の解釈メソッド、ブロック）の最初の命令、基準より浅いフレーム（呼び出し元に戻ったところ）、基準と同じ深さの文の先頭（§3.8 の文の先頭表）。ネイティブの中には入らない（ネイティブが呼んだブロックとメソッドには入る）。
   - Step over: 基準と同じ深さの文の先頭か、基準より浅いフレーム。より深いフレームでは止めない。
@@ -1728,19 +1728,19 @@ P10（§3.13）は次をすべて満たす。上の v1 の項目は変えない�
 
 ### ライブデバッガ
 
-P11（§3.13）は次をすべて満たす。上の項目は変えない。
+P11（§3.13）は次をすべて満たす。上の項目は変えない。どの項目も自動テストで確かめた（2026-09-26。対応するテストは `docs/phases/P11.md`）。`Ao.app` を手で操作する確認は `docs/phases/P11.md` の「手動確認」に残る。
 
-- [ ] Workspace で `self halt` → Debugger が開き、スタックが生きている（temps が見える）
-- [ ] Proceed → 続きが走り、Print it の結果が出る
-- [ ] `[self error: 'x'] ensure: [Transcript show: 'done']` → Abort → Transcript に `done`
-- [ ] Step over で選択が次の文へ進む。Step into で解釈メソッドに入る。Step out で sender に戻る
-- [ ] `3 ifTrue: [4]` で止まり、Proceed と Step が無効
-- [ ] Debugger を開いたまま別の Do it ができる
-- [ ] 止まったプロセスがあるときの Save Image が理由付きで拒まれる
-- [ ] Debug it（`⌘⇧D`）で最初の命令の前で止まる
-- [ ] `ao --test image/tests` と CLI は変わらない（ライブモードは既定オフ）
-- [ ] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
-- [ ] この小節がすべて `[x]`、`PHASE` は `P11`、CHANGELOG の `[Unreleased]` に項目
+- [x] Workspace で `self halt` → Debugger が開き、スタックが生きている（temps が見える）
+- [x] Proceed → 続きが走り、Print it の結果が出る
+- [x] `[self error: 'x'] ensure: [Transcript show: 'done']` → Abort → Transcript に `done`
+- [x] Step over で選択が次の文へ進む。Step into で解釈メソッドに入る。Step out で sender に戻る
+- [x] `3 ifTrue: [4]` で止まり、Proceed と Step が無効
+- [x] Debugger を開いたまま別の Do it ができる
+- [x] 止まったプロセスがあるときの Save Image が理由付きで拒まれる
+- [x] Debug it（`⌘⇧D`）で最初の命令の前で止まる
+- [x] `ao --test image/tests` と CLI は変わらない（ライブモードは既定オフ）
+- [x] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
+- [x] この小節がすべて `[x]`、`PHASE` は `P11`、CHANGELOG の `[Unreleased]` に項目
 
 ---
 

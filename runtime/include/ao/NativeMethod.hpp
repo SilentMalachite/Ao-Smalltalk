@@ -126,9 +126,11 @@ struct CallContext {
   // innermost interpreted frame when it halted. This process's own: never copied.
   StepMode stepMode = StepMode::None;
   std::uint32_t stepDepth = 0;
-  // SPEC §3.13: halts of this process that were proceeded (a count that only grows). A send in
-  // whose course one was proceeded answers nil when it then fails, instead of halting again.
+  // SPEC §3.13: halts of this process that were proceeded (a count that only grows), and the
+  // innermost interpreted frame at the last one. A send whose native failed after a halt was
+  // proceeded right inside it (no interpreted frame between) answers nil instead of halting again.
   std::uint32_t haltProceeds = 0;
+  const Frame* proceededAt = nullptr;
   // While > 0 this process does not halt (the scheduler updating its own lists): a failure
   // aborts as without a debugger.
   std::uint32_t haltSuppressed = 0;

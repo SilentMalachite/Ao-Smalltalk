@@ -496,10 +496,13 @@ final class DebuggerWindowTests: XCTestCase {
     }
     debugger.selectFrame(1)
     XCTAssertEqual(debugger.variable(at: 0).value, "nil")
+    XCTAssertEqual(debugger.shownValue(row: 1), "5")
     workspace.replaceText("p terminate")
     workspace.selectAll()
     workspace.doIt()
     XCTAssertEqual(ao_debug_halted_count(), 0)
+    NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: debugger.window)
+    XCTAssertEqual(debugger.shownValue(row: 1), "-")
     XCTAssertEqual(debugger.variable(at: 0).value, "-")
     XCTAssertTrue(debugger.buttons.allSatisfy { !$0.isEnabled })
   }

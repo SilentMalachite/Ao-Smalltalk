@@ -539,6 +539,7 @@ bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
     return false;
   }
   ++ctx.haltProceeds;
+  ctx.proceededAt = ctx.topFrame;
   return true;
 }
 
@@ -775,6 +776,8 @@ bool Scheduler::terminate(CallContext& ctx, Oop process) {
 }
 
 bool Scheduler::nextPut(CallContext& ctx, Oop queue, Oop value) {
+  // SPEC §3.13: the element is taken out again when the signal fails; no halt in between.
+  const NoHalt noHalt(ctx);
   Heap& heap = ctx.heap;
   Root q(ctx.roots, queue);
   Root v(ctx.roots, value);
