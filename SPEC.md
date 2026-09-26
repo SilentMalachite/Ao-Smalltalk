@@ -1403,16 +1403,16 @@ v1 は次をすべて満たす。
 - [x] `image/vendor` から file-in した非 Kernel メソッドが `CompiledMethod` として評価できる
 - [x] vendor 由来メソッドがネイティブ必須セレクタを上書きしていない
 - [x] Kernel のメソッド辞書を走査したとき、値はすべて `NativeMethod`
-- [ ] 上記 Kernel 走査テストが CI で失敗する変更はマージしない
+- [x] 上記 Kernel 走査テストが CI で失敗する変更はマージしない（§4.5。`main` のブランチ保護が `test (macOS arm64)` を必須にする）
 
 ### ツール
 
 - [x] 起動すると Transcript と Workspace が出る
-- [ ] Tools メニューから System Browser を開ける
+- [x] Tools メニューから System Browser を開ける
 - [x] Browser で `Object` のメソッド一覧が見える
 - [x] ソースペインでメソッドを編集し Accept すると、直後の Do it に反映される
 - [x] Transcript に `Transcript show: 'hello'; cr` が出る
-- [ ] ウィンドウ操作が macOS 標準（閉じる、最小化、Spaces）に従う
+- [x] ウィンドウ操作が macOS 標準（閉じる、最小化、Spaces）に従う（`scripts/package-app.sh` の `Ao.app` で手動確認。2026-09-26）
 
 ### 性能（緩いゲート。数値は実機で更新）
 
