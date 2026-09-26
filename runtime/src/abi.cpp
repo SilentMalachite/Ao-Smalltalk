@@ -36,7 +36,7 @@ bool runtimeBusy() {
 }
 
 // Marks the ABI entries that run Smalltalk, call a hook or replace the session: boot, shutdown,
-// save, load, filein, workspace reset, eval, accept. SPEC §3.10: the runtime is busy while one of
+// save, load, filein, workspace reset, eval, accept, remove. SPEC §3.10: the runtime is busy while one of
 // them runs (a host hook calls back) or runtimeBusy says so; then entered() is false and the call
 // answers AO_ERR without touching the session. The taking is one compare_exchange (0 to 1), so of
 // two threads that enter at once only one gets in; the one that got in gives the entry back when
@@ -466,6 +466,32 @@ extern "C" int ao_accept_class(const char* source, AoSpan* err) {
     }
     return AO_OK;
   });
+}
+
+extern "C" int ao_remove_method(const char* class_name, int meta, const char* selector,
+                                AoSpan* err) {
+  clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    setMessage(err, "runtime is busy");
+    return AO_ERR;
+  }
+  std::string reason;
+  const int rc = guarded(-1, [&] {
+    ao::Session* s = ao::session();
+    if (s == nullptr || s->ctx == nullptr || class_name == nullptr || selector == nullptr ||
+        (meta != 0 && meta != 1)) {
+      return AO_ERR;
+    }
+    return ao::removeMethodNamed(*s->ctx, class_name, meta == 1, selector, &reason) ? AO_OK
+                                                                                     : AO_ERR;
+  });
+  if (rc == AO_OK) {
+    return AO_OK;
+  }
+  // SPEC §3.9 削除: an AO_ERR says why, never with an empty message (as ao_image_load).
+  setMessage(err, rc == -1 || reason.empty() ? std::string_view("remove failed") : reason);
+  return AO_ERR;
 }
 
 extern "C" int ao_image_load(const char* path, AoSpan* err) {

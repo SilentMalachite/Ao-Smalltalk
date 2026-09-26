@@ -493,6 +493,17 @@ bool hasSubclass(CallContext& ctx, Oop cls) {
                      [&](Oop each) { return superclassOf(ctx.heap, each) == cls; });
 }
 
+// SPEC §3.9 削除: `Name>>selector` or `Name class>>selector`, from the name the caller passed.
+std::string removedMethodName(std::string_view className, bool meta, std::string_view selector) {
+  std::string key(className);
+  if (meta) {
+    key += " class";
+  }
+  key += ">>";
+  key += selector;
+  return key;
+}
+
 // Binds name to cls again, the way subclass: and applyClassDef bound it (a vendor stub through its
 // well-known slot), and drops the method cache (SPEC §3.3).
 void rebindClassName(CallContext& ctx, const std::string& name, Oop cls) {
@@ -1456,6 +1467,39 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
     }
   }
   return false;
+}
+
+bool removeMethodNamed(CallContext& ctx, std::string_view className, bool meta,
+                       std::string_view selector, std::string* reason) {
+  if (!namesBehavior(ctx, className)) {
+    *reason = "not a class: " + std::string(className);
+    return false;
+  }
+  const Oop cls = ctx.wk.named(className);
+  const Oop side = meta ? ctx.heap.klass(cls) : cls;
+  const std::string where = removedMethodName(className, meta, selector);
+  const Oop dict =
+      isClassShaped(ctx.heap, side) ? ctx.heap.slotAt(side, kClassSlotMethodDict) : Oop::nil();
+  // findSymbol allocates nothing; an unknown selector is one no dictionary can hold.
+  const Oop sel = ctx.wk.findSymbol(selector);
+  const Oop method =
+      dict.isHeap() && sel.isHeap() ? MethodDictionary::at(ctx.heap, dict, sel) : Oop::nil();
+  if (!method.isHeap()) {
+    *reason = "selector not found: " + where;
+    return false;
+  }
+  if (ctx.heap.klass(method) == ctx.wk.nativeMethodClass) {
+    *reason = "native method removal refused: " + where;
+    return false;
+  }
+  if (!MethodDictionary::removeKey(ctx.heap, dict, sel)) {
+    *reason = "remove failed";
+    return false;
+  }
+  // SPEC §3.3: the one function every method change goes through. Nothing above collected.
+  invalidateMethodCache(ctx.cache, sel);
+  forgetMethodSource(method);
+  return true;
 }
 
 }  // namespace ao

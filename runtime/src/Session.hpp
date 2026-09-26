@@ -179,6 +179,10 @@ int debugSelect(std::int64_t pid);
 // at the same literal indices (nested ones in preorder) and its debug info is kept. Never throws:
 // without the memory for the entry, `method` stays installed without one (SPEC §3.10).
 void rememberMethodSource(Oop method, Oop text, Oop replaced, const compiler::MethodImage* image);
+
+// SPEC §3.9 削除: drops `method`'s entry with its blocks (their root slots too). Nothing when no
+// entry names it as its method. Never throws and never collects.
+void forgetMethodSource(Oop method);
 // SPEC §3.9: a class whose shape changed takes its methods' sources along. The entry of `from`
 // names `to` from now on; `image` is what `to` was boxed from, and the entry's blocks and debug
 // info are rebuilt from it. Without the memory for that, the entry keeps its text only (no blocks,

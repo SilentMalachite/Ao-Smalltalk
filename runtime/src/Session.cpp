@@ -1290,6 +1290,20 @@ void rememberMethodSource(Oop method, Oop text, Oop replaced, const compiler::Me
   }
 }
 
+void forgetMethodSource(Oop method) {
+  Session* s = session();
+  if (s == nullptr || !method.isHeap()) {
+    return;
+  }
+  for (auto it = s->methodSources.begin(); it != s->methodSources.end(); ++it) {
+    if ((*it)->method == method) {
+      unrootEntry(s->roots, **it);
+      s->methodSources.erase(it);
+      return;
+    }
+  }
+}
+
 bool moveMethodSource(Oop from, Oop to, const compiler::MethodImage& image) {
   Session* s = session();
   if (s == nullptr || !from.isHeap() || !to.isHeap()) {

@@ -217,6 +217,15 @@ int ao_accept_method(const char* class_name, int meta, const char* source, AoSpa
    only. Any other chunk: AO_ERR_COMPILE "not a class definition", and nothing is applied. */
 int ao_accept_class(const char* source, AoSpan* err);
 
+/* SPEC §3.9 削除. AO_OK: the method is out of the side's dictionary (meta 1: the metaclass's),
+   the cache is invalidated and its source is forgotten; err's message is empty. AO_ERR with the
+   reason in err (never empty; start and end 0): "not a class: <name>", "selector not found:
+   <Class>>><selector>" (unknown or inherited), "native method removal refused:
+   <Class>>><selector>", "runtime is busy", or "remove failed" (no session, a NULL argument,
+   meta other than 0 or 1). <Class> is class_name as passed, with " class" when meta. Nothing
+   changes on AO_ERR. Allocates nothing on the heap. */
+int ao_remove_method(const char* class_name, int meta, const char* selector, AoSpan* err);
+
 #ifdef __cplusplus
 }
 #endif
