@@ -46,16 +46,16 @@ SPEC §2.4 defines the version, the assets, and when a tag may be made. With `V`
    ```sh
    V=1.0.0
    D=build/dist
-   rm -rf "$D" && mkdir -p "$D/Ao-$V-macos-arm64" "$D/ao-$V-macos-arm64"
+   rm -rf "$D" && mkdir -p "$D/Ao-$V-macos-arm64" "$D/ao-cli-$V-macos-arm64"
    ditto build/Ao.app "$D/Ao-$V-macos-arm64/Ao.app"
    cp LICENSE NOTICE "$D/Ao-$V-macos-arm64/"
-   cp build-release/ao LICENSE NOTICE "$D/ao-$V-macos-arm64/"
-   cp -R image/vendor "$D/ao-$V-macos-arm64/vendor"
+   cp build-release/ao LICENSE NOTICE "$D/ao-cli-$V-macos-arm64/"
+   cp -R image/vendor "$D/ao-cli-$V-macos-arm64/vendor"
    find "$D" -name .DS_Store -exec rm -f {} +
    (cd "$D" &&
-     ditto -c -k --keepParent "Ao-$V-macos-arm64" "Ao-$V-macos-arm64.zip" &&
-     tar -czf "ao-$V-macos-arm64.tar.gz" "ao-$V-macos-arm64" &&
-     shasum -a 256 "Ao-$V-macos-arm64.zip" "ao-$V-macos-arm64.tar.gz" > SHA256SUMS)
+     ditto -c -k --norsrc --noextattr --noacl --keepParent "Ao-$V-macos-arm64" "Ao-$V-macos-arm64.zip" &&
+     tar --no-xattrs --no-acls -czf "ao-cli-$V-macos-arm64.tar.gz" "ao-cli-$V-macos-arm64" &&
+     shasum -a 256 "Ao-$V-macos-arm64.zip" "ao-cli-$V-macos-arm64.tar.gz" > SHA256SUMS)
    ```
 
 4. Tag and publish, with the `CHANGELOG.md` entry as the notes:
@@ -64,7 +64,7 @@ SPEC §2.4 defines the version, the assets, and when a tag may be made. With `V`
    git tag -a "v$V" -m "Ao $V"
    git push origin "v$V"
    gh release create "v$V" --title "Ao $V" --notes-file <notes> \
-     "$D/Ao-$V-macos-arm64.zip" "$D/ao-$V-macos-arm64.tar.gz" "$D/SHA256SUMS"
+     "$D/Ao-$V-macos-arm64.zip" "$D/ao-cli-$V-macos-arm64.tar.gz" "$D/SHA256SUMS"
    ```
 
 ## License

@@ -30,7 +30,7 @@ Download from the [Releases](https://github.com/SilentMalachite/Ao-Smalltalk/rel
 | File | Contents |
 |---|---|
 | `Ao-1.0.0-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
-| `ao-1.0.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
+| `ao-cli-1.0.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
 | `SHA256SUMS` | SHA-256 checksums of the two archives |
 
 Check the downloads:
@@ -43,7 +43,7 @@ The builds are ad-hoc signed, not notarized. macOS blocks them the first time. E
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-1.0.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.0.0-macos-arm64/ao
 ```
 
 ## Using Ao.app

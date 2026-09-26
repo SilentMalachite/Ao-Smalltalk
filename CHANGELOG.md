@@ -41,7 +41,7 @@ The first release. It completes phases P0–P9 of SPEC §2.3, the v1 definition:
 ### Project
 
 - GitHub Actions CI runs the whole suite, including the Kernel scan, on Apple Silicon macOS (SPEC §4.5).
-- Release assets: `Ao-1.0.0-macos-arm64.zip`, `ao-1.0.0-macos-arm64.tar.gz`, and `SHA256SUMS`.
+- Release assets: `Ao-1.0.0-macos-arm64.zip`, `ao-cli-1.0.0-macos-arm64.tar.gz`, and `SHA256SUMS`.
 
 ### Known limitations
 
