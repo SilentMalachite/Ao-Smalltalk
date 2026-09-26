@@ -346,17 +346,23 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
 
   // SPEC §3.9 削除: Smalltalk → Remove Method…, for the selected selector.
   func removeMethod() {
-    removeMethod(atRow: selectorName.flatMap { model.selectors.firstIndex(of: $0) } ?? -1)
+    let row = selectorName.flatMap { model.selectors.firstIndex(of: $0) } ?? -1
+    removeMethod(atRow: row, fromMainMenu: true)
   }
 
   // SPEC §3.9 削除: Smalltalk → Remove Class…, for the selected class.
   func removeClass() {
-    removeClass(atRow: model.classes.firstIndex(of: selectedClass) ?? -1)
+    removeClass(atRow: model.classes.firstIndex(of: selectedClass) ?? -1, fromMainMenu: true)
   }
 
-  // SPEC §3.9 削除: the context menu's item, for the clicked row (-1: none). The row is selected
-  // before the question when it is another one.
+  // SPEC §3.9 削除: the context menu's item, for the clicked row (-1: none). Another row is
+  // selected before the question (asking to discard an edit first); the row already selected
+  // changes no selection, so it asks no discard question and leaves the pane alone.
   func removeMethod(atRow row: Int) {
+    removeMethod(atRow: row, fromMainMenu: false)
+  }
+
+  private func removeMethod(atRow row: Int, fromMainMenu: Bool) {
     guard let selector = value(at: row, in: model.selectors) else {
       return
     }
@@ -365,13 +371,18 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     let message = "Remove \(className)\(classSide ? " class" : "")>>\(selector)?"
     removeAfterConfirming(
       message: message,
-      select: selector == selectorName ? nil : { self.selectorName = selector }
+      select: selector == selectorName ? nil : { self.selectorName = selector },
+      fromMainMenu: fromMainMenu
     ) {
       self.performRemoveMethod(selector, ofClass: className, meta: classSide)
     }
   }
 
   func removeClass(atRow row: Int) {
+    removeClass(atRow: row, fromMainMenu: false)
+  }
+
+  private func removeClass(atRow row: Int, fromMainMenu: Bool) {
     guard let name = value(at: row, in: model.classes) else {
       return
     }
@@ -381,26 +392,28 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
         self.selectedClass = name
         self.protocolName = nil
         self.selectorName = nil
-      }
+      },
+      fromMainMenu: fromMainMenu
     ) {
       self.performRemoveClass(name)
     }
   }
 
-  // SPEC §3.9 削除: an unaccepted edit asks first, as a selection change does; keeping it ends
-  // here. Discarding (or no edit) selects `select`'s row, republishes (the pane shows the
-  // selection again) and asks the removal question. A question already up decides alone.
+  // SPEC §3.9 削除: from the Smalltalk menu or for another row, an unaccepted edit asks first, as
+  // a selection change does; keeping it ends here. Discarding (or no edit) selects `select`'s row,
+  // republishes (the pane shows the selection again) and asks the removal question. The context
+  // menu on the selected row (no `select`) asks the removal question alone. A question already up
+  // decides alone.
   private func removeAfterConfirming(
     message: String,
     select: (() -> Void)?,
+    fromMainMenu: Bool,
     remove: @escaping () -> Void
   ) {
     guard !confirming else {
       return
     }
-    let ask = {
-      select?()
-      self.publish()
+    let question = {
       self.confirming = true
       self.confirmRemove(self.window, message) { yes in
         self.confirming = false
@@ -408,6 +421,17 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
           remove()
         }
       }
+    }
+    // The context menu on the row already selected changes no selection: no discard question,
+    // and the pane keeps its edit until the removal itself runs.
+    guard fromMainMenu || select != nil else {
+      question()
+      return
+    }
+    let ask = {
+      select?()
+      self.publish()
+      question()
     }
     guard hasUnacceptedChanges else {
       ask()

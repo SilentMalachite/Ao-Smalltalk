@@ -878,7 +878,7 @@ final class AcceptTests: XCTestCase {
   }
 
   // SPEC §3.9 削除: the class and selector lists offer one item each, labelled as titled, enabled
-  // for a clicked row; choosing it selects that row (asking to discard an edit first) and asks the
+  // for a clicked row; choosing another row selects it (asking to discard an edit first) and asks the
   // removal question. A question already up ignores a second choice.
   func testContextMenusOfferRemove() {
     let browser = BrowserWindow()
@@ -928,7 +928,8 @@ final class AcceptTests: XCTestCase {
     browser.removeClass(atRow: browser.model.classes.count)
     XCTAssertEqual(asked.count, 1)
 
-    // An edit: the discard question comes first, and a second choice while it waits is ignored.
+    // An edit and another row: the discard question comes first, and a second choice while it
+    // waits is ignored.
     selectSelector("b12n", in: browser)
     browser.replaceSource("b12n\n  ^9\n")
     var pending: (@MainActor (Bool) -> Void)?
@@ -937,29 +938,130 @@ final class AcceptTests: XCTestCase {
       discardAsked += 1
       pending = decide
     }
-    guard let objectRow = browser.model.classes.firstIndex(of: "Object") else {
-      XCTFail("missing Object")
+    guard let otherRow = browser.model.classes.firstIndex(of: "Behavior") else {
+      XCTFail("missing Behavior")
       return
     }
-    browser.removeClass(atRow: objectRow)
-    browser.removeClass(atRow: objectRow)
+    browser.removeClass(atRow: otherRow)
+    browser.removeClass(atRow: otherRow)
     XCTAssertEqual(discardAsked, 1)
     XCTAssertEqual(asked.count, 1)
     pending?(false)
     XCTAssertEqual(asked.count, 1)
     XCTAssertEqual(browser.sourceText, "b12n\n  ^9\n")
+    XCTAssertEqual(browser.model.selectedClass, "Object")
     XCTAssertEqual(browser.model.selectedSelector, "b12n")
     browser.confirmRemove = { _, message, decide in
       asked.append(message)
       decide(false)
     }
-    browser.removeClass(atRow: objectRow)
+    browser.removeClass(atRow: otherRow)
     XCTAssertEqual(discardAsked, 2)
     pending?(true)
-    XCTAssertEqual(asked, ["Remove Object>>b12m?", "Remove class Object?"])
+    XCTAssertEqual(asked, ["Remove Object>>b12m?", "Remove class Behavior?"])
     XCTAssertFalse(browser.hasUnacceptedChanges)
-    XCTAssertEqual(browser.model.selectedClass, "Object")
+    XCTAssertEqual(browser.model.selectedClass, "Behavior")
     XCTAssertEqual(printIt("Object new b12n"), "2")
+  }
+
+  // SPEC §3.9 削除: the context menu on the row already selected changes no selection, so it asks
+  // no discard question and leaves the pane alone: Cancel keeps the edit, and Remove removes. The
+  // class row is the same.
+  func testContextMenuOnTheSelectedRowDoesNotAskToDiscard() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12p\n  ^1\n")
+    browser.accept()
+    browser.replaceSource("b12q\n  ^2\n")
+    browser.accept()
+    XCTAssertEqual(browser.model.selectedSelector, "b12q")
+    var discardAsked = 0
+    browser.confirmDiscard = { _, decide in
+      discardAsked += 1
+      decide(true)
+    }
+    var remove = false
+    var asked: [String] = []
+    browser.confirmRemove = { _, message, decide in
+      asked.append(message)
+      decide(remove)
+    }
+    guard let row = browser.model.selectors.firstIndex(of: "b12q") else {
+      XCTFail("missing b12q")
+      return
+    }
+    let edited = "b12q\n  ^9\n"
+    browser.replaceSource(edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    browser.removeMethod(atRow: row)
+    XCTAssertEqual(discardAsked, 0)
+    XCTAssertEqual(asked, ["Remove Object>>b12q?"])
+    XCTAssertEqual(browser.sourceText, edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    XCTAssertEqual(browser.model.selectedSelector, "b12q")
+    XCTAssertEqual(printIt("Object new b12q"), "2")
+
+    remove = true
+    browser.removeMethod(atRow: row)
+    XCTAssertEqual(discardAsked, 0)
+    XCTAssertEqual(asked, ["Remove Object>>b12q?", "Remove Object>>b12q?"])
+    XCTAssertNil(printIt("Object new b12q"))
+    XCTAssertEqual(browser.model.selectors, ["b12p"])
+    XCTAssertNil(browser.model.selectedSelector)
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+
+    // The selected class row: no discard question either. Cancel keeps the edit; Remove is
+    // refused for Object and still keeps it.
+    let classEdit = "b12r\n  ^3\n"
+    browser.replaceSource(classEdit)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    guard let objectRow = browser.model.classes.firstIndex(of: "Object") else {
+      XCTFail("missing Object")
+      return
+    }
+    remove = false
+    browser.removeClass(atRow: objectRow)
+    XCTAssertEqual(discardAsked, 0)
+    XCTAssertEqual(asked.last, "Remove class Object?")
+    XCTAssertEqual(browser.sourceText, classEdit)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    remove = true
+    browser.removeClass(atRow: objectRow)
+    XCTAssertEqual(discardAsked, 0)
+    XCTAssertEqual(asked.count, 4)
+    XCTAssertEqual(browser.errorText, "class removal refused: Object is a fixed global")
+    XCTAssertEqual(browser.sourceText, classEdit)
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+  }
+
+  // SPEC §3.9 削除: while the removal question waits, another choice (either menu) asks nothing.
+  // Cancel removes nothing, and a later choice asks again.
+  func testSecondChoiceWhileTheRemovalQuestionWaitsIsIgnored() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12w\n  ^1\n")
+    browser.accept()
+    var pending: [@MainActor (Bool) -> Void] = []
+    browser.confirmRemove = { _, _, decide in pending.append(decide) }
+    guard let row = browser.model.selectors.firstIndex(of: "b12w"),
+          let objectRow = browser.model.classes.firstIndex(of: "Object") else {
+      XCTFail("missing b12w or Object")
+      return
+    }
+    browser.removeMethod(atRow: row)
+    browser.removeMethod(atRow: row)
+    browser.removeClass(atRow: objectRow)
+    browser.removeMethod()
+    XCTAssertEqual(pending.count, 1)
+    pending[0](false)
+    XCTAssertEqual(printIt("Object new b12w"), "1")
+    XCTAssertEqual(browser.model.selectors, ["b12w"])
+    browser.removeMethod(atRow: row)
+    XCTAssertEqual(pending.count, 2)
+    pending[1](true)
+    XCTAssertNil(printIt("Object new b12w"))
   }
 
   func testAcceptRunsOnlyWhenBrowserIsKey() {
