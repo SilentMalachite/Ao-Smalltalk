@@ -823,7 +823,6 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(browser.sourceText, "b12z\n  ^3\n")
   }
 
-
   // SPEC §3.9 削除, §4.3: the Smalltalk menu's two items, without keys, enabled only while the
   // Browser is key and has a selector (Remove Method…) or a class (Remove Class…).
   func testRemoveMenuItemsFollowSelection() {
@@ -869,8 +868,9 @@ final class AcceptTests: XCTestCase {
     if let accept = smalltalk?.item(withTitle: "Accept") {
       XCTAssertTrue(enabled(accept))
     }
-    XCTAssertTrue(method.target?.perform(method.action, with: method) != nil || removed == ["method"])
-    XCTAssertTrue(cls.target?.perform(cls.action, with: cls) != nil || removed == ["method", "class"])
+    _ = (method.target as? NSObject)?.perform(method.action, with: method)
+    XCTAssertEqual(removed, ["method"])
+    _ = (cls.target as? NSObject)?.perform(cls.action, with: cls)
     XCTAssertEqual(removed, ["method", "class"])
     // The app's wiring: not the key window, nothing runs.
     sendToKeyBrowser(browser, keyWindow: workspace.window) { $0.removeMethod() }
