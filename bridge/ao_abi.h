@@ -29,13 +29,16 @@ typedef struct AoSpan {
    is AO_ERR_RANGE (ao_browser_source's AO_ERR_NOSOURCE wins over it). */
 
 /* SPEC §3.10. The runtime is busy while ao_runtime_boot, ao_runtime_shutdown, ao_image_save,
-   ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method or
-   ao_accept_class runs, or the interpreter does. Called then (from a transcript or inspect hook,
-   or a native), each of these nine does nothing and answers AO_ERR: ao_image_load with the reason
-   "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook setters,
-   ao_version, the ao_browser_* reads, ao_eval_result_length and ao_eval_result_copy may be called
-   then. No C++ exception leaves any of these functions: it becomes AO_ERR (-1 for the *_count
-   functions and ao_eval_result_length). */
+   ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method,
+   ao_accept_class, ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect or
+   ao_debug_clear runs, or the interpreter does. Called then (from a transcript or inspect hook,
+   or a native), each of these thirteen does nothing and answers AO_ERR: ao_image_load with the
+   reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
+   setters, ao_version, the ao_browser_* reads, ao_eval_result_length, ao_eval_result_copy,
+   ao_set_debug_capture and the snapshot reads (ao_debug_generation to ao_debug_frame_temp_name)
+   may be called then. No C++ exception leaves any of these functions: it becomes AO_ERR (-1 for
+   the *_count functions, ao_eval_result_length, and the ao_debug_* functions below that answer a
+   number). */
 
 /* AO_ERR_RANGE when cut (buf still ends in NUL). AO_ERR when buf is NULL or buf_len < 1. */
 int ao_version(char* buf, int buf_len);
@@ -100,6 +103,60 @@ int ao_eval(const char* source, int source_len, int mode, char* out, int out_len
    is NULL, buf_len < 1, or there is no session or no result. */
 int ao_eval_result_length(void);
 int ao_eval_result_copy(char* buf, int buf_len);
+
+/* SPEC §3.10 デバッガの読み出し, §3.13. Capture copies the stack of a failing evaluation (or of a
+   process failing in the drain) into the session's one snapshot before the abort unwinds. Off by
+   default; the setting stays across ao_runtime_shutdown, ao_runtime_boot and ao_image_load. */
+void ao_set_debug_capture(int on);
+
+/* The snapshot reads; they may be called while busy. Frame i counts from 0, the innermost; temp j
+   from 0, the receiver not included. The string reads follow the buffer rule above; AO_ERR also
+   for a NULL buf, len < 1, no session or i / j out of range.
+   ao_debug_generation: moves by one on every capture and every clear; -1 with no session.
+   ao_debug_frame_count: the frames kept (the innermost 256); ao_debug_frame_total: all of them.
+   0 with no snapshot, -1 with no session.
+   ao_debug_reason: the whole reason, not cut at 255 bytes. AO_ERR with no snapshot.
+   ao_debug_frame_kind: 0 method, 1 block, 2 native (synthesized: a failed native or a DNU); -1
+   out of range.
+   ao_debug_frame_label: "Foo>>bar", "Foo class>>bar", "doIt", "[] in Foo>>bar", "[] in doIt",
+   "ArrayedCollection>>at: native ao_ArrayedCollection_at_" (the class the native was found in,
+   the selector, the symbol), "#foo (doesNotUnderstand:)".
+   ao_debug_frame_pc: the pc of the frame's context (the start of the instruction it runs); -1 for
+   kind 2 and out of range.
+   ao_debug_frame_source: the source of the frame's method (the home method's for a block, the
+   evaluated text for a doIt) and, in highlight (may be NULL), the pc's span in UTF-8 bytes with
+   an empty message (0-0 when the pc has none). Without source it writes ao_browser_source's
+   placeholder, highlight 0-0, and answers AO_ERR_NOSOURCE (which wins over AO_ERR_RANGE): a
+   native frame "\"<Class>>><selector> native <symbol>\"", a DNU frame
+   "\"#foo (doesNotUnderstand:) source not available\"".
+   ao_debug_frame_temp_count: the arguments and named temps (a block's copied outer variables
+   too); for kind 2 the arguments of the send; -1 out of range.
+   ao_debug_frame_temp_name: the compiler's name, or arg1, arg2 ... / t1, t2 ... without debug
+   info (always argN for kind 2). */
+int ao_debug_generation(void);
+int ao_debug_frame_count(void);
+int ao_debug_frame_total(void);
+int ao_debug_reason(char* buf, int len);
+int ao_debug_frame_kind(int i);
+int ao_debug_frame_label(int i, char* buf, int len);
+int ao_debug_frame_pc(int i);
+int ao_debug_frame_source(int i, char* buf, int len, AoSpan* highlight);
+int ao_debug_frame_temp_count(int i);
+int ao_debug_frame_temp_name(int i, int j, char* buf, int len);
+
+/* Outermost entries: AO_ERR while busy. Each clears an earlier abort and takes the stack range
+   again first, and reads and clears its own abort last; there is no drain and its abort is not
+   captured, so the snapshot and the generation stay.
+   The *_print functions write the value's class name to class_buf and its printString to buf
+   (both buffers are required); a printString that aborts leaves buf empty and still answers AO_OK
+   (AO_ERR_RANGE when either text is cut). ao_debug_inspect calls the inspect hook for the
+   receiver (j == -1) or temp j, as Inspect it does; AO_ERR out of range or when inspect or
+   printString aborts (the hook is then not called). ao_debug_clear empties the snapshot and moves
+   the generation; AO_ERR with no session. */
+int ao_debug_frame_receiver_print(int i, char* class_buf, int class_len, char* buf, int len);
+int ao_debug_frame_temp_print(int i, int j, char* class_buf, int class_len, char* buf, int len);
+int ao_debug_inspect(int i, int j);
+int ao_debug_clear(void);
 /* AO_ERR when class_name does not name a class (Processor, Smalltalk, an undefined name).
    AO_ERR_COMPILE for a compile error or a refused native overwrite. */
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);

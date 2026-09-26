@@ -250,6 +250,108 @@ extern "C" int ao_eval_result_copy(char* buf, int buf_len) {
   return guarded(AO_ERR, [&] { return ao::sessionEvalResultCopy(buf, buf_len); });
 }
 
+// SPEC §3.10 デバッガの読み出し. The setting lives on the session side, which gives it to this
+// session and every later one (boot, load), like the transcript hook.
+extern "C" void ao_set_debug_capture(int on) {
+  guarded(AO_ERR, [&] {
+    ao::setSessionDebugCapture(on != 0);
+    return AO_OK;
+  });
+}
+
+// The snapshot reads only read, so like ao_browser_* they take no AbiEntry and answer while the
+// runtime is busy.
+extern "C" int ao_debug_generation(void) {
+  return guarded(-1, [] { return ao::sessionDebugGeneration(); });
+}
+
+extern "C" int ao_debug_frame_count(void) {
+  return guarded(-1, [] { return ao::debugFrameCount(); });
+}
+
+extern "C" int ao_debug_frame_total(void) {
+  return guarded(-1, [] { return ao::debugFrameTotal(); });
+}
+
+extern "C" int ao_debug_reason(char* buf, int len) {
+  return guarded(AO_ERR, [&] { return ao::debugReason(buf, len); });
+}
+
+extern "C" int ao_debug_frame_kind(int i) {
+  return guarded(-1, [&] { return ao::debugFrameKind(i); });
+}
+
+extern "C" int ao_debug_frame_label(int i, char* buf, int len) {
+  return guarded(AO_ERR, [&] { return ao::debugFrameLabel(i, buf, len); });
+}
+
+extern "C" int ao_debug_frame_pc(int i) {
+  return guarded(-1, [&] { return ao::debugFramePc(i); });
+}
+
+extern "C" int ao_debug_frame_source(int i, char* buf, int len, AoSpan* highlight) {
+  return guarded(AO_ERR, [&] { return ao::debugFrameSource(i, buf, len, highlight); });
+}
+
+extern "C" int ao_debug_frame_temp_count(int i) {
+  return guarded(-1, [&] { return ao::debugTempCount(i); });
+}
+
+extern "C" int ao_debug_frame_temp_name(int i, int j, char* buf, int len) {
+  return guarded(AO_ERR, [&] { return ao::debugTempName(i, j, buf, len); });
+}
+
+namespace {
+
+// A refused call still leaves a string buffer ending in NUL (SPEC §3.10 buffer rule).
+void blankBuf(char* buf, int len) {
+  if (buf != nullptr && len > 0) {
+    buf[0] = '\0';
+  }
+}
+
+}  // namespace
+
+// SPEC §3.10: these four are outermost entries (printString, inspect, the clear), refused while
+// busy.
+extern "C" int ao_debug_frame_receiver_print(int i, char* class_buf, int class_len, char* buf,
+                                             int len) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    blankBuf(class_buf, class_len);
+    blankBuf(buf, len);
+    return AO_ERR;
+  }
+  return guarded(AO_ERR, [&] { return ao::debugReceiverPrint(i, class_buf, class_len, buf, len); });
+}
+
+extern "C" int ao_debug_frame_temp_print(int i, int j, char* class_buf, int class_len, char* buf,
+                                         int len) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    blankBuf(class_buf, class_len);
+    blankBuf(buf, len);
+    return AO_ERR;
+  }
+  return guarded(AO_ERR, [&] { return ao::debugTempPrint(i, j, class_buf, class_len, buf, len); });
+}
+
+extern "C" int ao_debug_inspect(int i, int j) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
+  return guarded(AO_ERR, [&] { return ao::debugInspect(i, j, g_inspectFn, g_inspectUser); });
+}
+
+extern "C" int ao_debug_clear(void) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
+  return guarded(AO_ERR, [] { return ao::debugClear(); });
+}
+
 extern "C" int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err) {
   clearSpan(err);
   const AbiEntry entry;

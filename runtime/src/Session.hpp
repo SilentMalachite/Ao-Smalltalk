@@ -127,6 +127,25 @@ int sessionDebugGeneration();
 // SPEC §3.10 ao_debug_clear: empties the snapshot and moves the generation. Nothing without a
 // session.
 void sessionDebugClear();
+// SPEC §3.10 デバッガの読み出し: the ao_debug_* reads of the snapshot, with the ABI's answers (the
+// counts -1 without a session; the strings by the buffer rule). They only read (no GC).
+int debugFrameCount();
+int debugFrameTotal();
+int debugReason(char* buf, int len);
+int debugFrameKind(int i);
+int debugFrameLabel(int i, char* buf, int len);
+int debugFramePc(int i);
+int debugFrameSource(int i, char* buf, int len, AoSpan* highlight);
+int debugTempCount(int i);
+int debugTempName(int i, int j, char* buf, int len);
+// SPEC §3.10: the outermost ao_debug_* entries (the ABI takes AbiEntry first). They send
+// printString (and inspect) with no debug sink on the base, so their aborts are not captured, and
+// read and clear the abort without a drain. j -1 is the receiver for debugInspect.
+int debugReceiverPrint(int i, char* classBuf, int classLen, char* buf, int len);
+int debugTempPrint(int i, int j, char* classBuf, int classLen, char* buf, int len);
+int debugInspect(int i, int j, AoInspectFn inspect, void* inspectUser);
+// SPEC §3.10 ao_debug_clear: sessionDebugClear, AO_ERR without a session.
+int debugClear();
 // `replaced`, when a heap object, is dropped from the rooted table (with its blocks) before
 // `method` is stored. `image`, when given, is what `method` was boxed from: its blocks are found
 // at the same literal indices (nested ones in preorder) and its debug info is kept.

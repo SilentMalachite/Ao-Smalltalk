@@ -116,6 +116,7 @@ add_executable(ao_runtime_tests
   tests/failure_test.cpp
   tests/fiber_test.cpp
   tests/debug_snapshot_test.cpp
+  tests/debug_abi_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
 target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")

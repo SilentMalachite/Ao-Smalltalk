@@ -1259,7 +1259,7 @@ int ao_debug_clear(void);
 
 - 次の 4 つは最外の入口である。busy なら何もせずに `AO_ERR` を返す（上の「再入と例外」）。入る前に前の abort を消してスタックの範囲を取り直し、出るときに abort を読んで消す。drain はしない。この中の abort は捕捉しない（スナップショットを置き換えない）。
 - `ao_debug_frame_receiver_print` と `ao_debug_frame_temp_print` は、receiver か temp のクラス名を `class_buf` に、`printString` を `buf` に書く。`printString` が abort したら、`buf` を空にしてクラス名だけで `AO_OK` を返す。範囲外は `AO_ERR`。
-- `ao_debug_inspect` は、`j` が -1 なら receiver、そうでなければ temp `j` の値について、Inspect it と同じく inspect フックを呼ぶ（クラス名と printString）。範囲外は `AO_ERR`。
+- `ao_debug_inspect` は、`j` が -1 なら receiver、そうでなければ temp `j` の値について、Inspect it と同じく inspect フックを呼ぶ（クラス名と printString）。範囲外は `AO_ERR`。`inspect` か `printString` が abort したら（Inspect it と同じく）フックを呼ばずに `AO_ERR` を返す。
 - `ao_debug_clear` はスナップショットを消して generation を増やす。
 
 ### 3.11 イメージ形式 `.aoimage`
@@ -1430,12 +1430,12 @@ P10 は事後（post-mortem）デバッガである。失敗は今までどお�
 |---|---|---|
 | メソッド | 0 | `Foo>>bar`。クラス側は `Foo class>>bar`。doIt は `doIt` |
 | ブロック | 1 | `[] in Foo>>bar`（ホームのメソッドで書く）。doIt の中のブロックは `[] in doIt` |
-| ネイティブ（合成） | 2 | `Array>>at: native ao_Array_at_`（ネイティブを見つけたクラス、セレクタ、シンボル名）。DNU は `#foo (doesNotUnderstand:)` |
+| ネイティブ（合成） | 2 | `ArrayedCollection>>at: native ao_ArrayedCollection_at_`（ネイティブを見つけたクラス、セレクタ、シンボル名）。DNU は `#foo (doesNotUnderstand:)` |
 
 - 最内の解釈フレームに進行中の送信があり、その送信の探索（§3.3。割り当てずに引く）がネイティブに当たれば、そのネイティブを種類 2 のフレームとして最内に合成する。receiver と引数は進行中の送信のものである。
 - 探索がセレクタに当たらなければ（DNU）、method の無い種類 2 のフレームを最内に合成する。
 - 探索が CompiledMethod に当たれば（スタックガードの abort。§3.4）、合成しない。最内は、進行中の送信のある呼び出し元である。
-- 例: `nil foo` の最内は `#foo (doesNotUnderstand:)`、次が `doIt` である。`#(1 2) at: 5` の最内は `Array>>at: native …`、次の `doIt` で `at: 5` の送信を選択する。
+- 例: `nil foo` の最内は `#foo (doesNotUnderstand:)`、次が `doIt` である。`#(1 2) at: 5` の最内は `ArrayedCollection>>at: native …`（`at:` は ArrayedCollection のネイティブ）、次の `doIt` で `at: 5` の送信を選択する。
 
 #### P11 ライブデバッガの設計判断
 
@@ -1611,7 +1611,7 @@ v1 は次をすべて満たす。
 P10（§3.13）は次をすべて満たす。上の v1 の項目は変えない。
 
 - [ ] Workspace で `nil foo` の Do it → Debug で、最内が `#foo (doesNotUnderstand:)`、次が doIt で `nil foo` が選択される
-- [ ] `#(1 2) at: 5` → 最内が `Array>>at: native …`、次の doIt で `at: 5` が選択される
+- [ ] `#(1 2) at: 5` → 最内が `ArrayedCollection>>at: native …`、次の doIt で `at: 5` が選択される
 - [ ] `#(1 2) do: [:e | e foo]` → `[] in` フレームの variables に `e` が値付きで見える。ダブルクリックで Inspector が開く
 - [ ] `self halt` → 理由 `halt` で捕捉され、Debug が出る
 - [ ] Browser で Accept したメソッドの中の失敗 → そのメソッドのソースで失敗した送信が選択される。vendor メソッドの中の失敗 → プレースホルダで選択なし
