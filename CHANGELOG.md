@@ -6,6 +6,8 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 Phases P10 and P11 of SPEC §2.3: the post-mortem debugger and the live debugger (SPEC §3.13). By default an evaluation still aborts as before and the debugger only shows the stack as it was when the abort started. In live mode (Ao.app) an evaluation runs on its own process, and `halt` and failures stop it so the Debugger can proceed, step, or abort it.
 
+Phase P12 of SPEC §2.3: the System Browser removes methods and classes (SPEC §3.9 削除). A CompiledMethod on any class, and a class that is not a Kernel class, can be removed after a confirmation. There is no undo.
+
 ### Runtime
 
 - When an evaluation aborts, the interpreted frames are copied before the stack unwinds, innermost first (at most 256, with the total). A failed native or `doesNotUnderstand:` send gets a synthesized innermost frame with its receiver and arguments. The copy allocates nothing on the Smalltalk heap and is not written to the image.
@@ -16,6 +18,7 @@ Phases P10 and P11 of SPEC §2.3: the post-mortem debugger and the live debugger
 - Live mode (`ao_set_debug_mode(AO_DEBUG_LIVE)`, off by default): each `ao_eval` runs its doIt on an evaluating process. `halt`, `error:` (the Kernel's failures with a message too), `doesNotUnderstand:`, a failed send, `NonBoolean receiver` and `cannot return` halt that process, and `ao_eval` answers `AO_ERR_HALT` (6) with the reason. Stack overflow, out of memory, deadlock and the process operations still abort. At most 8 processes are halted at once.
 - A halted process's frames are read live through the same `ao_debug_*` reads (`ao_debug_select`). `ao_debug_proceed`, `ao_debug_step_into` / `_over` / `_out` and `ao_debug_abort` go on or end it; Proceed answers nil from the halted send. `NonBoolean receiver` and `cannot return` can only be aborted. `AO_EVAL_DEBUGIT` halts before the first instruction.
 - A halted process is not running, so the runtime is not busy. `ao_image_save` refuses while a process is halted (`halted processes`); loading an image or shutting down abandons halted processes.
+- C ABI: `ao_remove_method` takes a CompiledMethod out of a class's (or its metaclass's) method dictionary, invalidates the method cache for the selector and forgets its source; `ao_remove_class` takes a class's binding out of `Smalltalk` (an alias, the class object and its instances stay). A NativeMethod, an inherited selector, a fixed global, a Kernel class (also through an alias) and a class with a live subclass are refused with a reason. A removed global name is an undeclared identifier in the Workspace again. Both are refused while the runtime is busy. A halted process keeps running the method it was in.
 
 ### Compiler and interpreter
 
@@ -31,6 +34,7 @@ Phases P10 and P11 of SPEC §2.3: the post-mortem debugger and the live debugger
 - The app runs in live mode. A halted evaluation opens a live Debugger with Proceed, Abort, Step over, Step into and Step out; the Workspace shows `halted: <reason>`. When Proceed or a step ends the evaluation, a Print it's result goes into the Workspace. Closing the live Debugger aborts the process.
 - Smalltalk → Debug it (⌘⇧D) stops before the first statement.
 - Save Image with a halted process fails with an alert that says `halted processes`.
+- Right-click a class or a selector for Remove Class… / Remove Method…, also in the Smalltalk menu. A sheet asks first (`Remove Foo>>bar?`, `Remove class Foo?`; Remove / Cancel). A refusal shows its reason in the Browser's error field.
 
 ### Known limitations
 

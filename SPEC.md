@@ -1805,15 +1805,15 @@ P11（§3.13）は次をすべて満たす。上の項目は変えない。ど�
 
 P12（§3.9「削除」）は次をすべて満たす。上の項目は変えない。
 
-- [ ] Browser で `Object>>foo` を Accept し、Remove Method… で消すと、Workspace の `Object new foo` が `doesNotUnderstand: #foo` になる（直前に `Object new foo` をキャッシュしていても）
-- [ ] Browser でクラス `Foo` を定義し、Remove Class… で消すと、一覧から消え、Workspace の `Foo` が `nil` になる（クラスの定義より前に `Foo` へ代入していなければ。§3.9「削除」）
-- [ ] `Object>>printString` の Remove Method… と `Object` の Remove Class… は、理由をエラー欄に出して拒まれる
-- [ ] サブクラスのあるクラスの Remove Class… は、サブクラス名を理由に出して拒まれる
-- [ ] 確認のシートで Cancel すると何も変わらない
-- [ ] 削除のあとにイメージを保存して読み直しても、消えたままである
-- [ ] `ao --test image/tests` と CLI は変わらない
-- [ ] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
-- [ ] この小節がすべて `[x]`、`PHASE` は `P12`、CHANGELOG の `[Unreleased]` に項目
+- [x] Browser で `Object>>foo` を Accept し、Remove Method… で消すと、Workspace の `Object new foo` が `doesNotUnderstand: #foo` になる（直前に `Object new foo` をキャッシュしていても）
+- [x] Browser でクラス `Foo` を定義し、Remove Class… で消すと、一覧から消え、Workspace の `Foo` が `nil` になる（クラスの定義より前に `Foo` へ代入していなければ。§3.9「削除」）
+- [x] `Object>>printString` の Remove Method… と `Object` の Remove Class… は、理由をエラー欄に出して拒まれる
+- [x] サブクラスのあるクラスの Remove Class… は、サブクラス名を理由に出して拒まれる
+- [x] 確認のシートで Cancel すると何も変わらない
+- [x] 削除のあとにイメージを保存して読み直しても、消えたままである
+- [x] `ao --test image/tests` と CLI は変わらない
+- [x] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
+- [x] この小節がすべて `[x]`、`PHASE` は `P12`、CHANGELOG の `[Unreleased]` に項目
 
 ---
 
