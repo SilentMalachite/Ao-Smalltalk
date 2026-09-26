@@ -5,7 +5,7 @@
 
 namespace ao::compiler {
 
-const char* version() { return "0.0.0-p5"; }
+const char* version() { return "1.0.0"; }
 
 CompileResult compileMethod(std::string_view source, const CompileEnv& env) {
   CompileResult r;

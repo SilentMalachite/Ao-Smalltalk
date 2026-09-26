@@ -15,6 +15,13 @@ TEST(Smoke, VersionStringIsNonEmpty) {
   EXPECT_GT(std::strlen(buf), 0u);
 }
 
+// SPEC §2.4: v1 の版は 1.0.0。リリースの版に `-` 以降を付けない。
+TEST(Smoke, VersionStringIsReleaseOneZeroZero) {
+  char buf[64];
+  ASSERT_EQ(0, ao::version_string(buf, sizeof(buf)));
+  EXPECT_STREQ("1.0.0", buf);
+}
+
 TEST(AbiSmoke, BootVersionShutdown) {
   EXPECT_EQ(AO_OK, ao_runtime_boot());
   char buf[64];
