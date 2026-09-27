@@ -6,7 +6,7 @@ English (canonical): [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## いまの位置
 
-v1（SPEC §2.3 のフェーズ P9）は 1.0.0 としてリリース済み。ルートの [`PHASE`](PHASE) は `P9` のまま。v1 のあとの変更は SPEC.md から始める。先に仕様を直し（SPEC §8）、次にテスト、最後にコードを書く。SPEC §1.4 の項目（JIT、FFI、デバッガなど）は、仕様が取り込むまで入れない。
+v1（SPEC §2.3 のフェーズ P9）は 1.0.0 としてリリースした。そのあとのフェーズ P10〜P12（事後デバッガ、ライブデバッガ、Browser の削除）は 1.1.0 としてリリースした。ルートの [`PHASE`](PHASE) は `P12`。変更は SPEC.md から始める。先に仕様を直し（SPEC §8）、次にテスト、最後にコードを書く。SPEC §1.4 の項目（JIT、FFI など）は、仕様が取り込むまで入れない。
 
 ## 曲げない規則
 
@@ -44,7 +44,7 @@ Apple Silicon の macOS 14 以降、CMake 3.28 以上、Ninja、C++20、Swift 6�
 3. 添付物を `build/dist` に用意する。
 
    ```sh
-   V=1.0.0
+   V=1.1.0
    D=build/dist
    rm -rf "$D" && mkdir -p "$D/Ao-$V-macos-arm64" "$D/ao-cli-$V-macos-arm64"
    ditto build/Ao.app "$D/Ao-$V-macos-arm64/Ao.app"

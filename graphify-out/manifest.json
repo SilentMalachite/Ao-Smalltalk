@@ -1806,20 +1806,20 @@
     "semantic_hash": "09b9262d1e4bc74c95b2ec1ffefaf576"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/app/Ao/AoApp.swift": {
-    "mtime": 1790461034.2546508,
-    "seen": 1790480959.7398772,
+    "mtime": 1790483641.6839638,
+    "seen": 1790484573.4451158,
     "ast_hash": "d6f271cba38811348ba5f32761b567f1",
     "semantic_hash": "d6f271cba38811348ba5f32761b567f1"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/app/Ao/BrowserModel.swift": {
-    "mtime": 1790479570.7530813,
-    "seen": 1790480959.739879,
+    "mtime": 1790483641.6843364,
+    "seen": 1790484573.445119,
     "ast_hash": "aa27c3143dd7975b4b9aefee34057645",
     "semantic_hash": "aa27c3143dd7975b4b9aefee34057645"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/app/Ao/BrowserWindow.swift": {
-    "mtime": 1790479570.9770045,
-    "seen": 1790480959.7398798,
+    "mtime": 1790483641.68469,
+    "seen": 1790484573.44512,
     "ast_hash": "d9597d3ebff7da47cc9bd1e554e75949",
     "semantic_hash": "d9597d3ebff7da47cc9bd1e554e75949"
   },
@@ -1842,8 +1842,8 @@
     "semantic_hash": "14a3f9e34bc4a3a6e0def29839cb7842"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/app/Ao/MainMenu.swift": {
-    "mtime": 1790461007.2483175,
-    "seen": 1790480959.739883,
+    "mtime": 1790483641.6848779,
+    "seen": 1790484573.445125,
     "ast_hash": "77bd81ca26b203cc16ac0928bb4963ad",
     "semantic_hash": "77bd81ca26b203cc16ac0928bb4963ad"
   },
@@ -1866,14 +1866,14 @@
     "semantic_hash": "0c4f674fb3fe03f6bee033362e7d55d4"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/app/AoTests/AcceptTests.swift": {
-    "mtime": 1790479526.3691368,
-    "seen": 1790480959.739885,
+    "mtime": 1790483641.685411,
+    "seen": 1790484573.445128,
     "ast_hash": "e49c15b09944284735de075ff3fd6e46",
     "semantic_hash": "e49c15b09944284735de075ff3fd6e46"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/app/AoTests/BrowserModelTests.swift": {
-    "mtime": 1790474361.128429,
-    "seen": 1790480959.739886,
+    "mtime": 1790483641.6857007,
+    "seen": 1790484573.445129,
     "ast_hash": "7afa8662949c4ad6a619f2c622ca6d47",
     "semantic_hash": "7afa8662949c4ad6a619f2c622ca6d47"
   },
@@ -1908,8 +1908,8 @@
     "semantic_hash": "6e9a0de118f6640f9afe8eec1c3e3a63"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/bridge/ao_abi.h": {
-    "mtime": 1790477720.0744853,
-    "seen": 1790480959.739889,
+    "mtime": 1790483641.6858642,
+    "seen": 1790484573.445133,
     "ast_hash": "457bd69e96c30271036e3d0b5c65a348",
     "semantic_hash": "457bd69e96c30271036e3d0b5c65a348"
   },
@@ -1986,10 +1986,10 @@
     "semantic_hash": "31add1f277d3d3adc18bfa415a3dd22d"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/compiler/src/Compiler.cpp": {
-    "mtime": 1790393908.3794024,
-    "seen": 1790480959.739897,
-    "ast_hash": "914efd49cdb9260d9f81552c42f7ebc7",
-    "semantic_hash": "914efd49cdb9260d9f81552c42f7ebc7"
+    "mtime": 1790484271.6011105,
+    "seen": 1790484573.445143,
+    "ast_hash": "a11f251e146f5e5ab3ab4250148d0136",
+    "semantic_hash": "a11f251e146f5e5ab3ab4250148d0136"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/compiler/src/Parser.cpp": {
     "mtime": 1790250297.741204,
@@ -2040,10 +2040,10 @@
     "semantic_hash": "3a2b436b9978532f8e39ceb9af6ec7ee"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/compiler/tests/smoke_test.cpp": {
-    "mtime": 1790393908.379589,
-    "seen": 1790480959.739902,
-    "ast_hash": "40179dbb5a972855c7cbdce53956be66",
-    "semantic_hash": "40179dbb5a972855c7cbdce53956be66"
+    "mtime": 1790484247.3294818,
+    "seen": 1790484573.44515,
+    "ast_hash": "c8fea093b6bedbf8eee13c349885672f",
+    "semantic_hash": "c8fea093b6bedbf8eee13c349885672f"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/compiler/tests/workspace_temp_test.cpp": {
     "mtime": 1790201116.7067382,
@@ -2064,8 +2064,8 @@
     "semantic_hash": "a20109dc65369778018a52d2e262171c"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/include/ao/Compile.hpp": {
-    "mtime": 1790479389.9750464,
-    "seen": 1790480959.739908,
+    "mtime": 1790483641.7070856,
+    "seen": 1790484573.445153,
     "ast_hash": "cbe4148d9f925e664031484cade08b51",
     "semantic_hash": "cbe4148d9f925e664031484cade08b51"
   },
@@ -2100,8 +2100,8 @@
     "semantic_hash": "4b19705fd2f5c70ded741563f4f2e5e9"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/include/ao/Globals.hpp": {
-    "mtime": 1790462950.293058,
-    "seen": 1790480959.7399108,
+    "mtime": 1790483641.7072268,
+    "seen": 1790484573.445157,
     "ast_hash": "0cc0b778f9a8e4b929d1c64fafdeb9db",
     "semantic_hash": "0cc0b778f9a8e4b929d1c64fafdeb9db"
   },
@@ -2154,8 +2154,8 @@
     "semantic_hash": "5c1d1ee312c1654807572bfcf6b14764"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/include/ao/MethodDictionary.hpp": {
-    "mtime": 1790469218.3973875,
-    "seen": 1790480959.739915,
+    "mtime": 1790483641.707355,
+    "seen": 1790484573.445164,
     "ast_hash": "539e8f0104186c829adc9ff413222f2e",
     "semantic_hash": "539e8f0104186c829adc9ff413222f2e"
   },
@@ -2220,8 +2220,8 @@
     "semantic_hash": "9dcd3421006416a0a1d746e2569a61bd"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/include/ao/WellKnown.hpp": {
-    "mtime": 1790462950.2935817,
-    "seen": 1790480959.7399209,
+    "mtime": 1790483641.7075057,
+    "seen": 1790484573.445172,
     "ast_hash": "1aa755146234714c38ead87ee066f90f",
     "semantic_hash": "1aa755146234714c38ead87ee066f90f"
   },
@@ -2244,8 +2244,8 @@
     "semantic_hash": "32f7c7fa073d7012d79ebe6f05681b59"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/Compile.cpp": {
-    "mtime": 1790479442.5171504,
-    "seen": 1790480959.739923,
+    "mtime": 1790483641.710799,
+    "seen": 1790484573.445175,
     "ast_hash": "04fed17cd364c388d9d2f31e2579026b",
     "semantic_hash": "04fed17cd364c388d9d2f31e2579026b"
   },
@@ -2292,8 +2292,8 @@
     "semantic_hash": "475ac25cc781e7a8dae84608e65fe4e5"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/Globals.cpp": {
-    "mtime": 1790462950.2932947,
-    "seen": 1790480959.739927,
+    "mtime": 1790483641.7109807,
+    "seen": 1790484573.445181,
     "ast_hash": "479df6402ab41e9bbfb2bbb90b8f1a67",
     "semantic_hash": "479df6402ab41e9bbfb2bbb90b8f1a67"
   },
@@ -2352,8 +2352,8 @@
     "semantic_hash": "0557cf614aaf84c4a7d82ce7db621e54"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/MethodDictionary.cpp": {
-    "mtime": 1790469257.523423,
-    "seen": 1790480959.7399318,
+    "mtime": 1790483641.7111156,
+    "seen": 1790484573.445188,
     "ast_hash": "90b9f59828fd106d56434a582354d1e1",
     "semantic_hash": "90b9f59828fd106d56434a582354d1e1"
   },
@@ -2376,10 +2376,10 @@
     "semantic_hash": "2d459b37730c932dfd215c43726e8841"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/Runtime.cpp": {
-    "mtime": 1790393908.4008808,
-    "seen": 1790480959.739934,
-    "ast_hash": "6b7db3bebf5b79ec6ef58ddc292059f5",
-    "semantic_hash": "6b7db3bebf5b79ec6ef58ddc292059f5"
+    "mtime": 1790484271.49422,
+    "seen": 1790484573.445191,
+    "ast_hash": "bd8da64a130e7a57301efcefdb6c4b81",
+    "semantic_hash": "bd8da64a130e7a57301efcefdb6c4b81"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/Scheduler.cpp": {
     "mtime": 1790424970.742428,
@@ -2394,14 +2394,14 @@
     "semantic_hash": "e80fba21b245d1e9e521107910b52e44"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/Session.cpp": {
-    "mtime": 1790472958.0389655,
-    "seen": 1790480959.739936,
+    "mtime": 1790483641.711319,
+    "seen": 1790484573.445193,
     "ast_hash": "a71955e972aa881aee582673cec98123",
     "semantic_hash": "a71955e972aa881aee582673cec98123"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/Session.hpp": {
-    "mtime": 1790472952.8747315,
-    "seen": 1790480959.739936,
+    "mtime": 1790483641.7114823,
+    "seen": 1790484573.445194,
     "ast_hash": "820171680266cbc6bc372e2662d2207c",
     "semantic_hash": "820171680266cbc6bc372e2662d2207c"
   },
@@ -2436,14 +2436,14 @@
     "semantic_hash": "4043f64614d201f9c00c252aea111064"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/WellKnown.cpp": {
-    "mtime": 1790456800.7977333,
-    "seen": 1790480959.739939,
+    "mtime": 1790483641.7116609,
+    "seen": 1790484573.445198,
     "ast_hash": "5321e764e7f2db46ab020df5a30b7bf5",
     "semantic_hash": "5321e764e7f2db46ab020df5a30b7bf5"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/abi.cpp": {
-    "mtime": 1790479390.0892994,
-    "seen": 1790480959.7399402,
+    "mtime": 1790483641.7119842,
+    "seen": 1790484573.445199,
     "ast_hash": "d8e9d3dd921905e2b77ccfca9c006b3f",
     "semantic_hash": "d8e9d3dd921905e2b77ccfca9c006b3f"
   },
@@ -2460,8 +2460,8 @@
     "semantic_hash": "a6ecf556242db267a45c0afd7347534a"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/src/kernel/Behavior.cpp": {
-    "mtime": 1790469274.194731,
-    "seen": 1790480959.7399411,
+    "mtime": 1790483641.7121549,
+    "seen": 1790484573.445201,
     "ast_hash": "cc94a9213167c5dc519b47fd03b819b0",
     "semantic_hash": "cc94a9213167c5dc519b47fd03b819b0"
   },
@@ -2562,8 +2562,8 @@
     "semantic_hash": "45211e5db905a69c3fd56e5a039e054d"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/tests/accept_abi_test.cpp": {
-    "mtime": 1790479371.2324626,
-    "seen": 1790480959.7399502,
+    "mtime": 1790483641.7128997,
+    "seen": 1790484573.4452128,
     "ast_hash": "f0edf98726c094f84e2224a25ff8df7f",
     "semantic_hash": "f0edf98726c094f84e2224a25ff8df7f"
   },
@@ -2592,8 +2592,8 @@
     "semantic_hash": "ca1e00f9081cb9a2b57dfb8cff1758f6"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/tests/browser_abi_test.cpp": {
-    "mtime": 1790472566.006182,
-    "seen": 1790480959.7399528,
+    "mtime": 1790483641.7130497,
+    "seen": 1790484573.4452171,
     "ast_hash": "39bd4d2a7ee59eac65ac1e84e7817975",
     "semantic_hash": "39bd4d2a7ee59eac65ac1e84e7817975"
   },
@@ -2682,8 +2682,8 @@
     "semantic_hash": "3b240c02eddadcb8f6fc8369aef6d555"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/tests/hashed_collection_test.cpp": {
-    "mtime": 1790471573.3700943,
-    "seen": 1790480959.7399611,
+    "mtime": 1790483641.7132895,
+    "seen": 1790484573.445228,
     "ast_hash": "66b258ba7121800ec5a5d95a85c02855",
     "semantic_hash": "66b258ba7121800ec5a5d95a85c02855"
   },
@@ -2736,8 +2736,8 @@
     "semantic_hash": "6e91d4b167b3df38ebb5de3c4f34db1c"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/tests/method_dictionary_test.cpp": {
-    "mtime": 1790469204.675536,
-    "seen": 1790480959.739965,
+    "mtime": 1790483641.7134578,
+    "seen": 1790484573.445235,
     "ast_hash": "b3a9ae325eafcf50033d0b064fc22588",
     "semantic_hash": "b3a9ae325eafcf50033d0b064fc22588"
   },
@@ -2778,14 +2778,14 @@
     "semantic_hash": "68ebf86b8b7aee705fec43b35993da69"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/tests/remove_abi_test.cpp": {
-    "mtime": 1790480686.1484103,
-    "seen": 1790480959.739969,
+    "mtime": 1790483641.71365,
+    "seen": 1790484573.445239,
     "ast_hash": "a154a94d0ec0852859f96d05056cb210",
     "semantic_hash": "a154a94d0ec0852859f96d05056cb210"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/tests/session_abi_test.cpp": {
-    "mtime": 1790469960.3580182,
-    "seen": 1790480959.73997,
+    "mtime": 1790483641.7138731,
+    "seen": 1790484573.44524,
     "ast_hash": "9d81ce45a8e138d0f3a559a188038e41",
     "semantic_hash": "9d81ce45a8e138d0f3a559a188038e41"
   },
@@ -2796,10 +2796,10 @@
     "semantic_hash": "d635270af558228500b83b0c7cde0d2c"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/tests/smoke_test.cpp": {
-    "mtime": 1790393908.4011133,
-    "seen": 1790480959.7399712,
-    "ast_hash": "1804dbaa34ff1ed7eff04428f0a7033f",
-    "semantic_hash": "1804dbaa34ff1ed7eff04428f0a7033f"
+    "mtime": 1790484247.3244486,
+    "seen": 1790484573.4452422,
+    "ast_hash": "37efdd198f850ee4797184220fbf5504",
+    "semantic_hash": "37efdd198f850ee4797184220fbf5504"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/tests/stream_test.cpp": {
     "mtime": 1790333254.7495894,
@@ -2904,16 +2904,16 @@
     "semantic_hash": "8541cec84d162ebb389debd519a32efe"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/CHANGELOG.md": {
-    "mtime": 1790476182.0383112,
-    "seen": 1790480959.73998,
-    "ast_hash": "99ee1875caea5fc60d98beaad21b11d0",
-    "semantic_hash": "99ee1875caea5fc60d98beaad21b11d0"
+    "mtime": 1790484307.8581781,
+    "seen": 1790484573.4452548,
+    "ast_hash": "5d8aa2e31b8ee07f3e2e0a2d811412fc",
+    "semantic_hash": "5d8aa2e31b8ee07f3e2e0a2d811412fc"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/CLAUDE.md": {
-    "mtime": 1790416169.903801,
-    "seen": 1790480959.73998,
-    "ast_hash": "f29e43bb0117b7fdb6b5ee13a3ba29eb",
-    "semantic_hash": "f29e43bb0117b7fdb6b5ee13a3ba29eb"
+    "mtime": 1790484380.6639717,
+    "seen": 1790484573.445256,
+    "ast_hash": "b3ee39c3f22d5ceb8e411ed7d39aaf0f",
+    "semantic_hash": "b3ee39c3f22d5ceb8e411ed7d39aaf0f"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/CMakeLists.txt": {
     "mtime": 1790363418.3269,
@@ -2922,34 +2922,34 @@
     "semantic_hash": "7f380bc439fb35ccc0cbaab0902709b6"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/CONTRIBUTING.ja.md": {
-    "mtime": 1790394542.7621856,
-    "seen": 1790480959.7399812,
-    "ast_hash": "d13b8b81307b65555a3e6da237b5d3f9",
-    "semantic_hash": "d13b8b81307b65555a3e6da237b5d3f9"
+    "mtime": 1790484372.5938044,
+    "seen": 1790484573.445257,
+    "ast_hash": "b3be316dfe5d5f026dce3cc6f0bab581",
+    "semantic_hash": "b3be316dfe5d5f026dce3cc6f0bab581"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/CONTRIBUTING.md": {
-    "mtime": 1790394542.7623267,
-    "seen": 1790480959.7399821,
-    "ast_hash": "17ca4dea3e542d5a740dec829cfc990d",
-    "semantic_hash": "17ca4dea3e542d5a740dec829cfc990d"
+    "mtime": 1790484372.5936558,
+    "seen": 1790484573.445257,
+    "ast_hash": "9ccc45e0bd3293c8a189f1c22b62db71",
+    "semantic_hash": "9ccc45e0bd3293c8a189f1c22b62db71"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/README.ja.md": {
-    "mtime": 1790394542.7625015,
-    "seen": 1790480959.739983,
-    "ast_hash": "70af9e714d67fd6087beaeb86d0d6df8",
-    "semantic_hash": "70af9e714d67fd6087beaeb86d0d6df8"
+    "mtime": 1790484362.757943,
+    "seen": 1790484573.445258,
+    "ast_hash": "af65fc6fc98606497a8d92a6fafd0824",
+    "semantic_hash": "af65fc6fc98606497a8d92a6fafd0824"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/README.md": {
-    "mtime": 1790394542.7626965,
-    "seen": 1790480959.739983,
-    "ast_hash": "b37f1262804ecd71e050b79af2007d76",
-    "semantic_hash": "b37f1262804ecd71e050b79af2007d76"
+    "mtime": 1790484344.000334,
+    "seen": 1790484573.445259,
+    "ast_hash": "8c3b7f9c00c34ef7c74e2f5b4c25cbfc",
+    "semantic_hash": "8c3b7f9c00c34ef7c74e2f5b4c25cbfc"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/SPEC.md": {
-    "mtime": 1790480647.6548862,
-    "seen": 1790480959.7399838,
-    "ast_hash": "fa4c85baebbc7c3c3d1f66ba5f71fc95",
-    "semantic_hash": "fa4c85baebbc7c3c3d1f66ba5f71fc95"
+    "mtime": 1790484240.6348722,
+    "seen": 1790484573.44526,
+    "ast_hash": "601ef4c324c0080fb78ef8f1d61e9f3b",
+    "semantic_hash": "601ef4c324c0080fb78ef8f1d61e9f3b"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/compiler/CMakeLists.txt": {
     "mtime": 1790416169.9064796,
@@ -2970,10 +2970,10 @@
     "semantic_hash": "3aa1913e12c339ee7e1371d34e1522ee"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/docs/README.md": {
-    "mtime": 1790476218.4338908,
-    "seen": 1790480959.739986,
-    "ast_hash": "facc671554bde2430439403146abf33a",
-    "semantic_hash": "facc671554bde2430439403146abf33a"
+    "mtime": 1790484380.6635695,
+    "seen": 1790484573.4452622,
+    "ast_hash": "65b0500c3ebf0cc3204a397f6289a711",
+    "semantic_hash": "65b0500c3ebf0cc3204a397f6289a711"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/docs/bench.md": {
     "mtime": 1790424970.7209065,
@@ -3066,10 +3066,10 @@
     "semantic_hash": "c574e73153cea6eb9e282addc11d82a4"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/docs/phases/P12.md": {
-    "mtime": 1790477720.0728934,
-    "seen": 1790480959.739994,
-    "ast_hash": "96456bf46c1ca0a64f65a5f09d17599e",
-    "semantic_hash": "96456bf46c1ca0a64f65a5f09d17599e"
+    "mtime": 1790484392.6256342,
+    "seen": 1790484573.4452748,
+    "ast_hash": "7a1f03375813be0c38ab2e98ff8e2940",
+    "semantic_hash": "7a1f03375813be0c38ab2e98ff8e2940"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/docs/phases/P2.md": {
     "mtime": 1789973175.1035845,
@@ -3576,20 +3576,20 @@
     "semantic_hash": "b97730d78e229f65eaf304f86e636c92"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/docs/superpowers/plans/2026-09-26-p12-browser-remove.md": {
-    "mtime": 1790428434.1564138,
-    "seen": 1790480959.7400389,
+    "mtime": 1790483641.6863759,
+    "seen": 1790484573.445339,
     "ast_hash": "8882d1b03e45bc8dc30ba6dfa93a3a4d",
     "semantic_hash": "8882d1b03e45bc8dc30ba6dfa93a3a4d"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/docs/superpowers/plans/2026-09-27-p12-class-identity.md": {
-    "mtime": 1790467678.750833,
-    "seen": 1790480959.7400389,
+    "mtime": 1790483641.6867123,
+    "seen": 1790484573.44534,
     "ast_hash": "09b9262d1e4bc74c95b2ec1ffefaf576",
     "semantic_hash": "09b9262d1e4bc74c95b2ec1ffefaf576"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/docs/superpowers/specs/2026-09-26-browser-remove-design.md": {
-    "mtime": 1790466374.6423478,
-    "seen": 1790480959.7400398,
+    "mtime": 1790483641.6869023,
+    "seen": 1790484573.4453409,
     "ast_hash": "86d7a4c99f32cf6e0e51a967391f4d97",
     "semantic_hash": "86d7a4c99f32cf6e0e51a967391f4d97"
   },
@@ -3606,8 +3606,8 @@
     "semantic_hash": "be43e9a64da8bd0863941d7dbff3384d"
   },
   "/Users/hiro/Projetct/GitHub/ao-smalltalk/runtime/CMakeLists.txt": {
-    "mtime": 1790456415.267983,
-    "seen": 1790480959.740042,
+    "mtime": 1790483641.7053266,
+    "seen": 1790484573.445343,
     "ast_hash": "d4ad92096c41bb1b3621aabb032c8eb7",
     "semantic_hash": "d4ad92096c41bb1b3621aabb032c8eb7"
   }
