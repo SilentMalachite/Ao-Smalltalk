@@ -68,7 +68,7 @@ void acceptMethod(const char* className, const char* source, int meta = 0) {
 
 std::string classDefinition(const char* className) {
   char defn[512];
-  if (ao_browser_class_definition(className, defn, 512) != AO_OK) {
+  if (ao_browser_class_definition(ao_browser_class_id(className), defn, 512) != AO_OK) {
     return "<missing>";
   }
   return defn;

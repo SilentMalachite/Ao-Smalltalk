@@ -225,15 +225,17 @@ std::vector<const Oop*> classIdRootSlots();
 int browserClassCount();
 int browserClassAt(int index, std::int64_t* classId, char* name, int nameLen, char* category,
                    int categoryLen);
-int browserProtocolCount(const char* className, int meta);
-int browserProtocolAt(const char* className, int meta, int index, char* buf, int len);
-int browserSelectorCount(const char* className, int meta, const char* protocol);
-int browserSelectorAt(const char* className, int meta, const char* protocol, int index, char* buf,
+int browserProtocolCount(std::int64_t classId, int meta);
+int browserProtocolAt(std::int64_t classId, int meta, int index, char* buf, int len);
+int browserSelectorCount(std::int64_t classId, int meta, const char* protocol);
+int browserSelectorAt(std::int64_t classId, int meta, const char* protocol, int index, char* buf,
                       int len);
-int browserSource(const char* className, int meta, const char* selector, char* buf, int len);
-int browserClassDefinition(const char* className, char* buf, int len);
-int browserSuperclass(const char* className, int meta, char* buf, int len);
-int browserSubclassCount(const char* className);
-int browserSubclassAt(const char* className, int index, char* buf, int len);
+int browserSource(std::int64_t classId, int meta, const char* selector, char* buf, int len);
+int browserClassDefinition(std::int64_t classId, char* buf, int len);
+int browserSuperclass(std::int64_t classId, int meta, std::int64_t* superclassId, char* buf,
+                      int len);
+int browserSubclassCount(std::int64_t classId);
+int browserSubclassAt(std::int64_t classId, int index, std::int64_t* subclassId, char* buf,
+                      int len);
 
 }  // namespace ao

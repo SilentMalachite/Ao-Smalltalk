@@ -85,8 +85,9 @@ typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, int 
 void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
 void ao_set_inspect_hook(AoInspectFn fn, void* user);
 
-/* The four *_count functions answer 0 or more, or -1 on failure: no session, a name that is not
-   a class, meta other than 0 or 1, a NULL argument. Never AO_ERR, which reads as one row. */
+/* The four *_count functions answer 0 or more, or -1 on failure: no session, an unknown class ID
+   (SPEC §3.10 クラス ID), meta other than 0 or 1, a NULL argument. Never AO_ERR, which reads as
+   one row. */
 /* SPEC §3.10 クラス ID. The ID of the listed class Smalltalk binds name to; 0 when none, name is
    NULL, there is no session, or memory runs out. The same class answers the same ID for the
    whole session; an ID is never used again in the process. */
@@ -96,23 +97,27 @@ int ao_browser_class_count(void);
    be NULL) gets the row's ID, 0 on AO_ERR. */
 int ao_browser_class_at(int index, int64_t* class_id, char* name, int name_len, char* category,
                         int category_len);
-int ao_browser_protocol_count(const char* class_name, int meta);
-int ao_browser_protocol_at(const char* class_name, int meta, int index, char* buf, int len);
-int ao_browser_selector_count(const char* class_name, int meta, const char* protocol);
-int ao_browser_selector_at(const char* class_name, int meta, const char* protocol, int index,
+int ao_browser_protocol_count(int64_t class_id, int meta);
+int ao_browser_protocol_at(int64_t class_id, int meta, int index, char* buf, int len);
+int ao_browser_selector_count(int64_t class_id, int meta, const char* protocol);
+int ao_browser_selector_at(int64_t class_id, int meta, const char* protocol, int index,
                            char* buf, int len);
 /* AO_OK with the source when the source table has it. A method without source (a native, a
    method after an image load, a vendor, file-in or methodsFor: chunk method) is AO_ERR_NOSOURCE
    with a one-line comment placeholder that does not compile when accepted:
    "<Class>>><selector> source not available" or "<Class>>><selector> native <symbol>", where
    <Class> is "<Name> class" on the class side. AO_ERR_NOSOURCE also when the placeholder is cut
-   (buf still ends in NUL). AO_ERR when buf is NULL, len < 1, or the class or selector is not
-   found. */
-int ao_browser_source(const char* class_name, int meta, const char* selector, char* buf, int len);
-int ao_browser_class_definition(const char* class_name, char* buf, int len);
-int ao_browser_superclass(const char* class_name, int meta, char* buf, int len);
-int ao_browser_subclass_count(const char* class_name);
-int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len);
+   (buf still ends in NUL). AO_ERR when buf is NULL, len < 1, the class ID is unknown or the
+   selector is not found. */
+int ao_browser_source(int64_t class_id, int meta, const char* selector, char* buf, int len);
+int ao_browser_class_definition(int64_t class_id, char* buf, int len);
+/* buf gets the superclass's name ("" for nil; on the class side the instance class's name) and
+   superclass_id (may be NULL) its ID, 0 when it is nil or not listed. */
+int ao_browser_superclass(int64_t class_id, int meta, int64_t* superclass_id, char* buf, int len);
+/* The listed classes whose superclass is this very class, in list order; subclass_id may be
+   NULL. */
+int ao_browser_subclass_count(int64_t class_id);
+int ao_browser_subclass_at(int64_t class_id, int index, int64_t* subclass_id, char* buf, int len);
 
 int ao_workspace_reset(void);
 /* out NULL or out_len < 1: AO_ERR before compiling or evaluating anything. A failed evaluation

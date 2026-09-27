@@ -717,12 +717,14 @@ std::vector<ClassRow> classRows(Session& s) {
   return rows;
 }
 
-const ClassRow* findClass(const std::vector<ClassRow>& rows, const char* name) {
-  if (name == nullptr) {
+// SPEC §3.10 クラス ID: the row id names; null for an unknown ID (0 or less, never issued, or
+// dropped because the class left the list).
+const ClassRow* findClassId(const std::vector<ClassRow>& rows, std::int64_t id) {
+  if (id <= 0) {
     return nullptr;
   }
   for (const auto& row : rows) {
-    if (row.name == name) {
+    if (row.id == id) {
       return &row;
     }
   }
@@ -834,24 +836,25 @@ bool sourceOf(Session& s, const std::string& className, const ListedMethod& meth
   return false;
 }
 
-std::string superclassName(Session& s, Oop cls, int meta) {
+// SPEC §3.10: the class the superclass read names: the side's superclass, or, when that is a
+// metaclass, its instance class (thisClass) when it has one. nil when there is none.
+Oop superclassShown(Session& s, Oop cls, int meta) {
   const Oop side = sideOf(s, cls, meta);
   if (!pointerSlots(s.heap, side, kClassSlotSuperclass + 1)) {
-    return {};
+    return Oop::nil();
   }
   const Oop sup = s.heap.slotAt(side, kClassSlotSuperclass);
   if (!sup.isHeap()) {
-    return {};
+    return Oop::nil();
   }
-  // A metaclass's superclass is another class object. Name the instance class when it has one.
   if (s.heap.klass(sup) == s.wk.metaclassClass &&
       pointerSlots(s.heap, sup, kClassSlotThisClass + 1)) {
     const Oop thisClass = s.heap.slotAt(sup, kClassSlotThisClass);
     if (thisClass.isHeap()) {
-      return classNameOf(s.heap, thisClass);
+      return thisClass;
     }
   }
-  return classNameOf(s.heap, sup);
+  return sup;
 }
 
 std::string definitionOf(Session& s, const ClassRow& row) {
@@ -880,19 +883,14 @@ std::string definitionOf(Session& s, const ClassRow& row) {
   return text;
 }
 
-std::vector<std::string> subclassNames(Session& s, const std::string& name,
-                                       const std::vector<ClassRow>& rows) {
-  std::vector<std::string> out;
+// SPEC §3.10: the listed classes whose superclass slot is cls itself (identity, not name), in the
+// class list's order.
+std::vector<const ClassRow*> subclassRows(Session& s, Oop cls, const std::vector<ClassRow>& rows) {
+  std::vector<const ClassRow*> out;
   for (const auto& row : rows) {
-    if (!pointerSlots(s.heap, row.cls, kClassSlotSuperclass + 1)) {
-      continue;
-    }
-    const Oop sup = s.heap.slotAt(row.cls, kClassSlotSuperclass);
-    if (!sup.isHeap()) {
-      continue;
-    }
-    if (classNameOf(s.heap, sup) == name) {
-      out.push_back(row.name);
+    if (pointerSlots(s.heap, row.cls, kClassSlotSuperclass + 1) &&
+        s.heap.slotAt(row.cls, kClassSlotSuperclass) == cls) {
+      out.push_back(&row);
     }
   }
   return out;
@@ -1568,26 +1566,26 @@ int browserClassAt(int index, std::int64_t* classId, char* name, int nameLen, ch
   return AO_OK;
 }
 
-int browserProtocolCount(const char* className, int meta) {
+int browserProtocolCount(std::int64_t classId, int meta) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || !metaOk(meta)) {
+  if (s == nullptr || !metaOk(meta)) {
     return kCountFailed;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return kCountFailed;
   }
   return static_cast<int>(protocolsOf(methodsOf(*s, sideOf(*s, row->cls, meta))).size());
 }
 
-int browserProtocolAt(const char* className, int meta, int index, char* buf, int len) {
+int browserProtocolAt(std::int64_t classId, int meta, int index, char* buf, int len) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || !metaOk(meta)) {
+  if (s == nullptr || !metaOk(meta)) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
@@ -1598,13 +1596,13 @@ int browserProtocolAt(const char* className, int meta, int index, char* buf, int
   return writeBuf(protocols[static_cast<std::size_t>(index)], buf, len);
 }
 
-int browserSelectorCount(const char* className, int meta, const char* protocol) {
+int browserSelectorCount(std::int64_t classId, int meta, const char* protocol) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || protocol == nullptr || !metaOk(meta)) {
+  if (s == nullptr || protocol == nullptr || !metaOk(meta)) {
     return kCountFailed;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return kCountFailed;
   }
@@ -1615,14 +1613,14 @@ int browserSelectorCount(const char* className, int meta, const char* protocol) 
   return static_cast<int>(selectorsFor(methods, protocol).size());
 }
 
-int browserSelectorAt(const char* className, int meta, const char* protocol, int index, char* buf,
+int browserSelectorAt(std::int64_t classId, int meta, const char* protocol, int index, char* buf,
                       int len) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || protocol == nullptr || !metaOk(meta)) {
+  if (s == nullptr || protocol == nullptr || !metaOk(meta)) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
@@ -1633,13 +1631,13 @@ int browserSelectorAt(const char* className, int meta, const char* protocol, int
   return writeBuf(selectors[static_cast<std::size_t>(index)].selector, buf, len);
 }
 
-int browserSource(const char* className, int meta, const char* selector, char* buf, int len) {
+int browserSource(std::int64_t classId, int meta, const char* selector, char* buf, int len) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || selector == nullptr || !metaOk(meta)) {
+  if (s == nullptr || selector == nullptr || !metaOk(meta)) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
@@ -1658,58 +1656,83 @@ int browserSource(const char* className, int meta, const char* selector, char* b
   return AO_ERR;
 }
 
-int browserClassDefinition(const char* className, char* buf, int len) {
+int browserClassDefinition(std::int64_t classId, char* buf, int len) {
   Session* s = session();
-  if (s == nullptr || className == nullptr) {
+  if (s == nullptr) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
   return writeBuf(definitionOf(*s, *row), buf, len);
 }
 
-int browserSuperclass(const char* className, int meta, char* buf, int len) {
+int browserSuperclass(std::int64_t classId, int meta, std::int64_t* superclassId, char* buf,
+                      int len) {
+  if (superclassId != nullptr) {
+    *superclassId = 0;
+  }
   Session* s = session();
-  if (s == nullptr || className == nullptr || !metaOk(meta)) {
+  if (s == nullptr || !metaOk(meta)) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
-  return writeBuf(superclassName(*s, row->cls, meta), buf, len);
+  const Oop sup = superclassShown(*s, row->cls, meta);
+  const int rc = writeBuf(classNameOf(s->heap, sup), buf, len);
+  if (superclassId != nullptr && rc != AO_ERR) {
+    for (const auto& each : rows) {
+      if (each.cls == sup) {
+        *superclassId = each.id;
+        break;
+      }
+    }
+  }
+  return rc;
 }
 
-int browserSubclassCount(const char* className) {
+int browserSubclassCount(std::int64_t classId) {
   Session* s = session();
-  if (s == nullptr || className == nullptr) {
+  if (s == nullptr) {
     return kCountFailed;
   }
   const auto rows = classRows(*s);
-  if (findClass(rows, className) == nullptr) {
+  const ClassRow* row = findClassId(rows, classId);
+  if (row == nullptr) {
     return kCountFailed;
   }
-  return static_cast<int>(subclassNames(*s, className, rows).size());
+  return static_cast<int>(subclassRows(*s, row->cls, rows).size());
 }
 
-int browserSubclassAt(const char* className, int index, char* buf, int len) {
+int browserSubclassAt(std::int64_t classId, int index, std::int64_t* subclassId, char* buf,
+                      int len) {
+  if (subclassId != nullptr) {
+    *subclassId = 0;
+  }
   Session* s = session();
-  if (s == nullptr || className == nullptr) {
+  if (s == nullptr) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  if (findClass(rows, className) == nullptr) {
+  const ClassRow* row = findClassId(rows, classId);
+  if (row == nullptr) {
     return AO_ERR;
   }
-  const auto names = subclassNames(*s, className, rows);
-  if (index < 0 || static_cast<std::size_t>(index) >= names.size()) {
+  const auto subs = subclassRows(*s, row->cls, rows);
+  if (index < 0 || static_cast<std::size_t>(index) >= subs.size()) {
     return AO_ERR;
   }
-  return writeBuf(names[static_cast<std::size_t>(index)], buf, len);
+  const ClassRow& sub = *subs[static_cast<std::size_t>(index)];
+  const int rc = writeBuf(sub.name, buf, len);
+  if (subclassId != nullptr && rc != AO_ERR) {
+    *subclassId = sub.id;
+  }
+  return rc;
 }
 
 namespace {

@@ -225,8 +225,8 @@ TEST_F(RemoveAbi, RemoveAcceptedMethodOnKernelClass) {
   expectDnu("Object new b12foo", "b12foo");
   expectDnu("3 b12foo", "b12foo");
   char shown[64];
-  EXPECT_EQ(AO_ERR, ao_browser_source("Object", 0, "b12foo", shown, sizeof(shown)));
-  EXPECT_EQ(0, ao_browser_selector_count("Object", 0, "user"));
+  EXPECT_EQ(AO_ERR, ao_browser_source(ao_browser_class_id("Object"), 0, "b12foo", shown, sizeof(shown)));
+  EXPECT_EQ(0, ao_browser_selector_count(ao_browser_class_id("Object"), 0, "user"));
 }
 
 // SPEC §3.3, §3.9 削除: a send cached before the removal finds the superclass's method next, and
@@ -334,7 +334,7 @@ TEST_F(RemoveAbi, RemoveMethodDropsSourceEntry) {
   EXPECT_FALSE(static_cast<bool>(ao::debugInfoFor(method)));
   EXPECT_EQ(slots - 3, ao::methodSourceRootSlots(false).size());
   char shown[64];
-  EXPECT_EQ(AO_ERR, ao_browser_source("B12Src", 0, "blk", shown, sizeof(shown)));
+  EXPECT_EQ(AO_ERR, ao_browser_source(ao_browser_class_id("B12Src"), 0, "blk", shown, sizeof(shown)));
 }
 
 // SPEC §3.9 削除, §6: the name reads nil (PushGlobal, no recompile), the instances keep their
@@ -520,7 +520,7 @@ TEST_F(RemoveAbi, RefusedRemoveChangesNothing) {
   const std::int64_t tally = globalsTally();
   const std::uint64_t version = ao::session()->wk.globalsVersion();
   const std::size_t slots = ao::methodSourceRootSlots(false).size();
-  const int protocols = ao_browser_protocol_count("Object", 0);
+  const int protocols = ao_browser_protocol_count(ao_browser_class_id("Object"), 0);
   int rc = -9;
   EXPECT_EQ(AO_ERR, ao_remove_method("Object", 0, "printString", &err));
   EXPECT_EQ(AO_ERR, ao_remove_method("B12Kid2", 0, "who", &err));
@@ -531,11 +531,11 @@ TEST_F(RemoveAbi, RefusedRemoveChangesNothing) {
   EXPECT_EQ(tally, globalsTally());
   EXPECT_EQ(version, ao::session()->wk.globalsVersion());
   EXPECT_EQ(slots, ao::methodSourceRootSlots(false).size());
-  EXPECT_EQ(protocols, ao_browser_protocol_count("Object", 0));
+  EXPECT_EQ(protocols, ao_browser_protocol_count(ao_browser_class_id("Object"), 0));
   EXPECT_EQ("'par'", printIt("B12Kid2 new who"));
   EXPECT_EQ("'3'", printIt("3 printString"));
   char shown[64];
-  EXPECT_EQ(AO_OK, ao_browser_source("B12Par", 0, "who", shown, sizeof(shown)));
+  EXPECT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B12Par"), 0, "who", shown, sizeof(shown)));
 }
 
 // SPEC §3.9 削除, §6: a removal is in the saved image: the method and the binding stay gone.

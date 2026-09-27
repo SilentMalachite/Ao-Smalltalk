@@ -20,6 +20,11 @@ final class BrowserModel {
   private(set) var selectedProtocol: String?
   private(set) var selectedSelector: String?
 
+  // SPEC §3.10 ao_browser_class_id: the ID of the class Smalltalk binds to name; 0 when none.
+  static func classID(named name: String) -> Int64 {
+    name.withCString { ao_browser_class_id($0) }
+  }
+
   func boot() -> Int32 {
     if didBoot {
       return Int32(AO_OK)
@@ -164,10 +169,11 @@ final class BrowserModel {
     guard let selectedClass else {
       return nil
     }
+    let classID = Self.classID(named: selectedClass)
     let meta = metaFlag
     return selectors.first { selector in
       let source = copyText { buffer, length in
-        ao_browser_source(selectedClass, meta, selector, buffer, length)
+        ao_browser_source(classID, meta, selector, buffer, length)
       }
       return source == text
     }
@@ -179,11 +185,12 @@ final class BrowserModel {
     guard let selectedClass else {
       return []
     }
+    let classID = Self.classID(named: selectedClass)
     let meta = metaFlag
     var names = loadList(
-      count: { ao_browser_protocol_count(selectedClass, meta) },
+      count: { ao_browser_protocol_count(classID, meta) },
       at: { index, buffer, length in
-        ao_browser_protocol_at(selectedClass, meta, index, buffer, length)
+        ao_browser_protocol_at(classID, meta, index, buffer, length)
       }
     )
     if !names.contains(Self.newMethodProtocol) {
@@ -196,11 +203,12 @@ final class BrowserModel {
     guard let selectedClass, let selectedProtocol else {
       return []
     }
+    let classID = Self.classID(named: selectedClass)
     let meta = metaFlag
     return loadList(
-      count: { ao_browser_selector_count(selectedClass, meta, selectedProtocol) },
+      count: { ao_browser_selector_count(classID, meta, selectedProtocol) },
       at: { index, buffer, length in
-        ao_browser_selector_at(selectedClass, meta, selectedProtocol, index, buffer, length)
+        ao_browser_selector_at(classID, meta, selectedProtocol, index, buffer, length)
       }
     )
   }
@@ -210,10 +218,11 @@ final class BrowserModel {
     guard let selectedClass else {
       return ("", false)
     }
+    let classID = Self.classID(named: selectedClass)
     let meta = metaFlag
     if let selectedSelector {
       let copied = copyReportingNoSource { buffer, length in
-        ao_browser_source(selectedClass, meta, selectedSelector, buffer, length)
+        ao_browser_source(classID, meta, selectedSelector, buffer, length)
       }
       return (copied?.text ?? "", copied?.noSource ?? false)
     }
@@ -222,7 +231,7 @@ final class BrowserModel {
       return ("", false)
     }
     let definition = copyText { buffer, length in
-      ao_browser_class_definition(selectedClass, buffer, length)
+      ao_browser_class_definition(classID, buffer, length)
     }
     return (definition ?? "", false)
   }
@@ -233,16 +242,18 @@ final class BrowserModel {
 
   private func superclassName(_ className: String, meta: Bool) -> String? {
     let flag: Int32 = meta ? 1 : 0
+    let classID = Self.classID(named: className)
     return copyText { buffer, length in
-      ao_browser_superclass(className, flag, buffer, length)
+      ao_browser_superclass(classID, flag, nil, buffer, length)
     }
   }
 
   private func subclassNames(_ className: String) -> [String] {
-    loadList(
-      count: { ao_browser_subclass_count(className) },
+    let classID = Self.classID(named: className)
+    return loadList(
+      count: { ao_browser_subclass_count(classID) },
       at: { index, buffer, length in
-        ao_browser_subclass_at(className, index, buffer, length)
+        ao_browser_subclass_at(classID, index, nil, buffer, length)
       }
     )
   }
