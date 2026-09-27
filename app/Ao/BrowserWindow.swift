@@ -17,14 +17,15 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   private let sideControl: NSSegmentedControl
 
   private var categoryName = "Kernel"
-  private var selectedClass = "Object"
+  // SPEC §3.10 クラス ID: the selected row's class; 0 is none.
+  private var selectedClassID: Int64 = 0
   private var meta = false
   // nil protocol: the pane is the class definition. A protocol with no selector: a new method.
   private var protocolName: String? = "native"
   private var selectorName: String? = "printString"
   private var applying = false
   private var showingHierarchy = false
-  private var hierarchyNames: [String] = []
+  private var hierarchy: [BrowserClass] = []
   // The text the pane got from the model; the pane differs from it after an unaccepted edit.
   private var shownSource = ""
   // A discard question is waiting for its answer.
@@ -47,7 +48,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   }
 
   var canRemoveClass: Bool {
-    !selectedClass.isEmpty
+    selectedClassID != 0
   }
 
   var hasUnacceptedChanges: Bool {
@@ -216,10 +217,10 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
         self.selectorName = nil
       }
     } else if table === classTable {
-      let name = value(at: row, in: model.classes)
+      let picked = value(at: row, in: model.classRows)
       changeSelection {
-        if let name {
-          self.selectedClass = name
+        if let picked {
+          self.selectedClassID = picked.id
         }
         self.protocolName = nil
         self.selectorName = nil
@@ -317,13 +318,16 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     publish()
   }
 
-  // The accepted definition's class, in the category the runtime now lists for it. The rows the
-  // pane came from may be another class, or a category the class has just left.
+  // The accepted definition's class (the one its name binds now), in the category the runtime
+  // lists for it. The rows the pane came from may be another class, or a category the class has
+  // just left.
   private func showDefinedClass(from source: String) {
-    if let name = BrowserWindow.definedClassName(in: source),
-       let category = model.category(ofClass: name) {
-      categoryName = category
-      selectedClass = name
+    if let name = BrowserWindow.definedClassName(in: source) {
+      let id = BrowserModel.classID(named: name)
+      if id != 0, let category = model.category(ofClassID: id) {
+        categoryName = category
+        selectedClassID = id
+      }
     }
     publish()
   }
@@ -352,7 +356,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
 
   // SPEC §3.9 削除: Smalltalk → Remove Class…, for the selected class.
   func removeClass() {
-    removeClass(atRow: model.classes.firstIndex(of: selectedClass) ?? -1, fromMainMenu: true)
+    let row = model.classRows.firstIndex { $0.id == selectedClassID } ?? -1
+    removeClass(atRow: row, fromMainMenu: true)
   }
 
   // SPEC §3.9 削除: the context menu's item, for the clicked row (-1: none). Another row is
@@ -366,7 +371,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     guard let selector = value(at: row, in: model.selectors) else {
       return
     }
-    let className = selectedClass
+    let classID = selectedClassID
+    let className = model.selectedClass ?? ""
     let classSide = meta
     let message = "Remove \(className)\(classSide ? " class" : "")>>\(selector)?"
     removeAfterConfirming(
@@ -374,7 +380,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       select: selector == selectorName ? nil : { self.selectorName = selector },
       fromMainMenu: fromMainMenu
     ) {
-      self.performRemoveMethod(selector, ofClass: className, meta: classSide)
+      self.performRemoveMethod(selector, ofClassID: classID, meta: classSide)
     }
   }
 
@@ -383,19 +389,19 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   }
 
   private func removeClass(atRow row: Int, fromMainMenu: Bool) {
-    guard let name = value(at: row, in: model.classes) else {
+    guard let picked = value(at: row, in: model.classRows) else {
       return
     }
     removeAfterConfirming(
-      message: "Remove class \(name)?",
-      select: name == selectedClass ? nil : {
-        self.selectedClass = name
+      message: "Remove class \(picked.name)?",
+      select: picked.id == selectedClassID ? nil : {
+        self.selectedClassID = picked.id
         self.protocolName = nil
         self.selectorName = nil
       },
       fromMainMenu: fromMainMenu
     ) {
-      self.performRemoveClass(name)
+      self.performRemoveClass(picked.id)
     }
   }
 
@@ -447,10 +453,9 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   // SPEC §3.9 削除: a refusal shows its reason and changes nothing else. Success keeps the
   // category, the class, the side and (while it is still listed) the protocol, and deselects the
   // selector.
-  private func performRemoveMethod(_ selector: String, ofClass className: String, meta classSide: Bool) {
+  private func performRemoveMethod(_ selector: String, ofClassID classID: Int64, meta classSide: Bool) {
     var err = AoSpan()
     let metaFlag: Int32 = classSide ? 1 : 0
-    let classID = BrowserModel.classID(named: className)
     let status = selector.withCString { sel in
       withUnsafeMutablePointer(to: &err) { errPtr in
         ao_remove_method(classID, metaFlag, sel, errPtr)
@@ -467,10 +472,9 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
 
   // SPEC §3.9 削除: success deselects the class and keeps the category while it is still listed;
   // a category that went with its last class gives way to the first one. The hierarchy list
-  // drops the name too.
-  private func performRemoveClass(_ className: String) {
+  // drops the class too.
+  private func performRemoveClass(_ classID: Int64) {
     var err = AoSpan()
-    let classID = BrowserModel.classID(named: className)
     let status = withUnsafeMutablePointer(to: &err) { errPtr in
       ao_remove_class(classID, errPtr)
     }
@@ -479,10 +483,10 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       return
     }
     errorField.stringValue = ""
-    selectedClass = ""
+    selectedClassID = 0
     protocolName = nil
     selectorName = nil
-    hierarchyNames.removeAll { $0 == className }
+    hierarchy.removeAll { $0.id == classID }
     publish()
     if !model.categories.contains(categoryName), let first = model.categories.first {
       categoryName = first
@@ -509,19 +513,21 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   private func toggleHierarchy() {
     if showingHierarchy {
       showingHierarchy = false
-      hierarchyNames = []
+      hierarchy = []
       publish()
       return
     }
-    hierarchyNames = model.hierarchyNames(className: selectedClass, meta: meta)
+    hierarchy = model.selectedClassRow.map { model.hierarchy(of: $0, meta: meta) } ?? []
     showingHierarchy = true
-    model.applyHierarchyList(hierarchyNames, selecting: selectedClass)
+    model.applyHierarchyList(hierarchy, selecting: selectedClassID == 0 ? nil : selectedClassID)
     reloadLists()
   }
 
+  // SPEC §3.9 System Browser: the load started new IDs; publish lets the model find the selected
+  // class again by its name.
   func noteImageLoaded() {
     showingHierarchy = false
-    hierarchyNames = []
+    hierarchy = []
     publish()
   }
 
@@ -580,7 +586,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     } else if let first = model.categories.first {
       categoryName = first
     }
-    selectedClass = "Object"
+    selectedClassID = BrowserModel.classID(named: "Object")
     meta = false
     protocolName = "native"
     selectorName = "printString"
@@ -588,18 +594,18 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   }
 
   private func publish() {
-    let keepClass = selectedClass
+    let keepClass: Int64? = selectedClassID == 0 ? nil : selectedClassID
     model.select(
       category: categoryName,
-      className: selectedClass.isEmpty ? nil : selectedClass,
+      classID: keepClass,
       meta: meta,
       protocol: protocolName,
       selector: selectorName
     )
     if showingHierarchy {
-      model.applyHierarchyList(hierarchyNames, selecting: keepClass)
+      model.applyHierarchyList(hierarchy, selecting: keepClass)
     }
-    selectedClass = model.selectedClass ?? ""
+    selectedClassID = model.selectedClassID ?? 0
     protocolName = model.selectedProtocol
     selectorName = model.selectedSelector
     reloadLists()
@@ -624,7 +630,11 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   private func showSelection() {
     applying = true
     select(categoryName, in: categoryTable, values: model.categories)
-    select(selectedClass, in: classTable, values: model.classes)
+    if let row = model.classRows.firstIndex(where: { $0.id == selectedClassID }) {
+      classTable.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    } else {
+      classTable.deselectAll(nil)
+    }
     if let protocolName {
       select(protocolName, in: protocolTable, values: model.protocols)
     } else {
@@ -663,7 +673,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     return []
   }
 
-  private func value(at row: Int, in values: [String]) -> String? {
+  private func value<Element>(at row: Int, in values: [Element]) -> Element? {
     guard row >= 0, row < values.count else {
       return nil
     }
@@ -812,12 +822,10 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       }
     } else {
       let metaFlag: Int32 = meta ? 1 : 0
-      let className = selectedClass
-      status = className.withCString { name in
-        source.withCString { src in
-          withUnsafeMutablePointer(to: &err) { errPtr in
-            ao_accept_method(name, metaFlag, src, errPtr)
-          }
+      let classID = selectedClassID
+      status = source.withCString { src in
+        withUnsafeMutablePointer(to: &err) { errPtr in
+          ao_accept_method_id(classID, metaFlag, src, errPtr)
         }
       }
     }
