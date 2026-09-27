@@ -497,7 +497,8 @@ bool hasSubclass(CallContext& ctx, Oop cls) {
                      [&](Oop each) { return superclassOf(ctx.heap, each) == cls; });
 }
 
-// SPEC §3.9 削除: `Name>>selector` or `Name class>>selector`, from the name the caller passed.
+// SPEC §3.9 削除: `Name>>selector` or `Name class>>selector`, Name being the class's name slot (or
+// "an unnamed class").
 std::string removedMethodName(std::string_view className, bool meta, std::string_view selector) {
   std::string key(className);
   if (meta) {

@@ -90,8 +90,9 @@ void ao_set_inspect_hook(AoInspectFn fn, void* user);
    (SPEC §3.10 クラス ID), meta other than 0 or 1, a NULL argument. Never AO_ERR, which reads as
    one row. */
 /* SPEC §3.10 クラス ID. The ID of the listed class Smalltalk binds name to; 0 when none, name is
-   NULL, there is no session, or memory runs out. The same class answers the same ID for the
-   whole session; an ID is never used again in the process. */
+   NULL, there is no session, or memory runs out. The same class answers the same ID while
+   it stays listed (a class unbound, dropped from the list and bound again gets a new one); an ID
+   is never used again in the process. */
 int64_t ao_browser_class_id(const char* name);
 int ao_browser_class_count(void);
 /* One row per class (one row however many names bind it), by name and then by ID. class_id (may

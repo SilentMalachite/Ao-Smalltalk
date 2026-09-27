@@ -1225,7 +1225,7 @@ int ao_remove_class(int64_t class_id, AoSpan* err);
 
 Browser の ABI は、クラスを名前でなくクラス ID で指す（P12 追補）。名前は同じクラスを指し続けるとは限らないからである。`Foo` を定義して `Smalltalk at: #Alias put: Foo` とし、`Foo` を消してから新しい `Foo` を定義すると、一覧には `Foo` の行が 2 つあり（旧クラスは別名から届く）、名前ではどちらの行かが決まらない。
 
-- ID は正の 64 ビット整数で、0 は「クラスなし」である。セッションは ID の表（ID → クラス）を 1 つ持ち、Browser の ABI がクラスを渡すとき（`ao_browser_class_at`、`ao_browser_superclass`、`ao_browser_subclass_at`、`ao_browser_class_id`）に ID を付ける。同じセッションでは、同じクラスはいつも同じ ID である。ID は OS のプロセスの中で使い回さない（後のセッションでも。プロセスの pid と同じ）。
+- ID は正の 64 ビット整数で、0 は「クラスなし」である。セッションは ID の表（ID → クラス）を 1 つ持ち、Browser の ABI がクラスを渡すとき（`ao_browser_class_at`、`ao_browser_superclass`、`ao_browser_subclass_at`、`ao_browser_class_id`）に ID を付ける。同じクラスは、一覧に載っているあいだは同じ ID である（束縛が外れて一覧から落ち、また束縛されたクラスには新しい ID が付く）。ID は OS のプロセスの中で使い回さない（後のセッションでも。プロセスの pid と同じ）。
 - 表に入るのはクラス一覧に出るクラスだけである。一覧を作るたびに（ID を取るどの関数も一覧を作る）、一覧に無くなったクラス（どの名前にも束縛されていないクラス）の項目を表から外す。
 - 外した ID、発行していない ID、0 以下の ID は未知である。未知の ID には、件数を返す関数は -1、ほかの関数は `AO_ERR` を返す（`ao_accept_method_id`、`ao_remove_method`、`ao_remove_class` のメッセージは `unknown class id`）。消えたクラスの ID が、あとで別のクラスを指すことは無い。
 - 新しいセッション（`ao_runtime_boot`、`ao_image_load`）は空の表で始まり、前のセッションの ID はそこでは未知である。Browser はロードのあと一覧を読み直し、選択は §3.9「System Browser」の規則で名前から選び直す。
