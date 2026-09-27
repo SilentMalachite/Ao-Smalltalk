@@ -20,12 +20,21 @@ Oop create(Heap& heap, WellKnown& wk, std::uint32_t capacity) {
   return dict;
 }
 
-Oop at(const Heap& heap, Oop dict, Oop key) {
-  if (!dict.isHeap()) {
-    return Oop::nil();
+Oop pairArray(const Heap& heap, Oop dict) {
+  if (!dict.isHeap() || (heap.flags(dict) & kFlagBytes) != 0 ||
+      heap.size(dict) <= kDictSlotArray) {
+    return Oop{};
   }
-  const auto inner = heap.slotAt(dict, kDictSlotArray);
-  if (!inner.isHeap()) {
+  const Oop inner = heap.slotAt(dict, kDictSlotArray);
+  if (!inner.isHeap() || (heap.flags(inner) & kFlagBytes) != 0) {
+    return Oop{};
+  }
+  return inner;
+}
+
+Oop at(const Heap& heap, Oop dict, Oop key) {
+  const Oop inner = pairArray(heap, dict);
+  if (inner.isEmpty()) {
     return Oop::nil();
   }
   const auto n = heap.size(inner);
@@ -55,11 +64,12 @@ static bool growInner(Heap& heap, Oop dict, Oop& inner) {
 
 bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
   // キーはヒープの Symbol。空 Oop（intern の失敗）と nil（空きスロットの印）と即値は登録しない。
-  if (!dict.isHeap() || !key.isHeap()) {
+  // 辞書の形でなければ（instVarAt:put: で書き換えた枠。SPEC §3.3）登録しない。
+  if (!key.isHeap()) {
     return false;
   }
-  auto inner = heap.slotAt(dict, kDictSlotArray);
-  if (!inner.isHeap()) {
+  auto inner = pairArray(heap, dict);
+  if (inner.isEmpty()) {
     return false;
   }
   auto n = heap.size(inner);
@@ -94,14 +104,12 @@ bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
 }
 
 bool removeKey(Heap& heap, Oop dict, Oop key) {
-  // 辞書の枠は instVarAt:put: で何でも入る。バイトのオブジェクトや、配列の枠まで届かない小さな
-  // オブジェクト、配列がバイトのものは辞書でない。範囲の外を読まずに false を返す。
-  if (!dict.isHeap() || !key.isHeap() || (heap.flags(dict) & kFlagBytes) != 0 ||
-      heap.size(dict) <= kDictSlotArray) {
+  // 辞書の枠は instVarAt:put: で何でも入る。形が違えば（pairArray）範囲の外を読まずに false を返す。
+  if (!key.isHeap()) {
     return false;
   }
-  const Oop inner = heap.slotAt(dict, kDictSlotArray);
-  if (!inner.isHeap() || (heap.flags(inner) & kFlagBytes) != 0) {
+  const Oop inner = pairArray(heap, dict);
+  if (inner.isEmpty()) {
     return false;
   }
   const auto n = heap.size(inner);

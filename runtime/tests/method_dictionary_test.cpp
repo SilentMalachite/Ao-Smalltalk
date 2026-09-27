@@ -243,3 +243,39 @@ TEST(MethodDictionary, RemoveKeyOnMalformedDictionaryAnswersFalse) {
   EXPECT_FALSE(ao::MethodDictionary::removeKey(heap, dict, key));
   EXPECT_EQ(1, heap.slotAt(dict, ao::kDictSlotTally).smallIntegerValue());
 }
+
+// SPEC §3.3: a slot rewritten with instVarAt:put: is no dictionary. pairArray answers nothing, at
+// answers nil and atPut takes nothing, without reading out of range: an empty object, a one-slot
+// object, a byte object, a two-slot object whose array is bytes, nil and an immediate.
+TEST(MethodDictionary, MalformedDictionaryAnswersNilAndTakesNothing) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  const ao::Oop key = ao::Symbol::intern(wk, "mdMalformed");
+  const ao::Oop value = ao::Oop::fromSmallInteger(5);
+  const ao::Oop empty = heap.allocateNoGc(ao::Oop::nil(), 0, 0);
+  const ao::Oop oneSlot = heap.allocateNoGc(ao::Oop::nil(), 1, 0);
+  const ao::Oop bytes = heap.allocateNoGc(ao::Oop::nil(), 8, ao::kFlagBytes);
+  const ao::Oop bytesInner = heap.allocateNoGc(ao::Oop::nil(), 8, ao::kFlagBytes);
+  const ao::Oop bytesArrayDict = heap.allocateNoGc(wk.methodDictionaryClass, 2, 0);
+  ASSERT_TRUE(empty.isHeap());
+  ASSERT_TRUE(oneSlot.isHeap());
+  ASSERT_TRUE(bytes.isHeap());
+  ASSERT_TRUE(bytesInner.isHeap());
+  ASSERT_TRUE(bytesArrayDict.isHeap());
+  heap.slotAtPut(oneSlot, ao::kDictSlotTally, ao::Oop::fromSmallInteger(0));
+  heap.slotAtPut(bytesArrayDict, ao::kDictSlotTally, ao::Oop::fromSmallInteger(0));
+  heap.slotAtPut(bytesArrayDict, ao::kDictSlotArray, bytesInner);
+  for (const ao::Oop bad : {empty, oneSlot, bytes, bytesArrayDict, ao::Oop::nil(),
+                            ao::Oop::fromSmallInteger(3)}) {
+    EXPECT_TRUE(ao::MethodDictionary::pairArray(heap, bad).isEmpty());
+    EXPECT_TRUE(ao::MethodDictionary::at(heap, bad, key).isNil());
+    EXPECT_FALSE(ao::MethodDictionary::atPut(heap, bad, key, value));
+  }
+  EXPECT_EQ(0, heap.slotAt(oneSlot, ao::kDictSlotTally).smallIntegerValue());
+  EXPECT_EQ(0, heap.slotAt(bytesArrayDict, ao::kDictSlotTally).smallIntegerValue());
+  const ao::Oop dict = ao::MethodDictionary::create(heap, wk, 2);
+  ASSERT_TRUE(dict.isHeap());
+  EXPECT_EQ(heap.slotAt(dict, ao::kDictSlotArray), ao::MethodDictionary::pairArray(heap, dict));
+}

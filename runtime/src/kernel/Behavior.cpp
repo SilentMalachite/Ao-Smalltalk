@@ -132,14 +132,13 @@ Oop ao_Behavior_methodDict(CallContext& ctx, const Oop& receiver, const Oop*, st
 
 Oop ao_Behavior_selectors(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0 || !receiver.isHeap()) return Oop{};
-  const Oop dict = ctx.heap.slotAt(receiver, kClassSlotMethodDict);
-  if (!dict.isHeap()) {
+  // SPEC §3.3: a slot that is no method dictionary (instVarAt:put:) holds no selector.
+  const Oop pairs =
+      MethodDictionary::pairArray(ctx.heap, ctx.heap.slotAt(receiver, kClassSlotMethodDict));
+  if (pairs.isEmpty()) {
     return allocateRetry(ctx, ctx.wk.arrayClass, 0, 0);
   }
-  Root inner(ctx.roots, ctx.heap.slotAt(dict, kDictSlotArray));
-  if (!inner.slot.isHeap()) {
-    return allocateRetry(ctx, ctx.wk.arrayClass, 0, 0);
-  }
+  Root inner(ctx.roots, pairs);
   const auto n = ctx.heap.size(inner.slot);
   std::uint32_t count = 0;
   for (std::uint32_t i = 0; i + 1 < n; i += 2) {

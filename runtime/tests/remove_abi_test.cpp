@@ -656,3 +656,40 @@ TEST_F(RemoveAbi, RemoveClassNamesTheSmallestDescendant) {
   EXPECT_EQ("class removal refused: B12Deep has subclass B12DeepZ", tryRemoveClass("B12Deep", &rc));
   EXPECT_EQ(AO_ERR, rc);
 }
+
+// SPEC §3.3: a method dictionary slot rewritten with instVarAt:put: (kClassSlotMethodDict is slot
+// 1, index 2) holds no method. A send skips it to the superclass or doesNotUnderstand:, the
+// reflective reads answer nothing, and Accept fails with "install failed"; nothing reads out of
+// range. Each probe sends a selector not sent before, so no cached lookup answers for it.
+TEST_F(RemoveAbi, MalformedMethodDictionaryFallsBackOnSend) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, defineClass("B12Mal", "Object", "B12-Test"));
+  for (int i = 0; i < 4; ++i) {
+    const std::string own = "own" + std::to_string(i) + "\n  ^" + std::to_string(i) + "\n";
+    ASSERT_EQ(AO_OK, ao_accept_method("B12Mal", 0, own.c_str(), &err)) << err.message;
+    const std::string up = "b12up" + std::to_string(i) + "\n  ^5\n";
+    ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, up.c_str(), &err)) << err.message;
+  }
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Mal", 0, "kept\n  ^7\n", &err)) << err.message;
+  const std::string saved = printIt("b12malDict := B12Mal instVarAt: 2");
+  ASSERT_NE(0u, saved.find('<')) << saved;
+  const std::string arr = printIt("b12malArr := Array new: 2. b12malArr at: 2 put: 'xy'");
+  ASSERT_NE(0u, arr.find('<')) << arr;
+  const char* bads[] = {"Array new: 0", "Array new: 1", "'abc'", "b12malArr"};
+  for (int i = 0; i < 4; ++i) {
+    SCOPED_TRACE(bads[i]);
+    const std::string n = std::to_string(i);
+    const std::string put = std::string("B12Mal instVarAt: 2 put: (") + bads[i] + ")";
+    ASSERT_NE(0u, printIt(put.c_str()).find('<'));
+    expectDnu(("B12Mal new own" + n).c_str(), ("own" + n).c_str());
+    EXPECT_EQ("5", printIt(("B12Mal new b12up" + n).c_str()));
+    EXPECT_EQ("false", printIt(("B12Mal includesSelector: #own" + n).c_str()));
+    EXPECT_EQ("nil", printIt(("B12Mal compiledMethodAt: #own" + n).c_str()));
+    EXPECT_EQ("0", printIt("B12Mal selectors size"));
+    const std::string extra = "extra" + n + "\n  ^9\n";
+    EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("B12Mal", 0, extra.c_str(), &err));
+    EXPECT_STREQ("install failed", err.message);
+  }
+  ASSERT_NE(0u, printIt("B12Mal instVarAt: 2 put: b12malDict").find('<'));
+  EXPECT_EQ("7", printIt("B12Mal new kept"));
+}
