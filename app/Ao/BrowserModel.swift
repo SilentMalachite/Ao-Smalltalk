@@ -128,16 +128,39 @@ final class BrowserModel {
     loadClasses().first { $0.row.id == id }?.category
   }
 
-  // Class-list rows only. Protocols stay unless the selected class changed under us.
-  func applyHierarchyList(_ rows: [BrowserClass], selecting id: Int64?) {
+  // Class-list rows only, as they are listed now (answered, for the caller to keep). Protocols
+  // stay unless the selected class changed under us.
+  @discardableResult
+  func applyHierarchyList(_ rows: [BrowserClass], selecting id: Int64?) -> [BrowserClass] {
+    // SPEC §3.9 System Browser: a row whose class left the list (a shape change) gives way to the
+    // class now bound to its name, or goes when no listed class is; the selection follows it.
+    let listed = Set(loadClasses().map(\.row.id))
+    var rebound: [BrowserClass] = []
+    var selecting = id
+    for row in rows {
+      var current = row
+      if !listed.contains(row.id) {
+        let now = Self.classID(named: row.name)
+        guard listed.contains(now) else {
+          continue
+        }
+        current = BrowserClass(id: now, name: row.name)
+        if row.id == id {
+          selecting = now
+        }
+      }
+      if !rebound.contains(where: { $0.id == current.id }) {
+        rebound.append(current)
+      }
+    }
     let previous = selectedClassID
-    classRows = rows
-    if let id, let row = rows.first(where: { $0.id == id }) {
-      selectedClassID = id
+    classRows = rebound
+    if let selecting, let row = rebound.first(where: { $0.id == selecting }) {
+      selectedClassID = selecting
       selectedClassName = row.name
     }
     guard selectedClassID != previous else {
-      return
+      return rebound
     }
     protocols = loadProtocols()
     if let current = selectedProtocol, !protocols.contains(current) {
@@ -148,6 +171,7 @@ final class BrowserModel {
       selectedSelector = nil
     }
     (source, sourceIsPlaceholder) = loadSource()
+    return rebound
   }
 
   // SPEC §3.9 System Browser: the selected ID stays while the list has it. An ID that left the

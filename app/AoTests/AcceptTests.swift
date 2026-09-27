@@ -902,6 +902,46 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(browser.sourceText.contains("instanceVariableNames: 'a'"))
   }
 
+  // SPEC §3.9 System Browser: the hierarchy list follows a shape change too. Showing it after the
+  // selected class was reshaped builds it from the class now bound to the name, and a hierarchy
+  // row whose class was reshaped since gives way to that class; Remove Class… acts on it.
+  func testHierarchyFollowsAReshapedClass() {
+    XCTAssertEqual(acceptClass("B12HPar", category: "B12-Hier"), Int32(AO_OK))
+    XCTAssertEqual(reshapeKid(instanceVariables: ""), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    browser.confirmRemove = { _, _, decide in decide(true) }
+    selectCategory("B12-Hier", in: browser)
+    selectClass("B12HKid", in: browser)
+    XCTAssertEqual(reshapeKid(instanceVariables: "a"), Int32(AO_OK))
+    browser.showHierarchy()
+    XCTAssertEqual(Array(browser.model.classes.suffix(3)), ["Object", "B12HPar", "B12HKid"])
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "B12HKid"))
+    XCTAssertTrue(browser.sourceText.contains("instanceVariableNames: 'a'"))
+
+    // Reshaped under the showing hierarchy: another row's click publishes, then the Kid row is
+    // the new class.
+    XCTAssertEqual(reshapeKid(instanceVariables: "a b"), Int32(AO_OK))
+    selectClass("B12HPar", in: browser)
+    selectClass("B12HKid", in: browser)
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "B12HKid"))
+    XCTAssertEqual(browser.model.classRows.last?.id, BrowserModel.classID(named: "B12HKid"))
+    XCTAssertTrue(browser.sourceText.contains("instanceVariableNames: 'a b'"))
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12HKid"), "nil")
+  }
+
+  // Defines (or reshapes) `B12HPar subclass: #B12HKid` in B12-Hier.
+  private func reshapeKid(instanceVariables: String) -> Int32 {
+    var err = AoSpan()
+    let def = "B12HPar subclass: #B12HKid\n  instanceVariableNames: '\(instanceVariables)'\n"
+      + "  classVariableNames: ''\n  poolDictionaries: ''\n  category: 'B12-Hier'\n"
+    return def.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+  }
+
   // SPEC §3.9 削除: an unaccepted edit asks to discard first; keeping it ends the command, and
   // discarding it goes on to the removal question.
   func testRemoveAsksToDiscardEditsFirst() {

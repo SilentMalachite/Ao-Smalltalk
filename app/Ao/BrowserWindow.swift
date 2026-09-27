@@ -517,6 +517,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       publish()
       return
     }
+    // A class reshaped since the last refresh gives way to the class now bound to its name first.
+    publish()
     hierarchy = model.selectedClassRow.map { model.hierarchy(of: $0, meta: meta) } ?? []
     showingHierarchy = true
     model.applyHierarchyList(hierarchy, selecting: selectedClassID == 0 ? nil : selectedClassID)
@@ -603,7 +605,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       selector: selectorName
     )
     if showingHierarchy {
-      model.applyHierarchyList(hierarchy, selecting: keepClass)
+      hierarchy = model.applyHierarchyList(hierarchy, selecting: keepClass)
     }
     selectedClassID = model.selectedClassID ?? 0
     protocolName = model.selectedProtocol
