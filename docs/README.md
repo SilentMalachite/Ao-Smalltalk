@@ -34,7 +34,7 @@ GitHub 向けの案内（英語が正本）: [`README.md`](../README.md) / [`REA
 
 依存は直線: P0 → P1 → P2 → P3 → P4 → P5 → P6 → P6b → P7 → P8 → P9 → P10 → P11 → P12。
 
-P9 の完了が v1 で、1.0.0 としてリリースした（SPEC §2.4、[`CHANGELOG.md`](../CHANGELOG.md)）。v1 のあとの変更は SPEC を先に直す。 P10 以降の計画書は [`superpowers/plans/`](superpowers/plans/) に置く（P10: [2026-09-26-p10-debugger.md](superpowers/plans/2026-09-26-p10-debugger.md)。P11: [p11-ancient-matsumoto.md](plans/p11-ancient-matsumoto.md)。P12: [2026-09-26-p12-browser-remove.md](superpowers/plans/2026-09-26-p12-browser-remove.md)）。リリースの手順は [`CONTRIBUTING.ja.md`](../CONTRIBUTING.ja.md) の「リリース」にある。
+P9 の完了が v1 で、1.0.0 としてリリースした（SPEC §2.4、[`CHANGELOG.md`](../CHANGELOG.md)）。v1 のあとの変更は SPEC を先に直す。 P10 以降の計画書は [`superpowers/plans/`](superpowers/plans/) に置く（P10: [2026-09-26-p10-debugger.md](superpowers/plans/2026-09-26-p10-debugger.md)。P11: [p11-ancient-matsumoto.md](plans/p11-ancient-matsumoto.md)。P12: [2026-09-26-p12-browser-remove.md](superpowers/plans/2026-09-26-p12-browser-remove.md)、P12 追補: [2026-09-27-p12-class-identity.md](superpowers/plans/2026-09-27-p12-class-identity.md)）。リリースの手順は [`CONTRIBUTING.ja.md`](../CONTRIBUTING.ja.md) の「リリース」にある。
 
 ## PR
 

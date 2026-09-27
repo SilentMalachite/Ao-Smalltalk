@@ -1844,10 +1844,10 @@ P12（§3.9「削除」）は次をすべて満たす。上の項目は変えな
 - [x] 削除のあとにイメージを保存して読み直しても、消えたままである
 - [x] `ao --test image/tests` と CLI は変わらない
 - [x] Kernel 走査テスト緑、`docs/bench.md` の比が悪化しない
-- [ ] `Foo`（カテゴリ Old）を定義して `Smalltalk at: #Alias put: Foo` とし、Browser で `Foo` を消してから新しい `Foo`（カテゴリ New）を定義する。Old の `Foo` の行は旧クラスのメソッドを表示し、その行の Remove Class… は `class removal refused: Foo is not bound to this class` で拒まれて新しい `Foo` が残り、その行の Remove Method… と Accept は旧クラスに効く（§3.9「削除」、§3.10「クラス ID」）
-- [ ] イメージを開き直すと、Browser は同じ名前のクラスを選び直し、そのクラスの削除が効く
-- [ ] 壊れたメソッド辞書（`Foo instVarAt: 2 put: (Array new: 0)`）のクラスのインスタンスへの送信が `doesNotUnderstand:` になり、落ちない（§3.3）
-- [ ] この小節がすべて `[x]`、`PHASE` は `P12`、CHANGELOG の `[Unreleased]` に項目
+- [x] `Foo`（カテゴリ Old）を定義して `Smalltalk at: #Alias put: Foo` とし、Browser で `Foo` を消してから新しい `Foo`（カテゴリ New）を定義する。Old の `Foo` の行は旧クラスのメソッドを表示し、その行の Remove Class… は `class removal refused: Foo is not bound to this class` で拒まれて新しい `Foo` が残り、その行の Remove Method… と Accept は旧クラスに効く（§3.9「削除」、§3.10「クラス ID」）
+- [x] イメージを開き直すと、Browser は同じ名前のクラスを選び直し、そのクラスの削除が効く
+- [x] 壊れたメソッド辞書（`Foo instVarAt: 2 put: (Array new: 0)`）のクラスのインスタンスへの送信が `doesNotUnderstand:` になり、落ちない（§3.3）
+- [x] この小節がすべて `[x]`、`PHASE` は `P12`、CHANGELOG の `[Unreleased]` に項目
 
 ---
 

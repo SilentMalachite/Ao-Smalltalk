@@ -19,6 +19,8 @@ Phase P12 of SPEC §2.3: the System Browser removes methods and classes (SPEC §
 - A halted process's frames are read live through the same `ao_debug_*` reads (`ao_debug_select`). `ao_debug_proceed`, `ao_debug_step_into` / `_over` / `_out` and `ao_debug_abort` go on or end it; Proceed answers nil from the halted send. `NonBoolean receiver` and `cannot return` can only be aborted. `AO_EVAL_DEBUGIT` halts before the first instruction.
 - A halted process is not running, so the runtime is not busy. `ao_image_save` refuses while a process is halted (`halted processes`); loading an image or shutting down abandons halted processes.
 - C ABI: `ao_remove_method` takes a CompiledMethod out of a class's (or its metaclass's) method dictionary, invalidates the method cache for the selector and forgets its source; `ao_remove_class` takes a class's binding out of `Smalltalk` (an alias, the class object and its instances stay). A NativeMethod, an inherited selector, a fixed global, a Kernel class (also through an alias) and a class with a live subclass are refused with a reason. A removed global name is an undeclared identifier in the Workspace again. Both are refused while the runtime is busy. A halted process keeps running the method it was in.
+- C ABI: the Browser names a class by a session class ID instead of its name. `ao_browser_class_id` answers the ID of the class bound to a name; `ao_browser_class_at` answers each row's ID; the reads, `ao_accept_method_id` (new), `ao_remove_method` and `ao_remove_class` take an ID. The class list has one row per class. An old class that only an alias keeps keeps its own row, and its removal is refused (`is not bound to this class`) instead of unbinding the new class of the same name. An unknown or stale ID is refused (`unknown class id`); IDs do not survive a boot or an image load.
+- A method dictionary slot rewritten with `instVarAt:put:` no longer crashes a send: the class has no methods there, so the send goes to the superclass or `doesNotUnderstand:`.
 
 ### Compiler and interpreter
 
@@ -35,6 +37,7 @@ Phase P12 of SPEC §2.3: the System Browser removes methods and classes (SPEC §
 - Smalltalk → Debug it (⌘⇧D) stops before the first statement.
 - Save Image with a halted process fails with an alert that says `halted processes`.
 - Right-click a class or a selector for Remove Class… / Remove Method…, also in the Smalltalk menu. A sheet asks first (`Remove Foo>>bar?`, `Remove class Foo?`; Remove / Cancel). A refusal shows its reason in the Browser's error field.
+- The Browser keeps its rows and selection by class ID, so two classes with the same name are browsed, edited and removed apart. After Open Image it selects the class of the same name again.
 
 ### Known limitations
 
