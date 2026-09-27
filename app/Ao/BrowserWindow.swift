@@ -479,7 +479,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
 
   // SPEC §3.9 削除: success deselects the class and keeps the category while it is still listed;
   // a category that went with its last class gives way to the first one. The hierarchy list
-  // drops the class too.
+  // drops the class too unless an alias keeps it listed (publish applies the list).
   private func performRemoveClass(_ rowID: Int64, named className: String) {
     var err = AoSpan()
     // SPEC §3.9: a class reshaped since the last refresh gives way to the one its name binds.
@@ -495,7 +495,6 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     selectedClassID = 0
     protocolName = nil
     selectorName = nil
-    hierarchy.removeAll { $0.id == classID || $0.id == rowID }
     publish()
     if !model.categories.contains(categoryName), let first = model.categories.first {
       categoryName = first

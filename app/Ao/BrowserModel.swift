@@ -177,6 +177,10 @@ final class BrowserModel {
     if let selecting, let row = rebound.first(where: { $0.id == selecting }) {
       selectedClassID = selecting
       selectedClassName = row.name
+    } else if id != nil {
+      // The selected row went; the choice comes from the hierarchy, not the category's rows.
+      selectedClassID = rebound.first?.id
+      selectedClassName = rebound.first?.name
     }
     guard selectedClassID != previous else {
       return rebound

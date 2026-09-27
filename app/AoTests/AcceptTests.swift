@@ -983,6 +983,52 @@ final class AcceptTests: XCTestCase {
     }
   }
 
+  // SPEC §3.9 System Browser: a hierarchy row whose class no name binds any more goes, and the
+  // selection gives way to the first row of the hierarchy, not to a class of the category that
+  // the hierarchy does not show.
+  func testHierarchySelectionStaysInTheHierarchyList() {
+    XCTAssertEqual(acceptClass("B12HGone", category: "B12-HSel"), Int32(AO_OK))
+    XCTAssertEqual(acceptClass("B12HZed", category: "B12-HSel"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectCategory("B12-HSel", in: browser)
+    selectClass("B12HGone", in: browser)
+    browser.showHierarchy()
+    XCTAssertEqual(browser.model.classes.last, "B12HGone")
+    XCTAssertEqual(printIt("Smalltalk at: #B12HGone put: nil. 0"), "0")
+    guard let side = segmentedControls(in: browser.window.contentView).first else {
+      XCTFail("missing instance/class switch")
+      return
+    }
+    side.selectedSegment = 1
+    XCTAssertTrue(side.sendAction(side.action, to: side.target))
+    XCTAssertFalse(browser.model.classes.contains("B12HGone"))
+    XCTAssertFalse(browser.model.classes.contains("B12HZed"))
+    XCTAssertEqual(browser.model.selectedClassID, browser.model.classRows.first?.id)
+    XCTAssertEqual(selectedName(in: classTable(in: browser), values: browser.model.classes),
+                   browser.model.classes.first)
+  }
+
+  // SPEC §3.9 削除: a class an alias still holds stays listed under its own name with its ID, so
+  // removing it from the hierarchy keeps its row there too.
+  func testRemoveClassInHierarchyKeepsAnAliasedRow() {
+    XCTAssertEqual(acceptClass("B12HAliased", category: "B12-HAlias"), Int32(AO_OK))
+    XCTAssertEqual(printIt("Smalltalk at: #B12HAlias put: B12HAliased. 0"), "0")
+    let id = BrowserModel.classID(named: "B12HAliased")
+    XCTAssertGreaterThan(id, 0)
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    browser.confirmRemove = { _, _, decide in decide(true) }
+    selectCategory("B12-HAlias", in: browser)
+    selectClass("B12HAliased", in: browser)
+    browser.showHierarchy()
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12HAliased"), "nil")
+    XCTAssertTrue(browser.model.classRows.contains { $0.id == id })
+    XCTAssertNil(browser.model.selectedClass)
+  }
+
   // SPEC §3.9 削除: an unaccepted edit asks to discard first; keeping it ends the command, and
   // discarding it goes on to the removal question.
   func testRemoveAsksToDiscardEditsFirst() {
