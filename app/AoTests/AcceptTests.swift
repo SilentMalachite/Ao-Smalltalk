@@ -902,6 +902,47 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(browser.sourceText.contains("instanceVariableNames: 'a'"))
   }
 
+  // SPEC §3.9 System Browser: the Browser does not re-read its lists after a Workspace
+  // evaluation. When the selected class was reshaped there, Accept and Remove… act on the class
+  // now bound to the selected row's name instead of answering unknown class id.
+  func testAcceptAndRemoveFollowAClassReshapedSinceTheLastRefresh() {
+    XCTAssertEqual(acceptClass("B12Stale", category: "B12-Stale"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    browser.confirmRemove = { _, _, decide in decide(true) }
+    selectCategory("B12-Stale", in: browser)
+    selectClass("B12Stale", in: browser)
+    selectProtocol("user", in: browser)
+    XCTAssertEqual(acceptClass("B12Stale", category: "B12-Stale", instanceVariables: "a"), Int32(AO_OK))
+    browser.replaceSource("fresh\n  ^7\n")
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12Stale new fresh"), "7")
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "B12Stale"))
+    XCTAssertEqual(browser.model.selectedSelector, "fresh")
+
+    // Remove Method… from the context menu on the selected row republishes nothing first.
+    XCTAssertEqual(acceptClass("B12Stale", category: "B12-Stale", instanceVariables: "a b"), Int32(AO_OK))
+    XCTAssertEqual(printIt("B12Stale new fresh"), "7")
+    guard let methodRow = browser.model.selectors.firstIndex(of: "fresh") else {
+      XCTFail("missing selector fresh")
+      return
+    }
+    browser.removeMethod(atRow: methodRow)
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertNil(printIt("B12Stale new fresh"))
+
+    // So does Remove Class… on the selected row.
+    XCTAssertEqual(acceptClass("B12Stale", category: "B12-Stale", instanceVariables: "c"), Int32(AO_OK))
+    guard let classRow = browser.model.classes.firstIndex(of: "B12Stale") else {
+      XCTFail("missing class B12Stale")
+      return
+    }
+    browser.removeClass(atRow: classRow)
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12Stale"), "nil")
+  }
+
   // SPEC §3.9 System Browser: the hierarchy list follows a shape change too. Showing it after the
   // selected class was reshaped builds it from the class now bound to the name, and a hierarchy
   // row whose class was reshaped since gives way to that class; Remove Class… acts on it.
@@ -1394,11 +1435,11 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(app.saveImage(to: url))
   }
 
-  // Defines `Object subclass: #name` in category through ao_accept_class.
-  private func acceptClass(_ name: String, category: String) -> Int32 {
+  // Defines (or reshapes) `Object subclass: #name` in category through ao_accept_class.
+  private func acceptClass(_ name: String, category: String, instanceVariables: String = "") -> Int32 {
     var err = AoSpan()
-    let def = "Object subclass: #\(name)\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
-      + "  poolDictionaries: ''\n  category: '\(category)'\n"
+    let def = "Object subclass: #\(name)\n  instanceVariableNames: '\(instanceVariables)'\n"
+      + "  classVariableNames: ''\n  poolDictionaries: ''\n  category: '\(category)'\n"
     return def.withCString { src in
       withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
     }

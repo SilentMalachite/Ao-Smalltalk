@@ -372,15 +372,15 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       return
     }
     let classID = selectedClassID
-    let className = model.selectedClass ?? ""
+    let className = model.selectedClass
     let classSide = meta
-    let message = "Remove \(className)\(classSide ? " class" : "")>>\(selector)?"
+    let message = "Remove \(className ?? "")\(classSide ? " class" : "")>>\(selector)?"
     removeAfterConfirming(
       message: message,
       select: selector == selectorName ? nil : { self.selectorName = selector },
       fromMainMenu: fromMainMenu
     ) {
-      self.performRemoveMethod(selector, ofClassID: classID, meta: classSide)
+      self.performRemoveMethod(selector, ofClassID: classID, named: className, meta: classSide)
     }
   }
 
@@ -401,7 +401,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       },
       fromMainMenu: fromMainMenu
     ) {
-      self.performRemoveClass(picked.id)
+      self.performRemoveClass(picked.id, named: picked.name)
     }
   }
 
@@ -453,9 +453,16 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   // SPEC §3.9 削除: a refusal shows its reason and changes nothing else. Success keeps the
   // category, the class, the side and (while it is still listed) the protocol, and deselects the
   // selector.
-  private func performRemoveMethod(_ selector: String, ofClassID classID: Int64, meta classSide: Bool) {
+  private func performRemoveMethod(
+    _ selector: String,
+    ofClassID rowID: Int64,
+    named className: String?,
+    meta classSide: Bool
+  ) {
     var err = AoSpan()
     let metaFlag: Int32 = classSide ? 1 : 0
+    // SPEC §3.9: a class reshaped since the last refresh gives way to the one its name binds.
+    let classID = BrowserModel.liveClassID(rowID, name: className) ?? rowID
     let status = selector.withCString { sel in
       withUnsafeMutablePointer(to: &err) { errPtr in
         ao_remove_method(classID, metaFlag, sel, errPtr)
@@ -473,8 +480,10 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   // SPEC §3.9 削除: success deselects the class and keeps the category while it is still listed;
   // a category that went with its last class gives way to the first one. The hierarchy list
   // drops the class too.
-  private func performRemoveClass(_ classID: Int64) {
+  private func performRemoveClass(_ rowID: Int64, named className: String) {
     var err = AoSpan()
+    // SPEC §3.9: a class reshaped since the last refresh gives way to the one its name binds.
+    let classID = BrowserModel.liveClassID(rowID, name: className) ?? rowID
     let status = withUnsafeMutablePointer(to: &err) { errPtr in
       ao_remove_class(classID, errPtr)
     }
@@ -486,7 +495,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     selectedClassID = 0
     protocolName = nil
     selectorName = nil
-    hierarchy.removeAll { $0.id == classID }
+    hierarchy.removeAll { $0.id == classID || $0.id == rowID }
     publish()
     if !model.categories.contains(categoryName), let first = model.categories.first {
       categoryName = first
@@ -824,7 +833,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       }
     } else {
       let metaFlag: Int32 = meta ? 1 : 0
-      let classID = selectedClassID
+      // SPEC §3.9: a class reshaped since the last refresh gives way to the one its name binds.
+      let classID = model.resolvedSelectedClassID() ?? selectedClassID
       status = source.withCString { src in
         withUnsafeMutablePointer(to: &err) { errPtr in
           ao_accept_method_id(classID, metaFlag, src, errPtr)

@@ -52,6 +52,25 @@ final class BrowserModel {
     name.withCString { ao_browser_class_id($0) }
   }
 
+  // SPEC §3.9 System Browser: the class a row acts on. Its ID while the runtime lists it; once
+  // the ID left the list (a shape change since the last refresh), the class now bound to the
+  // row's name; nil when neither.
+  static func liveClassID(_ id: Int64, name: String?) -> Int64? {
+    if id > 0, ao_browser_protocol_count(id, 0) >= 0 {
+      return id
+    }
+    guard let name else {
+      return nil
+    }
+    let bound = classID(named: name)
+    return bound == 0 ? nil : bound
+  }
+
+  // The selected row's class, as liveClassID finds it; nil when no class is selected.
+  func resolvedSelectedClassID() -> Int64? {
+    selectedClassID.flatMap { Self.liveClassID($0, name: selectedClassName) }
+  }
+
   func boot() -> Int32 {
     if didBoot {
       return Int32(AO_OK)
