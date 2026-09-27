@@ -4,9 +4,13 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
-Phases P10 and P11 of SPEC §2.3: the post-mortem debugger and the live debugger (SPEC §3.13). By default an evaluation still aborts as before and the debugger only shows the stack as it was when the abort started. In live mode (Ao.app) an evaluation runs on its own process, and `halt` and failures stop it so the Debugger can proceed, step, or abort it.
+## [1.1.0] - 2026-09-27
 
-Phase P12 of SPEC §2.3: the System Browser removes methods and classes (SPEC §3.9 削除). A CompiledMethod on any class, and a class that is not a Kernel class, can be removed after a confirmation. There is no undo.
+Phases P10–P12 of SPEC §2.3, the first phases after v1. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.0.0 load in 1.1.0.
+
+Phases P10 and P11: the post-mortem debugger and the live debugger (SPEC §3.13). By default an evaluation still aborts as before and the debugger only shows the stack as it was when the abort started. In live mode (Ao.app) an evaluation runs on its own process, and `halt` and failures stop it so the Debugger can proceed, step, or abort it.
+
+Phase P12: the System Browser removes methods and classes (SPEC §3.9 削除). A CompiledMethod on any class, and a class that is not a Kernel class, can be removed after a confirmation. There is no undo.
 
 ### Runtime
 
@@ -39,13 +43,22 @@ Phase P12 of SPEC §2.3: the System Browser removes methods and classes (SPEC §
 - Right-click a class or a selector for Remove Class… / Remove Method…, also in the Smalltalk menu. A sheet asks first (`Remove Foo>>bar?`, `Remove class Foo?`; Remove / Cancel). A refusal shows its reason in the Browser's error field.
 - The Browser keeps its rows and selection by class ID, so two classes with the same name are browsed, edited and removed apart. After Open Image it selects the class of the same name again.
 
+### Project
+
+- Release assets: `Ao-1.1.0-macos-arm64.zip`, `ao-cli-1.1.0-macos-arm64.tar.gz`, and `SHA256SUMS`.
+
 ### Known limitations
 
 - An evaluation cannot be interrupted. A loop that never yields hangs the app, and only a force quit ends it.
 - The live debugger has no Restart, no editing in the Debugger, and does not step into natives.
+- A frame whose method has no source (re-accepted or removed while halted, loaded from an image, or filed in) has no statement starts, so Step over and Step into do not stop at its statements: they stop only in a deeper frame (Step into) or back in the sender (SPEC §3.13).
 - No JIT, FFI, networking, or catching of Smalltalk exception objects (SPEC §1.4, §5).
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
+
+### Install
+
+Requires an Apple Silicon Mac with macOS 14 or later. Download `Ao-1.1.0-macos-arm64.zip` (the app) and/or `ao-cli-1.1.0-macos-arm64.tar.gz` (the CLI), then check them with `shasum -a 256 -c SHA256SUMS`. The builds are not notarized: after the first launch attempt, choose **Open Anyway** in System Settings → Privacy & Security, or run `xattr -dr com.apple.quarantine Ao.app`. See the [README](https://github.com/SilentMalachite/Ao-Smalltalk/blob/v1.1.0/README.md) for usage.
 
 ## [1.0.0] - 2026-09-26
 
@@ -95,5 +108,6 @@ The first release. It completes phases P0–P9 of SPEC §2.3, the v1 definition:
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
 
-[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/SilentMalachite/Ao-Smalltalk/releases/tag/v1.0.0
