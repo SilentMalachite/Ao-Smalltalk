@@ -519,6 +519,13 @@ bool isClassObject(CallContext& ctx, Oop obj) {
          ctx.heap.slotAt(meta, kClassSlotThisClass) == obj;
 }
 
+// A class or metaclass: class-shaped, and Behavior is in its class's superclass chain (a class
+// through its metaclass, a metaclass through Metaclass). Processor, Smalltalk and nil are not.
+bool isBehavior(CallContext& ctx, Oop obj) {
+  return isClassShaped(ctx.heap, obj) &&
+         chainIncludes(ctx.heap, ctx.heap.klass(obj), ctx.wk.behaviorClass);
+}
+
 // SPEC §3.9 削除: what the live subclasses of cls (every descendant, not only the direct ones
 // hasSubclass looks at) say for the refusal.
 struct SubclassProbe {
@@ -1402,11 +1409,8 @@ void assignError(compiler::CompileError* error, std::string message) {
 }
 
 bool namesBehavior(CallContext& ctx, std::string_view className) {
-  // A class inherits from Behavior through its metaclass, a metaclass through Metaclass.
-  // Processor, Smalltalk, nil and other globals do not (SPEC §3.10).
-  const Oop obj = ctx.wk.named(className);
-  return isClassShaped(ctx.heap, obj) &&
-         chainIncludes(ctx.heap, ctx.heap.klass(obj), ctx.wk.behaviorClass);
+  // SPEC §3.10: Processor, Smalltalk, nil and other globals are not Behaviors.
+  return isBehavior(ctx, ctx.wk.named(className));
 }
 
 bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
@@ -1418,10 +1422,24 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
     assignError(error, "missing class: " + std::string(className));
     return false;
   }
-  Root cls(ctx.roots, ctx.wk.named(className));
+  return acceptMethodInto(ctx, ctx.wk.named(className), meta, source, error);
+}
+
+bool acceptMethodInto(CallContext& ctx, Oop target, bool meta, std::string_view source,
+                      compiler::CompileError* error) {
+  if (error != nullptr) {
+    *error = {};
+  }
+  // Rooted before anything below can allocate.
+  Root cls(ctx.roots, target);
+  const std::string name = isClassShaped(ctx.heap, cls.slot) ? ownClassName(ctx, cls.slot) : "";
+  if (!isBehavior(ctx, cls.slot)) {
+    assignError(error, "missing class: " + name);
+    return false;
+  }
   const Oop side = meta ? ctx.heap.klass(cls.slot) : cls.slot;
   if (!side.isHeap()) {
-    assignError(error, "missing class: " + std::string(className));
+    assignError(error, "missing class: " + name);
     return false;
   }
   Root tgt(ctx.roots, side);
@@ -1445,7 +1463,7 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
       old.slot = MethodDictionary::at(ctx.heap, dict, sel);
     }
     // SPEC §3.10: in a Kernel class, a native the selector finds through the superclasses is
-    // not hidden either. Kernel-ness is the class the name resolved to, so an alias is one too.
+    // not hidden either. Kernel-ness is the class itself (named or by ID), so an alias is one too.
     // Neither intern nor lookup GCs, so the raw Oops stay valid.
     const Oop found = sel.isHeap() && isKernelClass(ctx.wk, cls.slot)
                           ? lookup(ctx.heap, tgt.slot, sel)
@@ -1531,34 +1549,24 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
   return false;
 }
 
-bool removeMethodNamed(CallContext& ctx, std::string_view className, bool meta,
-                       std::string_view selector, std::string* reason) {
-  if (!namesBehavior(ctx, className)) {
-    *reason = "not a class: " + std::string(className);
+bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selector,
+                    std::string* reason) {
+  // SPEC §3.9 削除: a class with no name shows as "an unnamed class" in the messages.
+  const std::string own = isClassShaped(ctx.heap, cls) ? ownClassName(ctx, cls) : "";
+  const std::string name = own.empty() ? std::string("an unnamed class") : own;
+  if (!isBehavior(ctx, cls)) {
+    *reason = "not a class: " + name;
     return false;
   }
-  const Oop cls = ctx.wk.named(className);
   const Oop side = meta ? ctx.heap.klass(cls) : cls;
-  const std::string where = removedMethodName(className, meta, selector);
-  Oop dict =
+  const std::string where = removedMethodName(name, meta, selector);
+  // SPEC §3.3: MethodDictionary::at and removeKey read a slot that is no dictionary
+  // (instVarAt:put:) as holding no selector, without reading out of range.
+  const Oop dict =
       isClassShaped(ctx.heap, side) ? ctx.heap.slotAt(side, kClassSlotMethodDict) : Oop::nil();
-  // The slot can hold anything after instVarAt:put:. Read it as a dictionary only when it has the
-  // shape forgetMethodSourcesOf checks (a pointer object with the array slot, the array a pointer
-  // object), so MethodDictionary::at reads nothing out of range; anything else holds no selector.
-  if (dict.isHeap() && ((ctx.heap.flags(dict) & kFlagBytes) != 0 ||
-                        ctx.heap.size(dict) <= kDictSlotArray)) {
-    dict = Oop::nil();
-  }
-  if (dict.isHeap()) {
-    const Oop inner = ctx.heap.slotAt(dict, kDictSlotArray);
-    if (!inner.isHeap() || (ctx.heap.flags(inner) & kFlagBytes) != 0) {
-      dict = Oop::nil();
-    }
-  }
   // findSymbol allocates nothing; an unknown selector is one no dictionary can hold.
   const Oop sel = ctx.wk.findSymbol(selector);
-  const Oop method =
-      dict.isHeap() && sel.isHeap() ? MethodDictionary::at(ctx.heap, dict, sel) : Oop::nil();
+  const Oop method = sel.isHeap() ? MethodDictionary::at(ctx.heap, dict, sel) : Oop::nil();
   if (!method.isHeap()) {
     *reason = "selector not found: " + where;
     return false;
@@ -1577,19 +1585,28 @@ bool removeMethodNamed(CallContext& ctx, std::string_view className, bool meta,
   return true;
 }
 
-bool removeClassNamed(CallContext& ctx, std::string_view className, std::string* reason) {
-  const Oop cls = ctx.wk.named(className);
+bool removeClassOf(CallContext& ctx, Oop cls, std::string* reason) {
+  // SPEC §3.9 削除: `own` is the name slot's text (empty when it is no String) and is what the
+  // binding checks use; `name` is what the messages show ("an unnamed class" for no name).
+  const std::string own = isClassShaped(ctx.heap, cls) ? ownClassName(ctx, cls) : "";
+  const std::string name = own.empty() ? std::string("an unnamed class") : own;
   if (!isClassObject(ctx, cls)) {
-    *reason = "not a class: " + std::string(className);
+    *reason = "not a class: " + name;
     return false;
   }
-  const std::string refused = "class removal refused: " + std::string(className);
-  if (ctx.wk.isFixedGlobal(className)) {
+  const std::string refused = "class removal refused: " + name;
+  if (ctx.wk.isFixedGlobal(own)) {
     *reason = refused + " is a fixed global";
     return false;
   }
   if (isKernelClass(ctx.wk, cls)) {
     *reason = refused + " is a kernel class";
+    return false;
+  }
+  // SPEC §3.9 削除: only the class's own name is unbound, and only while it binds this class; an
+  // old class only an alias keeps, or a nameless one, is refused.
+  if (own.empty() || ctx.wk.named(own) != cls) {
+    *reason = refused + " is not bound to this class";
     return false;
   }
   const SubclassProbe sub = probeSubclasses(ctx, cls);
@@ -1598,7 +1615,7 @@ bool removeClassNamed(CallContext& ctx, std::string_view className, std::string*
                                : refused + " has subclass " + sub.name;
     return false;
   }
-  if (!ctx.wk.undefine(className)) {
+  if (!ctx.wk.undefine(own)) {
     *reason = "remove failed";
     return false;
   }

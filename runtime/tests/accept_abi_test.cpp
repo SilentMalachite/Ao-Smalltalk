@@ -3092,3 +3092,31 @@ TEST(AcceptAbi, ClassIdTableDoesNotKeepSubclassesAlive) {
       << err.message;
   ao_runtime_shutdown();
 }
+
+// SPEC §3.10: ao_accept_method_id is ao_accept_method for the class the ID names: the native
+// overwrite rules (Kernel-ness by the class itself, both sides), compile errors, the source table.
+TEST(AcceptAbi, AcceptMethodIdFollowsAcceptMethodRules) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  const std::int64_t smallInt = ao_browser_class_id("SmallInteger");
+  ASSERT_GT(smallInt, 0);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method_id(smallInt, 0, "<= x\n  ^false\n", &err));
+  EXPECT_STREQ("native selector overwrite refused: <=", err.message);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method_id(smallInt, 1, "new\n  ^3\n", &err));
+  EXPECT_STREQ("native selector overwrite refused: new", err.message);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method_id(smallInt, 0, "foo\n  ^\n", &err));
+  EXPECT_STRNE("", err.message);
+  const std::int64_t object = ao_browser_class_id("Object");
+  ASSERT_EQ(AO_OK, ao_accept_method_id(object, 0, "b12idFoo\n  ^1\n", &err)) << err.message;
+  EXPECT_STREQ("", err.message);
+  ASSERT_EQ(AO_OK, ao_eval("3 b12idFoo", 10, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("1", out);
+  char shown[64];
+  ASSERT_EQ(AO_OK, ao_browser_source(object, 0, "b12idFoo", shown, sizeof(shown)));
+  EXPECT_STREQ("b12idFoo\n  ^1\n", shown);
+  ASSERT_EQ(AO_OK, ao_accept_method_id(object, 1, "b12idMake\n  ^7\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_eval("Object b12idMake", 16, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+  ao_runtime_shutdown();
+}

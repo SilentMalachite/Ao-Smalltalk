@@ -448,6 +448,33 @@ extern "C" int ao_accept_method(const char* class_name, int meta, const char* so
   });
 }
 
+extern "C" int ao_accept_method_id(int64_t class_id, int meta, const char* source, AoSpan* err) {
+  clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
+  return guarded(AO_ERR, [&] {
+    ao::Session* s = ao::session();
+    if (s == nullptr || s->ctx == nullptr || source == nullptr || (meta != 0 && meta != 1)) {
+      return AO_ERR;
+    }
+    // SPEC §3.10 クラス ID: resolving rebuilds the class list; nothing collects before
+    // acceptMethodInto roots the class.
+    const ao::Oop cls = ao::sessionClassForId(class_id);
+    if (cls.isEmpty()) {
+      setMessage(err, "unknown class id");
+      return AO_ERR;
+    }
+    ao::compiler::CompileError error;
+    if (!ao::acceptMethodInto(*s->ctx, cls, meta == 1, source, &error)) {
+      fillSpan(err, error);
+      return AO_ERR_COMPILE;
+    }
+    return AO_OK;
+  });
+}
+
 extern "C" int ao_accept_class(const char* source, AoSpan* err) {
   clearSpan(err);
   const AbiEntry entry;
@@ -468,8 +495,7 @@ extern "C" int ao_accept_class(const char* source, AoSpan* err) {
   });
 }
 
-extern "C" int ao_remove_method(const char* class_name, int meta, const char* selector,
-                                AoSpan* err) {
+extern "C" int ao_remove_method(int64_t class_id, int meta, const char* selector, AoSpan* err) {
   clearSpan(err);
   const AbiEntry entry;
   if (!entry.entered()) {
@@ -479,12 +505,16 @@ extern "C" int ao_remove_method(const char* class_name, int meta, const char* se
   std::string reason;
   const int rc = guarded(-1, [&] {
     ao::Session* s = ao::session();
-    if (s == nullptr || s->ctx == nullptr || class_name == nullptr || selector == nullptr ||
-        (meta != 0 && meta != 1)) {
+    if (s == nullptr || s->ctx == nullptr || selector == nullptr || (meta != 0 && meta != 1)) {
       return AO_ERR;
     }
-    return ao::removeMethodNamed(*s->ctx, class_name, meta == 1, selector, &reason) ? AO_OK
-                                                                                     : AO_ERR;
+    // SPEC §3.10 クラス ID: resolving rebuilds the class list; nothing here allocates on the heap.
+    const ao::Oop cls = ao::sessionClassForId(class_id);
+    if (cls.isEmpty()) {
+      reason = "unknown class id";
+      return AO_ERR;
+    }
+    return ao::removeMethodOf(*s->ctx, cls, meta == 1, selector, &reason) ? AO_OK : AO_ERR;
   });
   if (rc == AO_OK) {
     return AO_OK;
@@ -494,7 +524,7 @@ extern "C" int ao_remove_method(const char* class_name, int meta, const char* se
   return AO_ERR;
 }
 
-extern "C" int ao_remove_class(const char* class_name, AoSpan* err) {
+extern "C" int ao_remove_class(int64_t class_id, AoSpan* err) {
   clearSpan(err);
   const AbiEntry entry;
   if (!entry.entered()) {
@@ -504,10 +534,15 @@ extern "C" int ao_remove_class(const char* class_name, AoSpan* err) {
   std::string reason;
   const int rc = guarded(-1, [&] {
     ao::Session* s = ao::session();
-    if (s == nullptr || s->ctx == nullptr || class_name == nullptr) {
+    if (s == nullptr || s->ctx == nullptr) {
       return AO_ERR;
     }
-    return ao::removeClassNamed(*s->ctx, class_name, &reason) ? AO_OK : AO_ERR;
+    const ao::Oop cls = ao::sessionClassForId(class_id);
+    if (cls.isEmpty()) {
+      reason = "unknown class id";
+      return AO_ERR;
+    }
+    return ao::removeClassOf(*s->ctx, cls, &reason) ? AO_OK : AO_ERR;
   });
   if (rc == AO_OK) {
     return AO_OK;

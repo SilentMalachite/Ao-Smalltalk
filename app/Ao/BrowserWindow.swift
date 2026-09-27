@@ -450,11 +450,10 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   private func performRemoveMethod(_ selector: String, ofClass className: String, meta classSide: Bool) {
     var err = AoSpan()
     let metaFlag: Int32 = classSide ? 1 : 0
-    let status = className.withCString { name in
-      selector.withCString { sel in
-        withUnsafeMutablePointer(to: &err) { errPtr in
-          ao_remove_method(name, metaFlag, sel, errPtr)
-        }
+    let classID = BrowserModel.classID(named: className)
+    let status = selector.withCString { sel in
+      withUnsafeMutablePointer(to: &err) { errPtr in
+        ao_remove_method(classID, metaFlag, sel, errPtr)
       }
     }
     guard status == Int32(AO_OK) else {
@@ -471,10 +470,9 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   // drops the name too.
   private func performRemoveClass(_ className: String) {
     var err = AoSpan()
-    let status = className.withCString { name in
-      withUnsafeMutablePointer(to: &err) { errPtr in
-        ao_remove_class(name, errPtr)
-      }
+    let classID = BrowserModel.classID(named: className)
+    let status = withUnsafeMutablePointer(to: &err) { errPtr in
+      ao_remove_class(classID, errPtr)
     }
     guard status == Int32(AO_OK) else {
       errorField.stringValue = spanMessage(err)

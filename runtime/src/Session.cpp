@@ -1519,6 +1519,16 @@ std::int64_t browserClassId(const char* name) {
   return 0;
 }
 
+Oop sessionClassForId(std::int64_t id) {
+  Session* s = session();
+  if (s == nullptr) {
+    return Oop{};
+  }
+  const auto rows = classRows(*s);
+  const ClassRow* row = findClassId(rows, id);
+  return row == nullptr ? Oop{} : row->cls;
+}
+
 std::vector<const Oop*> classIdRootSlots() {
   std::vector<const Oop*> slots;
   if (Session* s = session()) {

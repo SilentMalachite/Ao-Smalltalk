@@ -2,6 +2,7 @@
 
 #include "../src/Session.hpp"
 #include "ao/Bootstrap.hpp"
+#include "ao/Compile.hpp"
 #include "ao/Globals.hpp"
 #include "ao/Heap.hpp"
 #include "ao/MethodDictionary.hpp"
@@ -12,7 +13,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -101,15 +104,23 @@ int defineClass(const char* name, const char* super, const char* category) {
   return ao_accept_class(def.c_str(), &err);
 }
 
+// The ID the Browser hands out for name (SPEC §3.10 クラス ID); 0 for NULL or a name that binds no
+// listed class.
+std::int64_t idOf(const char* name) { return name == nullptr ? 0 : ao_browser_class_id(name); }
+
 // The call's message. err starts non-empty, so an AO_OK that leaves it alone shows.
-std::string tryRemoveMethod(const char* cls, int meta, const char* sel, int* rc) {
+std::string tryRemoveMethodId(std::int64_t id, int meta, const char* sel, int* rc) {
   AoSpan err{};
   std::strcpy(err.message, "stale");
   err.start = 7;
-  *rc = ao_remove_method(cls, meta, sel, &err);
+  *rc = ao_remove_method(id, meta, sel, &err);
   EXPECT_EQ(0u, err.start);
   EXPECT_EQ(0u, err.end);
   return err.message;
+}
+
+std::string tryRemoveMethod(const char* cls, int meta, const char* sel, int* rc) {
+  return tryRemoveMethodId(idOf(cls), meta, sel, rc);
 }
 
 bool browserLists(const char* className) {
@@ -133,14 +144,27 @@ ao::Oop methodOf(const char* cls, const char* sel) {
   return ao::MethodDictionary::at(s->heap, dict, s->wk.findSymbol(sel));
 }
 
-std::string tryRemoveClass(const char* cls, int* rc) {
+std::string tryRemoveClassId(std::int64_t id, int* rc) {
   AoSpan err{};
   std::strcpy(err.message, "stale");
   err.start = 7;
-  *rc = ao_remove_class(cls, &err);
+  *rc = ao_remove_class(id, &err);
   EXPECT_EQ(0u, err.start);
   EXPECT_EQ(0u, err.end);
   return err.message;
+}
+
+std::string tryRemoveClass(const char* cls, int* rc) { return tryRemoveClassId(idOf(cls), rc); }
+
+// The session's class ID table holds id. Reads the table only: lists no class, so issues and
+// prunes nothing.
+bool tableHolds(std::int64_t id) {
+  for (const auto& entry : ao::session()->classIds) {
+    if (entry->id == id) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // The index in Smalltalk's pair array of name's key, or -1.
@@ -194,8 +218,17 @@ bool kernelDictsAreNative() {
 }
 
 struct BusyRemove {
+  std::int64_t objectId = 0;
+  std::int64_t busyId = 0;
+  std::int64_t goneId = 0;
   int methodRc = -9;
   int classRc = -9;
+  int acceptRc = -9;
+  std::int64_t readId = -9;
+  std::int64_t newId = -9;
+  bool goneHeldBeforeRead = false;
+  bool goneHeldAfterRead = true;
+  int goneProtocols = -9;
   std::string methodMsg;
   std::string classMsg;
 };
@@ -204,10 +237,18 @@ struct BusyRemove {
 void removeFromHook(const char*, int, int, void* user) {
   auto* b = static_cast<BusyRemove*>(user);
   AoSpan err{};
-  b->methodRc = ao_remove_method("Object", 0, "b12busy", &err);
+  b->methodRc = ao_remove_method(b->objectId, 0, "b12busy", &err);
   b->methodMsg = err.message;
-  b->classRc = ao_remove_class("B12Busy", &err);
+  b->classRc = ao_remove_class(b->busyId, &err);
   b->classMsg = err.message;
+  b->acceptRc = ao_accept_method_id(b->objectId, 0, "b12busy\n  ^2\n", &err);
+  // The refused calls above resolved no ID, so the table is as the test left it; the reads below
+  // are the first to list the classes since then: they issue B12BusyNew's ID and prune goneId.
+  b->goneHeldBeforeRead = tableHolds(b->goneId);
+  b->readId = ao_browser_class_id("B12Busy");
+  b->newId = ao_browser_class_id("B12BusyNew");
+  b->goneHeldAfterRead = tableHolds(b->goneId);
+  b->goneProtocols = ao_browser_protocol_count(b->goneId, 0);
 }
 
 }  // namespace
@@ -280,8 +321,9 @@ TEST_F(RemoveAbi, RemoveNativeMethodIsRefused) {
   EXPECT_EQ("'Object'", printIt("Object new printString"));
 }
 
-// SPEC §3.9 削除: only the side's own dictionary counts: an inherited selector, an unknown one, a
-// name that is no class, an empty name or selector, and a bad meta are refused with their reasons.
+// SPEC §3.9 削除: only the side's own dictionary counts: an inherited selector, an unknown one and
+// an empty one are refused with their reasons. A name that binds no listed class has no ID
+// (unknown class id); a bad meta or a NULL selector is "remove failed".
 TEST_F(RemoveAbi, RemoveMissingOrInheritedSelectorIsRefused) {
   ASSERT_EQ(AO_OK, defineClass("B12Child", "Object", "B12-Test"));
   int rc = -9;
@@ -294,22 +336,18 @@ TEST_F(RemoveAbi, RemoveMissingOrInheritedSelectorIsRefused) {
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_EQ("selector not found: B12Child>>", tryRemoveMethod("B12Child", 0, "", &rc));
   EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("not a class: Processor", tryRemoveMethod("Processor", 0, "foo", &rc));
-  EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("not a class: Smalltalk", tryRemoveMethod("Smalltalk", 0, "foo", &rc));
-  EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("not a class: B12Nope", tryRemoveMethod("B12Nope", 0, "foo", &rc));
-  EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("not a class: ", tryRemoveMethod("", 0, "foo", &rc));
+  for (const char* none : {"Processor", "Smalltalk", "B12Nope", ""}) {
+    EXPECT_EQ("unknown class id", tryRemoveMethod(none, 0, "foo", &rc)) << none;
+    EXPECT_EQ(AO_ERR, rc);
+  }
+  EXPECT_EQ("unknown class id", tryRemoveMethod(nullptr, 0, "foo", &rc));
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_EQ("remove failed", tryRemoveMethod("B12Child", 2, "foo", &rc));
-  EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("remove failed", tryRemoveMethod(nullptr, 0, "foo", &rc));
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_EQ("remove failed", tryRemoveMethod("B12Child", 0, nullptr, &rc));
   EXPECT_EQ(AO_ERR, rc);
   // err may be NULL.
-  EXPECT_EQ(AO_ERR, ao_remove_method("B12Child", 0, "nope", nullptr));
+  EXPECT_EQ(AO_ERR, ao_remove_method(idOf("B12Child"), 0, "nope", nullptr));
   EXPECT_EQ("'3'", printIt("3 printString"));
 }
 
@@ -338,7 +376,7 @@ TEST_F(RemoveAbi, RemoveMethodDropsSourceEntry) {
 }
 
 // SPEC §3.9 削除, §6: the name reads nil (PushGlobal, no recompile), the instances keep their
-// class and methods, and the Browser no longer lists the class.
+// class and methods, and the Browser no longer lists the class; its ID is unknown from then on.
 TEST_F(RemoveAbi, RemovedClassNameReadsNilAndInstancesKeepWorking) {
   AoSpan err{};
   ASSERT_EQ(AO_OK, defineClass("B12Inst", "Object", "B12-Test"));
@@ -350,14 +388,17 @@ TEST_F(RemoveAbi, RemovedClassNameReadsNilAndInstancesKeepWorking) {
   // An instance prints as its class name (Object>>printString).
   EXPECT_EQ("B12Inst", printIt("b12i := B12Inst new"));
   ASSERT_TRUE(browserLists("B12Inst"));
+  const std::int64_t id = idOf("B12Inst");
   int rc = -9;
-  EXPECT_EQ("", tryRemoveClass("B12Inst", &rc));
+  EXPECT_EQ("", tryRemoveClassId(id, &rc));
   EXPECT_EQ(AO_OK, rc);
   EXPECT_EQ("nil", printIt("Object new b12useInst"));
   EXPECT_EQ("7", printIt("b12i answer"));
   EXPECT_EQ("'B12Inst'", printIt("b12i printString"));
   EXPECT_FALSE(browserLists("B12Inst"));
-  EXPECT_EQ("not a class: B12Inst", tryRemoveClass("B12Inst", &rc));
+  EXPECT_EQ("unknown class id", tryRemoveClass("B12Inst", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("unknown class id", tryRemoveClassId(id, &rc));
   EXPECT_EQ(AO_ERR, rc);
 }
 
@@ -380,40 +421,47 @@ TEST_F(RemoveAbi, RemovedClassNameBecomesWorkspaceVariable) {
   EXPECT_EQ("3", printIt("B12Var"));
 }
 
-// SPEC §3.9 削除: a fixed global (a Kernel class, a vendor stub), a name that is no class
-// (Processor, Smalltalk, a metaclass, an unknown or empty name) and a NULL name are refused.
+// SPEC §3.9 削除: a fixed global (a Kernel class, a vendor stub) is refused by its own name. A
+// name that binds no listed class (Processor, Smalltalk, a metaclass, an unknown or empty name)
+// and NULL have no ID.
 TEST_F(RemoveAbi, RemoveFixedGlobalIsRefused) {
   int rc = -9;
   EXPECT_EQ("class removal refused: Object is a fixed global", tryRemoveClass("Object", &rc));
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_EQ("class removal refused: Bag is a fixed global", tryRemoveClass("Bag", &rc));
   EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("not a class: Processor", tryRemoveClass("Processor", &rc));
-  EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("not a class: Smalltalk", tryRemoveClass("Smalltalk", &rc));
-  EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("not a class: B12Nope", tryRemoveClass("B12Nope", &rc));
-  EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("not a class: ", tryRemoveClass("", &rc));
-  EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ("remove failed", tryRemoveClass(nullptr, &rc));
+  for (const char* none : {"Processor", "Smalltalk", "B12Nope", ""}) {
+    EXPECT_EQ("unknown class id", tryRemoveClass(none, &rc)) << none;
+    EXPECT_EQ(AO_ERR, rc);
+  }
+  EXPECT_EQ("unknown class id", tryRemoveClass(nullptr, &rc));
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_EQ(std::string::npos, printIt("Smalltalk at: #B12Meta put: Object class").find("<"));
-  EXPECT_EQ("not a class: B12Meta", tryRemoveClass("B12Meta", &rc));
+  EXPECT_EQ("unknown class id", tryRemoveClass("B12Meta", &rc));
   EXPECT_EQ(AO_ERR, rc);
-  EXPECT_EQ(AO_ERR, ao_remove_class("Object", nullptr));
+  EXPECT_EQ(AO_ERR, ao_remove_class(idOf("Object"), nullptr));
   // A class object's own printString shows its metaclass's name, "<Name> class".
   EXPECT_EQ("Object class", printIt("Object"));
   EXPECT_EQ("Bag class", printIt("Bag"));
 }
 
-// SPEC §3.9 削除: a Kernel class through an alias is one by identity, as ao_accept_method sees it.
+// SPEC §3.9 削除: a Kernel class is refused by identity. Through an alias it is the same class
+// with the same ID (refused by its own fixed name); with its name slot rewritten (instVarAt:put:,
+// kClassSlotName is slot 3, index 4) the identity check still refuses it.
 TEST_F(RemoveAbi, RemoveKernelAliasIsRefused) {
   // A class object's own printString shows its metaclass's name, "<Name> class".
   EXPECT_EQ("SmallInteger class", printIt("Smalltalk at: #B12IntAlias put: SmallInteger"));
+  EXPECT_EQ(idOf("SmallInteger"), idOf("B12IntAlias"));
   int rc = -9;
-  EXPECT_EQ("class removal refused: B12IntAlias is a kernel class", tryRemoveClass("B12IntAlias", &rc));
+  EXPECT_EQ("class removal refused: SmallInteger is a fixed global",
+            tryRemoveClass("B12IntAlias", &rc));
   EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ(std::string::npos, printIt("b12name := SmallInteger instVarAt: 4").find("<"));
+  EXPECT_EQ("'B12Renamed'", printIt("SmallInteger instVarAt: 4 put: 'B12Renamed'"));
+  EXPECT_EQ("class removal refused: B12Renamed is a kernel class",
+            tryRemoveClass("SmallInteger", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ(std::string::npos, printIt("SmallInteger instVarAt: 4 put: b12name").find("<"));
   EXPECT_EQ("SmallInteger class", printIt("B12IntAlias"));
 }
 
@@ -438,12 +486,13 @@ TEST_F(RemoveAbi, RemoveClassWithSubclassIsRefused) {
   EXPECT_EQ(AO_OK, rc);
   // An unbound subclass a workspace variable keeps alive through an instance still counts, and
   // with its name slot nilled (instVarAt:put:, kClassSlotName is slot 3, index 4) it is unnamed.
+  // It goes while its name still binds it (a nameless class is not bound under its own name).
   ASSERT_EQ(AO_OK, defineClass("B12Anon", "B12Base", "B12-Test"));
   EXPECT_EQ("B12Anon", printIt("b12anon := B12Anon new"));
-  // instVarAt:put: answers the value (ao_Object_instVarAt_put_).
-  EXPECT_EQ("nil", printIt("B12Anon instVarAt: 4 put: nil"));
   EXPECT_EQ("", tryRemoveClass("B12Anon", &rc));
   EXPECT_EQ(AO_OK, rc);
+  // instVarAt:put: answers the value (ao_Object_instVarAt_put_).
+  EXPECT_EQ("nil", printIt("b12anon class instVarAt: 4 put: nil"));
   EXPECT_EQ("class removal refused: B12Base has an unnamed subclass", tryRemoveClass("B12Base", &rc));
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_EQ("nil", printIt("b12anon := nil"));
@@ -452,26 +501,40 @@ TEST_F(RemoveAbi, RemoveClassWithSubclassIsRefused) {
   EXPECT_EQ("nil", printIt("B12Base"));
 }
 
-// SPEC §3.9 削除: only the named binding goes; an alias keeps the class reachable, and the
-// Browser keeps listing it under its own name slot (unaffected by which global reaches it), not
-// under the alias's name.
+// SPEC §3.9 削除: only the class's own binding goes; an alias keeps the class reachable, and the
+// Browser keeps listing it under its own name slot with the same ID. That row's removal is refused:
+// its name no longer binds it. A nameless class's row is refused the same way.
 TEST_F(RemoveAbi, RemoveClassKeepsAliases) {
   AoSpan err{};
   ASSERT_EQ(AO_OK, defineClass("B12Real", "Object", "B12-Test"));
   ASSERT_EQ(AO_OK, ao_accept_method("B12Real", 0, "answer\n  ^9\n", &err)) << err.message;
   // A class object's own printString shows its metaclass's name, "<Name> class".
   EXPECT_EQ("B12Real class", printIt("Smalltalk at: #B12Alias put: B12Real"));
+  const std::int64_t id = idOf("B12Real");
+  EXPECT_EQ(id, idOf("B12Alias"));
   int rc = -9;
-  EXPECT_EQ("", tryRemoveClass("B12Real", &rc));
+  EXPECT_EQ("", tryRemoveClassId(id, &rc));
   EXPECT_EQ(AO_OK, rc);
   EXPECT_EQ("nil", printIt("B12Real"));
   EXPECT_EQ("9", printIt("B12Alias new answer"));
   // classRows reads the class's own name slot, not the binding key it was reached through.
   EXPECT_FALSE(browserLists("B12Alias"));
   EXPECT_TRUE(browserLists("B12Real"));
-  EXPECT_EQ("", tryRemoveClass("B12Alias", &rc));
-  EXPECT_EQ(AO_OK, rc);
-  EXPECT_FALSE(browserLists("B12Alias"));
+  EXPECT_EQ(id, idOf("B12Alias"));
+  EXPECT_EQ("class removal refused: B12Real is not bound to this class", tryRemoveClassId(id, &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("9", printIt("B12Alias new answer"));
+  EXPECT_TRUE(browserLists("B12Real"));
+  // Unbinding the alias from the Workspace drops the row.
+  EXPECT_EQ("nil", printIt("Smalltalk at: #B12Alias put: nil"));
+  EXPECT_FALSE(browserLists("B12Real"));
+  // A class whose name slot is no String is not bound under its own name either.
+  ASSERT_EQ(AO_OK, defineClass("B12Nameless", "Object", "B12-Test"));
+  EXPECT_EQ("nil", printIt("B12Nameless instVarAt: 4 put: nil"));
+  EXPECT_EQ("class removal refused: an unnamed class is not bound to this class",
+            tryRemoveClass("B12Nameless", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_NE(0, idOf("B12Nameless"));
 }
 
 // SPEC §3.6: the emptied pair is the one the next registration takes; the tally follows.
@@ -491,12 +554,26 @@ TEST_F(RemoveAbi, RemovedGlobalSlotIsReused) {
   EXPECT_EQ("3", printIt("B12Next"));
 }
 
-// SPEC §3.10 再入と例外: from a hook the runtime is busy, and both calls do nothing.
+// SPEC §3.10 再入と例外: from a hook the runtime is busy: both removals and ao_accept_method_id do
+// nothing, while the Browser reads (which may issue and prune IDs) still answer. B12BusyNew is
+// defined after the test's IDs were taken and first listed inside the hook, so a read there issues
+// its ID; B12BusyGone had an ID and was unbound before the hook, so a read there prunes it.
 TEST_F(RemoveAbi, RemoveWhileBusyIsRefused) {
   AoSpan err{};
   ASSERT_EQ(AO_OK, ao_accept_method("Object", 0, "b12busy\n  ^1\n", &err)) << err.message;
   ASSERT_EQ(AO_OK, defineClass("B12Busy", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, defineClass("B12BusyGone", "Object", "B12-Test"));
   BusyRemove seen;
+  seen.objectId = idOf("Object");
+  seen.busyId = idOf("B12Busy");
+  seen.goneId = idOf("B12BusyGone");
+  ASSERT_GT(seen.goneId, 0);
+  int rc = -9;
+  // The removal resolves the ID before it unbinds, so the table still holds goneId afterwards.
+  EXPECT_EQ("", tryRemoveClassId(seen.goneId, &rc));
+  EXPECT_EQ(AO_OK, rc);
+  ASSERT_TRUE(tableHolds(seen.goneId));
+  ASSERT_EQ(AO_OK, defineClass("B12BusyNew", "Object", "B12-Test"));
   ao_set_transcript_hook(removeFromHook, &seen);
   EXPECT_EQ("7", printIt("Transcript show: 'x'. 7"));
   ao_set_transcript_hook(nullptr, nullptr);
@@ -504,6 +581,13 @@ TEST_F(RemoveAbi, RemoveWhileBusyIsRefused) {
   EXPECT_EQ("runtime is busy", seen.methodMsg);
   EXPECT_EQ(AO_ERR, seen.classRc);
   EXPECT_EQ("runtime is busy", seen.classMsg);
+  EXPECT_EQ(AO_ERR, seen.acceptRc);
+  EXPECT_EQ(seen.busyId, seen.readId);
+  EXPECT_TRUE(seen.goneHeldBeforeRead);
+  EXPECT_GT(seen.newId, 0);
+  EXPECT_FALSE(seen.goneHeldAfterRead);
+  EXPECT_EQ(-1, seen.goneProtocols);
+  EXPECT_EQ(seen.newId, idOf("B12BusyNew"));
   EXPECT_EQ("1", printIt("3 b12busy"));
   EXPECT_TRUE(browserLists("B12Busy"));
 }
@@ -522,10 +606,10 @@ TEST_F(RemoveAbi, RefusedRemoveChangesNothing) {
   const std::size_t slots = ao::methodSourceRootSlots(false).size();
   const int protocols = ao_browser_protocol_count(ao_browser_class_id("Object"), 0);
   int rc = -9;
-  EXPECT_EQ(AO_ERR, ao_remove_method("Object", 0, "printString", &err));
-  EXPECT_EQ(AO_ERR, ao_remove_method("B12Kid2", 0, "who", &err));
-  EXPECT_EQ(AO_ERR, ao_remove_class("Object", &err));
-  EXPECT_EQ(AO_ERR, ao_remove_class("B12Par", &err));
+  EXPECT_EQ(AO_ERR, ao_remove_method(idOf("Object"), 0, "printString", &err));
+  EXPECT_EQ(AO_ERR, ao_remove_method(idOf("B12Kid2"), 0, "who", &err));
+  EXPECT_EQ(AO_ERR, ao_remove_class(idOf("Object"), &err));
+  EXPECT_EQ(AO_ERR, ao_remove_class(idOf("B12Par"), &err));
   EXPECT_EQ("class removal refused: B12Par has subclass B12Kid2", tryRemoveClass("B12Par", &rc));
   EXPECT_EQ(classes, ao_browser_class_count());
   EXPECT_EQ(tally, globalsTally());
@@ -604,12 +688,13 @@ TEST_F(RemoveAbi, RemovedMethodKeepsRunningInHaltedProcess) {
 
 // SPEC §3.10: AoSpan.message holds 255 bytes; a longer reason is cut, never emptied.
 TEST_F(RemoveAbi, LongNameCutsTheMessageAt255Bytes) {
-  const std::string name(300, 'N');
+  const std::string name = "B" + std::string(299, 'N');
+  ASSERT_EQ(AO_OK, defineClass(name.c_str(), "Object", "B12-Test"));
   int rc = -9;
-  const std::string got = tryRemoveClass(name.c_str(), &rc);
+  const std::string got = tryRemoveMethod(name.c_str(), 0, "foo", &rc);
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_EQ(255u, got.size());
-  EXPECT_EQ(("not a class: " + name).substr(0, 255), got);
+  EXPECT_EQ(("selector not found: " + name + ">>foo").substr(0, 255), got);
 }
 
 // SPEC §3.9 削除: the method dictionary slot can hold anything after instVarAt:put: (kClassSlotMethodDict
@@ -692,4 +777,124 @@ TEST_F(RemoveAbi, MalformedMethodDictionaryFallsBackOnSend) {
   }
   ASSERT_NE(0u, printIt("B12Mal instVarAt: 2 put: b12malDict").find('<'));
   EXPECT_EQ("7", printIt("B12Mal new kept"));
+}
+
+// SPEC §3.9 削除, §3.10 クラス ID: Foo goes while an alias keeps it, and a new Foo comes. The old
+// class keeps its row (its own name, its ID) before the new one; each ID reads, accepts and
+// removes on its own class, and the old row's removal is refused: Foo binds the new class.
+TEST_F(RemoveAbi, AliasedOldClassRowActsOnItsOwnClass) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, defineClass("B12Foo", "Object", "B12-Old"));
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Foo", 0, "old\n  ^1\n", &err)) << err.message;
+  // A class object's own printString shows its metaclass's name, "<Name> class".
+  EXPECT_EQ("B12Foo class", printIt("Smalltalk at: #B12FooAlias put: B12Foo"));
+  const std::int64_t oldId = idOf("B12Foo");
+  ASSERT_GT(oldId, 0);
+  EXPECT_EQ(oldId, idOf("B12FooAlias"));
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveClassId(oldId, &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ("nil", printIt("B12Foo"));
+  EXPECT_EQ(0, idOf("B12Foo"));
+  EXPECT_EQ(oldId, idOf("B12FooAlias"));
+  ASSERT_EQ(AO_OK, defineClass("B12Foo", "Object", "B12-New"));
+  ASSERT_EQ(AO_OK, ao_accept_method("B12Foo", 0, "new\n  ^2\n", &err)) << err.message;
+  const std::int64_t newId = idOf("B12Foo");
+  ASSERT_GT(newId, oldId);
+
+  // Two rows named B12Foo: the old one first (smaller ID), each in its own category.
+  std::vector<std::pair<std::int64_t, std::string>> rows;
+  const int n = ao_browser_class_count();
+  for (int i = 0; i < n; ++i) {
+    std::int64_t id = 0;
+    char name[128];
+    char category[128];
+    ASSERT_EQ(AO_OK, ao_browser_class_at(i, &id, name, sizeof(name), category, sizeof(category)));
+    if (std::strcmp(name, "B12Foo") == 0) {
+      rows.emplace_back(id, category);
+    }
+  }
+  ASSERT_EQ(2u, rows.size());
+  EXPECT_EQ(std::make_pair(oldId, std::string("B12-Old")), rows[0]);
+  EXPECT_EQ(std::make_pair(newId, std::string("B12-New")), rows[1]);
+
+  // Each ID reads its own class.
+  char buf[256];
+  ASSERT_EQ(AO_OK, ao_browser_selector_at(oldId, 0, "user", 0, buf, sizeof(buf)));
+  EXPECT_STREQ("old", buf);
+  ASSERT_EQ(AO_OK, ao_browser_selector_at(newId, 0, "user", 0, buf, sizeof(buf)));
+  EXPECT_STREQ("new", buf);
+
+  // The old row cannot go: B12Foo binds the new class, which stays.
+  EXPECT_EQ("class removal refused: B12Foo is not bound to this class",
+            tryRemoveClassId(oldId, &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("2", printIt("B12Foo new new"));
+  EXPECT_EQ(newId, idOf("B12Foo"));
+
+  // Accept and method removal on the old row reach the old class only.
+  ASSERT_EQ(AO_OK, ao_accept_method_id(oldId, 0, "extra\n  ^3\n", &err)) << err.message;
+  EXPECT_EQ("3", printIt("B12FooAlias new extra"));
+  expectDnu("B12Foo new extra", "extra");
+  EXPECT_EQ("", tryRemoveMethodId(oldId, 0, "old", &rc));
+  EXPECT_EQ(AO_OK, rc);
+  expectDnu("B12FooAlias new old", "old");
+  EXPECT_EQ("selector not found: B12Foo>>old", tryRemoveMethodId(newId, 0, "old", &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("2", printIt("B12Foo new new"));
+
+  // The new row goes; the alias keeps the old class and its row.
+  EXPECT_EQ("", tryRemoveClassId(newId, &rc));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_EQ("nil", printIt("B12Foo"));
+  EXPECT_EQ("3", printIt("B12FooAlias new extra"));
+  EXPECT_EQ(oldId, idOf("B12FooAlias"));
+  EXPECT_EQ(-1, ao_browser_protocol_count(newId, 0));
+}
+
+// SPEC §3.9 削除, §3.10 クラス ID: an unknown ID (0 or less, never issued, dropped) is refused
+// with "unknown class id" by both removals and ao_accept_method_id, and nothing changes. A bad
+// meta or a NULL selector or source keeps its old answer.
+TEST_F(RemoveAbi, UnknownClassIdIsRefusedByRemoveAndAccept) {
+  ASSERT_EQ(AO_OK, defineClass("B12Stale", "Object", "B12-Test"));
+  const std::int64_t stale = idOf("B12Stale");
+  ASSERT_GT(stale, 0);
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveClassId(stale, &rc));
+  EXPECT_EQ(AO_OK, rc);
+  for (const std::int64_t id :
+       {std::int64_t{0}, std::int64_t{-3}, stale, std::numeric_limits<std::int64_t>::max()}) {
+    SCOPED_TRACE(id);
+    EXPECT_EQ("unknown class id", tryRemoveClassId(id, &rc));
+    EXPECT_EQ(AO_ERR, rc);
+    EXPECT_EQ("unknown class id", tryRemoveMethodId(id, 0, "printString", &rc));
+    EXPECT_EQ(AO_ERR, rc);
+    AoSpan err{};
+    EXPECT_EQ(AO_ERR, ao_accept_method_id(id, 0, "b12staleFoo\n  ^1\n", &err));
+    EXPECT_STREQ("unknown class id", err.message);
+  }
+  EXPECT_EQ("remove failed", tryRemoveMethodId(idOf("Object"), 2, "foo", &rc));
+  EXPECT_EQ("remove failed", tryRemoveMethodId(idOf("Object"), 0, nullptr, &rc));
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR, ao_accept_method_id(idOf("Object"), 2, "b12staleFoo\n  ^1\n", &err));
+  EXPECT_EQ(AO_ERR, ao_accept_method_id(idOf("Object"), 0, nullptr, &err));
+  expectDnu("Object new b12staleFoo", "b12staleFoo");
+}
+
+// SPEC §3.9 削除, §3.10 クラス ID: the ID table is no root for what is alive. The kid is unbound by
+// a DoIt, and nothing lists the classes after that (a list would prune the kid's entry first), so
+// the table still holds the kid, and nothing else, when removeClassOf probes the superclass's
+// subclasses: the kid does not count as a live subclass, and the superclass goes.
+TEST_F(RemoveAbi, ClassIdTableDoesNotBlockSuperclassRemoval) {
+  ASSERT_EQ(AO_OK, defineClass("B12TabPar", "Object", "B12-Test"));
+  ASSERT_EQ(AO_OK, defineClass("B12TabKid", "B12TabPar", "B12-Test"));
+  const std::int64_t kid = idOf("B12TabKid");
+  ASSERT_GT(kid, 0);
+  EXPECT_EQ("nil", printIt("Smalltalk at: #B12TabKid put: nil"));
+  ASSERT_TRUE(tableHolds(kid));
+  ao::Session* s = ao::session();
+  std::string reason;
+  EXPECT_TRUE(ao::removeClassOf(*s->ctx, s->wk.named("B12TabPar"), &reason)) << reason;
+  EXPECT_TRUE(tableHolds(kid));
+  EXPECT_EQ("nil", printIt("B12TabPar"));
 }

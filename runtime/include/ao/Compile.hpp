@@ -19,25 +19,32 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
 bool namesBehavior(CallContext& ctx, std::string_view className);
 bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
                         std::string_view source, compiler::CompileError* error);
+// SPEC §3.10 ao_accept_method_id: acceptMethodSource for the class cls (a class or metaclass;
+// Kernel-ness is cls itself). "missing class: <name>" when cls is no Behavior.
+bool acceptMethodInto(CallContext& ctx, Oop cls, bool meta, std::string_view source,
+                      compiler::CompileError* error);
 bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::CompileError* error);
 
-// SPEC §3.9 削除. Every check runs before anything changes, and nothing here allocates on the
-// heap (the names are looked up, never interned). False with the reason, never empty, in
-// *reason: "not a class: <name>", "selector not found: <Class>>><selector>" (an inherited or
-// unknown selector), "native method removal refused: <Class>>><selector>"; <name> and <Class>
-// are className as passed, <Class> with " class" after it when meta. True: the method is out of
-// its side's dictionary, the cache is invalidated for the selector, and its source entry is gone.
-bool removeMethodNamed(CallContext& ctx, std::string_view className, bool meta,
-                       std::string_view selector, std::string* reason);
+// SPEC §3.9 削除. cls is the class a Browser class ID names. Every check runs before anything
+// changes, and nothing here allocates on the heap (the selector is looked up, never interned).
+// False with the reason, never empty, in *reason: "not a class: <name>" (cls is no Behavior),
+// "selector not found: <Class>>><selector>" (an inherited or unknown selector, or a malformed
+// dictionary), "native method removal refused: <Class>>><selector>"; <name> is cls's own name
+// slot, <Class> that with " class" after it when meta. True: the method is out of its side's
+// dictionary, the cache is invalidated for the selector, and its source entry is gone.
+bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selector,
+                    std::string* reason);
 
-// SPEC §3.9 削除. Every check runs before anything changes; nothing here allocates on the heap.
-// False with the reason in *reason: "not a class: <name>" (a metaclass, Processor, Smalltalk, an
-// unknown name), "class removal refused: <name> is a fixed global", "... is a kernel class" (by
-// identity, so an alias too), "... has subclass <Sub>" (the smallest name of its live subclasses)
-// or "... has an unnamed subclass". True: the binding is out of Smalltalk (the globals version
-// moved), the whole cache is dropped, and the source entries of the class's methods on both sides
-// are gone. The class object, its metaclass, its dictionaries and its aliases are untouched.
-bool removeClassNamed(CallContext& ctx, std::string_view className, std::string* reason);
+// SPEC §3.9 削除. cls is the class a Browser class ID names; <name> is its own name slot ("an
+// unnamed class" when that is no String or empty). Every
+// check runs before anything changes; nothing here allocates on the heap. False with the reason in
+// *reason: "not a class: <name>", "class removal refused: <name> is a fixed global", "... is a
+// kernel class" (by identity), "... is not bound to this class" (Smalltalk's <name> is another
+// object), "... has subclass <Sub>" (the smallest name of its live subclasses) or "... has an
+// unnamed subclass". True: <name>'s binding is out of Smalltalk (the globals version moved), the
+// whole cache is dropped, and the source entries of the class's methods on both sides are gone.
+// The class object, its metaclass, its dictionaries and its aliases are untouched.
+bool removeClassOf(CallContext& ctx, Oop cls, std::string* reason);
 // SPEC §3.12: a method-level error does not stop the file-in, but any error fails it. These
 // answer false when they add an error to errors (a class definition that failed stops the rest).
 bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,

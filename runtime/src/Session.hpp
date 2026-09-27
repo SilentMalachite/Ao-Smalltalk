@@ -218,6 +218,10 @@ void ensureKernelNatives(Session& s);
 // SPEC §3.10 クラス ID: the ID of the listed class Smalltalk binds name to; 0 when none, name is
 // NULL or there is no session. May throw std::bad_alloc (the class list issues IDs).
 std::int64_t browserClassId(const char* name);
+// SPEC §3.10 クラス ID: the class id names in the current session, or the empty Oop (no session,
+// an unknown ID). Rebuilds the class list, so it may issue and drop IDs and may throw
+// std::bad_alloc. Allocates nothing on the heap.
+Oop sessionClassForId(std::int64_t id);
 // SPEC §3.9, §3.10 クラス ID: the ID table's root slots. Neither the image save nor liveClasses
 // traces them. Empty outside a session.
 std::vector<const Oop*> classIdRootSlots();

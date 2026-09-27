@@ -42,14 +42,15 @@ typedef struct AoSpan {
 
 /* SPEC §3.10. The runtime is busy while ao_runtime_boot, ao_runtime_shutdown, ao_image_save,
    ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method,
-   ao_accept_class, ao_remove_method, ao_remove_class, ao_debug_frame_receiver_print,
-   ao_debug_frame_temp_print, ao_debug_inspect,
+   ao_accept_method_id, ao_accept_class, ao_remove_method, ao_remove_class,
+   ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
    ao_debug_clear, ao_debug_proceed, ao_debug_step_into, ao_debug_step_over, ao_debug_step_out
    or ao_debug_abort runs, or the interpreter does. Called then (from a transcript or inspect
-   hook, or a native), each of these twenty does nothing and answers AO_ERR: ao_image_load,
+   hook, or a native), each of these twenty-one does nothing and answers AO_ERR: ao_image_load,
    ao_remove_method and ao_remove_class
    with the reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
-   setters, ao_version, the ao_browser_* reads, ao_eval_result_length, ao_eval_result_copy,
+   setters, ao_version, the ao_browser_* reads (ao_browser_class_id too), ao_eval_result_length,
+   ao_eval_result_copy,
    ao_set_debug_capture, ao_set_debug_mode, the snapshot reads (ao_debug_generation to
    ao_debug_frame_temp_name) and the live reads (ao_debug_halted_pid to ao_debug_select) may be
    called then. A halted process (SPEC §3.13) does not run, so it alone does not make the runtime
@@ -227,27 +228,31 @@ int ao_debug_step_out(int64_t pid, char* out, int out_len, AoSpan* err);
 /* AO_ERR when class_name does not name a class (Processor, Smalltalk, an undefined name).
    AO_ERR_COMPILE for a compile error or a refused native overwrite. */
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);
+/* SPEC §3.10 クラス ID. ao_accept_method for the class class_id names (the Browser's Accept):
+   the same rules, answers and messages, Kernel-ness by that class itself. An unknown class ID is
+   AO_ERR with "unknown class id". */
+int ao_accept_method_id(int64_t class_id, int meta, const char* source, AoSpan* err);
 /* Takes class definition messages and chunk-format class definitions and methodsFor: chunks
    only. Any other chunk: AO_ERR_COMPILE "not a class definition", and nothing is applied. */
 int ao_accept_class(const char* source, AoSpan* err);
 
 /* SPEC §3.9 削除. AO_OK: the method is out of the side's dictionary (meta 1: the metaclass's),
    the cache is invalidated and its source is forgotten; err's message is empty. AO_ERR with the
-   reason in err (never empty; start and end 0): "not a class: <name>", "selector not found:
-   <Class>>><selector>" (unknown or inherited), "native method removal refused:
-   <Class>>><selector>", "runtime is busy", or "remove failed" (no session, a NULL argument,
-   meta other than 0 or 1). <Class> is class_name as passed, with " class" when meta. Nothing
-   changes on AO_ERR. Allocates nothing on the heap. */
-int ao_remove_method(const char* class_name, int meta, const char* selector, AoSpan* err);
+   reason in err (never empty; start and end 0): "unknown class id", "not a class: <name>",
+   "selector not found: <Class>>><selector>" (unknown or inherited), "native method removal
+   refused: <Class>>><selector>", "runtime is busy", or "remove failed" (no session, a NULL
+   selector, meta other than 0 or 1). <name> is the class's own name slot ("an unnamed class"
+   when it has none), <Class> that with " class" when meta. Nothing changes on AO_ERR. Allocates nothing on the heap. */
+int ao_remove_method(int64_t class_id, int meta, const char* selector, AoSpan* err);
 
-/* SPEC §3.9 削除. AO_OK: the name's binding is out of Smalltalk (an alias stays; the class object
-   and its instances are untouched), the whole method cache is dropped, and the sources of its
-   methods are forgotten; err's message is empty. AO_ERR with the reason: "not a class: <name>"
-   (a metaclass, Processor, Smalltalk, an unknown name), "class removal refused: <name> is a fixed
-   global" / "is a kernel class" (by identity, an alias too) / "has subclass <Sub>" / "has an
-   unnamed subclass", "runtime is busy", or "remove failed" (no session, a NULL name). Nothing
-   changes on AO_ERR. Allocates nothing on the heap. */
-int ao_remove_class(const char* class_name, AoSpan* err);
+/* SPEC §3.9 削除. AO_OK: the binding of the class's own name is out of Smalltalk (an alias stays;
+   the class object and its instances are untouched), the whole method cache is dropped, and the
+   sources of its methods are forgotten; err's message is empty. AO_ERR with the reason: "unknown
+   class id", "not a class: <name>", "class removal refused: <name> is a fixed global" / "is a
+   kernel class" (by identity) / "is not bound to this class" (its own name binds something else)
+   / "has subclass <Sub>" / "has an unnamed subclass", "runtime is busy", or "remove failed" (no
+   session). Nothing changes on AO_ERR. Allocates nothing on the heap. */
+int ao_remove_class(int64_t class_id, AoSpan* err);
 
 #ifdef __cplusplus
 }
