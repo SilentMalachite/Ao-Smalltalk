@@ -3,6 +3,7 @@
 #include "../src/Session.hpp"
 #include "ao/Bootstrap.hpp"
 #include "ao/Compile.hpp"
+#include "ao/Gc.hpp"
 #include "ao/Globals.hpp"
 #include "ao/Heap.hpp"
 #include "ao/MethodDictionary.hpp"
@@ -697,6 +698,151 @@ TEST_F(RemoveAbi, RemovedMethodKeepsRunningInHaltedProcess) {
   // Back to a plain eval (SPEC §3.13: a DNU under AO_DEBUG_LIVE halts instead).
   ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
   expectDnu("Object new b12halt", "b12halt");
+}
+
+namespace {
+
+std::string frameLabel(int i) {
+  char buf[256];
+  return ao_debug_frame_label(i, buf, sizeof(buf)) == AO_OK ? std::string(buf) : "<none>";
+}
+
+// Frame i reads the placeholder of a method without source: AO_ERR_NOSOURCE, highlight 0-0.
+void expectPlaceholderFrame(int i, const std::string& label) {
+  EXPECT_EQ(label, frameLabel(i));
+  char buf[256];
+  AoSpan highlight{};
+  highlight.start = 7;
+  highlight.end = 9;
+  EXPECT_EQ(AO_ERR_NOSOURCE, ao_debug_frame_source(i, buf, sizeof(buf), &highlight));
+  EXPECT_EQ("\"" + label + " source not available\"", std::string(buf));
+  EXPECT_EQ(0u, highlight.start);
+  EXPECT_EQ(0u, highlight.end);
+}
+
+// The capture setting outlives the session (SPEC §3.10); a test's must not reach the next.
+struct CaptureOn {
+  CaptureOn() { ao_set_debug_capture(1); }
+  ~CaptureOn() { ao_set_debug_capture(0); }
+};
+
+}  // namespace
+
+// SPEC §3.13 Step: the statement starts live in the source table's entry, which the removal drops
+// (§3.9 削除), so a removed method's frame has none. Step into goes past `x := self helper.` to
+// helper's first instruction, and step over back in run goes past `^x + 1` to the sender.
+TEST_F(RemoveAbi, SteppingARemovedMethodFindsNoStatementStart) {
+  ASSERT_EQ(AO_OK, defineClass("B12Step", "Object", "B12"));
+  const std::int64_t id = idOf("B12Step");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method_id(
+                       id, 0, "run\n  | x |\n  self halt.\n  x := self helper.\n  ^x + 1\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method_id(id, 0, "helper\n  ^41\n", &err)) << err.message;
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  char out[64];
+
+  // Kept, the method's next statement is where step into stops first.
+  ASSERT_EQ(AO_ERR_HALT, ao_eval("B12Step new run", 15, AO_EVAL_PRINTIT, out, 64, &err));
+  std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_NE(0, pid);
+  ASSERT_EQ(AO_ERR_HALT, ao_debug_step_into(pid, out, 64, &err));
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("B12Step>>run", frameLabel(0));
+  ASSERT_EQ(AO_OK, ao_debug_abort(pid));
+
+  ASSERT_EQ(AO_ERR_HALT, ao_eval("B12Step new run", 15, AO_EVAL_PRINTIT, out, 64, &err));
+  pid = ao_debug_halted_pid();
+  ASSERT_NE(0, pid);
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveMethod("B12Step", 0, "run", &rc));
+  ASSERT_EQ(AO_OK, rc);
+  ASSERT_EQ(AO_ERR_HALT, ao_debug_step_into(pid, out, 64, &err));
+  EXPECT_STREQ("step", err.message);
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("B12Step>>helper", frameLabel(0));
+  ASSERT_EQ(AO_ERR_HALT, ao_debug_step_out(pid, out, 64, &err));
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("B12Step>>run", frameLabel(0));
+  ASSERT_EQ(AO_ERR_HALT, ao_debug_step_over(pid, out, 64, &err));
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("doIt", frameLabel(0));
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out, 64, &err)) << err.message;
+  EXPECT_STREQ("42", out);
+}
+
+// SPEC §3.10 ソース表, §3.13: removing the methods and the class a snapshot's frames ran keeps
+// their labels and the generation; their source reads the placeholder.
+TEST_F(RemoveAbi, SnapshotFramesOfRemovedMethodsReadPlaceholders) {
+  const CaptureOn capture;
+  ASSERT_EQ(AO_OK, defineClass("B12Snap", "Object", "B12"));
+  const std::int64_t id = idOf("B12Snap");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method_id(id, 0, "boom\n  ^self error: 'b12'\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method_id(id, 0, "outer\n  ^self boom\n", &err)) << err.message;
+  char out[64];
+  ASSERT_EQ(AO_ERR_EVAL, ao_eval("B12Snap new outer", 17, AO_EVAL_PRINTIT, out, 64, &err));
+  const int generation = ao_debug_generation();
+  ASSERT_EQ(AO_OK, ao_debug_select(0));
+  ASSERT_EQ("B12Snap>>boom", frameLabel(1));
+  ASSERT_EQ("B12Snap>>outer", frameLabel(2));
+  char buf[256];
+  ASSERT_EQ(AO_OK, ao_debug_frame_source(1, buf, sizeof(buf), nullptr));
+
+  int rc = -9;
+  EXPECT_EQ("", tryRemoveMethod("B12Snap", 0, "boom", &rc));
+  ASSERT_EQ(AO_OK, rc);
+  expectPlaceholderFrame(1, "B12Snap>>boom");
+  ASSERT_EQ(AO_OK, ao_debug_frame_source(2, buf, sizeof(buf), nullptr));
+  ASSERT_EQ(AO_OK, ao_remove_class(id, &err)) << err.message;
+  expectPlaceholderFrame(2, "B12Snap>>outer");
+
+  EXPECT_EQ(generation, ao_debug_generation());
+  EXPECT_EQ(4, ao_debug_frame_count());
+  char cls[64];
+  ASSERT_EQ(AO_OK, ao_debug_frame_receiver_print(1, cls, sizeof(cls), buf, sizeof(buf)));
+  EXPECT_STREQ("B12Snap", cls);
+}
+
+// SPEC §3.2, §3.9 削除, §3.13: a halted process roots the class its frame runs in. Removed and
+// collected, the frame reads its temp, and step into and Proceed run the class's methods.
+TEST_F(RemoveAbi, RemovedClassSurvivesGcInHaltedProcess) {
+  ASSERT_EQ(AO_OK, defineClass("B12Held", "Object", "B12"));
+  const std::int64_t id = idOf("B12Held");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method_id(
+                       id, 0, "run\n  | x |\n  x := 3.\n  self halt.\n  ^self helper + x\n", &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method_id(id, 0, "helper\n  ^39\n", &err)) << err.message;
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  char out[64];
+  ASSERT_EQ(AO_ERR_HALT, ao_eval("B12Held new run", 15, AO_EVAL_PRINTIT, out, 64, &err));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_NE(0, pid);
+  ASSERT_EQ(AO_OK, ao_remove_class(id, &err)) << err.message;
+  EXPECT_EQ(0, idOf("B12Held"));
+
+  ao::Session* s = ao::session();
+  const std::uint64_t collections = s->heap.oldCollections();
+  ao::Gc gc(s->heap, s->roots);
+  gc.collectNursery();
+  gc.collectOld();
+  EXPECT_LT(collections, s->heap.oldCollections());
+
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  expectPlaceholderFrame(1, "B12Held>>run");
+  char cls[64];
+  char buf[64];
+  ASSERT_EQ(AO_OK, ao_debug_frame_receiver_print(1, cls, sizeof(cls), buf, sizeof(buf)));
+  EXPECT_STREQ("B12Held", cls);
+  ASSERT_EQ(AO_OK, ao_debug_frame_temp_print(1, 0, cls, sizeof(cls), buf, sizeof(buf)));
+  EXPECT_STREQ("3", buf);
+  ASSERT_EQ(AO_ERR_HALT, ao_debug_step_into(pid, out, 64, &err));
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("B12Held>>helper", frameLabel(0));
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out, 64, &err)) << err.message;
+  EXPECT_STREQ("42", out);
 }
 
 // SPEC §3.10: AoSpan.message holds 255 bytes; a longer reason is cut, never emptied.
