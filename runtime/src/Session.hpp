@@ -76,6 +76,15 @@ struct Session final : DebugSink {
   // SPEC §3.13: the doIt entries of earlier evaluations whose processes are halted. Each goes at
   // the first ao_eval that finds its process no longer halted.
   std::vector<std::unique_ptr<MethodSource>> heldDoIts;
+  // SPEC §3.10 クラス ID: the classes the Browser ABI handed out, each with its ID. Each cls is a
+  // root slot (Roots::add) the GC updates; unique_ptr keeps the slot in place when the table grows.
+  // Neither the image save nor a trace for what is alive (SPEC §3.9) starts from these slots
+  // (classIdRootSlots). Not part of the image; a new session starts empty.
+  struct ClassId {
+    std::int64_t id = 0;
+    Oop cls = Oop::nil();
+  };
+  std::vector<std::unique_ptr<ClassId>> classIds;
   // SPEC §3.13: the one snapshot of the session. Declared after roots, so it is destroyed (and
   // unroots its slots) first.
   DebugSnapshot debug{roots};
@@ -179,6 +188,10 @@ int debugSelect(std::int64_t pid);
 // at the same literal indices (nested ones in preorder) and its debug info is kept. Never throws:
 // without the memory for the entry, `method` stays installed without one (SPEC §3.10).
 void rememberMethodSource(Oop method, Oop text, Oop replaced, const compiler::MethodImage* image);
+
+// SPEC §3.9 削除: drops `method`'s entry with its blocks (their root slots too). Nothing when no
+// entry names it as its method. Never throws and never collects.
+void forgetMethodSource(Oop method);
 // SPEC §3.9: a class whose shape changed takes its methods' sources along. The entry of `from`
 // names `to` from now on; `image` is what `to` was boxed from, and the entry's blocks and debug
 // info are rebuilt from it. Without the memory for that, the entry keeps its text only (no blocks,
@@ -202,17 +215,31 @@ std::vector<const Oop*> methodSourceRootSlots(bool withSnapshot = true);
 void clearMethodSources();
 void ensureKernelNatives(Session& s);
 
+// SPEC §3.10 クラス ID: the ID of the listed class Smalltalk binds name to; 0 when none, name is
+// NULL or there is no session. May throw std::bad_alloc (the class list issues IDs).
+std::int64_t browserClassId(const char* name);
+// SPEC §3.10 クラス ID: the class id names in the current session, or the empty Oop (no session,
+// an unknown ID). Rebuilds the class list, so it may issue and drop IDs and may throw
+// std::bad_alloc. Allocates nothing on the heap.
+Oop sessionClassForId(std::int64_t id);
+// SPEC §3.9, §3.10 クラス ID: the ID table's root slots. Neither the image save nor liveClasses
+// traces them. Empty outside a session.
+std::vector<const Oop*> classIdRootSlots();
+
 int browserClassCount();
-int browserClassAt(int index, char* name, int nameLen, char* category, int categoryLen);
-int browserProtocolCount(const char* className, int meta);
-int browserProtocolAt(const char* className, int meta, int index, char* buf, int len);
-int browserSelectorCount(const char* className, int meta, const char* protocol);
-int browserSelectorAt(const char* className, int meta, const char* protocol, int index, char* buf,
+int browserClassAt(int index, std::int64_t* classId, char* name, int nameLen, char* category,
+                   int categoryLen);
+int browserProtocolCount(std::int64_t classId, int meta);
+int browserProtocolAt(std::int64_t classId, int meta, int index, char* buf, int len);
+int browserSelectorCount(std::int64_t classId, int meta, const char* protocol);
+int browserSelectorAt(std::int64_t classId, int meta, const char* protocol, int index, char* buf,
                       int len);
-int browserSource(const char* className, int meta, const char* selector, char* buf, int len);
-int browserClassDefinition(const char* className, char* buf, int len);
-int browserSuperclass(const char* className, int meta, char* buf, int len);
-int browserSubclassCount(const char* className);
-int browserSubclassAt(const char* className, int index, char* buf, int len);
+int browserSource(std::int64_t classId, int meta, const char* selector, char* buf, int len);
+int browserClassDefinition(std::int64_t classId, char* buf, int len);
+int browserSuperclass(std::int64_t classId, int meta, std::int64_t* superclassId, char* buf,
+                      int len);
+int browserSubclassCount(std::int64_t classId);
+int browserSubclassAt(std::int64_t classId, int index, std::int64_t* subclassId, char* buf,
+                      int len);
 
 }  // namespace ao

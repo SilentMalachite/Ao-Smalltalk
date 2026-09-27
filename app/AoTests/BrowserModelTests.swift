@@ -33,16 +33,16 @@ final class BrowserModelTests: XCTestCase {
     model.refresh()
     let cats = model.categories
     XCTAssertTrue(cats.contains("Kernel"))
-    model.select(category: "Kernel", className: "Object", meta: false, protocol: nil)
+    model.select(category: "Kernel", classID: BrowserModel.classID(named: "Object"), meta: false, protocol: nil)
     XCTAssertEqual(model.selectors, [])
     XCTAssertTrue(model.source.contains("subclass: #Object"))
     // A protocol without a selector is a new method: the pane starts empty.
-    model.select(category: "Kernel", className: "Object", meta: false, protocol: "native")
+    model.select(category: "Kernel", classID: BrowserModel.classID(named: "Object"), meta: false, protocol: "native")
     XCTAssertTrue(model.selectors.contains("printString"))
     XCTAssertEqual(model.source, "")
     model.select(
       category: "Kernel",
-      className: "Object",
+      classID: BrowserModel.classID(named: "Object"),
       meta: false,
       protocol: "native",
       selector: "printString"
@@ -54,9 +54,9 @@ final class BrowserModelTests: XCTestCase {
   func testProtocolListAlwaysOffersUserForNewMethods() {
     let model = BrowserModel()
     XCTAssertEqual(model.boot(), 0)
-    model.select(category: "Kernel", className: "Object", meta: false, protocol: nil)
+    model.select(category: "Kernel", classID: BrowserModel.classID(named: "Object"), meta: false, protocol: nil)
     XCTAssertEqual(model.protocols, ["native", "user"])
-    model.select(category: "Kernel", className: "Object", meta: false, protocol: "user")
+    model.select(category: "Kernel", classID: BrowserModel.classID(named: "Object"), meta: false, protocol: "user")
     XCTAssertEqual(model.selectedProtocol, "user")
     XCTAssertEqual(model.selectors, [])
     XCTAssertEqual(model.source, "")
@@ -67,7 +67,7 @@ final class BrowserModelTests: XCTestCase {
     XCTAssertEqual(model.boot(), 0)
     model.select(
       category: "Kernel",
-      className: "Object",
+      classID: BrowserModel.classID(named: "Object"),
       meta: false,
       protocol: "native",
       selector: "printString"
@@ -75,7 +75,7 @@ final class BrowserModelTests: XCTestCase {
     XCTAssertFalse(model.source.isEmpty)
     model.select(
       category: "No-Such-Category",
-      className: "Object",
+      classID: BrowserModel.classID(named: "Object"),
       meta: false,
       protocol: "native",
       selector: "printString"
@@ -228,6 +228,66 @@ final class BrowserModelTests: XCTestCase {
     XCTAssertEqual(selectorTable.numberOfRows, browser.model.selectors.count)
     XCTAssertTrue(browser.model.selectors.contains("show:"))
     XCTAssertFalse(browser.model.selectors.contains("printString"))
+  }
+
+  // SPEC §3.10 クラス ID: one row per class, however many names bind it, each with a positive ID;
+  // the selection is the ID, and a class that leaves the list (a shape change) gives way to the
+  // class now bound to its name.
+  func testClassRowsCarryOneIdPerClass() {
+    let model = BrowserModel()
+    XCTAssertEqual(model.boot(), 0)
+    XCTAssertEqual(defineRow("B12Row", instanceVariables: ""), Int32(AO_OK))
+    XCTAssertEqual(doIt("Smalltalk at: #B12RowAlias put: B12Row"), Int32(AO_OK))
+    let id = BrowserModel.classID(named: "B12Row")
+    XCTAssertGreaterThan(id, 0)
+    XCTAssertEqual(BrowserModel.classID(named: "B12RowAlias"), id)
+    XCTAssertEqual(BrowserModel.classID(named: "B12NoSuchRow"), 0)
+    model.select(category: "B12-Row", classID: id, meta: false, protocol: nil)
+    XCTAssertEqual(model.classRows, [BrowserClass(id: id, name: "B12Row")])
+    XCTAssertEqual(model.selectedClassID, id)
+    XCTAssertEqual(model.selectedClass, "B12Row")
+    XCTAssertTrue(model.source.contains("subclass: #B12Row"))
+
+    XCTAssertEqual(defineRow("B12Shape", instanceVariables: ""), Int32(AO_OK))
+    let shapeID = BrowserModel.classID(named: "B12Shape")
+    model.select(category: "B12-Row", classID: shapeID, meta: false, protocol: nil)
+    XCTAssertEqual(model.selectedClass, "B12Shape")
+    XCTAssertEqual(defineRow("B12Shape", instanceVariables: "a"), Int32(AO_OK))
+    model.refresh()
+    let reshaped = BrowserModel.classID(named: "B12Shape")
+    XCTAssertNotEqual(reshaped, shapeID)
+    XCTAssertEqual(model.selectedClassID, reshaped)
+    XCTAssertEqual(model.selectedClass, "B12Shape")
+    XCTAssertTrue(model.source.contains("instanceVariableNames: 'a'"))
+
+    model.select(category: "Kernel", classID: nil, meta: false, protocol: nil)
+    let ids = model.classRows.map(\.id)
+    XCTAssertEqual(Set(ids).count, ids.count)
+    XCTAssertTrue(ids.allSatisfy { $0 > 0 })
+    XCTAssertNil(model.selectedClassID)
+    XCTAssertNil(model.selectedClass)
+  }
+
+  private func defineRow(_ name: String, instanceVariables: String) -> Int32 {
+    var err = AoSpan()
+    let def = "Object subclass: #\(name)\n  instanceVariableNames: '\(instanceVariables)'\n"
+      + "  classVariableNames: ''\n  poolDictionaries: ''\n  category: 'B12-Row'\n"
+    return def.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+  }
+
+  private func doIt(_ source: String) -> Int32 {
+    var out = [CChar](repeating: 0, count: 64)
+    var err = AoSpan()
+    return source.withCString { src in
+      out.withUnsafeMutableBufferPointer { buffer in
+        withUnsafeMutablePointer(to: &err) { errPtr in
+          ao_eval(src, Int32(source.utf8.count), Int32(AO_EVAL_DOIT), buffer.baseAddress,
+                  Int32(buffer.count), errPtr)
+        }
+      }
+    }
   }
 
   private func selectRow(

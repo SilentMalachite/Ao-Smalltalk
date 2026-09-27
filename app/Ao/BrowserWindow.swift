@@ -3,7 +3,7 @@ import CAo
 
 // isVertical is a vertical divider, so side-by-side panes. The outer split stacks.
 @MainActor
-final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
   let model = BrowserModel()
   let window: NSWindow
 
@@ -17,14 +17,15 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private let sideControl: NSSegmentedControl
 
   private var categoryName = "Kernel"
-  private var selectedClass = "Object"
+  // SPEC §3.10 クラス ID: the selected row's class; 0 is none.
+  private var selectedClassID: Int64 = 0
   private var meta = false
   // nil protocol: the pane is the class definition. A protocol with no selector: a new method.
   private var protocolName: String? = "native"
   private var selectorName: String? = "printString"
   private var applying = false
   private var showingHierarchy = false
-  private var hierarchyNames: [String] = []
+  private var hierarchy: [BrowserClass] = []
   // The text the pane got from the model; the pane differs from it after an unaccepted edit.
   private var shownSource = ""
   // A discard question is waiting for its answer.
@@ -34,6 +35,21 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   // discard the edit and change the selection, false to keep both. Tests replace it.
   typealias DiscardConfirmation = @MainActor (NSWindow, @escaping @MainActor (Bool) -> Void) -> Void
   var confirmDiscard: DiscardConfirmation = BrowserWindow.askToDiscard
+
+  // SPEC §3.9 削除: asked before a removal. The text is the sheet's message (`Remove Foo>>bar?`,
+  // `Remove Foo class>>bar?`, `Remove class Foo?`); the callback gets true to remove. Tests
+  // replace it.
+  typealias RemoveConfirmation = @MainActor (NSWindow, String, @escaping @MainActor (Bool) -> Void) -> Void
+  var confirmRemove: RemoveConfirmation = BrowserWindow.askToRemove
+
+  // SPEC §3.9 削除: the Remove items are enabled for a selected selector or class.
+  var canRemoveMethod: Bool {
+    selectorName != nil
+  }
+
+  var canRemoveClass: Bool {
+    selectedClassID != 0
+  }
 
   var hasUnacceptedChanges: Bool {
     sourceView.isEditable && sourceView.string != shownSource
@@ -100,6 +116,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     configure(classTable)
     configure(protocolTable)
     configure(selectorTable)
+    classTable.menu = contextMenu(title: "Remove Class…", action: #selector(removeClassFromMenu(_:)))
+    selectorTable.menu = contextMenu(title: "Remove Method…", action: #selector(removeMethodFromMenu(_:)))
     categoryTable.setAccessibilityLabel("Class categories")
     classTable.setAccessibilityLabel("Classes")
     protocolTable.setAccessibilityLabel("Protocols")
@@ -199,10 +217,10 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
         self.selectorName = nil
       }
     } else if table === classTable {
-      let name = value(at: row, in: model.classes)
+      let picked = value(at: row, in: model.classRows)
       changeSelection {
-        if let name {
-          self.selectedClass = name
+        if let picked {
+          self.selectedClassID = picked.id
         }
         self.protocolName = nil
         self.selectorName = nil
@@ -219,6 +237,34 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
         self.selectorName = name
       }
     }
+  }
+
+  // SPEC §3.9 削除: one item, for the clicked row; menuNeedsUpdate enables it for a row. The
+  // VoiceOver label is the title.
+  private func contextMenu(title: String, action: Selector) -> NSMenu {
+    let menu = NSMenu(title: title)
+    menu.autoenablesItems = false
+    menu.delegate = self
+    let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+    item.target = self
+    item.setAccessibilityLabel(title)
+    menu.addItem(item)
+    return menu
+  }
+
+  func menuNeedsUpdate(_ menu: NSMenu) {
+    let table = menu === classTable.menu ? classTable : selectorTable
+    for item in menu.items {
+      item.isEnabled = table.clickedRow >= 0
+    }
+  }
+
+  @objc private func removeClassFromMenu(_ sender: NSMenuItem) {
+    removeClass(atRow: classTable.clickedRow)
+  }
+
+  @objc private func removeMethodFromMenu(_ sender: NSMenuItem) {
+    removeMethod(atRow: selectorTable.clickedRow)
   }
 
   func ownsWindow(_ candidate: NSWindow?) -> Bool {
@@ -272,13 +318,16 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     publish()
   }
 
-  // The accepted definition's class, in the category the runtime now lists for it. The rows the
-  // pane came from may be another class, or a category the class has just left.
+  // The accepted definition's class (the one its name binds now), in the category the runtime
+  // lists for it. The rows the pane came from may be another class, or a category the class has
+  // just left.
   private func showDefinedClass(from source: String) {
-    if let name = BrowserWindow.definedClassName(in: source),
-       let category = model.category(ofClass: name) {
-      categoryName = category
-      selectedClass = name
+    if let name = BrowserWindow.definedClassName(in: source) {
+      let id = BrowserModel.classID(named: name)
+      if id != 0, let category = model.category(ofClassID: id) {
+        categoryName = category
+        selectedClassID = id
+      }
     }
     publish()
   }
@@ -297,6 +346,160 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       return name
     }
     return nil
+  }
+
+  // SPEC §3.9 削除: Smalltalk → Remove Method…, for the selected selector.
+  func removeMethod() {
+    let row = selectorName.flatMap { model.selectors.firstIndex(of: $0) } ?? -1
+    removeMethod(atRow: row, fromMainMenu: true)
+  }
+
+  // SPEC §3.9 削除: Smalltalk → Remove Class…, for the selected class.
+  func removeClass() {
+    let row = model.classRows.firstIndex { $0.id == selectedClassID } ?? -1
+    removeClass(atRow: row, fromMainMenu: true)
+  }
+
+  // SPEC §3.9 削除: the context menu's item, for the clicked row (-1: none). Another row is
+  // selected before the question (asking to discard an edit first); the row already selected
+  // changes no selection, so it asks no discard question and leaves the pane alone.
+  func removeMethod(atRow row: Int) {
+    removeMethod(atRow: row, fromMainMenu: false)
+  }
+
+  private func removeMethod(atRow row: Int, fromMainMenu: Bool) {
+    guard let selector = value(at: row, in: model.selectors) else {
+      return
+    }
+    let classID = selectedClassID
+    let className = model.selectedClass
+    let classSide = meta
+    let message = "Remove \(className ?? "")\(classSide ? " class" : "")>>\(selector)?"
+    removeAfterConfirming(
+      message: message,
+      select: selector == selectorName ? nil : { self.selectorName = selector },
+      fromMainMenu: fromMainMenu
+    ) {
+      self.performRemoveMethod(selector, ofClassID: classID, named: className, meta: classSide)
+    }
+  }
+
+  func removeClass(atRow row: Int) {
+    removeClass(atRow: row, fromMainMenu: false)
+  }
+
+  private func removeClass(atRow row: Int, fromMainMenu: Bool) {
+    guard let picked = value(at: row, in: model.classRows) else {
+      return
+    }
+    removeAfterConfirming(
+      message: "Remove class \(picked.name)?",
+      select: picked.id == selectedClassID ? nil : {
+        self.selectedClassID = picked.id
+        self.protocolName = nil
+        self.selectorName = nil
+      },
+      fromMainMenu: fromMainMenu
+    ) {
+      self.performRemoveClass(picked.id, named: picked.name)
+    }
+  }
+
+  // SPEC §3.9 削除: from the Smalltalk menu or for another row, an unaccepted edit asks first, as
+  // a selection change does; keeping it ends here. Discarding (or no edit) selects `select`'s row,
+  // republishes (the pane shows the selection again) and asks the removal question. The context
+  // menu on the selected row (no `select`) asks the removal question alone. A question already up
+  // decides alone.
+  private func removeAfterConfirming(
+    message: String,
+    select: (() -> Void)?,
+    fromMainMenu: Bool,
+    remove: @escaping () -> Void
+  ) {
+    guard !confirming else {
+      return
+    }
+    let question = {
+      self.confirming = true
+      self.confirmRemove(self.window, message) { yes in
+        self.confirming = false
+        if yes {
+          remove()
+        }
+      }
+    }
+    // The context menu on the row already selected changes no selection: no discard question,
+    // and the pane keeps its edit until the removal itself runs.
+    guard fromMainMenu || select != nil else {
+      question()
+      return
+    }
+    let ask = {
+      select?()
+      self.publish()
+      question()
+    }
+    guard hasUnacceptedChanges else {
+      ask()
+      return
+    }
+    confirmBeforeDiscarding { proceed in
+      if proceed {
+        ask()
+      }
+    }
+  }
+
+  // SPEC §3.9 削除: a refusal shows its reason and changes nothing else. Success keeps the
+  // category, the class, the side and (while it is still listed) the protocol, and deselects the
+  // selector.
+  private func performRemoveMethod(
+    _ selector: String,
+    ofClassID rowID: Int64,
+    named className: String?,
+    meta classSide: Bool
+  ) {
+    var err = AoSpan()
+    let metaFlag: Int32 = classSide ? 1 : 0
+    // SPEC §3.9: a class reshaped since the last refresh gives way to the one its name binds.
+    let classID = BrowserModel.liveClassID(rowID, name: className) ?? rowID
+    let status = selector.withCString { sel in
+      withUnsafeMutablePointer(to: &err) { errPtr in
+        ao_remove_method(classID, metaFlag, sel, errPtr)
+      }
+    }
+    guard status == Int32(AO_OK) else {
+      errorField.stringValue = spanMessage(err)
+      return
+    }
+    errorField.stringValue = ""
+    selectorName = nil
+    publish()
+  }
+
+  // SPEC §3.9 削除: success deselects the class and keeps the category while it is still listed;
+  // a category that went with its last class gives way to the first one. The hierarchy list
+  // drops the class too unless an alias keeps it listed (publish applies the list).
+  private func performRemoveClass(_ rowID: Int64, named className: String) {
+    var err = AoSpan()
+    // SPEC §3.9: a class reshaped since the last refresh gives way to the one its name binds.
+    let classID = BrowserModel.liveClassID(rowID, name: className) ?? rowID
+    let status = withUnsafeMutablePointer(to: &err) { errPtr in
+      ao_remove_class(classID, errPtr)
+    }
+    guard status == Int32(AO_OK) else {
+      errorField.stringValue = spanMessage(err)
+      return
+    }
+    errorField.stringValue = ""
+    selectedClassID = 0
+    protocolName = nil
+    selectorName = nil
+    publish()
+    if !model.categories.contains(categoryName), let first = model.categories.first {
+      categoryName = first
+      publish()
+    }
   }
 
   func showHierarchy() {
@@ -318,19 +521,23 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private func toggleHierarchy() {
     if showingHierarchy {
       showingHierarchy = false
-      hierarchyNames = []
+      hierarchy = []
       publish()
       return
     }
-    hierarchyNames = model.hierarchyNames(className: selectedClass, meta: meta)
+    // A class reshaped since the last refresh gives way to the class now bound to its name first.
+    publish()
+    hierarchy = model.selectedClassRow.map { model.hierarchy(of: $0, meta: meta) } ?? []
     showingHierarchy = true
-    model.applyHierarchyList(hierarchyNames, selecting: selectedClass)
+    model.applyHierarchyList(hierarchy, selecting: selectedClassID == 0 ? nil : selectedClassID)
     reloadLists()
   }
 
+  // SPEC §3.9 System Browser: the load started new IDs; publish lets the model find the selected
+  // class again by its name.
   func noteImageLoaded() {
     showingHierarchy = false
-    hierarchyNames = []
+    hierarchy = []
     publish()
   }
 
@@ -389,7 +596,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     } else if let first = model.categories.first {
       categoryName = first
     }
-    selectedClass = "Object"
+    selectedClassID = BrowserModel.classID(named: "Object")
     meta = false
     protocolName = "native"
     selectorName = "printString"
@@ -397,18 +604,18 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   }
 
   private func publish() {
-    let keepClass = selectedClass
+    let keepClass: Int64? = selectedClassID == 0 ? nil : selectedClassID
     model.select(
       category: categoryName,
-      className: selectedClass,
+      classID: keepClass,
       meta: meta,
       protocol: protocolName,
       selector: selectorName
     )
     if showingHierarchy {
-      model.applyHierarchyList(hierarchyNames, selecting: keepClass)
+      hierarchy = model.applyHierarchyList(hierarchy, selecting: keepClass)
     }
-    selectedClass = model.selectedClass ?? ""
+    selectedClassID = model.selectedClassID ?? 0
     protocolName = model.selectedProtocol
     selectorName = model.selectedSelector
     reloadLists()
@@ -433,7 +640,11 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
   private func showSelection() {
     applying = true
     select(categoryName, in: categoryTable, values: model.categories)
-    select(selectedClass, in: classTable, values: model.classes)
+    if let row = model.classRows.firstIndex(where: { $0.id == selectedClassID }) {
+      classTable.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    } else {
+      classTable.deselectAll(nil)
+    }
     if let protocolName {
       select(protocolName, in: protocolTable, values: model.protocols)
     } else {
@@ -472,7 +683,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     return []
   }
 
-  private func value(at row: Int, in values: [String]) -> String? {
+  private func value<Element>(at row: Int, in values: [Element]) -> Element? {
     guard row >= 0, row < values.count else {
       return nil
     }
@@ -575,6 +786,25 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
     }
   }
 
+  // SPEC §3.9 削除: Remove first and destructive, which leaves the sheet without a default button,
+  // so Return answers nothing; Cancel keeps the Escape key.
+  private static func askToRemove(
+    _ window: NSWindow,
+    _ message: String,
+    _ decide: @escaping @MainActor (Bool) -> Void
+  ) {
+    let alert = NSAlert()
+    alert.messageText = message
+    alert.informativeText = "This cannot be undone."
+    alert.addButton(withTitle: "Remove").hasDestructiveAction = true
+    alert.addButton(withTitle: "Cancel")
+    alert.beginSheetModal(for: window) { response in
+      MainActor.assumeIsolated {
+        decide(response == .alertFirstButtonReturn)
+      }
+    }
+  }
+
   private static func makeErrorField() -> NSTextField {
     let field = NSTextField(labelWithString: "")
     field.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -602,12 +832,11 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate 
       }
     } else {
       let metaFlag: Int32 = meta ? 1 : 0
-      let className = selectedClass
-      status = className.withCString { name in
-        source.withCString { src in
-          withUnsafeMutablePointer(to: &err) { errPtr in
-            ao_accept_method(name, metaFlag, src, errPtr)
-          }
+      // SPEC §3.9: a class reshaped since the last refresh gives way to the one its name binds.
+      let classID = model.resolvedSelectedClassID() ?? selectedClassID
+      status = source.withCString { src in
+        withUnsafeMutablePointer(to: &err) { errPtr in
+          ao_accept_method_id(classID, metaFlag, src, errPtr)
         }
       }
     }
@@ -761,4 +990,17 @@ func sendToKeyBrowser(
     return
   }
   command(browser)
+}
+
+// SPEC §3.9 削除: a Remove item's test: false unless the Browser is the key window.
+@MainActor
+func keyBrowserAllows(
+  _ browser: BrowserWindow?,
+  keyWindow: NSWindow?,
+  _ test: (BrowserWindow) -> Bool
+) -> Bool {
+  guard let browser, browser.ownsWindow(keyWindow) else {
+    return false
+  }
+  return test(browser)
 }

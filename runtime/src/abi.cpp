@@ -36,7 +36,7 @@ bool runtimeBusy() {
 }
 
 // Marks the ABI entries that run Smalltalk, call a hook or replace the session: boot, shutdown,
-// save, load, filein, workspace reset, eval, accept. SPEC §3.10: the runtime is busy while one of
+// save, load, filein, workspace reset, eval, accept, remove. SPEC §3.10: the runtime is busy while one of
 // them runs (a host hook calls back) or runtimeBusy says so; then entered() is false and the call
 // answers AO_ERR without touching the session. The taking is one compare_exchange (0 to 1), so of
 // two threads that enter at once only one gets in; the one that got in gives the entry back when
@@ -448,6 +448,37 @@ extern "C" int ao_accept_method(const char* class_name, int meta, const char* so
   });
 }
 
+extern "C" int ao_accept_method_id(int64_t class_id, int meta, const char* source, AoSpan* err) {
+  clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
+  return guarded(AO_ERR, [&] {
+    ao::Session* s = ao::session();
+    if (s == nullptr || s->ctx == nullptr || source == nullptr || (meta != 0 && meta != 1)) {
+      return AO_ERR;
+    }
+    // SPEC §3.10 クラス ID: resolving rebuilds the class list; nothing collects before
+    // acceptMethodInto roots the class.
+    const ao::Oop cls = ao::sessionClassForId(class_id);
+    if (cls.isEmpty()) {
+      setMessage(err, "unknown class id");
+      return AO_ERR;
+    }
+    // SPEC §3.10: as for ao_accept_method, a class that is no Behavior is not a compile error.
+    if (!ao::isBehaviorObject(*s->ctx, cls)) {
+      return AO_ERR;
+    }
+    ao::compiler::CompileError error;
+    if (!ao::acceptMethodInto(*s->ctx, cls, meta == 1, source, &error)) {
+      fillSpan(err, error);
+      return AO_ERR_COMPILE;
+    }
+    return AO_OK;
+  });
+}
+
 extern "C" int ao_accept_class(const char* source, AoSpan* err) {
   clearSpan(err);
   const AbiEntry entry;
@@ -466,6 +497,62 @@ extern "C" int ao_accept_class(const char* source, AoSpan* err) {
     }
     return AO_OK;
   });
+}
+
+extern "C" int ao_remove_method(int64_t class_id, int meta, const char* selector, AoSpan* err) {
+  clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    setMessage(err, "runtime is busy");
+    return AO_ERR;
+  }
+  std::string reason;
+  const int rc = guarded(-1, [&] {
+    ao::Session* s = ao::session();
+    if (s == nullptr || s->ctx == nullptr || selector == nullptr || (meta != 0 && meta != 1)) {
+      return AO_ERR;
+    }
+    // SPEC §3.10 クラス ID: resolving rebuilds the class list; nothing here allocates on the heap.
+    const ao::Oop cls = ao::sessionClassForId(class_id);
+    if (cls.isEmpty()) {
+      reason = "unknown class id";
+      return AO_ERR;
+    }
+    return ao::removeMethodOf(*s->ctx, cls, meta == 1, selector, &reason) ? AO_OK : AO_ERR;
+  });
+  if (rc == AO_OK) {
+    return AO_OK;
+  }
+  // SPEC §3.9 削除: an AO_ERR says why, never with an empty message (as ao_image_load).
+  setMessage(err, rc == -1 || reason.empty() ? std::string_view("remove failed") : reason);
+  return AO_ERR;
+}
+
+extern "C" int ao_remove_class(int64_t class_id, AoSpan* err) {
+  clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    setMessage(err, "runtime is busy");
+    return AO_ERR;
+  }
+  std::string reason;
+  const int rc = guarded(-1, [&] {
+    ao::Session* s = ao::session();
+    if (s == nullptr || s->ctx == nullptr) {
+      return AO_ERR;
+    }
+    const ao::Oop cls = ao::sessionClassForId(class_id);
+    if (cls.isEmpty()) {
+      reason = "unknown class id";
+      return AO_ERR;
+    }
+    return ao::removeClassOf(*s->ctx, cls, &reason) ? AO_OK : AO_ERR;
+  });
+  if (rc == AO_OK) {
+    return AO_OK;
+  }
+  setMessage(err, rc == -1 || reason.empty() ? std::string_view("remove failed") : reason);
+  return AO_ERR;
 }
 
 extern "C" int ao_image_load(const char* path, AoSpan* err) {
@@ -499,50 +586,73 @@ extern "C" int ao_browser_class_count(void) {
   return guarded(-1, [] { return ao::browserClassCount(); });
 }
 
-extern "C" int ao_browser_class_at(int index, char* name, int name_len, char* category,
-                                    int category_len) {
+// SPEC §3.10 クラス ID: a read, like the other ao_browser_* (no AbiEntry). 0 on any failure.
+extern "C" int64_t ao_browser_class_id(const char* name) {
+  try {
+    return ao::browserClassId(name);
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" int ao_browser_class_at(int index, int64_t* class_id, char* name, int name_len,
+                                    char* category, int category_len) {
+  if (class_id != nullptr) {
+    *class_id = 0;
+  }
   return guarded(AO_ERR, [&] {
-    return ao::browserClassAt(index, name, name_len, category, category_len);
+    return ao::browserClassAt(index, class_id, name, name_len, category, category_len);
   });
 }
 
-extern "C" int ao_browser_protocol_count(const char* class_name, int meta) {
-  return guarded(-1, [&] { return ao::browserProtocolCount(class_name, meta); });
+extern "C" int ao_browser_protocol_count(int64_t class_id, int meta) {
+  return guarded(-1, [&] { return ao::browserProtocolCount(class_id, meta); });
 }
 
-extern "C" int ao_browser_protocol_at(const char* class_name, int meta, int index, char* buf,
-                                       int len) {
-  return guarded(AO_ERR, [&] { return ao::browserProtocolAt(class_name, meta, index, buf, len); });
+extern "C" int ao_browser_protocol_at(int64_t class_id, int meta, int index, char* buf, int len) {
+  return guarded(AO_ERR, [&] { return ao::browserProtocolAt(class_id, meta, index, buf, len); });
 }
 
-extern "C" int ao_browser_selector_count(const char* class_name, int meta, const char* protocol) {
-  return guarded(-1, [&] { return ao::browserSelectorCount(class_name, meta, protocol); });
+extern "C" int ao_browser_selector_count(int64_t class_id, int meta, const char* protocol) {
+  return guarded(-1, [&] { return ao::browserSelectorCount(class_id, meta, protocol); });
 }
 
-extern "C" int ao_browser_selector_at(const char* class_name, int meta, const char* protocol,
-                                      int index, char* buf, int len) {
+extern "C" int ao_browser_selector_at(int64_t class_id, int meta, const char* protocol, int index,
+                                      char* buf, int len) {
   return guarded(AO_ERR, [&] {
-    return ao::browserSelectorAt(class_name, meta, protocol, index, buf, len);
+    return ao::browserSelectorAt(class_id, meta, protocol, index, buf, len);
   });
 }
 
-extern "C" int ao_browser_source(const char* class_name, int meta, const char* selector, char* buf,
+extern "C" int ao_browser_source(int64_t class_id, int meta, const char* selector, char* buf,
                                  int len) {
-  return guarded(AO_ERR, [&] { return ao::browserSource(class_name, meta, selector, buf, len); });
+  return guarded(AO_ERR, [&] { return ao::browserSource(class_id, meta, selector, buf, len); });
 }
 
-extern "C" int ao_browser_class_definition(const char* class_name, char* buf, int len) {
-  return guarded(AO_ERR, [&] { return ao::browserClassDefinition(class_name, buf, len); });
+extern "C" int ao_browser_class_definition(int64_t class_id, char* buf, int len) {
+  return guarded(AO_ERR, [&] { return ao::browserClassDefinition(class_id, buf, len); });
 }
 
-extern "C" int ao_browser_superclass(const char* class_name, int meta, char* buf, int len) {
-  return guarded(AO_ERR, [&] { return ao::browserSuperclass(class_name, meta, buf, len); });
+extern "C" int ao_browser_superclass(int64_t class_id, int meta, int64_t* superclass_id, char* buf,
+                                     int len) {
+  if (superclass_id != nullptr) {
+    *superclass_id = 0;
+  }
+  return guarded(AO_ERR, [&] {
+    return ao::browserSuperclass(class_id, meta, superclass_id, buf, len);
+  });
 }
 
-extern "C" int ao_browser_subclass_count(const char* class_name) {
-  return guarded(-1, [&] { return ao::browserSubclassCount(class_name); });
+extern "C" int ao_browser_subclass_count(int64_t class_id) {
+  return guarded(-1, [&] { return ao::browserSubclassCount(class_id); });
 }
 
-extern "C" int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len) {
-  return guarded(AO_ERR, [&] { return ao::browserSubclassAt(class_name, index, buf, len); });
+extern "C" int ao_browser_subclass_at(int64_t class_id, int index, int64_t* subclass_id, char* buf,
+                                      int len) {
+  if (subclass_id != nullptr) {
+    *subclass_id = 0;
+  }
+  return guarded(AO_ERR, [&] {
+    return ao::browserSubclassAt(class_id, index, subclass_id, buf, len);
+  });
 }

@@ -215,6 +215,18 @@ bool WellKnown::define(std::string_view name, Oop value) {
   return true;
 }
 
+bool WellKnown::undefine(std::string_view name) {
+  if (isFixedGlobal(name)) {
+    return false;
+  }
+  const Oop key = findSymbol(name);
+  if (!key.isHeap() || !Globals::unbind(*this, key)) {
+    return false;
+  }
+  ++globalsVersion_;
+  return true;
+}
+
 bool WellKnown::isCatalogName(std::string_view name) const {
   for (const auto& e : kNamedClasses) {
     if (name == e.name) {

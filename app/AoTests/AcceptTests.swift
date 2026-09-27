@@ -572,6 +572,751 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(String(workspace.text.dropFirst(expr.count)), "7")
   }
 
+  // SPEC §3.9 削除, §4.3: Remove Method… asks with the method's name; Remove takes it out, the
+  // cached send falls to doesNotUnderstand:, the selector row goes and the protocol stays while it
+  // lists a method. The class side asks with `Foo class>>bar`.
+  func testRemoveMethodAfterConfirmUpdatesLists() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12a\n  ^1\n")
+    browser.accept()
+    browser.replaceSource("b12b\n  ^2\n")
+    browser.accept()
+    XCTAssertEqual(browser.model.selectedSelector, "b12b")
+    XCTAssertEqual(printIt("Object new b12b"), "2")
+    var asked: [String] = []
+    browser.confirmRemove = { window, message, decide in
+      XCTAssertTrue(window === browser.window)
+      asked.append(message)
+      decide(true)
+    }
+    XCTAssertTrue(browser.canRemoveMethod)
+    browser.removeMethod()
+    XCTAssertEqual(asked, ["Remove Object>>b12b?"])
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertNil(browser.model.selectedSelector)
+    XCTAssertEqual(browser.model.selectedProtocol, "user")
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+    XCTAssertEqual(browser.model.selectors, ["b12a"])
+    XCTAssertNil(selectedName(in: selectorTable(in: browser), values: browser.model.selectors))
+    XCTAssertEqual(browser.sourceText, "")
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+    XCTAssertFalse(browser.canRemoveMethod)
+    XCTAssertNil(printIt("Object new b12b"))
+    XCTAssertEqual(printIt("Object new b12a"), "1")
+    // Nothing selected: the menu action does nothing and asks nothing.
+    browser.removeMethod()
+    XCTAssertEqual(asked.count, 1)
+
+    var err = AoSpan()
+    let accepted = "b12c\n  ^3\n".withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_method("Object", 1, src, $0) }
+    }
+    XCTAssertEqual(accepted, Int32(AO_OK), spanMessage(err))
+    guard let side = segmentedControls(in: browser.window.contentView).first else {
+      XCTFail("missing instance/class switch")
+      return
+    }
+    side.selectedSegment = 1
+    XCTAssertTrue(side.sendAction(side.action, to: side.target))
+    selectProtocol("user", in: browser)
+    selectSelector("b12c", in: browser)
+    browser.removeMethod()
+    XCTAssertEqual(asked, ["Remove Object>>b12b?", "Remove Object class>>b12c?"])
+    XCTAssertNil(printIt("Object b12c"))
+    XCTAssertEqual(browser.errorText, "")
+  }
+
+  // SPEC §3.9 削除: Cancel changes nothing: the method, the class, the rows and the pane stay.
+  func testCancelRemoveChangesNothing() {
+    var err = AoSpan()
+    let def = "Object subclass: #B12Cancel\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'B12-Cancel'\n"
+    let defined = def.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+    XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12keep\n  ^1\n")
+    browser.accept()
+    var asked = 0
+    browser.confirmRemove = { _, _, decide in
+      asked += 1
+      decide(false)
+    }
+    browser.removeMethod()
+    XCTAssertEqual(asked, 1)
+    XCTAssertEqual(browser.model.selectedSelector, "b12keep")
+    XCTAssertEqual(browser.model.selectors, ["b12keep"])
+    XCTAssertEqual(browser.sourceText, "b12keep\n  ^1\n")
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("Object new b12keep"), "1")
+
+    selectCategory("B12-Cancel", in: browser)
+    selectClass("B12Cancel", in: browser)
+    browser.removeClass()
+    XCTAssertEqual(asked, 2)
+    XCTAssertEqual(browser.model.selectedClass, "B12Cancel")
+    XCTAssertEqual(browser.model.classes, ["B12Cancel"])
+    XCTAssertTrue(browser.model.categories.contains("B12-Cancel"))
+    // Erratum: Object>>printString answers the receiver's class name, so a class object prints
+    // its metaclass name.
+    XCTAssertEqual(printIt("B12Cancel"), "B12Cancel class")
+    XCTAssertTrue(browser.sourceText.contains("subclass: #B12Cancel"))
+  }
+
+  // SPEC §3.9 削除, §6: Remove Class… takes the class off the lists; its category goes with its
+  // last class (the first category is shown then), a category with a class left keeps it with no
+  // class selected, and the hierarchy list loses the name too.
+  func testRemoveClassAfterConfirmUpdatesLists() {
+    var err = AoSpan()
+    for (name, category) in [("B12Gone", "B12-Gone"), ("B12StayA", "B12-Stay"), ("B12StayB", "B12-Stay")] {
+      let def = "Object subclass: #\(name)\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+        + "  poolDictionaries: ''\n  category: '\(category)'\n"
+      let defined = def.withCString { src in
+        withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+      }
+      XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
+    }
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    XCTAssertEqual(printIt("B12Gone new printString"), "'B12Gone'")
+    var asked: [String] = []
+    browser.confirmRemove = { _, message, decide in
+      asked.append(message)
+      decide(true)
+    }
+    selectCategory("B12-Gone", in: browser)
+    selectClass("B12Gone", in: browser)
+    XCTAssertTrue(browser.canRemoveClass)
+    browser.removeClass()
+    XCTAssertEqual(asked, ["Remove class B12Gone?"])
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertFalse(browser.model.classes.contains("B12Gone"))
+    XCTAssertFalse(browser.model.categories.contains("B12-Gone"))
+    XCTAssertNil(browser.model.selectedClass)
+    XCTAssertFalse(browser.canRemoveClass)
+    XCTAssertEqual(selectedName(in: categoryTable(in: browser), values: browser.model.categories),
+                   browser.model.categories.first)
+    XCTAssertEqual(printIt("B12Gone"), "nil")
+    // Nothing selected: the menu action does nothing.
+    browser.removeClass()
+    XCTAssertEqual(asked.count, 1)
+
+    selectCategory("B12-Stay", in: browser)
+    selectClass("B12StayA", in: browser)
+    browser.removeClass()
+    XCTAssertEqual(asked.last, "Remove class B12StayA?")
+    XCTAssertTrue(browser.model.categories.contains("B12-Stay"))
+    XCTAssertEqual(selectedName(in: categoryTable(in: browser), values: browser.model.categories), "B12-Stay")
+    XCTAssertEqual(browser.model.classes, ["B12StayB"])
+    XCTAssertNil(browser.model.selectedClass)
+    XCTAssertNil(selectedName(in: classTable(in: browser), values: browser.model.classes))
+    XCTAssertEqual(browser.sourceText, "")
+
+    selectClass("B12StayB", in: browser)
+    browser.showHierarchy()
+    XCTAssertTrue(browser.model.classes.contains("Object"))
+    XCTAssertTrue(browser.model.classes.contains("B12StayB"))
+    browser.removeClass()
+    XCTAssertEqual(asked.last, "Remove class B12StayB?")
+    XCTAssertTrue(browser.model.classes.contains("Object"))
+    XCTAssertFalse(browser.model.classes.contains("B12StayB"))
+    XCTAssertNil(browser.model.selectedClass)
+    XCTAssertEqual(printIt("B12StayB"), "nil")
+  }
+
+  // SPEC §3.9 削除: a refusal shows its reason in the error field and changes no row or pane.
+  func testRefusedRemoveShowsReason() {
+    var err = AoSpan()
+    for (name, superclass) in [("B12Par", "Object"), ("B12Kid", "B12Par")] {
+      let def = "\(superclass) subclass: #\(name)\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+        + "  poolDictionaries: ''\n  category: 'B12-Sub'\n"
+      let defined = def.withCString { src in
+        withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+      }
+      XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
+    }
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    browser.confirmRemove = { _, _, decide in decide(true) }
+    // Kernel / Object / native / printString is the initial selection.
+    XCTAssertEqual(browser.model.selectedSelector, "printString")
+    let shown = browser.sourceText
+    let selectors = browser.model.selectors
+    browser.removeMethod()
+    XCTAssertEqual(browser.errorText, "native method removal refused: Object>>printString")
+    XCTAssertEqual(browser.model.selectedSelector, "printString")
+    XCTAssertEqual(browser.model.selectors, selectors)
+    XCTAssertEqual(browser.sourceText, shown)
+    XCTAssertEqual(selectedName(in: selectorTable(in: browser), values: browser.model.selectors), "printString")
+
+    let classes = browser.model.classes
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "class removal refused: Object is a fixed global")
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+    XCTAssertEqual(browser.model.classes, classes)
+    XCTAssertEqual(browser.model.selectedSelector, "printString")
+
+    selectCategory("B12-Sub", in: browser)
+    selectClass("B12Par", in: browser)
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "class removal refused: B12Par has subclass B12Kid")
+    // The class list is always alphabetical (Session::classRows sorts by name), not definition
+    // order.
+    XCTAssertEqual(browser.model.classes, ["B12Kid", "B12Par"])
+    XCTAssertEqual(browser.model.selectedClass, "B12Par")
+    // The next successful action clears the field.
+    selectClass("B12Kid", in: browser)
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(browser.model.classes, ["B12Par"])
+  }
+
+  // SPEC §3.9 削除, §3.10 クラス ID: after B12Foo goes and an alias keeps the old class, a new
+  // B12Foo makes two rows named B12Foo. Each row reads, accepts and removes on its own class; the
+  // old row's Remove Class… is refused because its name no longer binds it.
+  func testAliasedOldClassRowActsOnItsOwnClass() {
+    var err = AoSpan()
+    XCTAssertEqual(acceptClass("B12Foo", category: "B12-Old"), Int32(AO_OK))
+    let old = "old\n  ^1\n".withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_method("B12Foo", 0, src, $0) }
+    }
+    XCTAssertEqual(old, Int32(AO_OK), spanMessage(err))
+    // A class object prints as its metaclass's name, "<Name> class".
+    XCTAssertEqual(printIt("Smalltalk at: #B12FooAlias put: B12Foo"), "B12Foo class")
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var asked: [String] = []
+    browser.confirmRemove = { _, message, decide in
+      asked.append(message)
+      decide(true)
+    }
+    selectCategory("B12-Old", in: browser)
+    selectClass("B12Foo", in: browser)
+    let oldID = browser.model.selectedClassID
+    XCTAssertNotNil(oldID)
+    browser.removeClass()
+    XCTAssertEqual(asked, ["Remove class B12Foo?"])
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12Foo"), "nil")
+    // The alias keeps the old class listed under its own name, with the same ID.
+    XCTAssertEqual(browser.model.classes, ["B12Foo"])
+    XCTAssertEqual(browser.model.classRows.first?.id, oldID)
+
+    XCTAssertEqual(acceptClass("B12Foo", category: "B12-New"), Int32(AO_OK))
+    let new = "new\n  ^2\n".withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_method("B12Foo", 0, src, $0) }
+    }
+    XCTAssertEqual(new, Int32(AO_OK), spanMessage(err))
+
+    // The Old row is the old class.
+    selectClass("B12Foo", in: browser)
+    XCTAssertEqual(browser.model.selectedClassID, oldID)
+    XCTAssertTrue(browser.sourceText.contains("category: 'B12-Old'"))
+    selectProtocol("user", in: browser)
+    XCTAssertEqual(browser.model.selectors, ["old"])
+
+    // Its Remove Class… is refused; the new B12Foo stays.
+    browser.removeClass()
+    XCTAssertEqual(asked.last, "Remove class B12Foo?")
+    XCTAssertEqual(browser.errorText, "class removal refused: B12Foo is not bound to this class")
+    XCTAssertEqual(printIt("B12Foo new new"), "2")
+
+    // Accept and Remove Method… go to the old class.
+    browser.replaceSource("extra\n  ^3\n")
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12FooAlias new extra"), "3")
+    XCTAssertNil(printIt("B12Foo new extra"))
+    selectSelector("old", in: browser)
+    browser.removeMethod()
+    XCTAssertEqual(asked.last, "Remove B12Foo>>old?")
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertNil(printIt("B12FooAlias new old"))
+    XCTAssertEqual(printIt("B12Foo new new"), "2")
+
+    // The New row is the new class; removing it leaves the alias alone.
+    selectCategory("B12-New", in: browser)
+    selectClass("B12Foo", in: browser)
+    XCTAssertNotEqual(browser.model.selectedClassID, oldID)
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12Foo"), "nil")
+    XCTAssertEqual(printIt("B12FooAlias new extra"), "3")
+  }
+
+  // SPEC §3.9 System Browser, §3.10 クラス ID: a load starts new IDs; the Browser selects the class
+  // now bound to the selected row's name, and Remove Class… acts on it.
+  func testImageLoadReselectsTheClassByName() {
+    XCTAssertEqual(acceptClass("B12Img", category: "B12-Img"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    browser.confirmRemove = { _, _, decide in decide(true) }
+    selectCategory("B12-Img", in: browser)
+    selectClass("B12Img", in: browser)
+    let before = browser.model.selectedClassID
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("b12-img-\(UUID().uuidString).aoimage").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    XCTAssertEqual(path.withCString { ao_image_save($0) }, Int32(AO_OK))
+    var err = AoSpan()
+    let loaded = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    XCTAssertEqual(browser.model.selectedClass, "B12Img")
+    XCTAssertNotEqual(browser.model.selectedClassID, before)
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "B12Img"))
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12Img"), "nil")
+  }
+
+  // SPEC §3.9 System Browser: a click on a row whose class left the list since it was drawn (a
+  // shape change) selects the class now bound to that row's name, not the first row.
+  func testClickOnReshapedRowSelectsTheClassOfItsName() {
+    XCTAssertEqual(acceptClass("B12PickA", category: "B12-Pick"), Int32(AO_OK))
+    XCTAssertEqual(acceptClass("B12PickB", category: "B12-Pick"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectCategory("B12-Pick", in: browser)
+    XCTAssertEqual(browser.model.classes, ["B12PickA", "B12PickB"])
+    let drawn = BrowserModel.classID(named: "B12PickB")
+    var err = AoSpan()
+    let def = "Object subclass: #B12PickB\n  instanceVariableNames: 'a'\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'B12-Pick'\n"
+    let reshaped = def.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+    XCTAssertEqual(reshaped, Int32(AO_OK), spanMessage(err))
+    XCTAssertNotEqual(BrowserModel.classID(named: "B12PickB"), drawn)
+    // The rows are still the ones drawn before the reshape.
+    XCTAssertEqual(browser.model.classRows.last?.id, drawn)
+    selectClass("B12PickB", in: browser)
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "B12PickB"))
+    XCTAssertTrue(browser.sourceText.contains("instanceVariableNames: 'a'"))
+  }
+
+  // SPEC §3.9 System Browser: the Browser does not re-read its lists after a Workspace
+  // evaluation. When the selected class was reshaped there, Accept and Remove… act on the class
+  // now bound to the selected row's name instead of answering unknown class id.
+  func testAcceptAndRemoveFollowAClassReshapedSinceTheLastRefresh() {
+    XCTAssertEqual(acceptClass("B12Stale", category: "B12-Stale"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    browser.confirmRemove = { _, _, decide in decide(true) }
+    selectCategory("B12-Stale", in: browser)
+    selectClass("B12Stale", in: browser)
+    selectProtocol("user", in: browser)
+    XCTAssertEqual(acceptClass("B12Stale", category: "B12-Stale", instanceVariables: "a"), Int32(AO_OK))
+    browser.replaceSource("fresh\n  ^7\n")
+    browser.accept()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12Stale new fresh"), "7")
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "B12Stale"))
+    XCTAssertEqual(browser.model.selectedSelector, "fresh")
+
+    // Remove Method… from the context menu on the selected row republishes nothing first.
+    XCTAssertEqual(acceptClass("B12Stale", category: "B12-Stale", instanceVariables: "a b"), Int32(AO_OK))
+    XCTAssertEqual(printIt("B12Stale new fresh"), "7")
+    guard let methodRow = browser.model.selectors.firstIndex(of: "fresh") else {
+      XCTFail("missing selector fresh")
+      return
+    }
+    browser.removeMethod(atRow: methodRow)
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertNil(printIt("B12Stale new fresh"))
+
+    // So does Remove Class… on the selected row.
+    XCTAssertEqual(acceptClass("B12Stale", category: "B12-Stale", instanceVariables: "c"), Int32(AO_OK))
+    guard let classRow = browser.model.classes.firstIndex(of: "B12Stale") else {
+      XCTFail("missing class B12Stale")
+      return
+    }
+    browser.removeClass(atRow: classRow)
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12Stale"), "nil")
+  }
+
+  // SPEC §3.9 System Browser: the hierarchy list follows a shape change too. Showing it after the
+  // selected class was reshaped builds it from the class now bound to the name, and a hierarchy
+  // row whose class was reshaped since gives way to that class; Remove Class… acts on it.
+  func testHierarchyFollowsAReshapedClass() {
+    XCTAssertEqual(acceptClass("B12HPar", category: "B12-Hier"), Int32(AO_OK))
+    XCTAssertEqual(reshapeKid(instanceVariables: ""), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    browser.confirmRemove = { _, _, decide in decide(true) }
+    selectCategory("B12-Hier", in: browser)
+    selectClass("B12HKid", in: browser)
+    XCTAssertEqual(reshapeKid(instanceVariables: "a"), Int32(AO_OK))
+    browser.showHierarchy()
+    XCTAssertEqual(Array(browser.model.classes.suffix(3)), ["Object", "B12HPar", "B12HKid"])
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "B12HKid"))
+    XCTAssertTrue(browser.sourceText.contains("instanceVariableNames: 'a'"))
+
+    // Reshaped under the showing hierarchy: another row's click publishes, then the Kid row is
+    // the new class.
+    XCTAssertEqual(reshapeKid(instanceVariables: "a b"), Int32(AO_OK))
+    selectClass("B12HPar", in: browser)
+    selectClass("B12HKid", in: browser)
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "B12HKid"))
+    XCTAssertEqual(browser.model.classRows.last?.id, BrowserModel.classID(named: "B12HKid"))
+    XCTAssertTrue(browser.sourceText.contains("instanceVariableNames: 'a b'"))
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12HKid"), "nil")
+  }
+
+  // Defines (or reshapes) `B12HPar subclass: #B12HKid` in B12-Hier.
+  private func reshapeKid(instanceVariables: String) -> Int32 {
+    var err = AoSpan()
+    let def = "B12HPar subclass: #B12HKid\n  instanceVariableNames: '\(instanceVariables)'\n"
+      + "  classVariableNames: ''\n  poolDictionaries: ''\n  category: 'B12-Hier'\n"
+    return def.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+  }
+
+  // SPEC §3.9 System Browser: a hierarchy row whose class no name binds any more goes, and the
+  // selection gives way to the first row of the hierarchy, not to a class of the category that
+  // the hierarchy does not show.
+  func testHierarchySelectionStaysInTheHierarchyList() {
+    XCTAssertEqual(acceptClass("B12HGone", category: "B12-HSel"), Int32(AO_OK))
+    XCTAssertEqual(acceptClass("B12HZed", category: "B12-HSel"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectCategory("B12-HSel", in: browser)
+    selectClass("B12HGone", in: browser)
+    browser.showHierarchy()
+    XCTAssertEqual(browser.model.classes.last, "B12HGone")
+    XCTAssertEqual(printIt("Smalltalk at: #B12HGone put: nil. 0"), "0")
+    guard let side = segmentedControls(in: browser.window.contentView).first else {
+      XCTFail("missing instance/class switch")
+      return
+    }
+    side.selectedSegment = 1
+    XCTAssertTrue(side.sendAction(side.action, to: side.target))
+    XCTAssertFalse(browser.model.classes.contains("B12HGone"))
+    XCTAssertFalse(browser.model.classes.contains("B12HZed"))
+    XCTAssertEqual(browser.model.selectedClassID, browser.model.classRows.first?.id)
+    XCTAssertEqual(selectedName(in: classTable(in: browser), values: browser.model.classes),
+                   browser.model.classes.first)
+  }
+
+  // SPEC §3.9 削除: a class an alias still holds stays listed under its own name with its ID, so
+  // removing it from the hierarchy keeps its row there too.
+  func testRemoveClassInHierarchyKeepsAnAliasedRow() {
+    XCTAssertEqual(acceptClass("B12HAliased", category: "B12-HAlias"), Int32(AO_OK))
+    XCTAssertEqual(printIt("Smalltalk at: #B12HAlias put: B12HAliased. 0"), "0")
+    let id = BrowserModel.classID(named: "B12HAliased")
+    XCTAssertGreaterThan(id, 0)
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    browser.confirmRemove = { _, _, decide in decide(true) }
+    selectCategory("B12-HAlias", in: browser)
+    selectClass("B12HAliased", in: browser)
+    browser.showHierarchy()
+    browser.removeClass()
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("B12HAliased"), "nil")
+    XCTAssertTrue(browser.model.classRows.contains { $0.id == id })
+    XCTAssertNil(browser.model.selectedClass)
+  }
+
+  // SPEC §3.9 削除: an unaccepted edit asks to discard first; keeping it ends the command, and
+  // discarding it goes on to the removal question.
+  func testRemoveAsksToDiscardEditsFirst() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12x\n  ^1\n")
+    browser.accept()
+    browser.replaceSource("b12y\n  ^2\n")
+    browser.accept()
+    var discardAsked = 0
+    var discard = false
+    browser.confirmDiscard = { _, decide in
+      discardAsked += 1
+      decide(discard)
+    }
+    var removeAsked: [String] = []
+    browser.confirmRemove = { _, message, decide in
+      removeAsked.append(message)
+      decide(true)
+    }
+    let edited = "b12y\n  ^9\n"
+    browser.replaceSource(edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    browser.removeMethod()
+    XCTAssertEqual(discardAsked, 1)
+    XCTAssertEqual(removeAsked, [])
+    XCTAssertEqual(browser.sourceText, edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    XCTAssertEqual(printIt("Object new b12y"), "2")
+
+    discard = true
+    browser.removeMethod()
+    XCTAssertEqual(discardAsked, 2)
+    XCTAssertEqual(removeAsked, ["Remove Object>>b12y?"])
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+    XCTAssertNil(printIt("Object new b12y"))
+    XCTAssertEqual(browser.model.selectors, ["b12x"])
+    // The class command asks the same way.
+    browser.replaceSource("b12z\n  ^3\n")
+    discard = false
+    browser.removeClass()
+    XCTAssertEqual(discardAsked, 3)
+    XCTAssertEqual(removeAsked.count, 1)
+    XCTAssertEqual(browser.sourceText, "b12z\n  ^3\n")
+  }
+
+  // SPEC §3.9 削除, §4.3: the Smalltalk menu's two items, without keys, enabled only while the
+  // Browser is key and has a selector (Remove Method…) or a class (Remove Class…).
+  func testRemoveMenuItemsFollowSelection() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    let workspace = WorkspaceWindow()
+    defer { workspace.window.close() }
+    var key: NSWindow? = browser.window
+    var actions = MainMenu.Actions()
+    actions.canRemoveMethod = { keyBrowserAllows(browser, keyWindow: key) { $0.canRemoveMethod } }
+    actions.canRemoveClass = { keyBrowserAllows(browser, keyWindow: key) { $0.canRemoveClass } }
+    var removed: [String] = []
+    actions.removeMethod = { removed.append("method") }
+    actions.removeClass = { removed.append("class") }
+    let menu = MainMenu.build(actions: actions)
+    let smalltalk = menu.item(withTitle: "Smalltalk")?.submenu
+    XCTAssertEqual(
+      smalltalk?.items.map(\.title),
+      ["Do it", "Print it", "Inspect it", "Debug it", "Accept", "Remove Method…", "Remove Class…", "Show Hierarchy"]
+    )
+    guard let method = smalltalk?.item(withTitle: "Remove Method…"),
+          let cls = smalltalk?.item(withTitle: "Remove Class…") else {
+      XCTFail("missing Remove items")
+      return
+    }
+    XCTAssertEqual(method.keyEquivalent, "")
+    XCTAssertEqual(cls.keyEquivalent, "")
+    func enabled(_ item: NSMenuItem) -> Bool {
+      (item.target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
+    }
+    // Kernel / Object / native / printString: both.
+    XCTAssertTrue(enabled(method))
+    XCTAssertTrue(enabled(cls))
+    selectProtocol(nil, in: browser)
+    XCTAssertFalse(enabled(method))
+    XCTAssertTrue(enabled(cls))
+    key = workspace.window
+    XCTAssertFalse(enabled(method))
+    XCTAssertFalse(enabled(cls))
+    key = nil
+    XCTAssertFalse(enabled(cls))
+    // Items without a test stay enabled.
+    if let accept = smalltalk?.item(withTitle: "Accept") {
+      XCTAssertTrue(enabled(accept))
+    }
+    _ = (method.target as? NSObject)?.perform(method.action, with: method)
+    XCTAssertEqual(removed, ["method"])
+    _ = (cls.target as? NSObject)?.perform(cls.action, with: cls)
+    XCTAssertEqual(removed, ["method", "class"])
+    // The app's wiring: not the key window, nothing runs.
+    sendToKeyBrowser(browser, keyWindow: workspace.window) { $0.removeMethod() }
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+  }
+
+  // SPEC §3.9 削除: the class and selector lists offer one item each, labelled as titled, enabled
+  // for a clicked row; choosing another row selects it (asking to discard an edit first) and asks the
+  // removal question. A question already up ignores a second choice.
+  func testContextMenusOfferRemove() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    guard let classes = classTable(in: browser), let selectors = selectorTable(in: browser),
+          let classMenu = classes.menu, let selectorMenu = selectors.menu else {
+      XCTFail("missing context menus")
+      return
+    }
+    XCTAssertEqual(classMenu.items.map(\.title), ["Remove Class…"])
+    XCTAssertEqual(selectorMenu.items.map(\.title), ["Remove Method…"])
+    XCTAssertEqual(classMenu.items.first?.accessibilityLabel(), "Remove Class…")
+    XCTAssertEqual(selectorMenu.items.first?.accessibilityLabel(), "Remove Method…")
+    XCTAssertTrue(classMenu.items.first?.target === browser)
+    XCTAssertTrue(selectorMenu.items.first?.target === browser)
+    XCTAssertFalse(classMenu.autoenablesItems)
+    // No click yet (clickedRow -1): the items are disabled.
+    browser.menuNeedsUpdate(classMenu)
+    browser.menuNeedsUpdate(selectorMenu)
+    XCTAssertFalse(classMenu.items.first?.isEnabled ?? true)
+    XCTAssertFalse(selectorMenu.items.first?.isEnabled ?? true)
+
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12m\n  ^1\n")
+    browser.accept()
+    browser.replaceSource("b12n\n  ^2\n")
+    browser.accept()
+    XCTAssertEqual(browser.model.selectedSelector, "b12n")
+    var asked: [String] = []
+    browser.confirmRemove = { _, message, decide in
+      // The clicked row is selected before the question.
+      XCTAssertEqual(browser.model.selectedSelector, "b12m")
+      asked.append(message)
+      decide(true)
+    }
+    guard let row = browser.model.selectors.firstIndex(of: "b12m") else {
+      XCTFail("missing b12m")
+      return
+    }
+    browser.removeMethod(atRow: row)
+    XCTAssertEqual(asked, ["Remove Object>>b12m?"])
+    XCTAssertEqual(browser.model.selectors, ["b12n"])
+    XCTAssertNil(browser.model.selectedSelector)
+    XCTAssertNil(printIt("Object new b12m"))
+    // Out of range: nothing.
+    browser.removeMethod(atRow: -1)
+    browser.removeClass(atRow: browser.model.classes.count)
+    XCTAssertEqual(asked.count, 1)
+
+    // An edit and another row: the discard question comes first, and a second choice while it
+    // waits is ignored.
+    selectSelector("b12n", in: browser)
+    browser.replaceSource("b12n\n  ^9\n")
+    var pending: (@MainActor (Bool) -> Void)?
+    var discardAsked = 0
+    browser.confirmDiscard = { _, decide in
+      discardAsked += 1
+      pending = decide
+    }
+    guard let otherRow = browser.model.classes.firstIndex(of: "Behavior") else {
+      XCTFail("missing Behavior")
+      return
+    }
+    browser.removeClass(atRow: otherRow)
+    browser.removeClass(atRow: otherRow)
+    XCTAssertEqual(discardAsked, 1)
+    XCTAssertEqual(asked.count, 1)
+    pending?(false)
+    XCTAssertEqual(asked.count, 1)
+    XCTAssertEqual(browser.sourceText, "b12n\n  ^9\n")
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+    XCTAssertEqual(browser.model.selectedSelector, "b12n")
+    browser.confirmRemove = { _, message, decide in
+      asked.append(message)
+      decide(false)
+    }
+    browser.removeClass(atRow: otherRow)
+    XCTAssertEqual(discardAsked, 2)
+    pending?(true)
+    XCTAssertEqual(asked, ["Remove Object>>b12m?", "Remove class Behavior?"])
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+    XCTAssertEqual(browser.model.selectedClass, "Behavior")
+    XCTAssertEqual(printIt("Object new b12n"), "2")
+  }
+
+  // SPEC §3.9 削除: the context menu on the row already selected changes no selection, so it asks
+  // no discard question and leaves the pane alone: Cancel keeps the edit, and Remove removes. The
+  // class row is the same.
+  func testContextMenuOnTheSelectedRowDoesNotAskToDiscard() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12p\n  ^1\n")
+    browser.accept()
+    browser.replaceSource("b12q\n  ^2\n")
+    browser.accept()
+    XCTAssertEqual(browser.model.selectedSelector, "b12q")
+    var discardAsked = 0
+    browser.confirmDiscard = { _, decide in
+      discardAsked += 1
+      decide(true)
+    }
+    var remove = false
+    var asked: [String] = []
+    browser.confirmRemove = { _, message, decide in
+      asked.append(message)
+      decide(remove)
+    }
+    guard let row = browser.model.selectors.firstIndex(of: "b12q") else {
+      XCTFail("missing b12q")
+      return
+    }
+    let edited = "b12q\n  ^9\n"
+    browser.replaceSource(edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    browser.removeMethod(atRow: row)
+    XCTAssertEqual(discardAsked, 0)
+    XCTAssertEqual(asked, ["Remove Object>>b12q?"])
+    XCTAssertEqual(browser.sourceText, edited)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    XCTAssertEqual(browser.model.selectedSelector, "b12q")
+    XCTAssertEqual(printIt("Object new b12q"), "2")
+
+    remove = true
+    browser.removeMethod(atRow: row)
+    XCTAssertEqual(discardAsked, 0)
+    XCTAssertEqual(asked, ["Remove Object>>b12q?", "Remove Object>>b12q?"])
+    XCTAssertNil(printIt("Object new b12q"))
+    XCTAssertEqual(browser.model.selectors, ["b12p"])
+    XCTAssertNil(browser.model.selectedSelector)
+    XCTAssertFalse(browser.hasUnacceptedChanges)
+
+    // The selected class row: no discard question either. Cancel keeps the edit; Remove is
+    // refused for Object and still keeps it.
+    let classEdit = "b12r\n  ^3\n"
+    browser.replaceSource(classEdit)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    guard let objectRow = browser.model.classes.firstIndex(of: "Object") else {
+      XCTFail("missing Object")
+      return
+    }
+    remove = false
+    browser.removeClass(atRow: objectRow)
+    XCTAssertEqual(discardAsked, 0)
+    XCTAssertEqual(asked.last, "Remove class Object?")
+    XCTAssertEqual(browser.sourceText, classEdit)
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    remove = true
+    browser.removeClass(atRow: objectRow)
+    XCTAssertEqual(discardAsked, 0)
+    XCTAssertEqual(asked.count, 4)
+    XCTAssertEqual(browser.errorText, "class removal refused: Object is a fixed global")
+    XCTAssertEqual(browser.sourceText, classEdit)
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+  }
+
+  // SPEC §3.9 削除: while the removal question waits, another choice (either menu) asks nothing.
+  // Cancel removes nothing, and a later choice asks again.
+  func testSecondChoiceWhileTheRemovalQuestionWaitsIsIgnored() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectProtocol("user", in: browser)
+    browser.replaceSource("b12w\n  ^1\n")
+    browser.accept()
+    var pending: [@MainActor (Bool) -> Void] = []
+    browser.confirmRemove = { _, _, decide in pending.append(decide) }
+    guard let row = browser.model.selectors.firstIndex(of: "b12w"),
+          let objectRow = browser.model.classes.firstIndex(of: "Object") else {
+      XCTFail("missing b12w or Object")
+      return
+    }
+    browser.removeMethod(atRow: row)
+    browser.removeMethod(atRow: row)
+    browser.removeClass(atRow: objectRow)
+    browser.removeMethod()
+    XCTAssertEqual(pending.count, 1)
+    pending[0](false)
+    XCTAssertEqual(printIt("Object new b12w"), "1")
+    XCTAssertEqual(browser.model.selectors, ["b12w"])
+    browser.removeMethod(atRow: row)
+    XCTAssertEqual(pending.count, 2)
+    pending[1](true)
+    XCTAssertNil(printIt("Object new b12w"))
+  }
+
   func testAcceptRunsOnlyWhenBrowserIsKey() {
     let browser = BrowserWindow()
     defer { browser.window.close() }
@@ -734,6 +1479,16 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(alerts.last?.informativeText.contains("halted processes") ?? false)
     XCTAssertEqual(ao_debug_abort(ao_debug_halted_pid()), Int32(AO_OK))
     XCTAssertTrue(app.saveImage(to: url))
+  }
+
+  // Defines (or reshapes) `Object subclass: #name` in category through ao_accept_class.
+  private func acceptClass(_ name: String, category: String, instanceVariables: String = "") -> Int32 {
+    var err = AoSpan()
+    let def = "Object subclass: #\(name)\n  instanceVariableNames: '\(instanceVariables)'\n"
+      + "  classVariableNames: ''\n  poolDictionaries: ''\n  category: '\(category)'\n"
+    return def.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
   }
 
   // `expecting` is the selection after the click when it differs from the clicked row

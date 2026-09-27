@@ -42,12 +42,15 @@ typedef struct AoSpan {
 
 /* SPEC §3.10. The runtime is busy while ao_runtime_boot, ao_runtime_shutdown, ao_image_save,
    ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method,
-   ao_accept_class, ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
+   ao_accept_method_id, ao_accept_class, ao_remove_method, ao_remove_class,
+   ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
    ao_debug_clear, ao_debug_proceed, ao_debug_step_into, ao_debug_step_over, ao_debug_step_out
    or ao_debug_abort runs, or the interpreter does. Called then (from a transcript or inspect
-   hook, or a native), each of these eighteen does nothing and answers AO_ERR: ao_image_load
+   hook, or a native), each of these twenty-one does nothing and answers AO_ERR: ao_image_load,
+   ao_remove_method and ao_remove_class
    with the reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
-   setters, ao_version, the ao_browser_* reads, ao_eval_result_length, ao_eval_result_copy,
+   setters, ao_version, the ao_browser_* reads (ao_browser_class_id too), ao_eval_result_length,
+   ao_eval_result_copy,
    ao_set_debug_capture, ao_set_debug_mode, the snapshot reads (ao_debug_generation to
    ao_debug_frame_temp_name) and the live reads (ao_debug_halted_pid to ao_debug_select) may be
    called then. A halted process (SPEC §3.13) does not run, so it alone does not make the runtime
@@ -83,27 +86,40 @@ typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, int 
 void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
 void ao_set_inspect_hook(AoInspectFn fn, void* user);
 
-/* The four *_count functions answer 0 or more, or -1 on failure: no session, a name that is not
-   a class, meta other than 0 or 1, a NULL argument. Never AO_ERR, which reads as one row. */
+/* The four *_count functions answer 0 or more, or -1 on failure: no session, an unknown class ID
+   (SPEC §3.10 クラス ID), meta other than 0 or 1, a NULL argument. Never AO_ERR, which reads as
+   one row. */
+/* SPEC §3.10 クラス ID. The ID of the listed class Smalltalk binds name to; 0 when none, name is
+   NULL, there is no session, or memory runs out. The same class answers the same ID while
+   it stays listed (a class unbound, dropped from the list and bound again gets a new one); an ID
+   is never used again in the process. */
+int64_t ao_browser_class_id(const char* name);
 int ao_browser_class_count(void);
-int ao_browser_class_at(int index, char* name, int name_len, char* category, int category_len);
-int ao_browser_protocol_count(const char* class_name, int meta);
-int ao_browser_protocol_at(const char* class_name, int meta, int index, char* buf, int len);
-int ao_browser_selector_count(const char* class_name, int meta, const char* protocol);
-int ao_browser_selector_at(const char* class_name, int meta, const char* protocol, int index,
+/* One row per class (one row however many names bind it), by name and then by ID. class_id (may
+   be NULL) gets the row's ID, 0 on AO_ERR. */
+int ao_browser_class_at(int index, int64_t* class_id, char* name, int name_len, char* category,
+                        int category_len);
+int ao_browser_protocol_count(int64_t class_id, int meta);
+int ao_browser_protocol_at(int64_t class_id, int meta, int index, char* buf, int len);
+int ao_browser_selector_count(int64_t class_id, int meta, const char* protocol);
+int ao_browser_selector_at(int64_t class_id, int meta, const char* protocol, int index,
                            char* buf, int len);
 /* AO_OK with the source when the source table has it. A method without source (a native, a
    method after an image load, a vendor, file-in or methodsFor: chunk method) is AO_ERR_NOSOURCE
    with a one-line comment placeholder that does not compile when accepted:
    "<Class>>><selector> source not available" or "<Class>>><selector> native <symbol>", where
    <Class> is "<Name> class" on the class side. AO_ERR_NOSOURCE also when the placeholder is cut
-   (buf still ends in NUL). AO_ERR when buf is NULL, len < 1, or the class or selector is not
-   found. */
-int ao_browser_source(const char* class_name, int meta, const char* selector, char* buf, int len);
-int ao_browser_class_definition(const char* class_name, char* buf, int len);
-int ao_browser_superclass(const char* class_name, int meta, char* buf, int len);
-int ao_browser_subclass_count(const char* class_name);
-int ao_browser_subclass_at(const char* class_name, int index, char* buf, int len);
+   (buf still ends in NUL). AO_ERR when buf is NULL, len < 1, the class ID is unknown or the
+   selector is not found. */
+int ao_browser_source(int64_t class_id, int meta, const char* selector, char* buf, int len);
+int ao_browser_class_definition(int64_t class_id, char* buf, int len);
+/* buf gets the superclass's name ("" for nil; on the class side the instance class's name) and
+   superclass_id (may be NULL) its ID, 0 when it is nil or not listed. */
+int ao_browser_superclass(int64_t class_id, int meta, int64_t* superclass_id, char* buf, int len);
+/* The listed classes whose superclass is this very class, in list order; subclass_id may be
+   NULL. */
+int ao_browser_subclass_count(int64_t class_id);
+int ao_browser_subclass_at(int64_t class_id, int index, int64_t* subclass_id, char* buf, int len);
 
 int ao_workspace_reset(void);
 /* out NULL or out_len < 1: AO_ERR before compiling or evaluating anything. A failed evaluation
@@ -213,9 +229,31 @@ int ao_debug_step_out(int64_t pid, char* out, int out_len, AoSpan* err);
 /* AO_ERR when class_name does not name a class (Processor, Smalltalk, an undefined name).
    AO_ERR_COMPILE for a compile error or a refused native overwrite. */
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);
+/* SPEC §3.10 クラス ID. ao_accept_method for the class class_id names (the Browser's Accept):
+   the same rules, answers and messages, Kernel-ness by that class itself. An unknown class ID is
+   AO_ERR with "unknown class id". */
+int ao_accept_method_id(int64_t class_id, int meta, const char* source, AoSpan* err);
 /* Takes class definition messages and chunk-format class definitions and methodsFor: chunks
    only. Any other chunk: AO_ERR_COMPILE "not a class definition", and nothing is applied. */
 int ao_accept_class(const char* source, AoSpan* err);
+
+/* SPEC §3.9 削除. AO_OK: the method is out of the side's dictionary (meta 1: the metaclass's),
+   the cache is invalidated and its source is forgotten; err's message is empty. AO_ERR with the
+   reason in err (never empty; start and end 0): "unknown class id", "not a class: <name>",
+   "selector not found: <Class>>><selector>" (unknown or inherited), "native method removal
+   refused: <Class>>><selector>", "runtime is busy", or "remove failed" (no session, a NULL
+   selector, meta other than 0 or 1). <name> is the class's own name slot ("an unnamed class"
+   when it has none), <Class> that with " class" when meta. Nothing changes on AO_ERR. Allocates nothing on the heap. */
+int ao_remove_method(int64_t class_id, int meta, const char* selector, AoSpan* err);
+
+/* SPEC §3.9 削除. AO_OK: the binding of the class's own name is out of Smalltalk (an alias stays;
+   the class object and its instances are untouched), the whole method cache is dropped, and the
+   sources of its methods are forgotten; err's message is empty. AO_ERR with the reason: "unknown
+   class id", "not a class: <name>", "class removal refused: <name> is a fixed global" / "is a
+   kernel class" (by identity) / "is not bound to this class" (its own name binds something else)
+   / "has subclass <Sub>" / "has an unnamed subclass", "runtime is busy", or "remove failed" (no
+   session). Nothing changes on AO_ERR. Allocates nothing on the heap. */
+int ao_remove_class(int64_t class_id, AoSpan* err);
 
 #ifdef __cplusplus
 }

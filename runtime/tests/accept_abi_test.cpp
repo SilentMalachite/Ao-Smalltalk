@@ -8,6 +8,8 @@
 #include "ao/HandleScope.hpp"
 #include "ao/MethodDictionary.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -24,11 +26,11 @@ TEST(AcceptAbi, ObjectFooIsCallableAndKeepsSource) {
   ASSERT_EQ(AO_OK, ao_eval("Object new foo", 14, AO_EVAL_PRINTIT, out, 64, &err));
   EXPECT_STREQ("1", out);
   char shown[256];
-  ASSERT_EQ(AO_OK, ao_browser_source("Object", 0, "foo", shown, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("Object"), 0, "foo", shown, 256));
   EXPECT_NE(std::string(shown).find("^1"), std::string::npos);
   const char* bad = "foo\n  ^\n";
   ASSERT_EQ(AO_ERR_COMPILE, ao_accept_method("Object", 0, bad, &err));
-  ASSERT_EQ(AO_OK, ao_browser_source("Object", 0, "foo", shown, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("Object"), 0, "foo", shown, 256));
   EXPECT_NE(std::string(shown).find("^1"), std::string::npos);
   ASSERT_EQ(AO_ERR_COMPILE, ao_accept_method("Object", 0, "printString\n  ^1\n", &err));
   EXPECT_NE(std::string(err.message).find("native selector overwrite refused"), std::string::npos);
@@ -50,7 +52,7 @@ TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
   bool found = false;
   const int n = ao_browser_class_count();
   for (int i = 0; i < n; ++i) {
-    ASSERT_EQ(AO_OK, ao_browser_class_at(i, name, 64, category, 64));
+    ASSERT_EQ(AO_OK, ao_browser_class_at(i, nullptr, name, 64, category, 64));
     if (std::strcmp(name, "P9Foo") == 0) {
       found = true;
       EXPECT_STREQ("P9-Test", category);
@@ -69,7 +71,7 @@ TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
   // SPEC §3.10: 読み込んだイメージのメソッドはソースが無い。AO_ERR_NOSOURCE とプレースホルダで、
   // プレースホルダを Accept しても本体は変わらない（self を返す空メソッドにならない）。
   char shown[256];
-  ASSERT_EQ(AO_ERR_NOSOURCE, ao_browser_source("P9Foo", 0, "foo", shown, 256));
+  ASSERT_EQ(AO_ERR_NOSOURCE, ao_browser_source(ao_browser_class_id("P9Foo"), 0, "foo", shown, 256));
   EXPECT_STREQ("\"P9Foo>>foo source not available\"", shown);
   EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("P9Foo", 0, shown, &err));
   EXPECT_STRNE("", err.message);
@@ -267,8 +269,8 @@ TEST(AcceptAbi, AcceptClassRefusesNonDefinitionWithoutApplying) {
   }
   EXPECT_EQ(before, ao_browser_class_count());
   char buf[256];
-  EXPECT_EQ(AO_ERR, ao_browser_class_definition("B3NotDefA", buf, 256));
-  EXPECT_EQ(AO_ERR, ao_browser_class_definition("B3NotDefB", buf, 256));
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition(ao_browser_class_id("B3NotDefA"), buf, 256));
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition(ao_browser_class_id("B3NotDefB"), buf, 256));
   char out[64];
   EXPECT_EQ(AO_ERR_EVAL, ao_eval("Object new b3Zap", 16, AO_EVAL_PRINTIT, out, 64, &err));
   ASSERT_EQ(AO_OK, ao_eval("3 + 4", 5, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
@@ -483,7 +485,7 @@ TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
   }
   EXPECT_EQ(before, ao_browser_class_count());
   char buf[256];
-  EXPECT_EQ(AO_ERR, ao_browser_class_definition("B3Pq", buf, 256));
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition(ao_browser_class_id("B3Pq"), buf, 256));
   ASSERT_EQ(AO_OK, printIt("Smalltalk includesKey: #B3Zz")) << err.message;
   EXPECT_STREQ("false", out);
   // 末尾の `.` だけなら受け付ける。
@@ -491,7 +493,7 @@ TEST(AcceptAbi, AcceptClassRefusesStatementsAfterDefinition) {
                                    "classVariableNames: '' poolDictionaries: '' category: 'P'.\n",
                                    &err))
       << err.message;
-  EXPECT_EQ(AO_OK, ao_browser_class_definition("B3Pq", buf, 256));
+  EXPECT_EQ(AO_OK, ao_browser_class_definition(ao_browser_class_id("B3Pq"), buf, 256));
   ao_runtime_shutdown();
 }
 
@@ -517,7 +519,7 @@ std::string b5Category(const char* className) {
   for (int i = 0; i < n; ++i) {
     char name[128];
     char category[128];
-    if (ao_browser_class_at(i, name, 128, category, 128) == AO_OK &&
+    if (ao_browser_class_at(i, nullptr, name, 128, category, 128) == AO_OK &&
         std::string(name) == className) {
       return category;
     }
@@ -527,7 +529,7 @@ std::string b5Category(const char* className) {
 
 std::string b5ClassDefinition(const char* className) {
   char defn[512];
-  if (ao_browser_class_definition(className, defn, 512) != AO_OK) {
+  if (ao_browser_class_definition(ao_browser_class_id(className), defn, 512) != AO_OK) {
     return "<missing>";
   }
   return defn;
@@ -576,7 +578,7 @@ TEST(AcceptAbi, ReacceptSameClassDefinitionKeepsClassAndMethods) {
   ASSERT_EQ(AO_OK, printIt("oldInst m")) << err.message;
   EXPECT_STREQ("42", out);
   char source[256];
-  ASSERT_EQ(AO_OK, ao_browser_source("Foo2", 0, "m", source, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("Foo2"), 0, "m", source, 256));
   EXPECT_STREQ(m, source);
   ao_runtime_shutdown();
 }
@@ -620,8 +622,8 @@ TEST(AcceptAbi, ReacceptWithNewCategoryKeepsClassAndMethods) {
   ASSERT_EQ(AO_OK, printIt("B5Cat new eight")) << err.message;
   EXPECT_STREQ("8", out);
   char source[256];
-  EXPECT_EQ(AO_ERR_NOSOURCE, ao_browser_source("B5Cat", 0, "eight", source, 256));
-  ASSERT_EQ(AO_OK, ao_browser_source("B5Cat", 1, "make", source, 256));
+  EXPECT_EQ(AO_ERR_NOSOURCE, ao_browser_source(ao_browser_class_id("B5Cat"), 0, "eight", source, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B5Cat"), 1, "make", source, 256));
   EXPECT_STREQ("make\n  ^self new a: 5\n", source);
   ao_runtime_shutdown();
 }
@@ -689,22 +691,22 @@ TEST(AcceptAbi, ReacceptWithNewInstanceVariableRecompilesMethods) {
   // Browser ABI から見ても、メソッド、プロトコル、ソースが新しいクラスにある。
   EXPECT_NE(b5ClassDefinition("B5Shape").find("instanceVariableNames: 'w x'"), std::string::npos);
   EXPECT_EQ("B5-Test", b5Category("B5Shape"));
-  ASSERT_EQ(1, ao_browser_protocol_count("B5Shape", 0));
+  ASSERT_EQ(1, ao_browser_protocol_count(ao_browser_class_id("B5Shape"), 0));
   char buf[256];
-  ASSERT_EQ(AO_OK, ao_browser_protocol_at("B5Shape", 0, 0, buf, 256));
+  ASSERT_EQ(AO_OK, ao_browser_protocol_at(ao_browser_class_id("B5Shape"), 0, 0, buf, 256));
   EXPECT_STREQ("user", buf);
-  ASSERT_EQ(3, ao_browser_selector_count("B5Shape", 0, "user"));
+  ASSERT_EQ(3, ao_browser_selector_count(ao_browser_class_id("B5Shape"), 0, "user"));
   const char* selectors[] = {"w:", "x", "x:"};
   for (int i = 0; i < 3; ++i) {
-    ASSERT_EQ(AO_OK, ao_browser_selector_at("B5Shape", 0, "user", i, buf, 256));
+    ASSERT_EQ(AO_OK, ao_browser_selector_at(ao_browser_class_id("B5Shape"), 0, "user", i, buf, 256));
     EXPECT_STREQ(selectors[i], buf);
   }
-  ASSERT_EQ(AO_OK, ao_browser_source("B5Shape", 0, "x", buf, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B5Shape"), 0, "x", buf, 256));
   EXPECT_STREQ(getX, buf);
-  ASSERT_EQ(AO_OK, ao_browser_source("B5Shape", 0, "x:", buf, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B5Shape"), 0, "x:", buf, 256));
   EXPECT_STREQ(setX, buf);
-  ASSERT_EQ(1, ao_browser_selector_count("B5Shape", 1, "user"));
-  ASSERT_EQ(AO_OK, ao_browser_source("B5Shape", 1, "withX:", buf, 256));
+  ASSERT_EQ(1, ao_browser_selector_count(ao_browser_class_id("B5Shape"), 1, "user"));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B5Shape"), 1, "withX:", buf, 256));
   EXPECT_STREQ(withX, buf);
   ao_runtime_shutdown();
 }
@@ -752,7 +754,7 @@ TEST(AcceptAbi, ShapeChangeRefusesSourcelessMethodAndKeepsOldClass) {
   ASSERT_EQ(AO_OK, printIt("B5NoSrcMeta make class == B5NoSrcMeta")) << err.message;
   EXPECT_STREQ("true", out);
   char source[256];
-  ASSERT_EQ(AO_OK, ao_browser_source("B5NoSrc", 0, "a", source, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B5NoSrc"), 0, "a", source, 256));
   EXPECT_STREQ("a\n  ^a\n", source);
 
   // 形が同じなら、ソースの無いメソッドがあっても受け付ける。
@@ -795,7 +797,7 @@ TEST(AcceptAbi, ShapeChangeRefusesMethodThatDoesNotRecompile) {
   EXPECT_STREQ("4", out);
   EXPECT_NE(b5ClassDefinition("B5Drop").find("instanceVariableNames: 'x y'"), std::string::npos);
   char source[256];
-  ASSERT_EQ(AO_OK, ao_browser_source("B5Drop", 0, "y:", source, 256));
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B5Drop"), 0, "y:", source, 256));
   EXPECT_STREQ(setY, source);
   ao_runtime_shutdown();
 }
@@ -885,7 +887,7 @@ TEST(AcceptAbi, ShapeChangePutsNameBackWhenSubclassSendFails) {
     ASSERT_EQ(AO_OK, printIt("(B5FailChild new a: 6) a")) << err.message;
     EXPECT_STREQ("6", out);
     char source[256];
-    ASSERT_EQ(AO_OK, ao_browser_source("B5FailChild", 0, "a", source, 256));
+    ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B5FailChild"), 0, "a", source, 256));
     EXPECT_STREQ(getA, source);
     EXPECT_NE(b5ClassDefinition("B5FailChild").find("instanceVariableNames: 'a'\n"),
               std::string::npos);
@@ -986,7 +988,7 @@ TEST(AcceptAbi, ShapeChangePutsNameBackWhenMethodsFailInLayoutTheSubclassSendAns
     ASSERT_EQ(AO_OK, printIt("(B5LayDrop new x: 4) x")) << err.message;
     EXPECT_STREQ("4", out);
     char source[256];
-    ASSERT_EQ(AO_OK, ao_browser_source("B5LayDrop", 0, "x", source, 256));
+    ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("B5LayDrop"), 0, "x", source, 256));
     EXPECT_STREQ(getX, source);
     EXPECT_NE(b5ClassDefinition("B5LayDrop").find("instanceVariableNames: 'x y'\n"),
               std::string::npos);
@@ -1054,7 +1056,7 @@ TEST(AcceptAbi, ShapeChangeRefusesMethodReadingRemovedInstanceVariable) {
     const std::string vars = std::string("instanceVariableNames: '") + c.oldVars + "'\n";
     EXPECT_NE(b5ClassDefinition(c.name).find(vars), std::string::npos);
     char source[256];
-    ASSERT_EQ(AO_OK, ao_browser_source(c.name, 0, c.selector, source, 256));
+    ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id(c.name), 0, c.selector, source, 256));
     EXPECT_STREQ(c.source, source);
   }
   ASSERT_EQ(AO_OK, printIt("B5RdPlain new y")) << err.message;
@@ -1206,7 +1208,7 @@ TEST(AcceptAbi, AcceptClassStopsAtRefusedDefinitionKeepingEarlierChunks) {
   EXPECT_STREQ("1", out);
   ASSERT_EQ(AO_OK, printIt("B5First instSize")) << err.message;
   EXPECT_STREQ("0", out);
-  EXPECT_EQ(1, ao_browser_selector_count("B5First", 0, "user"));
+  EXPECT_EQ(1, ao_browser_selector_count(ao_browser_class_id("B5First"), 0, "user"));
   EXPECT_EQ("<missing>", b5Category("B5Third"));
   EXPECT_EQ(AO_ERR_EVAL, printIt("B5First new two"));
   ao_runtime_shutdown();
@@ -1410,12 +1412,12 @@ TEST(AcceptAbi, BytesSuperclassRefusesInstanceVariables) {
   EXPECT_EQ(AO_ERR_COMPILE,
             ao_accept_class(b5Definition("String", "PJ", "tag", "B4-Test").c_str(), &e));
   EXPECT_STREQ("subclass failed: PJ: bytes class cannot have instance variables", e.message);
-  EXPECT_EQ(AO_ERR, ao_browser_class_definition("PJ", defn, 512));
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition(ao_browser_class_id("PJ"), defn, 512));
 
   EXPECT_EQ(AO_ERR_EVAL, printIt("ByteArray subclass: #PJ2 instanceVariableNames: 'a b' "
                                  "classVariableNames: '' poolDictionaries: '' category: 'B4-Test'"));
   EXPECT_STREQ("bytes class cannot have instance variables", err.message);
-  EXPECT_EQ(AO_ERR, ao_browser_class_definition("PJ2", defn, 512));
+  EXPECT_EQ(AO_ERR, ao_browser_class_definition(ao_browser_class_id("PJ2"), defn, 512));
 
   ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("String", "PJ3", "", "B4-Test").c_str(), &err))
       << err.message;
@@ -3060,5 +3062,88 @@ TEST(AcceptAbi, MoveSourceWithoutMemoryKeepsTextOnly) {
     gc.collectNursery();
     gc.collectOld();
   }
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.9 クラス定義の再 Accept, §3.10 クラス ID: a subclass only the class ID table still holds
+// (unbound after the Browser listed it) is not alive, so the superclass's shape can change.
+TEST(AcceptAbi, ClassIdTableDoesNotKeepSubclassesAlive) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B12IdPar", "a", "B12-Id").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("B12IdPar", "B12IdKid", "", "B12-Id").c_str(), &err))
+      << err.message;
+  const std::int64_t kid = ao_browser_class_id("B12IdKid");
+  ASSERT_GT(kid, 0);
+  const char* unbind = "Smalltalk at: #B12IdKid put: nil";
+  ASSERT_EQ(AO_OK, ao_eval(unbind, static_cast<int>(std::strlen(unbind)), AO_EVAL_DOIT, out, 64,
+                           &err))
+      << err.message;
+  // No Browser read since: the table still holds the unbound kid.
+  const ao::Session& s = *ao::session();
+  ASSERT_TRUE(std::any_of(s.classIds.begin(), s.classIds.end(),
+                          [&](const auto& entry) { return entry->id == kid; }));
+  EXPECT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B12IdPar", "a b", "B12-Id").c_str(), &err))
+      << err.message;
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10: ao_accept_method_id is ao_accept_method for the class the ID names: the native
+// overwrite rules (Kernel-ness by the class itself, both sides), compile errors, the source table.
+TEST(AcceptAbi, AcceptMethodIdFollowsAcceptMethodRules) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  const std::int64_t smallInt = ao_browser_class_id("SmallInteger");
+  ASSERT_GT(smallInt, 0);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method_id(smallInt, 0, "<= x\n  ^false\n", &err));
+  EXPECT_STREQ("native selector overwrite refused: <=", err.message);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method_id(smallInt, 1, "new\n  ^3\n", &err));
+  EXPECT_STREQ("native selector overwrite refused: new", err.message);
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method_id(smallInt, 0, "foo\n  ^\n", &err));
+  EXPECT_STRNE("", err.message);
+  const std::int64_t object = ao_browser_class_id("Object");
+  ASSERT_EQ(AO_OK, ao_accept_method_id(object, 0, "b12idFoo\n  ^1\n", &err)) << err.message;
+  EXPECT_STREQ("", err.message);
+  ASSERT_EQ(AO_OK, ao_eval("3 b12idFoo", 10, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("1", out);
+  char shown[64];
+  ASSERT_EQ(AO_OK, ao_browser_source(object, 0, "b12idFoo", shown, sizeof(shown)));
+  EXPECT_STREQ("b12idFoo\n  ^1\n", shown);
+  ASSERT_EQ(AO_OK, ao_accept_method_id(object, 1, "b12idMake\n  ^7\n", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_eval("Object b12idMake", 16, AO_EVAL_PRINTIT, out, 64, &err)) << err.message;
+  EXPECT_STREQ("7", out);
+  ao_runtime_shutdown();
+}
+
+TEST(AcceptAbi, AcceptMethodIdOnNoBehaviorAnswersErrLikeAcceptMethod) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  const char* def =
+      "Object subclass: #B12NoBehavior\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'P12-Test'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  const std::int64_t id = ao_browser_class_id("B12NoBehavior");
+  ASSERT_GT(id, 0);
+  // Cutting the metaclass's superclass chain leaves the class listed but no Behavior.
+  const char* cut = "B12NoBehavior class instVarAt: 1 put: nil. 0";
+  ASSERT_EQ(AO_OK, ao_eval(cut, static_cast<int>(std::strlen(cut)), AO_EVAL_DOIT, out, 64, &err))
+      << err.message;
+  ASSERT_EQ(id, ao_browser_class_id("B12NoBehavior"));
+  EXPECT_EQ(AO_ERR, ao_accept_method("B12NoBehavior", 0, "b12x\n  ^1\n", &err));
+  EXPECT_STREQ("", err.message);
+  EXPECT_EQ(AO_ERR, ao_accept_method_id(id, 0, "b12x\n  ^1\n", &err));
+  EXPECT_STREQ("", err.message);
+  EXPECT_EQ(AO_ERR, ao_accept_method_id(id, 1, "b12x\n  ^1\n", &err));
+  EXPECT_STREQ("", err.message);
   ao_runtime_shutdown();
 }

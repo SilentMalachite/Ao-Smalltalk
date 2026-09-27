@@ -19,10 +19,13 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -279,6 +282,15 @@ void releaseMethodSources(Session& session) {
   session.heldDoIts.clear();
 }
 
+// SPEC §3.10 クラス ID: every entry's root slot goes, newest first (Roots::remove looks from the
+// newest registration back).
+void releaseClassIds(Session& session) {
+  for (auto it = session.classIds.rbegin(); it != session.classIds.rend(); ++it) {
+    session.roots.remove(&(*it)->cls);
+  }
+  session.classIds.clear();
+}
+
 }  // namespace
 
 Session::Session(bool bootstrap) : wk(heap, roots) {
@@ -295,6 +307,7 @@ Session::~Session() {
   // SPEC §3.4 abandon, §3.10: the processes left go first, while the heap and the roots are there.
   scheduler.reset();
   releaseMethodSources(*this);
+  releaseClassIds(*this);
 }
 
 void Session::onAbort(CallContext& aborting) noexcept {
@@ -407,6 +420,9 @@ int sessionImageSave(const char* path) {
         roots = &s->roots;
         // The table's are LIFO slots; the snapshot's are one pinned range.
         slots = methodSourceRootSlots(false);
+        // SPEC §3.10 クラス ID: the ID table's slots are LIFO slots too, and session state.
+        const std::vector<const Oop*> ids = classIdRootSlots();
+        slots.insert(slots.end(), ids.begin(), ids.end());
         for (auto it = slots.rbegin(); it != slots.rend(); ++it) {
           roots->remove(const_cast<Oop*>(*it));
         }
@@ -509,6 +525,8 @@ namespace {
 
 struct ClassRow {
   Oop cls;
+  // SPEC §3.10 クラス ID: never 0 in a row classRows answers.
+  std::int64_t id = 0;
   std::string name;
   std::string category;
 };
@@ -616,17 +634,70 @@ std::string classVarList(Heap& heap, const WellKnown& wk, Oop cls) {
   return out;
 }
 
+// SPEC §3.10 クラス ID: never used again in this OS process, not even by a later session (as
+// nextProcessId in Scheduler.cpp).
+std::int64_t nextClassId() {
+  static std::int64_t next = 1;
+  return next++;
+}
+
+// SPEC §3.10 クラス ID: drops the table's entries whose class is not in rows (bound under no name
+// any more), then gives each row its class's ID, issuing one for a class the table does not hold.
+// May throw std::bad_alloc: each new entry is reserved before it is rooted and numbered, so the
+// table stays whole and no ID is spent on a failed entry. Allocates nothing on the heap.
+void assignClassIds(Session& s, std::vector<ClassRow>& rows) {
+  std::unordered_set<std::uint64_t> listed;
+  listed.reserve(rows.size());
+  for (const ClassRow& row : rows) {
+    listed.insert(row.cls.bits());
+  }
+  auto& table = s.classIds;
+  for (auto it = table.begin(); it != table.end();) {
+    if (listed.count((*it)->cls.bits()) != 0) {
+      ++it;
+      continue;
+    }
+    s.roots.remove(&(*it)->cls);
+    it = table.erase(it);
+  }
+  std::unordered_map<std::uint64_t, std::int64_t> known;
+  known.reserve(table.size());
+  for (const auto& entry : table) {
+    known.emplace(entry->cls.bits(), entry->id);
+  }
+  for (ClassRow& row : rows) {
+    if (const auto found = known.find(row.cls.bits()); found != known.end()) {
+      row.id = found->second;
+      continue;
+    }
+    auto entry = std::make_unique<Session::ClassId>();
+    entry->cls = row.cls;
+    table.reserve(table.size() + 1);
+    s.roots.reserveSlots(1);
+    entry->id = nextClassId();
+    s.roots.add(&entry->cls);
+    row.id = entry->id;
+    table.push_back(std::move(entry));
+  }
+}
+
+// SPEC §3.10: one row per class Smalltalk binds, however many names bind it, named by its own name
+// slot, in byte order of the name and then by ID. Every call prunes and issues class IDs
+// (assignClassIds), so a row always carries a known ID. May throw std::bad_alloc.
 std::vector<ClassRow> classRows(Session& s) {
   struct Baton {
     Session* session;
     std::vector<ClassRow>* rows;
+    std::unordered_set<std::uint64_t>* seen;
   };
   std::vector<ClassRow> rows;
-  Baton baton{&s, &rows};
+  std::unordered_set<std::uint64_t> seen;
+  Baton baton{&s, &rows, &seen};
   s.wk.eachClass(
       [](void* p, Oop cls) {
         auto* b = static_cast<Baton*>(p);
-        if (!pointerSlots(b->session->heap, cls, kClassSlotCount)) {
+        if (!pointerSlots(b->session->heap, cls, kClassSlotCount) ||
+            !b->seen->insert(cls.bits()).second) {
           return;
         }
         ClassRow row;
@@ -636,18 +707,24 @@ std::vector<ClassRow> classRows(Session& s) {
         b->rows->push_back(std::move(row));
       },
       &baton);
+  assignClassIds(s, rows);
   std::sort(rows.begin(), rows.end(), [](const ClassRow& a, const ClassRow& b) {
-    return utf8Less(a.name, b.name);
+    if (a.name != b.name) {
+      return utf8Less(a.name, b.name);
+    }
+    return a.id < b.id;
   });
   return rows;
 }
 
-const ClassRow* findClass(const std::vector<ClassRow>& rows, const char* name) {
-  if (name == nullptr) {
+// SPEC §3.10 クラス ID: the row id names; null for an unknown ID (0 or less, never issued, or
+// dropped because the class left the list).
+const ClassRow* findClassId(const std::vector<ClassRow>& rows, std::int64_t id) {
+  if (id <= 0) {
     return nullptr;
   }
   for (const auto& row : rows) {
-    if (row.name == name) {
+    if (row.id == id) {
       return &row;
     }
   }
@@ -759,24 +836,25 @@ bool sourceOf(Session& s, const std::string& className, const ListedMethod& meth
   return false;
 }
 
-std::string superclassName(Session& s, Oop cls, int meta) {
+// SPEC §3.10: the class the superclass read names: the side's superclass, or, when that is a
+// metaclass, its instance class (thisClass) when it has one. nil when there is none.
+Oop superclassShown(Session& s, Oop cls, int meta) {
   const Oop side = sideOf(s, cls, meta);
   if (!pointerSlots(s.heap, side, kClassSlotSuperclass + 1)) {
-    return {};
+    return Oop::nil();
   }
   const Oop sup = s.heap.slotAt(side, kClassSlotSuperclass);
   if (!sup.isHeap()) {
-    return {};
+    return Oop::nil();
   }
-  // A metaclass's superclass is another class object. Name the instance class when it has one.
   if (s.heap.klass(sup) == s.wk.metaclassClass &&
       pointerSlots(s.heap, sup, kClassSlotThisClass + 1)) {
     const Oop thisClass = s.heap.slotAt(sup, kClassSlotThisClass);
     if (thisClass.isHeap()) {
-      return classNameOf(s.heap, thisClass);
+      return thisClass;
     }
   }
-  return classNameOf(s.heap, sup);
+  return sup;
 }
 
 std::string definitionOf(Session& s, const ClassRow& row) {
@@ -805,19 +883,14 @@ std::string definitionOf(Session& s, const ClassRow& row) {
   return text;
 }
 
-std::vector<std::string> subclassNames(Session& s, const std::string& name,
-                                       const std::vector<ClassRow>& rows) {
-  std::vector<std::string> out;
+// SPEC §3.10: the listed classes whose superclass slot is cls itself (identity, not name), in the
+// class list's order.
+std::vector<const ClassRow*> subclassRows(Session& s, Oop cls, const std::vector<ClassRow>& rows) {
+  std::vector<const ClassRow*> out;
   for (const auto& row : rows) {
-    if (!pointerSlots(s.heap, row.cls, kClassSlotSuperclass + 1)) {
-      continue;
-    }
-    const Oop sup = s.heap.slotAt(row.cls, kClassSlotSuperclass);
-    if (!sup.isHeap()) {
-      continue;
-    }
-    if (classNameOf(s.heap, sup) == name) {
-      out.push_back(row.name);
+    if (pointerSlots(s.heap, row.cls, kClassSlotSuperclass + 1) &&
+        s.heap.slotAt(row.cls, kClassSlotSuperclass) == cls) {
+      out.push_back(&row);
     }
   }
   return out;
@@ -1290,6 +1363,20 @@ void rememberMethodSource(Oop method, Oop text, Oop replaced, const compiler::Me
   }
 }
 
+void forgetMethodSource(Oop method) {
+  Session* s = session();
+  if (s == nullptr || !method.isHeap()) {
+    return;
+  }
+  for (auto it = s->methodSources.begin(); it != s->methodSources.end(); ++it) {
+    if ((*it)->method == method) {
+      unrootEntry(s->roots, **it);
+      s->methodSources.erase(it);
+      return;
+    }
+  }
+}
+
 bool moveMethodSource(Oop from, Oop to, const compiler::MethodImage& image) {
   Session* s = session();
   if (s == nullptr || !from.isHeap() || !to.isHeap()) {
@@ -1416,6 +1503,43 @@ void clearMethodSources() {
   }
 }
 
+std::int64_t browserClassId(const char* name) {
+  Session* s = session();
+  if (s == nullptr || name == nullptr) {
+    return 0;
+  }
+  const auto rows = classRows(*s);
+  // named looks the name up without interning it; nil (no binding) is never a row's class.
+  const Oop cls = s->wk.named(name);
+  for (const ClassRow& row : rows) {
+    if (row.cls == cls) {
+      return row.id;
+    }
+  }
+  return 0;
+}
+
+Oop sessionClassForId(std::int64_t id) {
+  Session* s = session();
+  if (s == nullptr) {
+    return Oop{};
+  }
+  const auto rows = classRows(*s);
+  const ClassRow* row = findClassId(rows, id);
+  return row == nullptr ? Oop{} : row->cls;
+}
+
+std::vector<const Oop*> classIdRootSlots() {
+  std::vector<const Oop*> slots;
+  if (Session* s = session()) {
+    slots.reserve(s->classIds.size());
+    for (const auto& entry : s->classIds) {
+      slots.push_back(&entry->cls);
+    }
+  }
+  return slots;
+}
+
 int browserClassCount() {
   Session* s = session();
   if (s == nullptr) {
@@ -1424,7 +1548,11 @@ int browserClassCount() {
   return static_cast<int>(classRows(*s).size());
 }
 
-int browserClassAt(int index, char* name, int nameLen, char* category, int categoryLen) {
+int browserClassAt(int index, std::int64_t* classId, char* name, int nameLen, char* category,
+                   int categoryLen) {
+  if (classId != nullptr) {
+    *classId = 0;
+  }
   Session* s = session();
   if (s == nullptr) {
     return AO_ERR;
@@ -1439,32 +1567,35 @@ int browserClassAt(int index, char* name, int nameLen, char* category, int categ
   if (nameRc == AO_ERR || categoryRc == AO_ERR) {
     return AO_ERR;
   }
+  if (classId != nullptr) {
+    *classId = row.id;
+  }
   if (nameRc == AO_ERR_RANGE || categoryRc == AO_ERR_RANGE) {
     return AO_ERR_RANGE;
   }
   return AO_OK;
 }
 
-int browserProtocolCount(const char* className, int meta) {
+int browserProtocolCount(std::int64_t classId, int meta) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || !metaOk(meta)) {
+  if (s == nullptr || !metaOk(meta)) {
     return kCountFailed;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return kCountFailed;
   }
   return static_cast<int>(protocolsOf(methodsOf(*s, sideOf(*s, row->cls, meta))).size());
 }
 
-int browserProtocolAt(const char* className, int meta, int index, char* buf, int len) {
+int browserProtocolAt(std::int64_t classId, int meta, int index, char* buf, int len) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || !metaOk(meta)) {
+  if (s == nullptr || !metaOk(meta)) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
@@ -1475,13 +1606,13 @@ int browserProtocolAt(const char* className, int meta, int index, char* buf, int
   return writeBuf(protocols[static_cast<std::size_t>(index)], buf, len);
 }
 
-int browserSelectorCount(const char* className, int meta, const char* protocol) {
+int browserSelectorCount(std::int64_t classId, int meta, const char* protocol) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || protocol == nullptr || !metaOk(meta)) {
+  if (s == nullptr || protocol == nullptr || !metaOk(meta)) {
     return kCountFailed;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return kCountFailed;
   }
@@ -1492,14 +1623,14 @@ int browserSelectorCount(const char* className, int meta, const char* protocol) 
   return static_cast<int>(selectorsFor(methods, protocol).size());
 }
 
-int browserSelectorAt(const char* className, int meta, const char* protocol, int index, char* buf,
+int browserSelectorAt(std::int64_t classId, int meta, const char* protocol, int index, char* buf,
                       int len) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || protocol == nullptr || !metaOk(meta)) {
+  if (s == nullptr || protocol == nullptr || !metaOk(meta)) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
@@ -1510,13 +1641,13 @@ int browserSelectorAt(const char* className, int meta, const char* protocol, int
   return writeBuf(selectors[static_cast<std::size_t>(index)].selector, buf, len);
 }
 
-int browserSource(const char* className, int meta, const char* selector, char* buf, int len) {
+int browserSource(std::int64_t classId, int meta, const char* selector, char* buf, int len) {
   Session* s = session();
-  if (s == nullptr || className == nullptr || selector == nullptr || !metaOk(meta)) {
+  if (s == nullptr || selector == nullptr || !metaOk(meta)) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
@@ -1535,58 +1666,83 @@ int browserSource(const char* className, int meta, const char* selector, char* b
   return AO_ERR;
 }
 
-int browserClassDefinition(const char* className, char* buf, int len) {
+int browserClassDefinition(std::int64_t classId, char* buf, int len) {
   Session* s = session();
-  if (s == nullptr || className == nullptr) {
+  if (s == nullptr) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
   return writeBuf(definitionOf(*s, *row), buf, len);
 }
 
-int browserSuperclass(const char* className, int meta, char* buf, int len) {
+int browserSuperclass(std::int64_t classId, int meta, std::int64_t* superclassId, char* buf,
+                      int len) {
+  if (superclassId != nullptr) {
+    *superclassId = 0;
+  }
   Session* s = session();
-  if (s == nullptr || className == nullptr || !metaOk(meta)) {
+  if (s == nullptr || !metaOk(meta)) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  const ClassRow* row = findClass(rows, className);
+  const ClassRow* row = findClassId(rows, classId);
   if (row == nullptr) {
     return AO_ERR;
   }
-  return writeBuf(superclassName(*s, row->cls, meta), buf, len);
+  const Oop sup = superclassShown(*s, row->cls, meta);
+  const int rc = writeBuf(classNameOf(s->heap, sup), buf, len);
+  if (superclassId != nullptr && rc != AO_ERR) {
+    for (const auto& each : rows) {
+      if (each.cls == sup) {
+        *superclassId = each.id;
+        break;
+      }
+    }
+  }
+  return rc;
 }
 
-int browserSubclassCount(const char* className) {
+int browserSubclassCount(std::int64_t classId) {
   Session* s = session();
-  if (s == nullptr || className == nullptr) {
+  if (s == nullptr) {
     return kCountFailed;
   }
   const auto rows = classRows(*s);
-  if (findClass(rows, className) == nullptr) {
+  const ClassRow* row = findClassId(rows, classId);
+  if (row == nullptr) {
     return kCountFailed;
   }
-  return static_cast<int>(subclassNames(*s, className, rows).size());
+  return static_cast<int>(subclassRows(*s, row->cls, rows).size());
 }
 
-int browserSubclassAt(const char* className, int index, char* buf, int len) {
+int browserSubclassAt(std::int64_t classId, int index, std::int64_t* subclassId, char* buf,
+                      int len) {
+  if (subclassId != nullptr) {
+    *subclassId = 0;
+  }
   Session* s = session();
-  if (s == nullptr || className == nullptr) {
+  if (s == nullptr) {
     return AO_ERR;
   }
   const auto rows = classRows(*s);
-  if (findClass(rows, className) == nullptr) {
+  const ClassRow* row = findClassId(rows, classId);
+  if (row == nullptr) {
     return AO_ERR;
   }
-  const auto names = subclassNames(*s, className, rows);
-  if (index < 0 || static_cast<std::size_t>(index) >= names.size()) {
+  const auto subs = subclassRows(*s, row->cls, rows);
+  if (index < 0 || static_cast<std::size_t>(index) >= subs.size()) {
     return AO_ERR;
   }
-  return writeBuf(names[static_cast<std::size_t>(index)], buf, len);
+  const ClassRow& sub = *subs[static_cast<std::size_t>(index)];
+  const int rc = writeBuf(sub.name, buf, len);
+  if (subclassId != nullptr && rc != AO_ERR) {
+    *subclassId = sub.id;
+  }
+  return rc;
 }
 
 namespace {

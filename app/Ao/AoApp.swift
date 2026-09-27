@@ -82,6 +82,18 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       accept: {
         sendToKeyBrowser(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.accept() }
       },
+      removeMethod: {
+        sendToKeyBrowser(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.removeMethod() }
+      },
+      removeClass: {
+        sendToKeyBrowser(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.removeClass() }
+      },
+      canRemoveMethod: {
+        keyBrowserAllows(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.canRemoveMethod }
+      },
+      canRemoveClass: {
+        keyBrowserAllows(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.canRemoveClass }
+      },
       showHierarchy: {
         if self.browser == nil {
           self.showBrowser()

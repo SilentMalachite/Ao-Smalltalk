@@ -11,8 +11,9 @@ namespace ao {
 namespace Globals {
 
 // SPEC §3.6: Smalltalk is a SmalltalkImage whose two slots hold the global dictionary. tally
-// counts the pairs; array is an Array of key/value pairs in the order they were bound, the keys
-// interned Symbols, a nil key an empty pair.
+// counts the pairs; array is an Array of key/value pairs, the keys interned Symbols, a nil key an
+// empty pair. Pairs sit in the order they were bound, except that a bind taking a pair unbind
+// emptied lands there, out of that order.
 inline constexpr std::uint32_t kSmalltalkSlotTally = 0;
 inline constexpr std::uint32_t kSmalltalkSlotArray = 1;
 inline constexpr std::uint32_t kSmalltalkSlotCount = 2;
@@ -33,7 +34,13 @@ Oop lookup(const WellKnown& wk, Oop key);
 // Does not GC: a full array grows with allocateNoGc. False when Smalltalk is no dictionary, key is
 // no heap object, or old is at its max (the out-of-memory flag is then set).
 bool bind(WellKnown& wk, Oop key, Oop value);
-// Calls fn with each key and value, in the order they were bound. fn must not GC or bind.
+
+// SPEC §3.6: empties key's pair (nil key and value) and takes one off the tally; the other pairs
+// stay in place, and the next bind takes the emptied pair. Allocates nothing. False when
+// Smalltalk is no dictionary, key is no heap object, or Smalltalk binds no such key.
+bool unbind(WellKnown& wk, Oop key);
+// Calls fn with each key and value, in pair order (the order they were bound, except where a bind
+// reused an emptied pair). fn must not GC or bind.
 void each(const WellKnown& wk, void (*fn)(void* baton, Oop key, Oop value), void* baton);
 // The value bound to name, or nil when Smalltalk binds none.
 Oop at(const WellKnown& wk, std::string_view name);
