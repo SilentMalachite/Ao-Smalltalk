@@ -1414,6 +1414,10 @@ bool namesBehavior(CallContext& ctx, std::string_view className) {
   return isBehavior(ctx, ctx.wk.named(className));
 }
 
+bool isBehaviorObject(CallContext& ctx, Oop obj) {
+  return isBehavior(ctx, obj);
+}
+
 bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
                         std::string_view source, compiler::CompileError* error) {
   if (error != nullptr) {

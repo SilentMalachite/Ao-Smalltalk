@@ -3120,3 +3120,30 @@ TEST(AcceptAbi, AcceptMethodIdFollowsAcceptMethodRules) {
   EXPECT_STREQ("7", out);
   ao_runtime_shutdown();
 }
+
+TEST(AcceptAbi, AcceptMethodIdOnNoBehaviorAnswersErrLikeAcceptMethod) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  const char* def =
+      "Object subclass: #B12NoBehavior\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'P12-Test'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def, &err)) << err.message;
+  const std::int64_t id = ao_browser_class_id("B12NoBehavior");
+  ASSERT_GT(id, 0);
+  // Cutting the metaclass's superclass chain leaves the class listed but no Behavior.
+  const char* cut = "B12NoBehavior class instVarAt: 1 put: nil. 0";
+  ASSERT_EQ(AO_OK, ao_eval(cut, static_cast<int>(std::strlen(cut)), AO_EVAL_DOIT, out, 64, &err))
+      << err.message;
+  ASSERT_EQ(id, ao_browser_class_id("B12NoBehavior"));
+  EXPECT_EQ(AO_ERR, ao_accept_method("B12NoBehavior", 0, "b12x\n  ^1\n", &err));
+  EXPECT_STREQ("", err.message);
+  EXPECT_EQ(AO_ERR, ao_accept_method_id(id, 0, "b12x\n  ^1\n", &err));
+  EXPECT_STREQ("", err.message);
+  EXPECT_EQ(AO_ERR, ao_accept_method_id(id, 1, "b12x\n  ^1\n", &err));
+  EXPECT_STREQ("", err.message);
+  ao_runtime_shutdown();
+}

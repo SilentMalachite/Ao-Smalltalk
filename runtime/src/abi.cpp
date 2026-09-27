@@ -466,6 +466,10 @@ extern "C" int ao_accept_method_id(int64_t class_id, int meta, const char* sourc
       setMessage(err, "unknown class id");
       return AO_ERR;
     }
+    // SPEC §3.10: as for ao_accept_method, a class that is no Behavior is not a compile error.
+    if (!ao::isBehaviorObject(*s->ctx, cls)) {
+      return AO_ERR;
+    }
     ao::compiler::CompileError error;
     if (!ao::acceptMethodInto(*s->ctx, cls, meta == 1, source, &error)) {
       fillSpan(err, error);

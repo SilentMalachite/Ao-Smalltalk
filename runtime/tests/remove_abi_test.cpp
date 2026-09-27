@@ -605,12 +605,25 @@ TEST_F(RemoveAbi, RefusedRemoveChangesNothing) {
   const std::uint64_t version = ao::session()->wk.globalsVersion();
   const std::size_t slots = ao::methodSourceRootSlots(false).size();
   const int protocols = ao_browser_protocol_count(ao_browser_class_id("Object"), 0);
+  // Nothing between the snapshot and the check sends, so the cache moves only if a refusal drops it.
+  const auto cacheBits = [] {
+    std::vector<std::uint64_t> bits;
+    for (const auto& e : ao::session()->cache->entries) {
+      bits.push_back(e.klass.bits());
+      bits.push_back(e.selector.bits());
+      bits.push_back(e.method.bits());
+    }
+    return bits;
+  };
+  const std::vector<std::uint64_t> cached = cacheBits();
+  ASSERT_NE(std::vector<std::uint64_t>(cached.size(), ao::Oop{}.bits()), cached);
   int rc = -9;
   EXPECT_EQ(AO_ERR, ao_remove_method(idOf("Object"), 0, "printString", &err));
   EXPECT_EQ(AO_ERR, ao_remove_method(idOf("B12Kid2"), 0, "who", &err));
   EXPECT_EQ(AO_ERR, ao_remove_class(idOf("Object"), &err));
   EXPECT_EQ(AO_ERR, ao_remove_class(idOf("B12Par"), &err));
   EXPECT_EQ("class removal refused: B12Par has subclass B12Kid2", tryRemoveClass("B12Par", &rc));
+  EXPECT_EQ(cached, cacheBits());
   EXPECT_EQ(classes, ao_browser_class_count());
   EXPECT_EQ(tally, globalsTally());
   EXPECT_EQ(version, ao::session()->wk.globalsVersion());

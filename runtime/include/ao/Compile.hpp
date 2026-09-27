@@ -17,6 +17,8 @@ Oop boxMethodImage(CallContext& ctx, const compiler::MethodImage& image, Oop met
 Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image);
 // The name resolves to a class or metaclass (a Behavior), not Processor or another global.
 bool namesBehavior(CallContext& ctx, std::string_view className);
+// obj itself is a class or metaclass (a Behavior); namesBehavior for a class ID's class.
+bool isBehaviorObject(CallContext& ctx, Oop obj);
 bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
                         std::string_view source, compiler::CompileError* error);
 // SPEC §3.10 ao_accept_method_id: acceptMethodSource for the class cls (a class or metaclass;
