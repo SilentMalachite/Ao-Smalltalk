@@ -117,7 +117,7 @@ bool browserLists(const char* className) {
   for (int i = 0; i < n; ++i) {
     char name[256];
     char category[256];
-    if (ao_browser_class_at(i, name, sizeof(name), category, sizeof(category)) == AO_OK &&
+    if (ao_browser_class_at(i, nullptr, name, sizeof(name), category, sizeof(category)) == AO_OK &&
         std::strcmp(name, className) == 0) {
       return true;
     }

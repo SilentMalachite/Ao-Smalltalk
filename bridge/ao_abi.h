@@ -87,8 +87,15 @@ void ao_set_inspect_hook(AoInspectFn fn, void* user);
 
 /* The four *_count functions answer 0 or more, or -1 on failure: no session, a name that is not
    a class, meta other than 0 or 1, a NULL argument. Never AO_ERR, which reads as one row. */
+/* SPEC §3.10 クラス ID. The ID of the listed class Smalltalk binds name to; 0 when none, name is
+   NULL, there is no session, or memory runs out. The same class answers the same ID for the
+   whole session; an ID is never used again in the process. */
+int64_t ao_browser_class_id(const char* name);
 int ao_browser_class_count(void);
-int ao_browser_class_at(int index, char* name, int name_len, char* category, int category_len);
+/* One row per class (one row however many names bind it), by name and then by ID. class_id (may
+   be NULL) gets the row's ID, 0 on AO_ERR. */
+int ao_browser_class_at(int index, int64_t* class_id, char* name, int name_len, char* category,
+                        int category_len);
 int ao_browser_protocol_count(const char* class_name, int meta);
 int ao_browser_protocol_at(const char* class_name, int meta, int index, char* buf, int len);
 int ao_browser_selector_count(const char* class_name, int meta, const char* protocol);

@@ -430,10 +430,10 @@ std::string ownClassName(CallContext& ctx, Oop cls) {
 // SPEC §3.9: every class alive now, whether Smalltalk binds a name to it or not (the class of an
 // instance a variable holds, a class a reshape left behind). A class is alive when a live object
 // reaches it, traced the way Gc::collectOld marks: from the roots, through each object's class and
-// its pointer slots, not through weak ones. The method cache and the method source table are roots
-// no Smalltalk object reaches, and they keep methods (so their classes) nothing else does, so the
-// trace does not start from them. A class no other root reaches is not answered, collected yet or
-// not; nor is a metaclass. Does not collect: the answer is raw Oops.
+// its pointer slots, not through weak ones. The method cache, the method source table and the class
+// ID table are roots no Smalltalk object reaches, and they keep methods (so their classes) nothing
+// else does, so the trace does not start from them. A class no other root reaches is not answered,
+// collected yet or not; nor is a metaclass. Does not collect: the answer is raw Oops.
 std::vector<Oop> liveClasses(CallContext& ctx) {
   struct Start {
     std::unordered_set<const Oop*> hidden;
@@ -442,6 +442,10 @@ std::vector<Oop> liveClasses(CallContext& ctx) {
     std::vector<Oop> work;
   } start;
   for (const Oop* slot : methodSourceRootSlots()) {
+    start.hidden.insert(slot);
+  }
+  // SPEC §3.9, §3.10 クラス ID: the class ID table is a session table no Smalltalk object reaches.
+  for (const Oop* slot : classIdRootSlots()) {
     start.hidden.insert(slot);
   }
   if (ctx.cache != nullptr) {

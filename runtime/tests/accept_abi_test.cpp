@@ -8,6 +8,8 @@
 #include "ao/HandleScope.hpp"
 #include "ao/MethodDictionary.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -50,7 +52,7 @@ TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
   bool found = false;
   const int n = ao_browser_class_count();
   for (int i = 0; i < n; ++i) {
-    ASSERT_EQ(AO_OK, ao_browser_class_at(i, name, 64, category, 64));
+    ASSERT_EQ(AO_OK, ao_browser_class_at(i, nullptr, name, 64, category, 64));
     if (std::strcmp(name, "P9Foo") == 0) {
       found = true;
       EXPECT_STREQ("P9-Test", category);
@@ -517,7 +519,7 @@ std::string b5Category(const char* className) {
   for (int i = 0; i < n; ++i) {
     char name[128];
     char category[128];
-    if (ao_browser_class_at(i, name, 128, category, 128) == AO_OK &&
+    if (ao_browser_class_at(i, nullptr, name, 128, category, 128) == AO_OK &&
         std::string(name) == className) {
       return category;
     }
@@ -3060,5 +3062,33 @@ TEST(AcceptAbi, MoveSourceWithoutMemoryKeepsTextOnly) {
     gc.collectNursery();
     gc.collectOld();
   }
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.9 クラス定義の再 Accept, §3.10 クラス ID: a subclass only the class ID table still holds
+// (unbound after the Browser listed it) is not alive, so the superclass's shape can change.
+TEST(AcceptAbi, ClassIdTableDoesNotKeepSubclassesAlive) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B12IdPar", "a", "B12-Id").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("B12IdPar", "B12IdKid", "", "B12-Id").c_str(), &err))
+      << err.message;
+  const std::int64_t kid = ao_browser_class_id("B12IdKid");
+  ASSERT_GT(kid, 0);
+  const char* unbind = "Smalltalk at: #B12IdKid put: nil";
+  ASSERT_EQ(AO_OK, ao_eval(unbind, static_cast<int>(std::strlen(unbind)), AO_EVAL_DOIT, out, 64,
+                           &err))
+      << err.message;
+  // No Browser read since: the table still holds the unbound kid.
+  const ao::Session& s = *ao::session();
+  ASSERT_TRUE(std::any_of(s.classIds.begin(), s.classIds.end(),
+                          [&](const auto& entry) { return entry->id == kid; }));
+  EXPECT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "B12IdPar", "a b", "B12-Id").c_str(), &err))
+      << err.message;
   ao_runtime_shutdown();
 }

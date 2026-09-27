@@ -143,7 +143,7 @@ final class BrowserModel {
           guard let nameBase = namePointer.baseAddress, let categoryBase = categoryPointer.baseAddress else {
             return Int32(AO_ERR)
           }
-          return ao_browser_class_at(index, nameBase, Int32(capacity), categoryBase, Int32(capacity))
+          return ao_browser_class_at(index, nil, nameBase, Int32(capacity), categoryBase, Int32(capacity))
         }
       }
       if rc == Int32(AO_OK) {

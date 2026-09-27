@@ -4,6 +4,7 @@
 
 #include "../src/Fiber.hpp"
 #include "../src/Session.hpp"
+#include "ao/Bootstrap.hpp"
 #include "ao/Gc.hpp"
 #include "ao/Interpreter.hpp"
 
@@ -1323,6 +1324,47 @@ TEST_F(SessionAbi, ImageSaveDoesNotTraceSnapshotOrBlockSlots) {
     gc.collectOld();
   }
   EXPECT_EQ(s.wk.stringClass, s.heap.klass(s.debug.receiver(0)));
+}
+
+// SPEC §3.10 クラス ID: the image does not hold what only the class ID table reaches (a class
+// unbound after the Browser listed it; its category string is the marker), and the table's slots
+// are roots again after the save.
+TEST_F(SessionAbi, ImageSaveDoesNotTraceClassIdSlots) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #P12IdOnly\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P12CatOnlyMarker'\n",
+                                   &err))
+      << err.message;
+  const std::int64_t id = ao_browser_class_id("P12IdOnly");
+  ASSERT_GT(id, 0);
+  ASSERT_EQ(AO_OK, evalDoIt("Smalltalk at: #P12IdOnly put: nil"));
+  ao::Session& s = *ao::session();
+  // No Browser read since: the table still holds the unbound class.
+  const auto held = std::find_if(s.classIds.begin(), s.classIds.end(),
+                                 [&](const auto& entry) { return entry->id == id; });
+  ASSERT_NE(s.classIds.end(), held);
+  EXPECT_TRUE(p10SlotListed(ao::classIdRootSlots(), &(*held)->cls));
+  const ao::Roots::Counts rootsBefore = s.roots.counts();
+  const char* path = "session-abi-p12-ids.aoimage";
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  EXPECT_EQ(rootsBefore.slots, s.roots.counts().slots);
+  std::ifstream in(path, std::ios::binary);
+  const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  in.close();
+  std::remove(path);
+  EXPECT_EQ(std::string::npos, bytes.find("P12CatOnlyMarker"));
+  // Rooted again: a collection keeps the class and its name.
+  {
+    ao::Gc gc(s.heap, s.roots);
+    gc.collectNursery();
+    gc.collectOld();
+  }
+  const ao::Oop name = s.heap.slotAt((*held)->cls, ao::kClassSlotName);
+  ASSERT_TRUE(name.isHeap());
+  EXPECT_EQ("P12IdOnly", std::string(reinterpret_cast<const char*>(s.heap.bytes(name)),
+                                     s.heap.size(name)));
 }
 
 // SPEC §3.10: the doIt's entry is the user's text; its spans read in that text (kDoItPrefix taken

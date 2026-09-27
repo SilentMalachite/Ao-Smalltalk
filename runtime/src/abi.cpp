@@ -547,10 +547,22 @@ extern "C" int ao_browser_class_count(void) {
   return guarded(-1, [] { return ao::browserClassCount(); });
 }
 
-extern "C" int ao_browser_class_at(int index, char* name, int name_len, char* category,
-                                    int category_len) {
+// SPEC §3.10 クラス ID: a read, like the other ao_browser_* (no AbiEntry). 0 on any failure.
+extern "C" int64_t ao_browser_class_id(const char* name) {
+  try {
+    return ao::browserClassId(name);
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" int ao_browser_class_at(int index, int64_t* class_id, char* name, int name_len,
+                                    char* category, int category_len) {
+  if (class_id != nullptr) {
+    *class_id = 0;
+  }
   return guarded(AO_ERR, [&] {
-    return ao::browserClassAt(index, name, name_len, category, category_len);
+    return ao::browserClassAt(index, class_id, name, name_len, category, category_len);
   });
 }
 

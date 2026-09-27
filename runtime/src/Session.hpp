@@ -76,6 +76,15 @@ struct Session final : DebugSink {
   // SPEC §3.13: the doIt entries of earlier evaluations whose processes are halted. Each goes at
   // the first ao_eval that finds its process no longer halted.
   std::vector<std::unique_ptr<MethodSource>> heldDoIts;
+  // SPEC §3.10 クラス ID: the classes the Browser ABI handed out, each with its ID. Each cls is a
+  // root slot (Roots::add) the GC updates; unique_ptr keeps the slot in place when the table grows.
+  // Neither the image save nor a trace for what is alive (SPEC §3.9) starts from these slots
+  // (classIdRootSlots). Not part of the image; a new session starts empty.
+  struct ClassId {
+    std::int64_t id = 0;
+    Oop cls = Oop::nil();
+  };
+  std::vector<std::unique_ptr<ClassId>> classIds;
   // SPEC §3.13: the one snapshot of the session. Declared after roots, so it is destroyed (and
   // unroots its slots) first.
   DebugSnapshot debug{roots};
@@ -206,8 +215,16 @@ std::vector<const Oop*> methodSourceRootSlots(bool withSnapshot = true);
 void clearMethodSources();
 void ensureKernelNatives(Session& s);
 
+// SPEC §3.10 クラス ID: the ID of the listed class Smalltalk binds name to; 0 when none, name is
+// NULL or there is no session. May throw std::bad_alloc (the class list issues IDs).
+std::int64_t browserClassId(const char* name);
+// SPEC §3.9, §3.10 クラス ID: the ID table's root slots. Neither the image save nor liveClasses
+// traces them. Empty outside a session.
+std::vector<const Oop*> classIdRootSlots();
+
 int browserClassCount();
-int browserClassAt(int index, char* name, int nameLen, char* category, int categoryLen);
+int browserClassAt(int index, std::int64_t* classId, char* name, int nameLen, char* category,
+                   int categoryLen);
 int browserProtocolCount(const char* className, int meta);
 int browserProtocolAt(const char* className, int meta, int index, char* buf, int len);
 int browserSelectorCount(const char* className, int meta, const char* protocol);

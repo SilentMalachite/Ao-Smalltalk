@@ -1,10 +1,52 @@
 #include "ao_abi.h"
 
+#include "../src/Session.hpp"
+
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
+
+namespace {
+
+int doIt(const char* source) {
+  char out[64];
+  AoSpan err{};
+  return ao_eval(source, static_cast<int>(std::strlen(source)), AO_EVAL_DOIT, out, 64, &err);
+}
+
+int defineRow(const char* name, const char* category = "B12-Id", const char* super = "Object") {
+  const std::string def = std::string(super) + " subclass: #" + name +
+                          "\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+                          "  poolDictionaries: ''\n  category: '" + category + "'\n";
+  AoSpan err{};
+  return ao_accept_class(def.c_str(), &err);
+}
+
+// Whether a class-list row carries id.
+bool listsId(std::int64_t id) {
+  const int n = ao_browser_class_count();
+  for (int i = 0; i < n; ++i) {
+    std::int64_t rowId = 0;
+    char name[256];
+    char category[256];
+    if (ao_browser_class_at(i, &rowId, name, 256, category, 256) == AO_OK && rowId == id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Whether the session's class ID table holds id.
+bool sessionHoldsId(std::int64_t id) {
+  const ao::Session* s = ao::session();
+  return s != nullptr && std::any_of(s->classIds.begin(), s->classIds.end(),
+                                     [&](const auto& entry) { return entry->id == id; });
+}
+
+}  // namespace
 
 class BrowserAbi : public ::testing::Test {
  protected:
@@ -19,7 +61,7 @@ TEST_F(BrowserAbi, ObjectIsKernelAndPrintStringIsNative) {
   char name[128];
   char category[128];
   for (int i = 0; i < n; ++i) {
-    ASSERT_EQ(AO_OK, ao_browser_class_at(i, name, 128, category, 128));
+    ASSERT_EQ(AO_OK, ao_browser_class_at(i, nullptr, name, 128, category, 128));
     if (std::strcmp(name, "Object") == 0) {
       found = true;
       EXPECT_STREQ("Kernel", category);
@@ -197,4 +239,70 @@ TEST_F(BrowserAbi, CountsAnswerMinusOneOnFailure) {
   EXPECT_EQ(1, ao_browser_protocol_count("Object", 0));
   EXPECT_GT(ao_browser_selector_count("Object", 0, "native"), 0);
   EXPECT_EQ(0, ao_browser_selector_count("Object", 0, "user"));
+}
+
+// SPEC §3.10 クラス ID: a listed class has one positive ID, the same from every read and for every
+// name Smalltalk binds to it; an alias adds no row. A name that binds no listed class is 0.
+TEST_F(BrowserAbi, ClassIdIsStableAndOneRowPerClass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, defineRow("B12Row", "B12-Row"));
+  const int before = ao_browser_class_count();
+  ASSERT_EQ(AO_OK, doIt("Smalltalk at: #B12RowAlias put: B12Row"));
+  EXPECT_EQ(before, ao_browser_class_count());
+  const std::int64_t id = ao_browser_class_id("B12Row");
+  EXPECT_GT(id, 0);
+  EXPECT_EQ(id, ao_browser_class_id("B12Row"));
+  EXPECT_EQ(id, ao_browser_class_id("B12RowAlias"));
+  const int n = ao_browser_class_count();
+  std::vector<std::int64_t> ids;
+  int rows = 0;
+  char name[128];
+  char category[128];
+  for (int i = 0; i < n; ++i) {
+    std::int64_t rowId = -7;
+    ASSERT_EQ(AO_OK, ao_browser_class_at(i, &rowId, name, 128, category, 128));
+    EXPECT_GT(rowId, 0);
+    ids.push_back(rowId);
+    if (rowId == id) {
+      ++rows;
+      EXPECT_STREQ("B12Row", name);
+      EXPECT_STREQ("B12-Row", category);
+    }
+    if (std::strcmp(name, "Object") == 0) {
+      EXPECT_EQ(ao_browser_class_id("Object"), rowId);
+    }
+  }
+  EXPECT_EQ(1, rows);
+  std::sort(ids.begin(), ids.end());
+  EXPECT_EQ(ids.end(), std::adjacent_find(ids.begin(), ids.end()));
+  // The ID out-parameter may be NULL; a failed row writes 0.
+  EXPECT_EQ(AO_OK, ao_browser_class_at(0, nullptr, name, 128, category, 128));
+  std::int64_t none = -7;
+  EXPECT_EQ(AO_ERR, ao_browser_class_at(n, &none, name, 128, category, 128));
+  EXPECT_EQ(0, none);
+  for (const char* notListed : {"B12NoSuchClass", "", "Processor", "Smalltalk", "nil"}) {
+    EXPECT_EQ(0, ao_browser_class_id(notListed)) << notListed;
+  }
+  EXPECT_EQ(0, ao_browser_class_id(nullptr));
+  ASSERT_EQ(AO_OK, doIt("Smalltalk at: #B12RowMeta put: B12Row class"));
+  EXPECT_EQ(0, ao_browser_class_id("B12RowMeta"));
+}
+
+// SPEC §3.10 クラス ID: a class no name binds any more leaves the list, and the table drops its
+// ID. The same name defined again is a new class with a new, larger ID; IDs are never reused.
+TEST_F(BrowserAbi, ClassIdsAreDroppedWithTheirClassAndNeverReused) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, defineRow("B12Drop"));
+  const std::int64_t first = ao_browser_class_id("B12Drop");
+  ASSERT_GT(first, 0);
+  EXPECT_TRUE(sessionHoldsId(first));
+  ASSERT_EQ(AO_OK, doIt("Smalltalk at: #B12Drop put: nil"));
+  EXPECT_EQ(0, ao_browser_class_id("B12Drop"));
+  EXPECT_FALSE(listsId(first));
+  EXPECT_FALSE(sessionHoldsId(first));
+  ASSERT_EQ(AO_OK, defineRow("B12Drop"));
+  const std::int64_t second = ao_browser_class_id("B12Drop");
+  EXPECT_GT(second, first);
+  EXPECT_TRUE(listsId(second));
+  EXPECT_FALSE(listsId(first));
 }
