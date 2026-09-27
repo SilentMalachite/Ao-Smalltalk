@@ -17,7 +17,7 @@
 - `ao_browser_class_at` は 1 回の呼び出しで行を返す形（`int64_t* class_id` を 2 番目の引数に足す）にした。ID の出力はどれも NULL を許す（C++ のテストの呼び出し元を小さく保つ）。
 - `MethodDictionary` の修正は `at` に加えて `atPut`（Accept が壊れた辞書で範囲の外を読む）と `ao_Behavior_selectors`（同じく `slotAt(dict, kDictSlotArray)` を検査なしで読む）にも入れた。どれも同じ 1 行の検査で、落ちるのは同じ原因だからである。
 - `ao_accept_method_id` の未知の ID は `AO_ERR` とメッセージ `unknown class id`（`ao_accept_method` の「クラスでない名前」はメッセージ無しの `AO_ERR` のまま）。busy の `ao_accept_method_id` は `ao_accept_method` と同じくメッセージ無しの `AO_ERR`。
-- 名前スロットが文字列でないクラスの行（`<name>` が空）は、`is not bound to this class` で拒む（`class removal refused:  is not bound to this class`。空白が 2 つ）。利用者の決定「自分の名前に束縛されていない行は拒む」の当てはめである。既存の `RemoveClassWithSubclassIsRefused` は、名前を消す前に削除するよう順序を入れ替える（Task 4）。
+- 名前スロットが文字列でないか空のクラスの行は、`is not bound to this class` で拒む。メッセージの `<name>` / `<Class>` は、名前の無いクラスでは `an unnamed class` とする（利用者の決定 2026-09-27。`class removal refused: an unnamed class is not bound to this class`）。束縛の検査（`named`）、固定のグローバルの検査、`undefine` は名前スロットの文字列そのもの（空）で行い、`an unnamed class` は見せる文字列にだけ使う。利用者の決定「自分の名前に束縛されていない行は拒む」の当てはめである。既存の `RemoveClassWithSubclassIsRefused` は、名前を消す前に削除するよう順序を入れ替える（Task 4）。
 
 ## Global Constraints
 
@@ -26,7 +26,7 @@
 - 拒んだとき、メソッド辞書、グローバル辞書、キャッシュ、ソース表は変わらない（ID の表は一覧を作り直すので変わりうる）。
 - ID は正の `int64_t`、0 は「クラスなし」。OS のプロセスの中で使い回さない（`nextClassId` は `static` の単調な数。`Scheduler.cpp` の `nextProcessId` と同じ）。
 - 未知の ID: 件数の関数は -1、ほかの読み出しは `AO_ERR`、`ao_accept_method_id` / `ao_remove_method` / `ao_remove_class` は `AO_ERR` とメッセージ `unknown class id`。
-- 削除のメッセージの `<name>` / `<Class>` は ID のクラスの名前スロット（`meta` 1 なら ` class` を付ける）。新しい拒否は `class removal refused: <name> is not bound to this class`。
+- 削除のメッセージの `<name>` / `<Class>` は ID のクラスの名前スロット（名前の無いクラスは `an unnamed class`。`meta` 1 なら ` class` を付ける）。新しい拒否は `class removal refused: <name> is not bound to this class`。
 - busy の入口は 21 個（`ao_accept_method_id` を足す）。`ao_browser_*`（`ao_browser_class_id` を含む）は busy でも呼べる。`ao_abi.h` の一覧と数（twenty → twenty-one）を直す。
 - 表の枠はルート（`Roots::add`）。イメージの保存（`sessionImageSave` の `HideMethodSources`）と `liveClasses` は表の枠をたどらない（`classIdRootSlots()`）。`~Session` は表の枠を外す。
 - CLAUDE.md の手順: 各タスクの前に `graphify-out/GRAPH_REPORT.md` と Serena の `find_symbol` / `find_referencing_symbols` で定義と参照を取る。本体の書き換えは `replace_symbol_body` / `insert_after_symbol` / `insert_before_symbol`。コミット本文に `Graphify:` と `Serena:` の行。worktree で動くエージェントは Serena を使わない（Serena の編集は本体の作業木に当たる。そのときは Edit で直し、コミットの Serena 行に `none (worktree)` と書く）。C++ を Serena の外で大きく変えたら、Serena の clangd の子プロセスを止めて作り直させる。
@@ -36,7 +36,7 @@
 ## Review Focus
 
 1. Workspace で選択中のクラスの形を変える（新しいクラスが同じ名前に付く）→ Browser の次の読み直しで、同じ名前の新しいクラスが選ばれる（Task 5 `testClassRowsCarryOneIdPerClass` の形の変更の段）。
-2. 名前スロットが文字列でないクラスの行の Remove Class… → 落ちず、`class removal refused:  is not bound to this class` で拒み、何も変えない（Task 4 `RemoveClassKeepsAliases` の最後の段）。
+2. 名前スロットが文字列でないクラスの行の Remove Class… → 落ちず、`class removal refused: an unnamed class is not bound to this class` で拒み、何も変えない（Task 4 `RemoveClassKeepsAliases` の最後の段）。
 3. 評価中のフック（busy）からの Browser の読み出し → ID の発行と刈り込みが走っても答える。`ao_accept_method_id` は拒む（Task 4 `RemoveWhileBusyIsRefused`）。
 4. 同じ名前の 2 行が同じカテゴリにある → 行は ID の小さい順で、それぞれの ID が自分のクラスを読む（Task 3 `SameNamedClassesAreReadApartById`）。
 5. イメージのロードの前に取った ID を使う → どの呼び出しも未知として拒み、Browser は名前で選び直す（Task 3 `ClassIdsDoNotSurviveBootOrImageLoad`、Task 5 `testImageLoadReselectsTheClassByName`）。
@@ -1860,7 +1860,8 @@ TEST_F(RemoveAbi, RemoveClassKeepsAliases) {
   // A class whose name slot is no String is not bound under its own name either.
   ASSERT_EQ(AO_OK, defineClass("B12Nameless", "Object", "B12-Test"));
   EXPECT_EQ("nil", printIt("B12Nameless instVarAt: 4 put: nil"));
-  EXPECT_EQ("class removal refused:  is not bound to this class", tryRemoveClass("B12Nameless", &rc));
+  EXPECT_EQ("class removal refused: an unnamed class is not bound to this class",
+            tryRemoveClass("B12Nameless", &rc));
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_NE(0, idOf("B12Nameless"));
 }
@@ -2197,7 +2198,9 @@ bool acceptMethodInto(CallContext& ctx, Oop target, bool meta, std::string_view 
 ```cpp
 bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selector,
                     std::string* reason) {
-  const std::string name = isClassShaped(ctx.heap, cls) ? ownClassName(ctx, cls) : "";
+  // SPEC §3.9 削除: a class with no name shows as "an unnamed class" in the messages.
+  const std::string own = isClassShaped(ctx.heap, cls) ? ownClassName(ctx, cls) : "";
+  const std::string name = own.empty() ? std::string("an unnamed class") : own;
   if (!isBehavior(ctx, cls)) {
     *reason = "not a class: " + name;
     return false;
@@ -2230,13 +2233,16 @@ bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selec
 }
 
 bool removeClassOf(CallContext& ctx, Oop cls, std::string* reason) {
-  const std::string name = isClassShaped(ctx.heap, cls) ? ownClassName(ctx, cls) : "";
+  // SPEC §3.9 削除: `own` is the name slot's text (empty when it is no String) and is what the
+  // binding checks use; `name` is what the messages show ("an unnamed class" for no name).
+  const std::string own = isClassShaped(ctx.heap, cls) ? ownClassName(ctx, cls) : "";
+  const std::string name = own.empty() ? std::string("an unnamed class") : own;
   if (!isClassObject(ctx, cls)) {
     *reason = "not a class: " + name;
     return false;
   }
   const std::string refused = "class removal refused: " + name;
-  if (ctx.wk.isFixedGlobal(name)) {
+  if (ctx.wk.isFixedGlobal(own)) {
     *reason = refused + " is a fixed global";
     return false;
   }
@@ -2246,7 +2252,7 @@ bool removeClassOf(CallContext& ctx, Oop cls, std::string* reason) {
   }
   // SPEC §3.9 削除: only the class's own name is unbound, and only while it binds this class; an
   // old class only an alias keeps, or a nameless one, is refused.
-  if (ctx.wk.named(name) != cls) {
+  if (own.empty() || ctx.wk.named(own) != cls) {
     *reason = refused + " is not bound to this class";
     return false;
   }
@@ -2256,7 +2262,7 @@ bool removeClassOf(CallContext& ctx, Oop cls, std::string* reason) {
                                : refused + " has subclass " + sub.name;
     return false;
   }
-  if (!ctx.wk.undefine(name)) {
+  if (!ctx.wk.undefine(own)) {
     *reason = "remove failed";
     return false;
   }
@@ -2289,7 +2295,8 @@ bool acceptMethodInto(CallContext& ctx, Oop cls, bool meta, std::string_view sou
 bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selector,
                     std::string* reason);
 
-// SPEC §3.9 削除. cls is the class a Browser class ID names; <name> is its own name slot. Every
+// SPEC §3.9 削除. cls is the class a Browser class ID names; <name> is its own name slot ("an
+// unnamed class" when that is no String or empty). Every
 // check runs before anything changes; nothing here allocates on the heap. False with the reason in
 // *reason: "not a class: <name>", "class removal refused: <name> is a fixed global", "... is a
 // kernel class" (by identity), "... is not bound to this class" (Smalltalk's <name> is another
@@ -2364,8 +2371,8 @@ int ao_accept_method_id(int64_t class_id, int meta, const char* source, AoSpan* 
    reason in err (never empty; start and end 0): "unknown class id", "not a class: <name>",
    "selector not found: <Class>>><selector>" (unknown or inherited), "native method removal
    refused: <Class>>><selector>", "runtime is busy", or "remove failed" (no session, a NULL
-   selector, meta other than 0 or 1). <name> is the class's own name slot, <Class> that with
-   " class" when meta. Nothing changes on AO_ERR. Allocates nothing on the heap. */
+   selector, meta other than 0 or 1). <name> is the class's own name slot ("an unnamed class"
+   when it has none), <Class> that with " class" when meta. Nothing changes on AO_ERR. Allocates nothing on the heap. */
 int ao_remove_method(int64_t class_id, int meta, const char* selector, AoSpan* err);
 
 /* SPEC §3.9 削除. AO_OK: the binding of the class's own name is out of Smalltalk (an alias stays;
