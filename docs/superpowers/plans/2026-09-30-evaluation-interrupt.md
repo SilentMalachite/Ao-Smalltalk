@@ -407,23 +407,19 @@ TEST_F(LiveDebug, NinthInterruptAborts) {
   ao_set_runloop_pump_hook(nullptr, nullptr);
 }
 
-// Forked process must not consume the flag: parent finishes; flag still set for a later eval
-// that clears on entry (so the next eval starts clean). Concrete check: after a fork loop is
-// running under drain, requesting interrupt does not stop the forked process as a live halt
-// of that pid — only the evaluating process may halt.
+// Forked process must not consume the flag / become a live halt.
+// Use a bounded loop (never [true] whileTrue): drain would hang on an unyielding infinite fork.
 TEST_F(LiveDebug, InterruptDoesNotHaltForkedProcess) {
   g_interruptPumps = 0;
   ao_set_runloop_pump_hook(interruptOncePump, nullptr);
-  // Eval process forks a tight loop then answers 7; drain may run the fork. Interrupt during
-  // the parent's short run must not leave a halted non-eval pid.
-  ASSERT_EQ(AO_OK, doIt("[ [true] whileTrue ] fork. 7"));
+  // Parent has no backward jump; the fork's bounded to:do: hits interpreter safepoints during
+  // drain. Interrupt must not halt that non-eval process (halted_count stays 0; eval answers 7).
+  ASSERT_EQ(AO_OK, doIt("[ [1 to: 100000 do: [:i | i]] fork. Processor yield. 7"));
   EXPECT_STREQ("7", out_);
   EXPECT_EQ(0, ao_debug_halted_count());
   ao_set_runloop_pump_hook(nullptr, nullptr);
 }
 ```
-
-`InterruptDoesNotHaltForkedProcess` がスケジューラ都合でフレークするなら、短い `1 to: 10000` の fork に変え、halted_count == 0 と `runningEval` ガードのコメントを残す。止められないことは `checkInterrupt` の `!runningEval()` early-return が本体。
 
 - [ ] **Step 2: 緑にして Commit**
 
