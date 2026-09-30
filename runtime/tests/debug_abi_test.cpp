@@ -26,6 +26,7 @@ class DebugAbi : public ::testing::Test {
   // next test.
   void TearDown() override {
     ao_runtime_shutdown();
+    ao::clearInterruptRequest();
     ao_set_transcript_hook(nullptr, nullptr);
     ao_set_inspect_hook(nullptr, nullptr);
     ao_set_runloop_pump_hook(nullptr, nullptr);

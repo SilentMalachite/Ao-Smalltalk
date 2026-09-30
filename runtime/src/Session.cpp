@@ -1240,9 +1240,11 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
 // when the evaluation ran, and the result is kept.
 int finishEval(int rc, bool ran, std::optional<std::string> printed, const std::string& failure,
                char* out, int outLen, AoSpan* err) {
-  // SPEC §3.10 評価の中断: abort and a normal eval end drop a leftover request.
-  clearInterruptRequest();
   if (g_session == nullptr || g_session->ctx == nullptr) {
+    // SPEC §3.10 評価の中断: live AO_ERR_HALT 以外は要求を落とす。
+    if (rc != AO_ERR_HALT) {
+      clearInterruptRequest();
+    }
     return rc;
   }
   // SPEC §3.4: abort は最外で理由を読んで消す。SPEC §3.2: old の上限で割り当てられず、それが
@@ -1274,8 +1276,15 @@ int finishEval(int rc, bool ran, std::optional<std::string> printed, const std::
     if (rc == AO_OK || rc == AO_ERR_RANGE) {
       g_session->evalResult = std::move(printed);
     }
+    // SPEC §3.10 評価の中断: abort / 正常終了では要求を落とす。ライブ AO_ERR_HALT
+    // （halt/step/interrupted で止まったまま Proceed が続く）では落とさない。
+    if (rc != AO_ERR_HALT) {
+      clearInterruptRequest();
+    }
     return rc;
   }
+  // abort / 評価失敗の経路。
+  clearInterruptRequest();
   g_session->heap.clearOutOfMemory();
   blankOut(out, outLen);
   if (err != nullptr) {
