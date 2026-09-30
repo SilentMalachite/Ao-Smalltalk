@@ -8,7 +8,7 @@ English (canonical GitHub text): [README.md](README.md)
 
 ## 現状
 
-**Ao 1.1.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P12 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足しました。`main` ブランチは P13（評価の中断）も終えており、次のマイナー版に入ります。以下では *(main)* と印を付けます。
+**Ao 1.2.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P13 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を足しました（1.2.0）。
 
 | 領域 | できること |
 |---|---|
@@ -20,7 +20,7 @@ English (canonical GitHub text): [README.md](README.md)
 | クラスライブラリ | 非 Kernel クラスを、版を固定した Cuis-Smalltalk の抜粋（`image/vendor`）から file-in する |
 | イメージ | `.aoimage` の保存と読み込み。ネイティブメソッドはロード時にシンボル名で結び直す |
 | ツール | AppKit の Transcript、Workspace（Do it / Print it / Inspect it / Debug it）、Accept と削除ができる 5 ペインの System Browser |
-| デバッガ | `halt` と失敗で評価を止め、Debugger 窓で Proceed、Abort、Step over、Step into、Step out を行う（P10、P11）。*(main)* 走っている評価も ⌘. でここに止める（P13） |
+| デバッガ | `halt` と失敗で評価を止め、Debugger 窓で Proceed、Abort、Step over、Step into、Step out を行う（P10、P11）。走っている評価も ⌘. でここに止める（P13） |
 
 ## インストール
 
@@ -30,8 +30,8 @@ English (canonical GitHub text): [README.md](README.md)
 
 | ファイル | 中身 |
 |---|---|
-| `Ao-1.1.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
-| `ao-cli-1.1.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
+| `Ao-1.2.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
+| `ao-cli-1.2.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
 | `SHA256SUMS` | 上の 2 つのアーカイブの SHA-256 |
 
 ダウンロードを確かめます。
@@ -44,7 +44,7 @@ shasum -a 256 -c SHA256SUMS
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.1.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.2.0-macos-arm64/ao
 ```
 
 ## Ao.app の使い方
@@ -59,7 +59,7 @@ Workspace でソースを選択し、**Smalltalk** メニューを使います�
 | Print it | ⌘I | 評価し、結果の `printString` を選択範囲の後ろに挿入する |
 | Inspect it | — | 評価し、結果をインスペクタのウィンドウに出す |
 | Debug it | ⌘⇧D | Debugger の中で評価する。最初の文の前で止まる |
-| Interrupt | ⌘. | *(main)* 走っている評価を Debugger に止める（理由 `interrupted`） |
+| Interrupt | ⌘. | 走っている評価を Debugger に止める（理由 `interrupted`） |
 
 ```smalltalk
 3 + 4.
@@ -92,12 +92,12 @@ Proceed や step で Print it が終わると、結果が Workspace に入りま
 
 **Tools** には **Use Fixed Pitch** と文字の大きさのコマンド（**Make Text Bigger** ⌘+、**Make Text Smaller** ⌘-、**Actual Size** ⌘0）もあります。大きさは Transcript、Workspace、Browser のソースペインで共通です。
 
-評価はメインスレッドで走ります。1.1.0 では中断できません。`[true] whileTrue` のように `yield` しないループはアプリを止め、強制終了するしかなく、保存していない作業は失われます。*(main)* **Smalltalk → Interrupt**（⌘.）でそのようなループを理由 `interrupted` で Debugger に止められます。Proceed は止めたところから続けます。評価が fork したプロセスのループや、インタプリタに戻らない長いネイティブは、今も強制終了するしかありません。
+評価はメインスレッドで走ります。`[true] whileTrue` のように `yield` しないループは、**Smalltalk → Interrupt**（⌘.）で Debugger に止められます（理由 `interrupted`）。Proceed は止めたところから続けます。評価が fork したプロセスのループや、インタプリタに戻らない長いネイティブは、強制終了するしかありません。
 
 ## `ao` CLI の使い方
 
 ```sh
-ao --version                               # 1.1.0
+ao --version                               # 1.2.0
 ao filein hello.st                         # チャンク形式のファイルを 1 つ file-in する
 ao filein --load-order vendor/LOAD_ORDER   # クラスライブラリを順に file-in する
 ao --test tests/                           # tests/ の *.st をすべてゴールデンテストとして実行する

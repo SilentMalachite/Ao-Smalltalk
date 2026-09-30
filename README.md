@@ -8,7 +8,7 @@ Product spec: [SPEC.md](SPEC.md) (Japanese; product authority). Agent process: [
 
 ## Status
 
-**Ao 1.1.0** is the current release. It completes phases P0–P12 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser. The `main` branch also completes P13 (evaluation interrupt), which goes into the next minor release; it is marked *(main)* below:
+**Ao 1.2.0** is the current release. It completes phases P0–P13 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0):
 
 | Area | What Ao does |
 |---|---|
@@ -20,7 +20,7 @@ Product spec: [SPEC.md](SPEC.md) (Japanese; product authority). Agent process: [
 | Class library | Non-Kernel classes filed in from a pinned Cuis-Smalltalk excerpt (`image/vendor`) |
 | Images | `.aoimage` save and load. Native methods are re-bound by symbol name on load |
 | Tools | AppKit Transcript, Workspace (Do it / Print it / Inspect it / Debug it), and a five-pane System Browser with Accept and Remove |
-| Debugger | `halt` and failures stop the evaluation in a Debugger window with Proceed, Abort, Step over, Step into, and Step out (P10, P11). *(main)* ⌘. stops a running evaluation there too (P13) |
+| Debugger | `halt` and failures stop the evaluation in a Debugger window with Proceed, Abort, Step over, Step into, and Step out (P10, P11). ⌘. stops a running evaluation there too (P13) |
 
 ## Install
 
@@ -30,8 +30,8 @@ Download from the [Releases](https://github.com/SilentMalachite/Ao-Smalltalk/rel
 
 | File | Contents |
 |---|---|
-| `Ao-1.1.0-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
-| `ao-cli-1.1.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
+| `Ao-1.2.0-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
+| `ao-cli-1.2.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
 | `SHA256SUMS` | SHA-256 checksums of the two archives |
 
 Check the downloads:
@@ -44,7 +44,7 @@ The builds are ad-hoc signed, not notarized. macOS blocks them the first time. E
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.1.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.2.0-macos-arm64/ao
 ```
 
 ## Using Ao.app
@@ -59,7 +59,7 @@ In the Workspace, select source and use the **Smalltalk** menu:
 | Print it | ⌘I | Evaluate and insert the result's `printString` after the selection |
 | Inspect it | — | Evaluate and show the result in an inspector window |
 | Debug it | ⌘⇧D | Evaluate in the Debugger, stopped before the first statement |
-| Interrupt | ⌘. | *(main)* Stop the running evaluation in the Debugger (reason `interrupted`) |
+| Interrupt | ⌘. | Stop the running evaluation in the Debugger (reason `interrupted`) |
 
 ```smalltalk
 3 + 4.
@@ -92,12 +92,12 @@ When Proceed or a step finishes a Print it, the result goes into the Workspace. 
 
 **Tools** also holds **Use Fixed Pitch** and the text size commands (**Make Text Bigger** ⌘+, **Make Text Smaller** ⌘-, **Actual Size** ⌘0), shared by the Transcript, the Workspace, and the Browser source pane.
 
-Evaluation runs on the main thread. In 1.1.0 it cannot be interrupted: a loop that never yields, such as `[true] whileTrue`, hangs the app, force quit is the only way out, and unsaved work is lost. *(main)* **Smalltalk → Interrupt** (⌘.) stops such a loop in the Debugger with reason `interrupted`; Proceed goes on from where it stopped. A loop in a process the evaluation forked, or a long native that never returns to the interpreter, still needs a force quit.
+Evaluation runs on the main thread. **Smalltalk → Interrupt** (⌘.) stops a loop that never yields, such as `[true] whileTrue`, in the Debugger with reason `interrupted`; Proceed goes on from where it stopped. A loop in a process the evaluation forked, or a long native that never returns to the interpreter, still needs a force quit.
 
 ## Using the `ao` CLI
 
 ```sh
-ao --version                               # 1.1.0
+ao --version                               # 1.2.0
 ao filein hello.st                         # file in one chunk-format file
 ao filein --load-order vendor/LOAD_ORDER   # file in the class library in order
 ao --test tests/                           # run every *.st in tests/ as a golden test
