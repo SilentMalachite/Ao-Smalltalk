@@ -14,6 +14,7 @@ final class ToolWindowTests: XCTestCase {
     }
     ao_set_transcript_hook(nil, nil)
     ao_set_inspect_hook(nil, nil)
+    ao_set_runloop_pump_hook(nil, nil)
     ao_runtime_shutdown()
     super.tearDown()
   }
@@ -171,7 +172,7 @@ final class ToolWindowTests: XCTestCase {
   func testMainMenuListsToolsAndSmalltalkKeys() {
     let menu = MainMenu.build(actions: MainMenu.Actions())
     let titles = menuTitles(in: menu)
-    for title in ["Transcript", "Workspace", "Browser", "Do it", "Print it", "Inspect it", "Accept"] {
+    for title in ["Transcript", "Workspace", "Browser", "Do it", "Print it", "Inspect it", "Interrupt", "Accept"] {
       XCTAssertTrue(titles.contains(title), title)
     }
     let printIt = menuItem(titled: "Print it", in: menu)
@@ -184,6 +185,10 @@ final class ToolWindowTests: XCTestCase {
     let debugIt = menuItem(titled: "Debug it", in: menu)
     XCTAssertEqual(debugIt?.keyEquivalent, "d")
     XCTAssertEqual(debugIt?.keyEquivalentModifierMask, [.command, .shift])
+    // SPEC §3.9 評価の中断: Interrupt is ⌘.
+    let interrupt = menuItem(titled: "Interrupt", in: menu)
+    XCTAssertEqual(interrupt?.keyEquivalent, ".")
+    XCTAssertEqual(interrupt?.keyEquivalentModifierMask, [.command])
     for item in menuItems(in: menu) where item.keyEquivalent == "p" {
       XCTAssertNotEqual(item.title, "Print it")
     }
@@ -193,6 +198,83 @@ final class ToolWindowTests: XCTestCase {
       menu.items.map(\.title),
       ["Ao", "File", "Edit", "Smalltalk", "Tools", "Window", "Help"]
     )
+  }
+
+  // SPEC §3.9 評価の中断: Interrupt sits after Debug it with ⌘.
+  func testInterruptMenuItemAndCommandPeriod() {
+    let menu = MainMenu.build(actions: MainMenu.Actions())
+    let smalltalk = menu.item(withTitle: "Smalltalk")?.submenu
+    let titles = smalltalk?.items.map(\.title) ?? []
+    XCTAssertEqual(
+      titles.firstIndex(of: "Interrupt").flatMap { i in titles[i - 1] },
+      "Debug it"
+    )
+    let interrupt = smalltalk?.item(withTitle: "Interrupt")
+    XCTAssertEqual(interrupt?.keyEquivalent, ".")
+    XCTAssertEqual(interrupt?.keyEquivalentModifierMask, [.command])
+  }
+
+  // SPEC §3.9 評価の中断: once installed, the pump hands queued events to NSApplication during an
+  // evaluation; once removed, nothing takes them until the evaluation returns.
+  func testRunLoopPumpHookCanBeSetAndCleared() {
+    ao_runtime_shutdown()
+    XCTAssertEqual(ao_runtime_boot(), Int32(AO_OK))
+    defer { ao_runtime_shutdown() }
+    let loop = "| n | n := 0. [n < 20000] whileTrue: [n := n + 1]. n"
+    RunLoopPump.install()
+    postMarkerEvent()
+    XCTAssertEqual(doIt(loop), Int32(AO_OK))
+    XCTAssertFalse(takeMarkerEvent(), "the installed pump took no event")
+    RunLoopPump.remove()
+    postMarkerEvent()
+    XCTAssertEqual(doIt(loop), Int32(AO_OK))
+    XCTAssertTrue(takeMarkerEvent(), "the removed pump still took an event")
+  }
+
+  // SPEC §3.9 評価の中断: a nested Proceed / Step inside an evaluation leaves it active until the
+  // outermost one ends (Interrupt stays enabled, the eval items stay disabled).
+  func testNestedEvaluationActivityStaysActiveUntilOutermostEnds() {
+    XCTAssertFalse(EvaluationActivity.isActive)
+    EvaluationActivity.whileActive {
+      EvaluationActivity.whileActive {
+        XCTAssertTrue(EvaluationActivity.isActive)
+      }
+      XCTAssertTrue(EvaluationActivity.isActive)
+    }
+    XCTAssertFalse(EvaluationActivity.isActive)
+  }
+
+  private static let markerData1 = 0xA0_13
+
+  private func postMarkerEvent() {
+    guard
+      let event = NSEvent.otherEvent(
+        with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+        windowNumber: 0, context: nil, subtype: 0, data1: Self.markerData1, data2: 0)
+    else {
+      XCTFail("no application-defined event")
+      return
+    }
+    NSApplication.shared.postEvent(event, atStart: false)
+  }
+
+  // Whether the marker was still queued (it is taken off the queue either way).
+  private func takeMarkerEvent() -> Bool {
+    var found = false
+    while let event = NSApplication.shared.nextEvent(
+      matching: .applicationDefined, until: .distantPast, inMode: .default, dequeue: true)
+    {
+      found = found || event.data1 == Self.markerData1
+    }
+    return found
+  }
+
+  private func doIt(_ source: String) -> Int32 {
+    var out = [CChar](repeating: 0, count: 64)
+    var err = AoSpan()
+    return source.withCString { src in
+      ao_eval(src, Int32(source.utf8.count), Int32(AO_EVAL_DOIT), &out, Int32(out.count), &err)
+    }
   }
 
   // The launch path's own menu: Tools → Browser opens the System Browser. tearDown drops the

@@ -21,6 +21,7 @@ final class DebuggerWindowTests: XCTestCase {
     }
     ao_set_transcript_hook(nil, nil)
     ao_set_inspect_hook(nil, nil)
+    ao_set_runloop_pump_hook(nil, nil)
     ao_set_debug_capture(0)
     ao_set_debug_mode(Int32(AO_DEBUG_POSTMORTEM))
     ao_runtime_shutdown()
@@ -433,6 +434,47 @@ final class DebuggerWindowTests: XCTestCase {
     box.release()
   }
 
+  // SPEC §3.9 評価の中断: a live Debugger cannot abort while another evaluation runs (busy), so
+  // its window does not close then; the halted process keeps its Debugger.
+  func testClosingLiveDebuggerDuringEvaluationKeepsIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let halted = workspace("self halt")
+    halted.selectAll()
+    halted.doIt()
+    guard let debugger = halted.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    // The pump would dispatch a click on the close button; the transcript runs inside ao_eval too.
+    let box = Unmanaged.passRetained(TranscriptBox { _ in debugger.window.performClose(nil) })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    let other = workspace("Transcript show: 'x'")
+    other.selectAll()
+    other.doIt()
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(halted.debuggers.count, 1)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    debugger.window.performClose(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: text shortened during a Print it (the pump dispatched an edit): the result goes at
+  // the end, as after a Proceed.
+  func testPrintItAfterEditDuringEvaluationInsertsAtEnd() {
+    let workspace = workspace("Transcript show: 'x'. 42")
+    let box = Unmanaged.passRetained(TranscriptBox { _ in workspace.replaceText("ab") })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    workspace.selectAll()
+    workspace.printIt()
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertEqual(workspace.text, "ab42")
+  }
+
   // With the Debugger open, the Workspace evaluates on; the Debugger still reads its process.
   func testDoItWhileDebuggerOpen() {
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
@@ -467,6 +509,72 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(selected(in: debugger), "x := 3")
     button("Proceed", in: debugger)?.performClick(nil)
     XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9 評価の中断: a tight loop stops with reason interrupted and opens the live Debugger.
+  func testInterruptDuringEvalOpensLiveDebuggerWithInterruptedReason() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    gInterruptPumps = 0
+    ao_set_runloop_pump_hook(interruptOncePump, nil)
+    defer { ao_set_runloop_pump_hook(nil, nil) }
+    let workspace = workspace("[true] whileTrue")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertEqual(workspace.errorText, "halted: interrupted")
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("interrupt opened no Debugger")
+      return
+    }
+    XCTAssertTrue(debugger.isLive)
+    XCTAssertEqual(debugger.title, "Debugger: interrupted")
+    XCTAssertTrue(debugger.reason.contains("interrupted"))
+    button("Abort", in: debugger)?.performClick(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9 評価の中断: a real ⌘. key event queued during an evaluation reaches the Interrupt
+  // menu item through the pump (not a pump that calls ao_request_interrupt itself).
+  func testCommandPeriodKeyEventDuringEvalInterrupts() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    NSApplication.shared.mainMenu = MainMenu.build(
+      actions: MainMenu.Actions(
+        interrupt: { _ = ao_request_interrupt() },
+        canInterrupt: { EvaluationActivity.isActive }))
+    RunLoopPump.install()
+    defer { RunLoopPump.remove() }
+    guard
+      let key = NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: 0,
+        context: nil, characters: ".", charactersIgnoringModifiers: ".", isARepeat: false,
+        keyCode: 47)
+    else {
+      XCTFail("no key event")
+      return
+    }
+    NSApplication.shared.postEvent(key, atStart: false)
+    let workspace = workspace("| n | n := 0. [n < 3000000] whileTrue: [n := n + 1]. n")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertEqual(workspace.errorText, "halted: interrupted")
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("⌘. opened no Debugger")
+      return
+    }
+    XCTAssertEqual(debugger.title, "Debugger: interrupted")
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // SPEC §3.9 評価の中断: Interrupt with no evaluation does not leave a halt.
+  func testInterruptWhenIdleIsHarmless() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    XCTAssertEqual(ao_request_interrupt(), Int32(AO_OK))
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+    let workspace = workspace("1 + 1")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertTrue(workspace.debuggers.isEmpty)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
   }
 
   // The text changed while halted: the Print it goes to a character boundary, not inside a pair.
@@ -607,6 +715,17 @@ final class DebuggerWindowTests: XCTestCase {
     let workspace = WorkspaceWindow()
     workspace.replaceText(text)
     return workspace
+  }
+}
+
+// C pump like runtime/tests/debug_abi_test.cpp interruptOncePump — no Swift closure as fn ptr.
+private nonisolated(unsafe) var gInterruptPumps = 0
+
+private func interruptOncePump(_ user: UnsafeMutableRawPointer?) {
+  _ = user
+  if gInterruptPumps == 0 {
+    gInterruptPumps = 1
+    _ = ao_request_interrupt()
   }
 }
 

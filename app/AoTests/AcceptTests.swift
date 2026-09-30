@@ -1094,7 +1094,7 @@ final class AcceptTests: XCTestCase {
     let smalltalk = menu.item(withTitle: "Smalltalk")?.submenu
     XCTAssertEqual(
       smalltalk?.items.map(\.title),
-      ["Do it", "Print it", "Inspect it", "Debug it", "Accept", "Remove Method…", "Remove Class…", "Show Hierarchy"]
+      ["Do it", "Print it", "Inspect it", "Debug it", "Interrupt", "Accept", "Remove Method…", "Remove Class…", "Show Hierarchy"]
     )
     guard let method = smalltalk?.item(withTitle: "Remove Method…"),
           let cls = smalltalk?.item(withTitle: "Remove Class…") else {

@@ -9,6 +9,7 @@
 #include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
 #include "InterpFrame.hpp"
+#include "Session.hpp"
 
 #include <pthread.h>
 
@@ -250,6 +251,7 @@ bool jumpTo(CallContext& ctx, Gc& gc, Frame& frame, std::int16_t rel) {
   frame.pc = static_cast<std::uint32_t>(target);
   if (rel < 0) {
     gc.safepoint();
+    ao::maybePumpRunLoop();
   }
   return true;
 }
@@ -395,6 +397,35 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
   return kAssocValue < ctx.heap.size(*assoc);
 }
 
+// SPEC §3.13 評価の中断: at a checkpoint (a taken backward jump, or an activation before its
+// first instruction), halt the evaluating process when
+// the session interrupt flag is set (reason "interrupted"). Same canHalt / 8-cap rules as step.
+[[gnu::noinline]] bool checkInterrupt(CallContext& ctx) {
+  if (!ao::interruptRequested()) {
+    return true;
+  }
+  if (ao::debugMode() != AO_DEBUG_LIVE || ctx.scheduler == nullptr) {
+    return true;  // do not consume
+  }
+  if (!ctx.scheduler->runningEval()) {
+    return true;  // do not consume — forked / drain processes leave the flag
+  }
+  if (ctx.aborting || ctx.abandoning || ctx.abortSetAside > 0 || ctx.haltSuppressed > 0) {
+    return true;  // do not consume
+  }
+  if (!ctx.scheduler->canHalt(ctx)) {
+    // Only the 8-halt cap aborts (same idea as step). Other canHalt failures already filtered.
+    if (ctx.scheduler->haltedCount() >= Scheduler::kMaxHalted) {
+      ao::clearInterruptRequest();
+      abortEvaluation(ctx, "interrupted");
+      return false;
+    }
+    return true;
+  }
+  ao::clearInterruptRequest();
+  return ctx.scheduler->halt(ctx, "interrupted", true);
+}
+
 // SPEC §3.13 step: whether the stepping process has come where it stops, before the instruction at
 // frame.pc; if so it halts there (reason step, or debug it). False when it was aborted while it
 // was halted. Out of line: only a stepping process comes here.
@@ -521,6 +552,17 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
 
   OperandStack stack(ctx.roots);
   FrameLink linked(ctx, *frame, temps, stack);
+  // SPEC §3.13 止める: an activation is a checkpoint too, before its first instruction (Debug it's
+  // shape), so recursion and blocks that native loops call can be interrupted.
+  if (ao::checkpointWork()) [[unlikely]] {
+    ao::maybePumpRunLoop();
+    if (ao::interruptRequested()) {
+      mirror(ctx, *frame, stack.depth());
+      if (!checkInterrupt(ctx)) {
+        return Oop{};
+      }
+    }
+  }
   for (;;) {
     if (!frame->context.isHeap()) {
       return Oop{};
@@ -702,8 +744,19 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           }
           take = (op == compiler::Op::JumpTrue) == truth;
         }
-        if (take && !jumpTo(ctx, gc, *frame, rel16(argb[0], argb[1]))) {
-          return Oop{};
+        const std::int16_t rel = rel16(argb[0], argb[1]);
+        if (take) {
+          if (!jumpTo(ctx, gc, *frame, rel)) {
+            return Oop{};
+          }
+          // SPEC §3.13 止める: only a backward jump actually taken is a checkpoint. The context
+          // shows the jump's target and the popped stack before a halt (as at the loop top).
+          if (rel < 0 && ao::checkpointWork() && ao::interruptRequested()) [[unlikely]] {
+            mirror(ctx, *frame, stack.depth());
+            if (!checkInterrupt(ctx)) {
+              return Oop{};
+            }
+          }
         }
         break;
       }

@@ -49,8 +49,9 @@ typedef struct AoSpan {
    hook, or a native), each of these twenty-one does nothing and answers AO_ERR: ao_image_load,
    ao_remove_method and ao_remove_class
    with the reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
-   setters, ao_version, the ao_browser_* reads (ao_browser_class_id too), ao_eval_result_length,
-   ao_eval_result_copy,
+   setters (ao_set_transcript_hook, ao_set_inspect_hook, ao_set_runloop_pump_hook),
+   ao_request_interrupt, ao_version, the ao_browser_* reads (ao_browser_class_id too),
+   ao_eval_result_length, ao_eval_result_copy,
    ao_set_debug_capture, ao_set_debug_mode, the snapshot reads (ao_debug_generation to
    ao_debug_frame_temp_name) and the live reads (ao_debug_halted_pid to ao_debug_select) may be
    called then. A halted process (SPEC §3.13) does not run, so it alone does not make the runtime
@@ -85,6 +86,18 @@ typedef void (*AoInspectFn)(const char* class_name, const char* print_utf8, int 
    set before the first boot. NULL removes it. */
 void ao_set_transcript_hook(AoTranscriptFn fn, void* user);
 void ao_set_inspect_hook(AoInspectFn fn, void* user);
+
+typedef void (*AoRunLoopPumpFn)(void* user);
+
+/* NULL removes it. Survives shutdown, boot, and image load. May be set before the first boot
+   and while busy. */
+void ao_set_runloop_pump_hook(AoRunLoopPumpFn fn, void* user);
+
+/* Sets the session interrupt request. AO_ERR with no session; otherwise AO_OK even while busy.
+   Consumed when the live evaluating process stops with reason "interrupted". Cleared at the end
+   of every evaluation (abort, normal end, a live halt) and on entry to ao_eval, ao_debug_proceed
+   and ao_debug_step_*. Live mode off ignores it (does not stop). */
+int ao_request_interrupt(void);
 
 /* The four *_count functions answer 0 or more, or -1 on failure: no session, an unknown class ID
    (SPEC §3.10 クラス ID), meta other than 0 or 1, a NULL argument. Never AO_ERR, which reads as

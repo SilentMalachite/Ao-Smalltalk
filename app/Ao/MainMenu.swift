@@ -7,6 +7,10 @@ enum MainMenu {
     var printIt: () -> Void = {}
     var inspectIt: () -> Void = {}
     var debugIt: () -> Void = {}
+    var interrupt: () -> Void = {}
+    // SPEC §3.9 評価の中断: Interrupt while evaluating; the other eval actions while idle.
+    var canInterrupt: () -> Bool = { false }
+    var canEvaluate: () -> Bool = { true }
     var accept: () -> Void = {}
     // SPEC §3.9 削除: the Remove items, and whether each is enabled (the key Browser has a
     // selector / a class).
@@ -52,14 +56,16 @@ enum MainMenu {
       responderItem("Select All", key: "a", action: #selector(NSText.selectAll(_:)))
     ]))
     // SPEC §3.9: Debug it is ⌘⇧D, beside Do it's ⌘D.
-    let debugIt = actionItem("Debug it", key: "d", run: { _ in actions.debugIt() })
+    let debugIt = actionItem("Debug it", key: "d", run: { _ in actions.debugIt() }, enabled: actions.canEvaluate)
     debugIt.keyEquivalentModifierMask = [.command, .shift]
+    // SPEC §3.9 評価の中断: Interrupt is ⌘., after Debug it.
     bar.addItem(top("Smalltalk", items: [
-      actionItem("Do it", key: "d", run: { _ in actions.doIt() }),
-      actionItem("Print it", key: "i", run: { _ in actions.printIt() }),
-      actionItem("Inspect it", key: "", run: { _ in actions.inspectIt() }),
+      actionItem("Do it", key: "d", run: { _ in actions.doIt() }, enabled: actions.canEvaluate),
+      actionItem("Print it", key: "i", run: { _ in actions.printIt() }, enabled: actions.canEvaluate),
+      actionItem("Inspect it", key: "", run: { _ in actions.inspectIt() }, enabled: actions.canEvaluate),
       debugIt,
-      actionItem("Accept", key: "", run: { _ in actions.accept() }),
+      actionItem("Interrupt", key: ".", run: { _ in actions.interrupt() }, enabled: actions.canInterrupt),
+      actionItem("Accept", key: "", run: { _ in actions.accept() }, enabled: actions.canEvaluate),
       actionItem("Remove Method…", key: "", run: { _ in actions.removeMethod() }, enabled: actions.canRemoveMethod),
       actionItem("Remove Class…", key: "", run: { _ in actions.removeClass() }, enabled: actions.canRemoveClass),
       actionItem("Show Hierarchy", key: "", run: { _ in actions.showHierarchy() })

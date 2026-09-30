@@ -144,6 +144,22 @@ void setSessionDebugCapture(bool on);
 // SPEC §3.10 ライブデバッガの操作: AO_DEBUG_POSTMORTEM or AO_DEBUG_LIVE (other values do nothing).
 // Kept across boot, load and shutdown; read by each ao_eval.
 void setSessionDebugMode(int mode);
+// SPEC §3.10 評価の中断: RunLoop pump hook (survives boot/load/shutdown; NULL clears).
+void setRunLoopPumpHook(AoRunLoopPumpFn fn, void* user);
+// SPEC §3.10 評価の中断: session interrupt request flag (Interpreter reads at safepoints).
+bool interruptRequested();
+void clearInterruptRequest();
+void requestInterrupt();
+// Test helper: arm the flag without going through ao_request_interrupt (entry clears ABI requests).
+void setInterruptRequestedForTest();
+// SPEC §3.10 ao_debug_mode: current live/postmortem mode (Interpreter must not read g_debugMode).
+int debugMode();
+// SPEC §3.10 評価の中断: call the pump hook when due (throttled at interpreter safepoints).
+void maybePumpRunLoop();
+// SPEC §3.13 止める: true while a pump hook is set or an interrupt is requested. Activations check
+// it first, so a checkpoint costs one load when there is nothing to do. The setters above keep it.
+extern bool g_checkpointWork;
+inline bool checkpointWork() { return g_checkpointWork; }
 // The current session's snapshot; null without a session.
 DebugSnapshot* sessionDebugSnapshot();
 // SPEC §3.10 ao_debug_generation: moves by one on every capture and every clear, across sessions

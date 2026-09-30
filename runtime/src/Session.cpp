@@ -18,6 +18,7 @@
 #include "ao_abi.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cstdint>
 #include <cstring>
@@ -40,6 +41,24 @@ HostOopHook g_transcriptHook = nullptr;
 bool g_debugCapture = false;
 // SPEC §3.13: the live mode, as the ABI set it (post-mortem by default). Each ao_eval reads it.
 int g_debugMode = AO_DEBUG_POSTMORTEM;
+// SPEC §3.10 評価の中断: host RunLoop pump (survives boot/load/shutdown like the transcript hook).
+AoRunLoopPumpFn g_runLoopPumpFn = nullptr;
+void* g_runLoopPumpUser = nullptr;
+// SPEC §3.10 評価の中断: one session-wide request; not stacked.
+bool g_interruptRequested = false;
+// SPEC §3.13 止める: the pump's throttle. Checkpoints since the last pump, and when it ran; both are
+// reset when an evaluation or a Proceed / Step starts.
+std::uint32_t g_pumpCheckpoints = 0;
+std::chrono::steady_clock::time_point g_pumpLast{};
+
+void refreshCheckpointWork() {
+  g_checkpointWork = g_runLoopPumpFn != nullptr || g_interruptRequested;
+}
+
+void resetRunLoopPumpThrottle() {
+  g_pumpCheckpoints = 0;
+  g_pumpLast = std::chrono::steady_clock::now();
+}
 // SPEC §3.10: the ao_debug_* prints and inspects running (DebugEntry). While one runs, capture stays
 // off and a new setting waits for its end.
 int g_debugEntries = 0;
@@ -370,6 +389,49 @@ void setSessionDebugMode(int mode) {
   if (mode == AO_DEBUG_POSTMORTEM || mode == AO_DEBUG_LIVE) {
     g_debugMode = mode;
   }
+}
+
+bool g_checkpointWork = false;
+
+void setRunLoopPumpHook(AoRunLoopPumpFn fn, void* user) {
+  g_runLoopPumpFn = fn;
+  g_runLoopPumpUser = user;
+  refreshCheckpointWork();
+}
+
+bool interruptRequested() { return g_interruptRequested; }
+
+void clearInterruptRequest() {
+  g_interruptRequested = false;
+  refreshCheckpointWork();
+}
+
+void requestInterrupt() {
+  g_interruptRequested = true;
+  refreshCheckpointWork();
+}
+
+void setInterruptRequestedForTest() { requestInterrupt(); }
+
+int debugMode() { return g_debugMode; }
+
+void maybePumpRunLoop() {
+  if (g_runLoopPumpFn == nullptr) {
+    return;
+  }
+  // Pump every kEvery checkpoints, or sooner once 16 ms have passed. The clock is read only every
+  // kClockEvery checkpoints: activations are checkpoints too, and they are frequent.
+  constexpr std::uint32_t kEvery = 1024;
+  constexpr std::uint32_t kClockEvery = 64;
+  ++g_pumpCheckpoints;
+  if (g_pumpCheckpoints < kEvery) {
+    if (g_pumpCheckpoints % kClockEvery != 0 ||
+        std::chrono::steady_clock::now() - g_pumpLast < std::chrono::milliseconds(16)) {
+      return;
+    }
+  }
+  resetRunLoopPumpThrottle();
+  g_runLoopPumpFn(g_runLoopPumpUser);
 }
 
 DebugSnapshot* sessionDebugSnapshot() {
@@ -1194,6 +1256,9 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
     retireDoItDebug(*g_session);
     sessionDebugClear();
   }
+  // SPEC §3.10 評価の中断: do not carry a prior request into this evaluation.
+  clearInterruptRequest();
+  resetRunLoopPumpThrottle();
   // 評価の前に立っていたフラグ（accept や file-in の途中のもの）を、この評価のせいにしない。
   if (g_session != nullptr && g_session->ctx != nullptr) {
     g_session->heap.clearOutOfMemory();
@@ -1216,6 +1281,7 @@ int sessionEval(const char* source, int sourceLen, int mode, char* out, int outL
 int finishEval(int rc, bool ran, std::optional<std::string> printed, const std::string& failure,
                char* out, int outLen, AoSpan* err) {
   if (g_session == nullptr || g_session->ctx == nullptr) {
+    clearInterruptRequest();
     return rc;
   }
   // SPEC §3.4: abort は最外で理由を読んで消す。SPEC §3.2: old の上限で割り当てられず、それが
@@ -1241,6 +1307,9 @@ int finishEval(int rc, bool ran, std::optional<std::string> printed, const std::
   if (ran && g_session->scheduler != nullptr) {
     g_session->scheduler->drain(Scheduler::kDrainRounds);
   }
+  // SPEC §3.10 評価の中断: whatever the outcome (abort, success, a live halt), the request is not
+  // carried past the end of this evaluation, nor past the drain.
+  clearInterruptRequest();
   if (reason.empty()) {
     // SPEC §3.10 評価結果: kept after the drain, and only when ao_eval answers AO_OK or
     // AO_ERR_RANGE. A Do it leaves printed empty.
@@ -1282,6 +1351,9 @@ int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, A
   // first, and what an earlier entry left is not blamed on it.
   s->evalResult = std::string();
   sessionDebugClear();
+  // SPEC §3.10 評価の中断: a request raised while the process was halted is not carried in.
+  clearInterruptRequest();
+  resetRunLoopPumpThrottle();
   CallContext& ctx = *s->ctx;
   s->heap.clearOutOfMemory();
   clearUnwinding(ctx);

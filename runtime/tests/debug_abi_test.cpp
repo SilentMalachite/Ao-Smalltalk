@@ -26,8 +26,10 @@ class DebugAbi : public ::testing::Test {
   // next test.
   void TearDown() override {
     ao_runtime_shutdown();
+    ao::clearInterruptRequest();
     ao_set_transcript_hook(nullptr, nullptr);
     ao_set_inspect_hook(nullptr, nullptr);
+    ao_set_runloop_pump_hook(nullptr, nullptr);
     ao_set_debug_capture(0);
     ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
   }
@@ -1172,6 +1174,223 @@ TEST_F(LiveStep, DebugItPastTheHaltLimitAborts) {
   EXPECT_EQ(8, ao_debug_halted_count());
   ASSERT_EQ(AO_OK, printIt("x"));
   EXPECT_STREQ("nil", out_);
+}
+
+// SPEC §3.10 評価の中断: no session → AO_ERR; session present → AO_OK.
+TEST_F(DebugAbi, RequestInterruptNeedsSession) {
+  ao_runtime_shutdown();
+  EXPECT_EQ(AO_ERR, ao_request_interrupt());
+}
+
+TEST_F(LiveDebug, RequestInterruptOkWithSession) {
+  EXPECT_EQ(AO_OK, ao_request_interrupt());
+}
+
+namespace {
+int g_interruptPumps = 0;
+void interruptOncePump(void*) {
+  if (g_interruptPumps++ == 0) {
+    EXPECT_EQ(AO_OK, ao_request_interrupt());
+  }
+}
+}  // namespace
+
+TEST_F(LiveDebug, InterruptHaltsTightLoopAtBytecodeBoundary) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+  EXPECT_EQ(1, ao_debug_can_proceed(ao_debug_halted_pid()));
+  selectHalted();
+  EXPECT_EQ(std::string::npos, label(0).find(" native "));
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+TEST_F(LiveDebug, InterruptProceedResumesWithoutRearm) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  // Print it: Do it leaves out empty; proceed must return the printString of the value.
+  ASSERT_EQ(AO_ERR_HALT, printIt("| n | n := 0. [n < 100000] whileTrue: [n := n + 1]. n"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  g_interruptPumps = 100;  // do not re-request
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_));
+  EXPECT_STREQ("100000", out_);
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// SPEC §3.13 止める: after Proceed from an interrupt, a new request halts the process again.
+TEST_F(LiveDebug, InterruptAgainAfterProceedHaltsAgain) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, printIt("| n | n := 0. [n < 300000] whileTrue: [n := n + 1]. n"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  g_interruptPumps = 0;  // the next pump requests again
+  ASSERT_EQ(AO_ERR_HALT, ao_debug_proceed(pid, out_, sizeof out_, &err_));
+  EXPECT_STREQ("interrupted", err_.message);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  g_interruptPumps = 100;  // do not re-request
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("300000", out_);
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// SPEC §3.13: a halt on a taken backward jump shows the context pc of the jump's target (the
+// instruction Proceed runs next), not the jump that already ran.
+TEST_F(LiveDebug, InterruptOnBackwardJumpShowsTargetPc) {
+  static bool armed = false;
+  armed = false;
+  // Armed from the transcript, which runs inside the loop body, so the next checkpoint is the
+  // backward jump (not an activation).
+  ao_set_transcript_hook(
+      [](const char*, int, int, void*) {
+        if (!armed) {
+          armed = true;
+          ao::setInterruptRequestedForTest();
+        }
+      },
+      nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[Transcript show: 'x'. true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+  selectHalted();
+  EXPECT_EQ(0, ao_debug_frame_pc(0));
+  ao_set_transcript_hook(nullptr, nullptr);
+}
+
+TEST_F(LiveDebug, InterruptIgnoredWhenNotLive) {
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  g_interruptPumps = 0;
+  // Print it so out_ holds the value (Do it leaves the buffer empty on success).
+  ASSERT_EQ(AO_OK, printIt("1 to: 10000 do: [:i | i]. 7"));
+  EXPECT_STREQ("7", out_);
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// Design: halt does not need the pump — only flag check. Entry clears ABI requests, so tests
+// arm the flag via Session test helper after the eval has started (called from the first pump,
+// then the hook is cleared so later safepoints have pump == nullptr).
+TEST_F(LiveDebug, InterruptWithoutPumpUsesPendingFlag) {
+  static bool armed = false;
+  ao_set_runloop_pump_hook(
+      [](void*) {
+        if (!armed) {
+          armed = true;
+          ao::setInterruptRequestedForTest();  // Session.hpp, tests may call; not a public ABI
+          ao_set_runloop_pump_hook(nullptr, nullptr);
+        }
+      },
+      nullptr);
+  armed = false;
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+}
+
+// SPEC §3.10 評価の中断: ao_request_interrupt answers AO_OK from inside a running evaluation.
+TEST_F(LiveDebug, RequestInterruptSucceedsWhileBusy) {
+  static int rc = AO_ERR;
+  rc = AO_ERR;
+  ao_set_runloop_pump_hook(
+      [](void*) {
+        rc = ao_request_interrupt();
+        ao_set_runloop_pump_hook(nullptr, nullptr);
+      },
+      nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_EQ(AO_OK, rc);
+  EXPECT_STREQ("interrupted", err_.message);
+}
+
+// SPEC §3.13 止める: a block's activation is a checkpoint, so a loop with no backward jump of its
+// own (timesRepeat: is a native loop calling the block) still stops.
+TEST_F(LiveDebug, InterruptStopsAtBlockActivationWithoutBackwardJump) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, printIt("| x | x := 0. 100000 timesRepeat: [x := x + 1]. x"))
+      << err_.message;
+  EXPECT_STREQ("interrupted", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  EXPECT_EQ(1, ao_debug_can_proceed(pid));
+  g_interruptPumps = 100;  // do not re-request
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("100000", out_);
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// SPEC §3.13 止める: a backward conditional jump that falls through (the loop ends) is not a
+// checkpoint. The request raised in the last round is dropped when the evaluation ends.
+TEST_F(LiveDebug, InterruptIgnoredOnUntakenBackwardJump) {
+  static int shows = 0;
+  shows = 0;
+  ao_set_transcript_hook(
+      [](const char* text, int len, int, void*) {
+        if (std::string(text, static_cast<std::size_t>(len)) == "2") {
+          ++shows;
+          ao::setInterruptRequestedForTest();
+        }
+      },
+      nullptr);
+  ASSERT_EQ(AO_OK, printIt("| n | n := 0. [Transcript show: n printString. n := n + 1. n < 3] "
+                           "whileTrue. n"))
+      << err_.message;
+  EXPECT_EQ(1, shows);
+  EXPECT_STREQ("3", out_);
+  EXPECT_FALSE(ao::interruptRequested());
+  ao_set_transcript_hook(nullptr, nullptr);
+}
+
+// SPEC §3.10 評価の中断: Proceed and Step do not carry a request raised while the process was
+// halted for another reason.
+TEST_F(LiveDebug, ProceedClearsStaleInterruptRequest) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("self halt. 1 to: 10000 do: [:i | i]. 7"));
+  EXPECT_STREQ("halt", err_.message);
+  EXPECT_EQ(AO_OK, ao_request_interrupt());
+  ASSERT_EQ(AO_OK, ao_debug_proceed(ao_debug_halted_pid(), out_, sizeof out_, &err_))
+      << err_.message;
+  EXPECT_STREQ("7", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+}
+
+TEST_F(LiveDebug, SaveImageRefusedWhileInterruptedHalt) {
+  // Signature is ao_image_save(const char* path) only — see LiveDebug.SaveWithHaltedProcessIsRefused.
+  const std::string path =
+      (std::filesystem::temp_directory_path() / "ao-p13-interrupt-save.aoimage").string();
+  std::remove(path.c_str());
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_EQ(AO_ERR, ao_image_save(path.c_str()));
+  EXPECT_FALSE(std::filesystem::exists(path));
+  (void)ao_debug_abort(ao_debug_halted_pid());
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// Like NinthHaltAborts: eight halted processes, then interrupt aborts with "interrupted".
+TEST_F(LiveDebug, NinthInterruptAborts) {
+  for (int k = 0; k < 8; ++k) {
+    ASSERT_EQ(AO_ERR_HALT, doIt("self halt")) << k;
+  }
+  EXPECT_EQ(8, ao_debug_halted_count());
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("[true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+  EXPECT_EQ(8, ao_debug_halted_count());
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// Forked process must not consume the flag / become a live halt.
+// Use a bounded loop (never [true] whileTrue): drain would hang on an unyielding infinite fork.
+TEST_F(LiveDebug, InterruptDoesNotHaltForkedProcess) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  // Parent has no backward jump; the fork's bounded to:do: hits interpreter safepoints during
+  // drain. Interrupt must not halt that non-eval process (halted_count stays 0; eval answers 7).
+  // Print it: Do it leaves out_ empty on success (same as InterruptIgnoredWhenNotLive).
+  ASSERT_EQ(AO_OK, printIt("[1 to: 100000 do: [:i | i]] fork. Processor yield. 7"))
+      << err_.message;
+  EXPECT_STREQ("7", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  ao_set_runloop_pump_hook(nullptr, nullptr);
 }
 
 // SPEC §3.3: a halt's reason writes a NUL byte as \0, as an abort's does.

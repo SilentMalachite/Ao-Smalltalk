@@ -79,6 +79,15 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       debugIt: {
         sendToKeyWorkspace(self.launch?.workspace, keyWindow: NSApplication.shared.keyWindow) { $0.debugIt() }
       },
+      interrupt: {
+        _ = ao_request_interrupt()
+      },
+      canInterrupt: {
+        EvaluationActivity.isActive
+      },
+      canEvaluate: {
+        !EvaluationActivity.isActive
+      },
       accept: {
         sendToKeyBrowser(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.accept() }
       },
