@@ -1187,6 +1187,67 @@ TEST_F(LiveDebug, RequestInterruptOkWithSession) {
   EXPECT_EQ(AO_OK, ao_request_interrupt());
 }
 
+namespace {
+int g_interruptPumps = 0;
+void interruptOncePump(void*) {
+  if (g_interruptPumps++ == 0) {
+    EXPECT_EQ(AO_OK, ao_request_interrupt());
+  }
+}
+}  // namespace
+
+TEST_F(LiveDebug, InterruptHaltsTightLoopAtBytecodeBoundary) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+  EXPECT_EQ(1, ao_debug_can_proceed(ao_debug_halted_pid()));
+  selectHalted();
+  EXPECT_EQ(std::string::npos, label(0).find(" native "));
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+TEST_F(LiveDebug, InterruptProceedResumesWithoutRearm) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  // Print it: Do it leaves out empty; proceed must return the printString of the value.
+  ASSERT_EQ(AO_ERR_HALT, printIt("| n | n := 0. [n < 100000] whileTrue: [n := n + 1]. n"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  g_interruptPumps = 100;  // do not re-request
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_));
+  EXPECT_STREQ("100000", out_);
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+TEST_F(LiveDebug, InterruptIgnoredWhenNotLive) {
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  g_interruptPumps = 0;
+  // Print it so out_ holds the value (Do it leaves the buffer empty on success).
+  ASSERT_EQ(AO_OK, printIt("1 to: 10000 do: [:i | i]. 7"));
+  EXPECT_STREQ("7", out_);
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// Design: halt does not need the pump — only flag check. Entry clears ABI requests, so tests
+// arm the flag via Session test helper after the eval has started (called from the first pump,
+// then the hook is cleared so later safepoints have pump == nullptr).
+TEST_F(LiveDebug, InterruptWithoutPumpUsesPendingFlag) {
+  static bool armed = false;
+  ao_set_runloop_pump_hook(
+      [](void*) {
+        if (!armed) {
+          armed = true;
+          ao::setInterruptRequestedForTest();  // Session.hpp, tests may call; not a public ABI
+          ao_set_runloop_pump_hook(nullptr, nullptr);
+        }
+      },
+      nullptr);
+  armed = false;
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+}
+
 TEST_F(LiveDebug, HaltReasonEscapesNul) {
   ASSERT_EQ(AO_ERR_HALT, doIt("nil error: ((String new: 3) at: 1 put: $a; at: 3 put: $b; "
                               "yourself)"));

@@ -18,6 +18,7 @@
 #include "ao_abi.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cstdint>
 #include <cstring>
@@ -388,10 +389,24 @@ void clearInterruptRequest() { g_interruptRequested = false; }
 
 void requestInterrupt() { g_interruptRequested = true; }
 
-void pumpRunLoopIfDue() {
+void setInterruptRequestedForTest() { g_interruptRequested = true; }
+
+int debugMode() { return g_debugMode; }
+
+void maybePumpRunLoop() {
   if (g_runLoopPumpFn == nullptr) {
     return;
   }
+  static std::uint32_t count = 0;
+  static auto last = std::chrono::steady_clock::now();
+  ++count;
+  const auto now = std::chrono::steady_clock::now();
+  constexpr std::uint32_t kEvery = 1024;
+  if (count < kEvery && now - last < std::chrono::milliseconds(16)) {
+    return;
+  }
+  count = 0;
+  last = now;
   g_runLoopPumpFn(g_runLoopPumpUser);
 }
 

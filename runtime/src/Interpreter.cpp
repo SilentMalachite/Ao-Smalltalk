@@ -9,6 +9,7 @@
 #include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
 #include "InterpFrame.hpp"
+#include "Session.hpp"
 
 #include <pthread.h>
 
@@ -250,6 +251,7 @@ bool jumpTo(CallContext& ctx, Gc& gc, Frame& frame, std::int16_t rel) {
   frame.pc = static_cast<std::uint32_t>(target);
   if (rel < 0) {
     gc.safepoint();
+    ao::maybePumpRunLoop();
   }
   return true;
 }
@@ -393,6 +395,34 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
     return false;
   }
   return kAssocValue < ctx.heap.size(*assoc);
+}
+
+// SPEC §3.13 評価の中断: after a backward jump safepoint, halt the evaluating process when
+// the session interrupt flag is set (reason "interrupted"). Same canHalt / 8-cap rules as step.
+[[gnu::noinline]] bool checkInterrupt(CallContext& ctx) {
+  if (!ao::interruptRequested()) {
+    return true;
+  }
+  if (ao::debugMode() != AO_DEBUG_LIVE || ctx.scheduler == nullptr) {
+    return true;  // do not consume
+  }
+  if (!ctx.scheduler->runningEval()) {
+    return true;  // do not consume — forked / drain processes leave the flag
+  }
+  if (ctx.aborting || ctx.abandoning || ctx.abortSetAside > 0 || ctx.haltSuppressed > 0) {
+    return true;  // do not consume
+  }
+  if (!ctx.scheduler->canHalt(ctx)) {
+    // Only the 8-halt cap aborts (same idea as step). Other canHalt failures already filtered.
+    if (ctx.scheduler->haltedCount() >= Scheduler::kMaxHalted) {
+      ao::clearInterruptRequest();
+      abortEvaluation(ctx, "interrupted");
+      return false;
+    }
+    return true;
+  }
+  ao::clearInterruptRequest();
+  return ctx.scheduler->halt(ctx, "interrupted", true);
 }
 
 // SPEC §3.13 step: whether the stepping process has come where it stops, before the instruction at
@@ -702,7 +732,11 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           }
           take = (op == compiler::Op::JumpTrue) == truth;
         }
-        if (take && !jumpTo(ctx, gc, *frame, rel16(argb[0], argb[1]))) {
+        const std::int16_t rel = rel16(argb[0], argb[1]);
+        if (take && !jumpTo(ctx, gc, *frame, rel)) {
+          return Oop{};
+        }
+        if (rel < 0 && !checkInterrupt(ctx)) {
           return Oop{};
         }
         break;

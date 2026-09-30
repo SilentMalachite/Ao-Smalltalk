@@ -150,8 +150,12 @@ void setRunLoopPumpHook(AoRunLoopPumpFn fn, void* user);
 bool interruptRequested();
 void clearInterruptRequest();
 void requestInterrupt();
-// SPEC §3.10 評価の中断: call the pump hook when due (throttling comes with safepoint halt).
-void pumpRunLoopIfDue();
+// Test helper: arm the flag without going through ao_request_interrupt (entry clears ABI requests).
+void setInterruptRequestedForTest();
+// SPEC §3.10 ao_debug_mode: current live/postmortem mode (Interpreter must not read g_debugMode).
+int debugMode();
+// SPEC §3.10 評価の中断: call the pump hook when due (throttled at interpreter safepoints).
+void maybePumpRunLoop();
 // The current session's snapshot; null without a session.
 DebugSnapshot* sessionDebugSnapshot();
 // SPEC §3.10 ao_debug_generation: moves by one on every capture and every clear, across sessions
