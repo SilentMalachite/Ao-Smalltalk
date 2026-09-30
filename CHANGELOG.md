@@ -4,6 +4,28 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
+Phase P13: evaluation interrupt in Ao.app (SPEC §3.9, §3.10, §3.13). During a live evaluation, ⌘. or Smalltalk → Interrupt requests a halt with reason `interrupted` at an interpreter safepoint. The live Debugger can Proceed, Abort, or Step as in P11. The stop is a bytecode boundary (same shape as step / Debug it), not `Object>>halt`'s nil-as-send-result.
+
+### Runtime
+
+- C ABI: `ao_request_interrupt` sets a session interrupt flag (ok while busy; needs a session). `ao_set_runloop_pump_hook` registers a host RunLoop pump (same shape as the transcript hook; NULL clears it).
+- At interpreter back-jump safepoints, the runtime may pump the host RunLoop (throttled) and, in live mode, halt the evaluating process the base is waiting on with reason `interrupted` (`AO_ERR_HALT`). The flag is consumed once. Live mode off ignores the flag so CLI and `ao --test` stay unchanged.
+- Forked or drain-only processes are not halted by the flag. Long natives that never reach an interpreter safepoint are not interrupted either.
+
+### Ao.app
+
+- Smalltalk → Interrupt (⌘.). While an evaluation (or Debugger resume) is active, Do it / Print it / Inspect it / Debug it / Accept are disabled and Interrupt is enabled.
+- A CoreFoundation RunLoop pump is registered at launch so ⌘. can be delivered during a synchronous `ao_eval`.
+
+### Known limitations
+
+- A tight loop on the evaluating process the base is waiting for, once it reaches an interpreter safepoint, can be interrupted with ⌘. / Interrupt. Loops on other processes (fork / drain) and long natives that never hit an interpreter safepoint still require a force quit.
+- The live debugger has no Restart, no editing in the Debugger, and does not step into natives.
+- A frame whose method has no source (re-accepted or removed while halted, loaded from an image, or filed in) has no statement starts, so Step over and Step into do not stop at its statements: they stop only in a deeper frame (Step into) or back in the sender (SPEC §3.13).
+- No JIT, FFI, networking, or catching of Smalltalk exception objects (SPEC §1.4, §5).
+- The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
+- The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
+
 ## [1.1.0] - 2026-09-27
 
 Phases P10–P12 of SPEC §2.3, the first phases after v1. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.0.0 load in 1.1.0.

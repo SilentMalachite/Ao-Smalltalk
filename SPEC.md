@@ -1882,13 +1882,13 @@ P12（§3.9「削除」）は次をすべて満たす。上の項目は変えな
 
 P13（§3.9、§3.10、§3.13）は次をすべて満たす。上の項目は変えない。
 
-- [ ] Workspace の `[true] whileTrue` を ⌘. でライブ Debugger に止められる（理由 `interrupted`）
-- [ ] Interrupt メニューでも同じ
-- [ ] Proceed は止めた命令から続き、再要求なしでは再停止せず、再 ⌘. でまた止まれる
-- [ ] Abort で評価が終わり、Workspace が使える
-- [ ] ライブモード off（CLI 既定と `ao --test`）ではフラグがあっても止まらず、振る舞いが変わらない
-- [ ] Kernel 走査緑、`docs/bench.md` の比が悪化しない
-- [ ] `PHASE` は `P13`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
+- [x] Workspace の `[true] whileTrue` を ⌘. でライブ Debugger に止められる（理由 `interrupted`）
+- [x] Interrupt メニューでも同じ
+- [x] Proceed は止めた命令から続き、再要求なしでは再停止せず、再 ⌘. でまた止まれる
+- [x] Abort で評価が終わり、Workspace が使える
+- [x] ライブモード off（CLI 既定と `ao --test`）ではフラグがあっても止まらず、振る舞いが変わらない
+- [x] Kernel 走査緑、`docs/bench.md` の比が悪化しない
+- [x] `PHASE` は `P13`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
 
 ---
 

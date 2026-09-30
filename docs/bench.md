@@ -71,3 +71,7 @@ ms (ns per iteration):
 | Release | P11-05 | 259 | 1142 | 2.27 |
 
 - The inlined loop is unchanged within the noise (Release runs of `7f6d1ed` spread 256–264 ms).
+
+## P13 interrupt safepoint
+
+- Not remeasured in the P13 completion session (2026-09-30). The interrupt check sits on the existing interpreter back-jump safepoint path (same family as P11's per-instruction step branch, which showed no measurable change above). If a later session suspects hot-loop regression, re-run `KernelBench.InlinedToDoMillion` / `TenMillionToDo` as in the P11 section and record medians here.
