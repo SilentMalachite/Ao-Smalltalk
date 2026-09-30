@@ -14,6 +14,7 @@ final class ToolWindowTests: XCTestCase {
     }
     ao_set_transcript_hook(nil, nil)
     ao_set_inspect_hook(nil, nil)
+    ao_set_runloop_pump_hook(nil, nil)
     ao_runtime_shutdown()
     super.tearDown()
   }
@@ -171,7 +172,7 @@ final class ToolWindowTests: XCTestCase {
   func testMainMenuListsToolsAndSmalltalkKeys() {
     let menu = MainMenu.build(actions: MainMenu.Actions())
     let titles = menuTitles(in: menu)
-    for title in ["Transcript", "Workspace", "Browser", "Do it", "Print it", "Inspect it", "Accept"] {
+    for title in ["Transcript", "Workspace", "Browser", "Do it", "Print it", "Inspect it", "Interrupt", "Accept"] {
       XCTAssertTrue(titles.contains(title), title)
     }
     let printIt = menuItem(titled: "Print it", in: menu)
@@ -184,6 +185,10 @@ final class ToolWindowTests: XCTestCase {
     let debugIt = menuItem(titled: "Debug it", in: menu)
     XCTAssertEqual(debugIt?.keyEquivalent, "d")
     XCTAssertEqual(debugIt?.keyEquivalentModifierMask, [.command, .shift])
+    // SPEC §3.9 評価の中断: Interrupt is ⌘.
+    let interrupt = menuItem(titled: "Interrupt", in: menu)
+    XCTAssertEqual(interrupt?.keyEquivalent, ".")
+    XCTAssertEqual(interrupt?.keyEquivalentModifierMask, [.command])
     for item in menuItems(in: menu) where item.keyEquivalent == "p" {
       XCTAssertNotEqual(item.title, "Print it")
     }
@@ -193,6 +198,30 @@ final class ToolWindowTests: XCTestCase {
       menu.items.map(\.title),
       ["Ao", "File", "Edit", "Smalltalk", "Tools", "Window", "Help"]
     )
+  }
+
+  // SPEC §3.9 評価の中断: Interrupt sits after Debug it with ⌘.
+  func testInterruptMenuItemAndCommandPeriod() {
+    let menu = MainMenu.build(actions: MainMenu.Actions())
+    let smalltalk = menu.item(withTitle: "Smalltalk")?.submenu
+    let titles = smalltalk?.items.map(\.title) ?? []
+    XCTAssertEqual(
+      titles.firstIndex(of: "Interrupt").flatMap { i in titles[i - 1] },
+      "Debug it"
+    )
+    let interrupt = smalltalk?.item(withTitle: "Interrupt")
+    XCTAssertEqual(interrupt?.keyEquivalent, ".")
+    XCTAssertEqual(interrupt?.keyEquivalentModifierMask, [.command])
+  }
+
+  // SPEC §3.9 評価の中断: RunLoopPump installs and clears the ABI hook.
+  func testRunLoopPumpHookCanBeSetAndCleared() {
+    RunLoopPump.install()
+    RunLoopPump.remove()
+    // LaunchSet.make also installs; deinit clears via remove.
+    var launch: LaunchSet? = LaunchSet.make()
+    XCTAssertNotNil(launch)
+    launch = nil
   }
 
   // The launch path's own menu: Tools → Browser opens the System Browser. tearDown drops the

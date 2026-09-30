@@ -21,6 +21,7 @@ final class DebuggerWindowTests: XCTestCase {
     }
     ao_set_transcript_hook(nil, nil)
     ao_set_inspect_hook(nil, nil)
+    ao_set_runloop_pump_hook(nil, nil)
     ao_set_debug_capture(0)
     ao_set_debug_mode(Int32(AO_DEBUG_POSTMORTEM))
     ao_runtime_shutdown()
@@ -469,6 +470,40 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertFalse(debugger.window.isVisible)
   }
 
+  // SPEC §3.9 評価の中断: a tight loop stops with reason interrupted and opens the live Debugger.
+  func testInterruptDuringEvalOpensLiveDebuggerWithInterruptedReason() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    gInterruptPumps = 0
+    ao_set_runloop_pump_hook(interruptOncePump, nil)
+    defer { ao_set_runloop_pump_hook(nil, nil) }
+    let workspace = workspace("[true] whileTrue")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertEqual(workspace.errorText, "halted: interrupted")
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("interrupt opened no Debugger")
+      return
+    }
+    XCTAssertTrue(debugger.isLive)
+    XCTAssertEqual(debugger.title, "Debugger: interrupted")
+    XCTAssertTrue(debugger.reason.contains("interrupted"))
+    button("Abort", in: debugger)?.performClick(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9 評価の中断: Interrupt with no evaluation does not leave a halt.
+  func testInterruptWhenIdleIsHarmless() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    XCTAssertEqual(ao_request_interrupt(), Int32(AO_OK))
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+    let workspace = workspace("1 + 1")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertTrue(workspace.debuggers.isEmpty)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
   // The text changed while halted: the Print it goes to a character boundary, not inside a pair.
   func testProceedAfterEditInsertsAtCharacterBoundary() {
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
@@ -607,6 +642,17 @@ final class DebuggerWindowTests: XCTestCase {
     let workspace = WorkspaceWindow()
     workspace.replaceText(text)
     return workspace
+  }
+}
+
+// C pump like runtime/tests/debug_abi_test.cpp interruptOncePump — no Swift closure as fn ptr.
+private nonisolated(unsafe) var gInterruptPumps = 0
+
+private func interruptOncePump(_ user: UnsafeMutableRawPointer?) {
+  _ = user
+  if gInterruptPumps == 0 {
+    gInterruptPumps = 1
+    _ = ao_request_interrupt()
   }
 }
 

@@ -419,11 +419,14 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     var err = AoSpan()
     var status = Int32(AO_ERR)
     around {
-      status = out.withUnsafeMutableBufferPointer { outBuf -> Int32 in
-        guard let outPtr = outBuf.baseAddress else {
-          return Int32(AO_ERR)
+      // SPEC §3.9 評価の中断: Proceed / Step keep Interrupt enabled for ⌘. during resume.
+      status = EvaluationActivity.whileActive {
+        out.withUnsafeMutableBufferPointer { outBuf -> Int32 in
+          guard let outPtr = outBuf.baseAddress else {
+            return Int32(AO_ERR)
+          }
+          return withUnsafeMutablePointer(to: &err) { call(pid, outPtr, Int32(outBuf.count), $0) }
         }
-        return withUnsafeMutablePointer(to: &err) { call(pid, outPtr, Int32(outBuf.count), $0) }
       }
     }
     if status == Int32(AO_ERR_HALT) {

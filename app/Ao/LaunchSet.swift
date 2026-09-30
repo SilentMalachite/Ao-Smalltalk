@@ -23,11 +23,14 @@ final class LaunchSet {
     let transcript = TranscriptWindow()
     let workspace = WorkspaceWindow()
     transcript.installHook()
+    // SPEC §3.9 評価の中断: pump so ⌘. reaches the menu during a synchronous ao_eval.
+    RunLoopPump.install()
     return LaunchSet(transcript: transcript, workspace: workspace)
   }
 
   deinit {
     ao_set_transcript_hook(nil, nil)
+    RunLoopPump.remove()
     ao_set_debug_capture(0)
     ao_set_debug_mode(Int32(AO_DEBUG_POSTMORTEM))
   }

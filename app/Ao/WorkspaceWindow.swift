@@ -519,13 +519,16 @@ final class WorkspaceWindow {
   ) -> (status: Int32, output: String, message: String, span: AoSpan) {
     var out = [CChar](repeating: 0, count: aoEvalOutCapacity)
     var err = AoSpan()
-    let status: Int32 = source.withCString { src in
-      out.withUnsafeMutableBufferPointer { outBuf in
-        guard let outPtr = outBuf.baseAddress else {
-          return Int32(AO_ERR)
-        }
-        return withUnsafeMutablePointer(to: &err) { errPtr in
-          ao_eval(src, Int32(source.utf8.count), mode, outPtr, Int32(outBuf.count), errPtr)
+    // SPEC §3.9 評価の中断: mark the host busy so Interrupt is enabled and Do it is greyed.
+    let status: Int32 = EvaluationActivity.whileActive {
+      source.withCString { src in
+        out.withUnsafeMutableBufferPointer { outBuf in
+          guard let outPtr = outBuf.baseAddress else {
+            return Int32(AO_ERR)
+          }
+          return withUnsafeMutablePointer(to: &err) { errPtr in
+            ao_eval(src, Int32(source.utf8.count), mode, outPtr, Int32(outBuf.count), errPtr)
+          }
         }
       }
     }
