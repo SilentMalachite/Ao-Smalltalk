@@ -9,13 +9,14 @@ Phase P13: evaluation interrupt in Ao.app (SPEC §3.9, §3.10, §3.13). During a
 ### Runtime
 
 - C ABI: `ao_request_interrupt` sets a session interrupt flag (ok while busy; needs a session). `ao_set_runloop_pump_hook` registers a host RunLoop pump (same shape as the transcript hook; NULL clears it).
-- At interpreter back-jump safepoints, the runtime may pump the host RunLoop (throttled) and, in live mode, halt the evaluating process the base is waiting on with reason `interrupted` (`AO_ERR_HALT`). The flag is consumed once. Live mode off ignores the flag so CLI and `ao --test` stay unchanged.
+- At interpreter safepoints (a taken backward jump, and a method or block activation before its first instruction), the runtime may pump the host RunLoop (throttled) and, in live mode, halt the evaluating process the base is waiting on with reason `interrupted` (`AO_ERR_HALT`). The flag is consumed once. Live mode off ignores the flag so CLI and `ao --test` stay unchanged.
 - Forked or drain-only processes are not halted by the flag. Long natives that never reach an interpreter safepoint are not interrupted either.
 
 ### Ao.app
 
 - Smalltalk → Interrupt (⌘.). While an evaluation (or Debugger resume) is active, Do it / Print it / Inspect it / Debug it / Accept are disabled and Interrupt is enabled.
-- A CoreFoundation RunLoop pump is registered at launch so ⌘. can be delivered during a synchronous `ao_eval`.
+- A RunLoop pump is registered at launch. It takes queued window-server events and hands them to `NSApplication`, so ⌘. and the Interrupt menu item are delivered during a synchronous `ao_eval`. Nested Proceed / Step keep the evaluation state until the outermost evaluation ends.
+- The interrupt request is cleared when any evaluation ends (including a live halt for another reason) and on entry to Proceed / Step, so a stale request never stops the next Step with `interrupted`.
 
 ### Known limitations
 

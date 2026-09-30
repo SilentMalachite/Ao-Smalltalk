@@ -491,6 +491,38 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertFalse(debugger.window.isVisible)
   }
 
+  // SPEC §3.9 評価の中断: a real ⌘. key event queued during an evaluation reaches the Interrupt
+  // menu item through the pump (not a pump that calls ao_request_interrupt itself).
+  func testCommandPeriodKeyEventDuringEvalInterrupts() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    NSApplication.shared.mainMenu = MainMenu.build(
+      actions: MainMenu.Actions(
+        interrupt: { _ = ao_request_interrupt() },
+        canInterrupt: { EvaluationActivity.isActive }))
+    RunLoopPump.install()
+    defer { RunLoopPump.remove() }
+    guard
+      let key = NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: 0,
+        context: nil, characters: ".", charactersIgnoringModifiers: ".", isARepeat: false,
+        keyCode: 47)
+    else {
+      XCTFail("no key event")
+      return
+    }
+    NSApplication.shared.postEvent(key, atStart: false)
+    let workspace = workspace("| n | n := 0. [n < 3000000] whileTrue: [n := n + 1]. n")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertEqual(workspace.errorText, "halted: interrupted")
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("⌘. opened no Debugger")
+      return
+    }
+    XCTAssertEqual(debugger.title, "Debugger: interrupted")
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
   // SPEC §3.9 評価の中断: Interrupt with no evaluation does not leave a halt.
   func testInterruptWhenIdleIsHarmless() {
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))

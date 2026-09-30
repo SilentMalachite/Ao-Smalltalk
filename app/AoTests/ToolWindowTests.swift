@@ -214,14 +214,67 @@ final class ToolWindowTests: XCTestCase {
     XCTAssertEqual(interrupt?.keyEquivalentModifierMask, [.command])
   }
 
-  // SPEC §3.9 評価の中断: RunLoopPump installs and clears the ABI hook.
+  // SPEC §3.9 評価の中断: once installed, the pump hands queued events to NSApplication during an
+  // evaluation; once removed, nothing takes them until the evaluation returns.
   func testRunLoopPumpHookCanBeSetAndCleared() {
+    ao_runtime_shutdown()
+    XCTAssertEqual(ao_runtime_boot(), Int32(AO_OK))
+    defer { ao_runtime_shutdown() }
+    let loop = "| n | n := 0. [n < 20000] whileTrue: [n := n + 1]. n"
     RunLoopPump.install()
+    postMarkerEvent()
+    XCTAssertEqual(doIt(loop), Int32(AO_OK))
+    XCTAssertFalse(takeMarkerEvent(), "the installed pump took no event")
     RunLoopPump.remove()
-    // LaunchSet.make also installs; deinit clears via remove.
-    var launch: LaunchSet? = LaunchSet.make()
-    XCTAssertNotNil(launch)
-    launch = nil
+    postMarkerEvent()
+    XCTAssertEqual(doIt(loop), Int32(AO_OK))
+    XCTAssertTrue(takeMarkerEvent(), "the removed pump still took an event")
+  }
+
+  // SPEC §3.9 評価の中断: a nested Proceed / Step inside an evaluation leaves it active until the
+  // outermost one ends (Interrupt stays enabled, the eval items stay disabled).
+  func testNestedEvaluationActivityStaysActiveUntilOutermostEnds() {
+    XCTAssertFalse(EvaluationActivity.isActive)
+    EvaluationActivity.whileActive {
+      EvaluationActivity.whileActive {
+        XCTAssertTrue(EvaluationActivity.isActive)
+      }
+      XCTAssertTrue(EvaluationActivity.isActive)
+    }
+    XCTAssertFalse(EvaluationActivity.isActive)
+  }
+
+  private static let markerData1 = 0xA0_13
+
+  private func postMarkerEvent() {
+    guard
+      let event = NSEvent.otherEvent(
+        with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+        windowNumber: 0, context: nil, subtype: 0, data1: Self.markerData1, data2: 0)
+    else {
+      XCTFail("no application-defined event")
+      return
+    }
+    NSApplication.shared.postEvent(event, atStart: false)
+  }
+
+  // Whether the marker was still queued (it is taken off the queue either way).
+  private func takeMarkerEvent() -> Bool {
+    var found = false
+    while let event = NSApplication.shared.nextEvent(
+      matching: .applicationDefined, until: .distantPast, inMode: .default, dequeue: true)
+    {
+      found = found || event.data1 == Self.markerData1
+    }
+    return found
+  }
+
+  private func doIt(_ source: String) -> Int32 {
+    var out = [CChar](repeating: 0, count: 64)
+    var err = AoSpan()
+    return source.withCString { src in
+      ao_eval(src, Int32(source.utf8.count), Int32(AO_EVAL_DOIT), &out, Int32(out.count), &err)
+    }
   }
 
   // The launch path's own menu: Tools → Browser opens the System Browser. tearDown drops the

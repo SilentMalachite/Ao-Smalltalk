@@ -218,9 +218,11 @@ final class TranscriptWindow {
     append(chunk)
   }
 
-  // SPEC §3.9: one scroll to the end after the eval, not one per chunk. The hook runs inside
-  // ao_eval on the main thread, so the queued block runs after the eval returns. The window may
-  // be gone by then (a test's run loop can run it later); weak self makes that harmless.
+  // SPEC §3.9: one scroll to the end per burst, not one per chunk. The hook runs inside ao_eval on
+  // the main thread, so the queued block runs when the main queue next runs: after the eval
+  // returns, or earlier when the RunLoop pump (RunLoopPump) runs it mid-eval; then a later chunk
+  // schedules one more. The window may be gone by then (a test's run loop can run it later); weak
+  // self makes that harmless.
   private func scheduleScrollToEnd() {
     if scrollPending {
       return

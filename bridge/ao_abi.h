@@ -94,8 +94,9 @@ typedef void (*AoRunLoopPumpFn)(void* user);
 void ao_set_runloop_pump_hook(AoRunLoopPumpFn fn, void* user);
 
 /* Sets the session interrupt request. AO_ERR with no session; otherwise AO_OK even while busy.
-   Consumed when the live evaluating process stops with reason "interrupted". Cleared on abort,
-   normal eval end, and the next ao_eval entry. Live mode off ignores it (does not stop). */
+   Consumed when the live evaluating process stops with reason "interrupted". Cleared at the end
+   of every evaluation (abort, normal end, a live halt) and on entry to ao_eval, ao_debug_proceed
+   and ao_debug_step_*. Live mode off ignores it (does not stop). */
 int ao_request_interrupt(void);
 
 /* The four *_count functions answer 0 or more, or -1 on failure: no session, an unknown class ID

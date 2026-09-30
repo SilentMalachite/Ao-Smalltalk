@@ -397,7 +397,8 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
   return kAssocValue < ctx.heap.size(*assoc);
 }
 
-// SPEC §3.13 評価の中断: after a backward jump safepoint, halt the evaluating process when
+// SPEC §3.13 評価の中断: at a checkpoint (a taken backward jump, or an activation before its
+// first instruction), halt the evaluating process when
 // the session interrupt flag is set (reason "interrupted"). Same canHalt / 8-cap rules as step.
 [[gnu::noinline]] bool checkInterrupt(CallContext& ctx) {
   if (!ao::interruptRequested()) {
@@ -551,6 +552,17 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
 
   OperandStack stack(ctx.roots);
   FrameLink linked(ctx, *frame, temps, stack);
+  // SPEC §3.13 止める: an activation is a checkpoint too, before its first instruction (Debug it's
+  // shape), so recursion and blocks that native loops call can be interrupted.
+  if (ao::checkpointWork()) [[unlikely]] {
+    ao::maybePumpRunLoop();
+    if (ao::interruptRequested()) {
+      mirror(ctx, *frame, stack.depth());
+      if (!checkInterrupt(ctx)) {
+        return Oop{};
+      }
+    }
+  }
   for (;;) {
     if (!frame->context.isHeap()) {
       return Oop{};
@@ -733,11 +745,14 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           take = (op == compiler::Op::JumpTrue) == truth;
         }
         const std::int16_t rel = rel16(argb[0], argb[1]);
-        if (take && !jumpTo(ctx, gc, *frame, rel)) {
-          return Oop{};
-        }
-        if (rel < 0 && !checkInterrupt(ctx)) {
-          return Oop{};
+        if (take) {
+          if (!jumpTo(ctx, gc, *frame, rel)) {
+            return Oop{};
+          }
+          // SPEC §3.13 止める: only a backward jump actually taken is a checkpoint.
+          if (rel < 0 && !checkInterrupt(ctx)) {
+            return Oop{};
+          }
         }
         break;
       }

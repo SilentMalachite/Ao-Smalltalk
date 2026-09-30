@@ -156,6 +156,10 @@ void setInterruptRequestedForTest();
 int debugMode();
 // SPEC §3.10 評価の中断: call the pump hook when due (throttled at interpreter safepoints).
 void maybePumpRunLoop();
+// SPEC §3.13 止める: true while a pump hook is set or an interrupt is requested. Activations check
+// it first, so a checkpoint costs one load when there is nothing to do. The setters above keep it.
+extern bool g_checkpointWork;
+inline bool checkpointWork() { return g_checkpointWork; }
 // The current session's snapshot; null without a session.
 DebugSnapshot* sessionDebugSnapshot();
 // SPEC §3.10 ao_debug_generation: moves by one on every capture and every clear, across sessions
