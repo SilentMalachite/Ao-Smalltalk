@@ -749,9 +749,13 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           if (!jumpTo(ctx, gc, *frame, rel)) {
             return Oop{};
           }
-          // SPEC §3.13 止める: only a backward jump actually taken is a checkpoint.
-          if (rel < 0 && !checkInterrupt(ctx)) {
-            return Oop{};
+          // SPEC §3.13 止める: only a backward jump actually taken is a checkpoint. The context
+          // shows the jump's target and the popped stack before a halt (as at the loop top).
+          if (rel < 0 && ao::checkpointWork() && ao::interruptRequested()) [[unlikely]] {
+            mirror(ctx, *frame, stack.depth());
+            if (!checkInterrupt(ctx)) {
+              return Oop{};
+            }
           }
         }
         break;

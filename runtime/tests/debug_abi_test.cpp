@@ -1218,6 +1218,44 @@ TEST_F(LiveDebug, InterruptProceedResumesWithoutRearm) {
   ao_set_runloop_pump_hook(nullptr, nullptr);
 }
 
+// SPEC §3.13 止める: after Proceed from an interrupt, a new request halts the process again.
+TEST_F(LiveDebug, InterruptAgainAfterProceedHaltsAgain) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, printIt("| n | n := 0. [n < 300000] whileTrue: [n := n + 1]. n"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  g_interruptPumps = 0;  // the next pump requests again
+  ASSERT_EQ(AO_ERR_HALT, ao_debug_proceed(pid, out_, sizeof out_, &err_));
+  EXPECT_STREQ("interrupted", err_.message);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  g_interruptPumps = 100;  // do not re-request
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("300000", out_);
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// SPEC §3.13: a halt on a taken backward jump shows the context pc of the jump's target (the
+// instruction Proceed runs next), not the jump that already ran.
+TEST_F(LiveDebug, InterruptOnBackwardJumpShowsTargetPc) {
+  static bool armed = false;
+  armed = false;
+  // Armed from the transcript, which runs inside the loop body, so the next checkpoint is the
+  // backward jump (not an activation).
+  ao_set_transcript_hook(
+      [](const char*, int, int, void*) {
+        if (!armed) {
+          armed = true;
+          ao::setInterruptRequestedForTest();
+        }
+      },
+      nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[Transcript show: 'x'. true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+  selectHalted();
+  EXPECT_EQ(0, ao_debug_frame_pc(0));
+  ao_set_transcript_hook(nullptr, nullptr);
+}
+
 TEST_F(LiveDebug, InterruptIgnoredWhenNotLive) {
   ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
   ao_set_runloop_pump_hook(interruptOncePump, nullptr);

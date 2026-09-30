@@ -125,7 +125,7 @@ private let debugOutCapacity = 65_536
 // and never once what it shows is gone (a post-mortem window's generation moved; a live window's
 // process no longer halted).
 @MainActor
-final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
   // The open Debuggers, held weakly, so AoApp.resizeText reaches every one of them.
   private static let live = NSHashTable<DebuggerWindow>.weakObjects()
 
@@ -270,6 +270,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       window.contentView = split
     }
 
+    window.delegate = self
     // queue nil: the center calls this synchronously, inside `close` on the main thread.
     closeObserver = NotificationCenter.default.addObserver(
       forName: NSWindow.willCloseNotification,
@@ -703,6 +704,12 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       NotificationCenter.default.removeObserver(keyObserver)
     }
     keyObserver = nil
+  }
+
+  // SPEC §3.9 評価の中断: during an evaluation (the pump dispatched the close) the abort would be
+  // refused as busy, so the live window stays, as its Abort button would.
+  func windowShouldClose(_ sender: NSWindow) -> Bool {
+    !(isLive && !finished && EvaluationActivity.isActive)
   }
 }
 

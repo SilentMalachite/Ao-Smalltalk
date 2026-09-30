@@ -402,7 +402,7 @@ final class WorkspaceWindow {
     // SPEC §3.9: AO_OK with a snapshot is a process that failed in the drain (§3.4).
     errorField.stringValue = captured ? "process failed: " + DebuggerWindow.snapshotReason() : ""
     if mode == Int32(AO_EVAL_PRINTIT) {
-      insert(result.output, after: range)
+      insert(result.output, after: insertionPoint(after: range))
       return
     }
     if mode == Int32(AO_EVAL_INSPECTIT) {
@@ -460,8 +460,12 @@ final class WorkspaceWindow {
       status = Int32(AO_OK)
       output = whole
     }
-    // The text may have changed meanwhile: the end of the range, kept inside the text and out of
-    // a composed character (a surrogate pair, say).
+    show((status, output, outcome.message, AoSpan()), mode: mode, source: nil, range: range)
+  }
+
+  // The text may have changed since `range` was taken (while halted, or an edit the pump
+  // dispatched): its end, kept inside the text and out of a composed character (a surrogate pair).
+  private func insertionPoint(after range: NSRange) -> NSRange {
     let text = textView.string as NSString
     var end = min(NSMaxRange(range), text.length)
     if end > 0, end < text.length {
@@ -470,12 +474,7 @@ final class WorkspaceWindow {
         end = NSMaxRange(composed)
       }
     }
-    show(
-      (status, output, outcome.message, AoSpan()),
-      mode: mode,
-      source: nil,
-      range: NSRange(location: end, length: 0)
-    )
+    return NSRange(location: end, length: 0)
   }
 
   // Hook and out share one window when the lines match. A later Inspect it orders that window front.

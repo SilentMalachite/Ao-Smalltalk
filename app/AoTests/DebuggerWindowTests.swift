@@ -434,6 +434,47 @@ final class DebuggerWindowTests: XCTestCase {
     box.release()
   }
 
+  // SPEC §3.9 評価の中断: a live Debugger cannot abort while another evaluation runs (busy), so
+  // its window does not close then; the halted process keeps its Debugger.
+  func testClosingLiveDebuggerDuringEvaluationKeepsIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let halted = workspace("self halt")
+    halted.selectAll()
+    halted.doIt()
+    guard let debugger = halted.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    // The pump would dispatch a click on the close button; the transcript runs inside ao_eval too.
+    let box = Unmanaged.passRetained(TranscriptBox { _ in debugger.window.performClose(nil) })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    let other = workspace("Transcript show: 'x'")
+    other.selectAll()
+    other.doIt()
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(halted.debuggers.count, 1)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    debugger.window.performClose(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: text shortened during a Print it (the pump dispatched an edit): the result goes at
+  // the end, as after a Proceed.
+  func testPrintItAfterEditDuringEvaluationInsertsAtEnd() {
+    let workspace = workspace("Transcript show: 'x'. 42")
+    let box = Unmanaged.passRetained(TranscriptBox { _ in workspace.replaceText("ab") })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    workspace.selectAll()
+    workspace.printIt()
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertEqual(workspace.text, "ab42")
+  }
+
   // With the Debugger open, the Workspace evaluates on; the Debugger still reads its process.
   func testDoItWhileDebuggerOpen() {
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
