@@ -6,7 +6,7 @@ The product spec is [SPEC.md](SPEC.md). The agent process is [CLAUDE.md](CLAUDE.
 
 ## Where the project stands
 
-v1 (phase P9 in SPEC §2.3) was released as 1.0.0. The phases after it, P10–P12 (the post-mortem debugger, the live debugger, and removal in the Browser), are released as 1.1.0. P13 (evaluation interrupt) is done on `main` and goes into the next minor release. The root [`PHASE`](PHASE) file reads `P13`. A change starts in SPEC.md: update the spec first (SPEC §8), then write the tests, then the code. Items in SPEC §1.4 (JIT, FFI, and the rest) stay out unless the spec takes them in.
+v1 (phase P9 in SPEC §2.3) was released as 1.0.0. The phases after it, P10–P12 (the post-mortem debugger, the live debugger, and removal in the Browser), are released as 1.1.0, and P13 (evaluation interrupt) as 1.2.0. The root [`PHASE`](PHASE) file reads `P13`. A change starts in SPEC.md: update the spec first (SPEC §8), then write the tests, then the code. Items in SPEC §1.4 (JIT, FFI, and the rest) stay out unless the spec takes them in.
 
 ## Rules that do not bend
 
@@ -44,7 +44,7 @@ SPEC §2.4 defines the version, the assets, and when a tag may be made. With `V`
 3. Stage the assets in `build/dist`:
 
    ```sh
-   V=1.1.0
+   V=1.2.0
    D=build/dist
    rm -rf "$D" && mkdir -p "$D/Ao-$V-macos-arm64" "$D/ao-cli-$V-macos-arm64"
    ditto build/Ao.app "$D/Ao-$V-macos-arm64/Ao.app"

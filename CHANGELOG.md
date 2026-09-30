@@ -4,7 +4,11 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
-Phase P13: evaluation interrupt in Ao.app (SPEC §3.9, §3.10, §3.13). During a live evaluation, ⌘. or Smalltalk → Interrupt requests a halt with reason `interrupted` at an interpreter safepoint. The live Debugger can Proceed, Abort, or Step as in P11. The stop is a bytecode boundary (same shape as step / Debug it), not `Object>>halt`'s nil-as-send-result.
+## [1.2.0] - 2026-09-30
+
+Phase P13 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.1.0 load in 1.2.0.
+
+Ao.app can now interrupt an evaluation (SPEC §3.9, §3.10, §3.13). During a live evaluation, ⌘. or Smalltalk → Interrupt requests a halt with reason `interrupted` at an interpreter safepoint. The live Debugger can Proceed, Abort, or Step as in P11. The stop is a bytecode boundary (same shape as step / Debug it), not `Object>>halt`'s nil-as-send-result.
 
 ### Runtime
 
@@ -20,6 +24,10 @@ Phase P13: evaluation interrupt in Ao.app (SPEC §3.9, §3.10, §3.13). During a
 - While an evaluation runs, closing a live Debugger (for another halted evaluation) is refused, as its Abort would be; close it again after the evaluation ends.
 - If the Workspace text got shorter during a Print it (an edit the pump delivered), the result goes at the end of the text instead of being dropped.
 
+### Project
+
+- Release assets: `Ao-1.2.0-macos-arm64.zip`, `ao-cli-1.2.0-macos-arm64.tar.gz`, and `SHA256SUMS`.
+
 ### Known limitations
 
 - A tight loop on the evaluating process the base is waiting for, once it reaches an interpreter safepoint, can be interrupted with ⌘. / Interrupt. Loops on other processes (fork / drain) and long natives that never hit an interpreter safepoint still require a force quit.
@@ -28,6 +36,10 @@ Phase P13: evaluation interrupt in Ao.app (SPEC §3.9, §3.10, §3.13). During a
 - No JIT, FFI, networking, or catching of Smalltalk exception objects (SPEC §1.4, §5).
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
+
+### Install
+
+Requires an Apple Silicon Mac with macOS 14 or later. Download `Ao-1.2.0-macos-arm64.zip` (the app) and/or `ao-cli-1.2.0-macos-arm64.tar.gz` (the CLI), then check them with `shasum -a 256 -c SHA256SUMS`. The builds are not notarized: after the first launch attempt, choose **Open Anyway** in System Settings → Privacy & Security, or run `xattr -dr com.apple.quarantine Ao.app`. See the [README](https://github.com/SilentMalachite/Ao-Smalltalk/blob/v1.2.0/README.md) for usage.
 
 ## [1.1.0] - 2026-09-27
 
@@ -133,6 +145,7 @@ The first release. It completes phases P0–P9 of SPEC §2.3, the v1 definition:
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
 
-[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/SilentMalachite/Ao-Smalltalk/releases/tag/v1.0.0
