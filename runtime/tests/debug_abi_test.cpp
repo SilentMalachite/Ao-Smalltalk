@@ -1248,6 +1248,56 @@ TEST_F(LiveDebug, InterruptWithoutPumpUsesPendingFlag) {
   EXPECT_STREQ("interrupted", err_.message);
 }
 
+TEST_F(LiveDebug, InterruptRequestOkWhileBusy) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+TEST_F(LiveDebug, SaveImageRefusedWhileInterruptedHalt) {
+  // Signature is ao_image_save(const char* path) only — see LiveDebug.SaveWithHaltedProcessIsRefused.
+  const std::string path =
+      (std::filesystem::temp_directory_path() / "ao-p13-interrupt-save.aoimage").string();
+  std::remove(path.c_str());
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_EQ(AO_ERR, ao_image_save(path.c_str()));
+  EXPECT_FALSE(std::filesystem::exists(path));
+  (void)ao_debug_abort(ao_debug_halted_pid());
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// Like NinthHaltAborts: eight halted processes, then interrupt aborts with "interrupted".
+TEST_F(LiveDebug, NinthInterruptAborts) {
+  for (int k = 0; k < 8; ++k) {
+    ASSERT_EQ(AO_ERR_HALT, doIt("self halt")) << k;
+  }
+  EXPECT_EQ(8, ao_debug_halted_count());
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("[true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+  EXPECT_EQ(8, ao_debug_halted_count());
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// Forked process must not consume the flag / become a live halt.
+// Use a bounded loop (never [true] whileTrue): drain would hang on an unyielding infinite fork.
+TEST_F(LiveDebug, InterruptDoesNotHaltForkedProcess) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  // Parent has no backward jump; the fork's bounded to:do: hits interpreter safepoints during
+  // drain. Interrupt must not halt that non-eval process (halted_count stays 0; eval answers 7).
+  // Print it: Do it leaves out_ empty on success (same as InterruptIgnoredWhenNotLive).
+  ASSERT_EQ(AO_OK, printIt("[1 to: 100000 do: [:i | i]] fork. Processor yield. 7"))
+      << err_.message;
+  EXPECT_STREQ("7", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
 TEST_F(LiveDebug, HaltReasonEscapesNul) {
   ASSERT_EQ(AO_ERR_HALT, doIt("nil error: ((String new: 3) at: 1 put: $a; at: 3 put: $b; "
                               "yourself)"));
