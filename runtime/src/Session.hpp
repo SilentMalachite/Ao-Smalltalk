@@ -144,6 +144,14 @@ void setSessionDebugCapture(bool on);
 // SPEC §3.10 ライブデバッガの操作: AO_DEBUG_POSTMORTEM or AO_DEBUG_LIVE (other values do nothing).
 // Kept across boot, load and shutdown; read by each ao_eval.
 void setSessionDebugMode(int mode);
+// SPEC §3.10 評価の中断: RunLoop pump hook (survives boot/load/shutdown; NULL clears).
+void setRunLoopPumpHook(AoRunLoopPumpFn fn, void* user);
+// SPEC §3.10 評価の中断: session interrupt request flag (Interpreter reads at safepoints).
+bool interruptRequested();
+void clearInterruptRequest();
+void requestInterrupt();
+// SPEC §3.10 評価の中断: call the pump hook when due (throttling comes with safepoint halt).
+void pumpRunLoopIfDue();
 // The current session's snapshot; null without a session.
 DebugSnapshot* sessionDebugSnapshot();
 // SPEC §3.10 ao_debug_generation: moves by one on every capture and every clear, across sessions

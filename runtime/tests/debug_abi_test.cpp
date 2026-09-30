@@ -28,6 +28,7 @@ class DebugAbi : public ::testing::Test {
     ao_runtime_shutdown();
     ao_set_transcript_hook(nullptr, nullptr);
     ao_set_inspect_hook(nullptr, nullptr);
+    ao_set_runloop_pump_hook(nullptr, nullptr);
     ao_set_debug_capture(0);
     ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
   }
@@ -1175,6 +1176,16 @@ TEST_F(LiveStep, DebugItPastTheHaltLimitAborts) {
 }
 
 // SPEC §3.3: a halt's reason writes a NUL byte as \0, as an abort's does.
+// SPEC §3.10 評価の中断: no session → AO_ERR; session present → AO_OK (halt is Task 3).
+TEST_F(DebugAbi, RequestInterruptNeedsSession) {
+  ao_runtime_shutdown();
+  EXPECT_EQ(AO_ERR, ao_request_interrupt());
+}
+
+TEST_F(LiveDebug, RequestInterruptOkWithSession) {
+  EXPECT_EQ(AO_OK, ao_request_interrupt());
+}
+
 TEST_F(LiveDebug, HaltReasonEscapesNul) {
   ASSERT_EQ(AO_ERR_HALT, doIt("nil error: ((String new: 3) at: 1 put: $a; at: 3 put: $b; "
                               "yourself)"));

@@ -214,6 +214,18 @@ extern "C" void ao_set_inspect_hook(AoInspectFn fn, void* user) {
   g_inspectUser = user;
 }
 
+extern "C" void ao_set_runloop_pump_hook(AoRunLoopPumpFn fn, void* user) {
+  ao::setRunLoopPumpHook(fn, user);
+}
+
+extern "C" int ao_request_interrupt(void) {
+  if (ao::session() == nullptr) {
+    return AO_ERR;
+  }
+  ao::requestInterrupt();
+  return AO_OK;
+}
+
 extern "C" int ao_workspace_reset(void) {
   const AbiEntry entry;
   if (!entry.entered()) {
