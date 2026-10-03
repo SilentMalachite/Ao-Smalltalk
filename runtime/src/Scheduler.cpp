@@ -572,17 +572,6 @@ const CallContext* Scheduler::haltedContext(std::uint64_t pid, const std::string
   return r->ctx;
 }
 
-CallContext* Scheduler::haltedContextMut(std::uint64_t pid, const std::string** reason) {
-  Record* r = pid != 0 ? findId(pid) : nullptr;
-  if (r == nullptr || r->state != State::Halted) {
-    return nullptr;
-  }
-  if (reason != nullptr) {
-    *reason = &r->haltReason;
-  }
-  return r->ctx;
-}
-
 bool Scheduler::canProceed(std::uint64_t pid) const {
   const Record* r = pid != 0 ? findId(pid) : nullptr;
   return r != nullptr && r->state == State::Halted && r->proceedable;
@@ -599,12 +588,13 @@ int Scheduler::evalModeOf(std::uint64_t pid) const {
   return r != nullptr && r->isEval ? r->evalMode : 0;
 }
 
-Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid) {
+Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid, const Frame* restartFrame) {
   assert(current_ == &base() && "proceed runs on the base process");
   Record* r = findId(pid);
   assert(r != nullptr && r->state == State::Halted &&
-         (r->proceedable || r->ctx->restartFrame != nullptr) &&
-         "proceed needs canProceed or a restart");
+         (r->proceedable || restartFrame != nullptr) && "proceed needs canProceed or a restart");
+  // Set only now, so a refused or failed entry before this never leaves a restart armed.
+  r->ctx->restartFrame = restartFrame;
   // In no list: awaitEval switches to it, and its halt returns (true, or false to restart).
   r->state = State::Suspended;
   return awaitEval(pid);

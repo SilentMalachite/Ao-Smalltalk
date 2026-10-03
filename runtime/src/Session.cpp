@@ -1343,8 +1343,9 @@ namespace {
 // SPEC §3.10 ライブデバッガの操作: Proceed, Step and Restart resume the halted process id as an
 // outermost entry like ao_eval: the result and the snapshot go first, and what an earlier entry
 // left is not blamed on it.
-int resumeHalted(Session& s, std::uint64_t id, StepMode step, char* out, int outLen, AoSpan* err,
-                 AoInspectFn inspect, void* inspectUser) {
+// restartFrame (with step None) makes it a Restart of that frame.
+int resumeHalted(Session& s, std::uint64_t id, StepMode step, const Frame* restartFrame, char* out,
+                 int outLen, AoSpan* err, AoInspectFn inspect, void* inspectUser) {
   s.evalResult = std::string();
   sessionDebugClear();
   // SPEC §3.10 評価の中断: a request raised while the process was halted is not carried in.
@@ -1357,7 +1358,7 @@ int resumeHalted(Session& s, std::uint64_t id, StepMode step, char* out, int out
   ctx.abortSetAside = 0;
   const int mode = s.scheduler->evalModeOf(id);
   const Scheduler::EvalEnd end =
-      step == StepMode::None ? s.scheduler->proceed(id) : s.scheduler->step(id, step);
+      step == StepMode::None ? s.scheduler->proceed(id, restartFrame) : s.scheduler->step(id, step);
   std::optional<std::string> printed = std::string();
   std::string failure;
   const int rc = answerAwaited(s, end, mode, out, outLen, err, inspect, inspectUser, &printed,
@@ -1376,7 +1377,7 @@ int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, A
     blankOut(out, outLen);
     return AO_ERR;
   }
-  return resumeHalted(*s, static_cast<std::uint64_t>(pid), step, out, outLen, err, inspect,
+  return resumeHalted(*s, static_cast<std::uint64_t>(pid), step, nullptr, out, outLen, err, inspect,
                       inspectUser);
 }
 
@@ -1391,7 +1392,7 @@ int sessionDebugRestart(std::int64_t pid, int frameIndex, char* out, int outLen,
   }
   const auto id = static_cast<std::uint64_t>(pid);
   const std::string* reason = nullptr;
-  CallContext* fiber = s->scheduler->haltedContextMut(id, &reason);
+  const CallContext* fiber = s->scheduler->haltedContext(id, &reason);
   if (fiber == nullptr) {
     blankOut(out, outLen);
     return AO_ERR;
@@ -1404,8 +1405,7 @@ int sessionDebugRestart(std::int64_t pid, int frameIndex, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR;
   }
-  fiber->restartFrame = target;
-  return resumeHalted(*s, id, StepMode::None, out, outLen, err, inspect, inspectUser);
+  return resumeHalted(*s, id, StepMode::None, target, out, outLen, err, inspect, inspectUser);
 }
 
 int sessionDebugAbort(std::int64_t pid) {

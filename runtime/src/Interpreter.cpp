@@ -133,7 +133,13 @@ struct FrameLink {
     frame.depth = ctx.topFrame != nullptr ? ctx.topFrame->depth + 1 : 0;
     ctx.topFrame = &frame;
   }
-  ~FrameLink() { ctx.topFrame = frame.prev; }
+  ~FrameLink() {
+    ctx.topFrame = frame.prev;
+    // A Restart target that leaves without restarting: no later frame may match its address.
+    if (ctx.restartFrame == &frame) [[unlikely]] {
+      ctx.restartFrame = nullptr;
+    }
+  }
   FrameLink(const FrameLink&) = delete;
   FrameLink& operator=(const FrameLink&) = delete;
 };
@@ -514,7 +520,11 @@ bool applyRestart(CallContext& ctx, Frame& frame, Temps& temps, OperandStack& st
     temps.put(i, Oop::nil());
   }
   // A block's copied values (the last temps) are part of its activation, as run() set them.
+  // Malformed now (written while halted): the restart ends in an abort, not a failed send.
   if (frame.isBlock && !seedCopied(ctx, frame.context, temps, numTemps)) {
+    ctx.restarting = false;
+    ctx.restartFrame = nullptr;
+    abortEvaluation(ctx, "restart failed");
     return false;
   }
   ctx.restarting = false;
@@ -868,7 +878,14 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
         ctx.nonlocalReturn = true;
         ctx.nonlocalHome = home;
         ctx.nonlocalValue = v;
-        return consumeNonlocal(ctx, *frame, false, depth.outermost).value;
+        const Leave nl = consumeNonlocal(ctx, *frame, false, depth.outermost);
+        if (nl.restart) {
+          if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
+            continue;
+          }
+          return Oop{};
+        }
+        return nl.value;
       }
       case compiler::Op::CreateBlock: {
         Oop lit;

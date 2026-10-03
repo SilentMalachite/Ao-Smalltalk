@@ -446,7 +446,7 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(workspace.errorText, "")
   }
 
-  // A halt that cannot go on leaves only Abort enabled.
+  // A halt that cannot go on leaves Abort enabled, and Restart for the selected doIt frame.
   func testNonProceedableDisablesProceedAndStep() {
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
     let workspace = workspace("3 ifTrue: [4]")
