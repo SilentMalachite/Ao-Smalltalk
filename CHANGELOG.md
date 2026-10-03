@@ -4,6 +4,27 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
+Phase P14 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.2.0 load in 1.3.0.
+
+The live Debugger can Restart a selected interpreted frame from the start of its method or block (SPEC §3.9, §3.10, §3.13). Inner interpreted frames and native C stacks between them are discarded. Inner `ensure:` / `ifCurtailed:` blocks do not run (use Abort when cleanup is required). Synthesized native / DNU rows cannot Restart. Proceed-incapable stops (`NonBoolean receiver`, `cannot return`) may Restart an interpreted frame. Halt's "nil as the send result" path is not used.
+
+### Runtime
+
+- C ABI: `ao_debug_can_restart(pid, frame_index)` and `ao_debug_restart(pid, frame_index, out, out_len, err)`. Restart is an outermost entry (busy → `AO_ERR`). Answers match Proceed (`AO_OK` / `AO_ERR_HALT` / `AO_ERR_EVAL`). A synthesized or out-of-range index answers `AO_ERR` with `restart refused: not an interpreted frame`.
+- The selected interpreted frame's pc is 0, its operand stack is empty, extra temps are nil, and arguments are kept. The process resumes until it ends or halts again.
+
+### Ao.app
+
+- Live Debugger button row: Proceed, Abort, Restart, Step over, Step into, Step out. Restart follows the selected row (`ao_debug_can_restart`). Post-mortem Debugger has no Restart.
+
+### Known limitations
+
+- The live debugger has no editing in the Debugger, and does not step into natives.
+- A frame whose method has no source (re-accepted or removed while halted, loaded from an image, or filed in) has no statement starts, so Step over and Step into do not stop at its statements: they stop only in a deeper frame (Step into) or back in the sender (SPEC §3.13).
+- No JIT, FFI, networking, or catching of Smalltalk exception objects (SPEC §1.4, §5).
+- The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
+- The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
+
 ## [1.2.0] - 2026-09-30
 
 Phase P13 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.1.0 load in 1.2.0.

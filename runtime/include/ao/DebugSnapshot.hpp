@@ -159,10 +159,11 @@ class LiveFrames final : public DebugFrames {
   Oop temp(std::uint32_t i, std::uint32_t j) const override;
   std::uint32_t sendArgCount(std::uint32_t i) const override;
   Oop sendArg(std::uint32_t i, std::uint32_t j) const override;
+  // The interpreted frame at i (null for the synthesized one and out of range): what Restart
+  // can target.
+  const Frame* frameAt(std::uint32_t i) const;
 
  private:
-  // The interpreted frame at i (null for the synthesized one and out of range).
-  const Frame* frameAt(std::uint32_t i) const;
   bool synthesized(std::uint32_t i) const { return synth_ && i == 0; }
 
   const CallContext& ctx_;

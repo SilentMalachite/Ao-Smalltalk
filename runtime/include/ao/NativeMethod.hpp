@@ -131,6 +131,10 @@ struct CallContext {
   // proceeded right inside it (no interpreted frame between) answers nil instead of halting again.
   std::uint32_t haltProceeds = 0;
   const Frame* proceededAt = nullptr;
+  // SPEC §3.13 Restart: the interpreted frame to rerun (compared, never written through), and
+  // whether unwinding toward it.
+  const Frame* restartFrame = nullptr;
+  bool restarting = false;
   // While > 0 this process does not halt (the scheduler updating its own lists): a failure
   // aborts as without a debugger.
   std::uint32_t haltSuppressed = 0;

@@ -61,6 +61,8 @@ void runAside(CallContext& ctx, Oop cleanup) {
   const bool nonlocal = ctx.nonlocalReturn;
   const bool aborting = ctx.aborting;
   const char* reason = ctx.abortReason;
+  const bool restarting = ctx.restarting;
+  const Frame* restartFrame = ctx.restartFrame;
   // A reason built at run time stays in the handle table while it is set aside, so the cleanup's
   // GCs keep it (SPEC §3.4). clearUnwinding must not drop it.
   const std::uint32_t reasonHandle = ctx.abortReasonHandle;
@@ -109,6 +111,8 @@ void runAside(CallContext& ctx, Oop cleanup) {
   ctx.aborting = aborting;
   ctx.abortReason = reason;
   ctx.abortReasonHandle = reasonHandle;
+  ctx.restarting = restarting;
+  ctx.restartFrame = restartFrame;
 }
 
 }  // namespace
@@ -254,7 +258,7 @@ Oop ao_BlockContext_ensure_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root result(ctx.roots);
   callBlock(ctx, receiver, nullptr, 0, &result.slot);
   // SPEC §3.4 abandon: the process ends without its cleanups.
-  if (!ctx.abandoning) {
+  if (!ctx.abandoning && !ctx.restarting) {
     runAside(ctx, args[0]);
   }
   return unwinding(ctx) ? Oop{} : result.slot;
@@ -271,7 +275,7 @@ Oop ao_BlockContext_ifCurtailed_(CallContext& ctx, const Oop& receiver, const Oo
     return result.slot;
   }
   // SPEC §3.4 abandon: the process ends without its cleanups.
-  if (!ctx.abandoning) {
+  if (!ctx.abandoning && !ctx.restarting) {
     runAside(ctx, args[0]);
   }
   return Oop{};

@@ -17,7 +17,7 @@ Oop send(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uin
 Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uint32_t argc,
               Oop methodClass);
 
-// SPEC §3.4: true while a non-local return or an abort is unwinding the frames.
+// SPEC §3.4: true while a non-local return, an abort, or a Restart unwind is unwinding the frames.
 bool unwinding(const CallContext& ctx);
 // Starts an abort (SPEC §3.4). reason is a static string (a literal): nothing is allocated, so
 // out of memory and stack overflow can use it. An abort already in progress keeps its own reason.

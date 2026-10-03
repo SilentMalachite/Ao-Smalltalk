@@ -44,9 +44,10 @@ class DebugAbi : public ::testing::Test {
                    &err_);
   }
 
-  void defineClass(const char* name) {
+  void defineClass(const char* name, const char* instVars = "") {
     const std::string def = std::string("Object subclass: #") + name +
-                            "\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+                            "\n  instanceVariableNames: '" + instVars +
+                            "'\n  classVariableNames: ''\n"
                             "  poolDictionaries: ''\n  category: 'P10-Test'\n";
     AoSpan err{};
     ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
@@ -1425,6 +1426,258 @@ TEST_F(LiveProceed, SharedQueueNextPutFailureDoesNotHalt) {
   EXPECT_EQ(0, ao_debug_halted_count());
   ASSERT_EQ(AO_OK, printIt("(q instVarAt: 1) size"));
   EXPECT_STREQ("0", out_);
+}
+
+// ---- P14: Restart (SPEC §3.13 操作, §3.10) ----
+
+class LiveRestart : public LiveDebug {
+ protected:
+  int restart(std::int64_t pid, int frame) {
+    err_ = AoSpan{};
+    return ao_debug_restart(pid, frame, out_, sizeof out_, &err_);
+  }
+};
+
+TEST_F(LiveRestart, RestartNativeFrameIsRefused) {
+  defineDbgLive();
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgLive new haltIn: 3"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(0, ao_debug_can_restart(pid, 0));
+  EXPECT_EQ(1, ao_debug_can_restart(pid, 1));
+  EXPECT_EQ(AO_ERR, restart(pid, 0));
+  EXPECT_STREQ("restart refused: not an interpreted frame", err_.message);
+  EXPECT_EQ(1, ao_debug_halted_count());
+}
+
+TEST_F(LiveRestart, HaltThenRestartDoesNotAnswerHaltNil) {
+  defineClass("DbgBump", "t");
+  accept("DbgBump", 0, "bump\n  t isNil ifTrue: [t := 0].\n  t := t + 1.\n  self halt.\n  ^t");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgBump new bump"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ("DbgBump>>bump", label(1));
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, 1)) << err_.message;
+  EXPECT_STREQ("halt", err_.message);
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("2", out_);
+}
+
+TEST_F(LiveRestart, RestartOuterInterpretedFrameDropsInner) {
+  defineClass("DbgNest");
+  accept("DbgNest", 0, "outer\n  ^self inner");
+  accept("DbgNest", 0, "inner\n  self halt.\n  ^7");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgNest new outer"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ("DbgNest>>inner", label(1));
+  EXPECT_EQ("DbgNest>>outer", label(2));
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, 2)) << err_.message;
+  EXPECT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("DbgNest>>inner", label(1));
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("7", out_);
+}
+
+TEST_F(LiveRestart, RestartBlockKeepsHome) {
+  defineClass("DbgBlk", "n");
+  accept("DbgBlk", 0, "run\n  n isNil ifTrue: [n := 0].\n  n := n + 1.\n  [self halt] value.\n  ^n");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgBlk new run"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ("[] in DbgBlk>>run", label(1));
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, 1)) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("1", out_);
+}
+
+TEST_F(LiveRestart, RestartBlockKeepsCopiedValue) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  ASSERT_EQ(AO_ERR_HALT,
+            doIt("| x | x := 5. #(1) do: [:e | self halt. Transcript show: x printString]"));
+  const std::int64_t pid = selectHalted();
+  int block = -1;
+  for (int i = 0; i < ao_debug_frame_count(); ++i) {
+    if (label(i).rfind("[] in", 0) == 0) {
+      block = i;
+      break;
+    }
+  }
+  ASSERT_GE(block, 0);
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, block)) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(std::vector<std::string>{"5"}, seen);
+}
+
+TEST_F(LiveRestart, RestartBlockKeepsTempVector) {
+  ASSERT_EQ(AO_ERR_HALT, printIt("| x | x := 5. #(1) do: [:e | self halt. x := x + 1]. x"));
+  const std::int64_t pid = selectHalted();
+  int block = -1;
+  for (int i = 0; i < ao_debug_frame_count(); ++i) {
+    if (label(i).rfind("[] in", 0) == 0) {
+      block = i;
+      break;
+    }
+  }
+  ASSERT_GE(block, 0);
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, block)) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("6", out_);
+}
+
+TEST_F(LiveRestart, RestartHomeDropsBlock) {
+  defineClass("DbgBlkH", "n");
+  accept("DbgBlkH", 0, "run\n  n isNil ifTrue: [n := 0].\n  n := n + 1.\n  [self halt] value.\n  ^n");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgBlkH new run"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ("DbgBlkH>>run", label(2));
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, 2)) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("2", out_);
+}
+
+TEST_F(LiveRestart, RestartDoesNotRunInnerEnsure) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[self halt] ensure: [Transcript show: 'done']"));
+  const std::int64_t pid = selectHalted();
+  // The doIt frame is outside ensure:, so the restart unwinds through it.
+  int doit = -1;
+  for (int i = 0; i < ao_debug_frame_count(); ++i) {
+    if (label(i) == "doIt") {
+      doit = i;
+      break;
+    }
+  }
+  ASSERT_GE(doit, 0);
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, doit)) << err_.message;
+  EXPECT_TRUE(seen.empty());
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(std::vector<std::string>{"done"}, seen);
+}
+
+TEST_F(LiveRestart, RestartDoesNotRunInnerIfCurtailed) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[self halt] ifCurtailed: [Transcript show: 'cut']"));
+  const std::int64_t pid = selectHalted();
+  int doit = -1;
+  for (int i = 0; i < ao_debug_frame_count(); ++i) {
+    if (label(i) == "doIt") {
+      doit = i;
+      break;
+    }
+  }
+  ASSERT_GE(doit, 0);
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, doit)) << err_.message;
+  EXPECT_TRUE(seen.empty());
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(std::vector<std::string>{"cut"}, seen);
+}
+
+TEST_F(LiveRestart, RestartFromStep) {
+  const char* src = "self halt. 9";
+  ASSERT_EQ(AO_ERR_HALT, ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_DEBUGIT, out_,
+                                 sizeof out_, &err_));
+  EXPECT_STREQ("debug it", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, 0)) << err_.message;
+  EXPECT_STREQ("halt", err_.message);
+  ASSERT_EQ(AO_OK, ao_debug_proceed(pid, out_, sizeof out_, &err_)) << err_.message;
+}
+
+TEST_F(LiveRestart, RestartFromInterrupt) {
+  g_interruptPumps = 0;
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  selectHalted();
+  g_interruptPumps = 0;
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, 0)) << err_.message;
+  EXPECT_STREQ("interrupted", err_.message);
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+}
+
+TEST_F(LiveRestart, RestartOnNonProceedable) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("3 ifTrue: [4]"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(0, ao_debug_can_proceed(pid));
+  int doit = -1;
+  for (int i = 0; i < ao_debug_frame_count(); ++i) {
+    if (label(i) == "doIt") {
+      doit = i;
+      break;
+    }
+  }
+  ASSERT_GE(doit, 0);
+  EXPECT_EQ(1, ao_debug_can_restart(pid, doit));
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, doit)) << err_.message;
+  EXPECT_STREQ("NonBoolean receiver", err_.message);
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+}
+
+TEST_F(LiveRestart, RestartAfterFailedSendRerunsFrame) {
+  defineClass("DbgFail", "n");
+  accept("DbgFail", 0, "run\n  n isNil ifTrue: [n := 0].\n  n := n + 1.\n  ^n + nil");
+  accept("DbgFail", 0, "count\n  ^n");
+  ASSERT_EQ(AO_OK, doIt("dbgFail := DbgFail new"));
+  ASSERT_EQ(AO_ERR_HALT, printIt("dbgFail run"));
+  EXPECT_STREQ("failed: #+", err_.message);
+  const std::int64_t pid = selectHalted();
+  int run = -1;
+  for (int i = 0; i < ao_debug_frame_count(); ++i) {
+    if (label(i) == "DbgFail>>run") {
+      run = i;
+      break;
+    }
+  }
+  ASSERT_GE(run, 0);
+  ASSERT_EQ(AO_ERR_HALT, restart(pid, run)) << err_.message;
+  EXPECT_STREQ("failed: #+", err_.message);
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ASSERT_EQ(AO_OK, printIt("dbgFail count"));
+  EXPECT_STREQ("2", out_);
+}
+
+TEST_F(LiveRestart, RestartPostmortemIsRefused) {
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("self halt"));
+  EXPECT_EQ(0, ao_debug_can_restart(0, 0));
+  EXPECT_EQ(AO_ERR, restart(0, 0));
+}
+
+TEST_F(LiveRestart, RestartUnknownPidFails) {
+  EXPECT_EQ(AO_ERR, restart(424242, 0));
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  EXPECT_EQ(AO_ERR, restart(pid, 99));
+  EXPECT_STREQ("restart refused: not an interpreted frame", err_.message);
+}
+
+TEST_F(LiveRestart, RestartWhileBusyIsRefused) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt"));
+  struct Hook {
+    std::int64_t pid = 0;
+    int answer = 0;
+  } hook;
+  hook.pid = ao_debug_halted_pid();
+  ao_set_transcript_hook(
+      [](const char*, int, int is_clear, void* user) {
+        if (is_clear != 0) {
+          return;
+        }
+        auto* p = static_cast<Hook*>(user);
+        char out[16];
+        AoSpan err{};
+        p->answer = ao_debug_restart(p->pid, 0, out, sizeof out, &err);
+      },
+      &hook);
+  ASSERT_EQ(AO_OK, doIt("Transcript show: 'x'"));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(AO_ERR, hook.answer);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  EXPECT_EQ(AO_OK, ao_debug_abort(hook.pid));
 }
 
 }  // namespace
