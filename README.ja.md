@@ -8,7 +8,7 @@ English (canonical GitHub text): [README.md](README.md)
 
 ## 現状
 
-**Ao 1.2.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P13 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を足しました（1.2.0）。
+**Ao 1.3.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P14 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を足しました（1.3.0）。
 
 | 領域 | できること |
 |---|---|
@@ -20,7 +20,7 @@ English (canonical GitHub text): [README.md](README.md)
 | クラスライブラリ | 非 Kernel クラスを、版を固定した Cuis-Smalltalk の抜粋（`image/vendor`）から file-in する |
 | イメージ | `.aoimage` の保存と読み込み。ネイティブメソッドはロード時にシンボル名で結び直す |
 | ツール | AppKit の Transcript、Workspace（Do it / Print it / Inspect it / Debug it）、Accept と削除ができる 5 ペインの System Browser |
-| デバッガ | `halt` と失敗で評価を止め、Debugger 窓で Proceed、Abort、Step over、Step into、Step out を行う（P10、P11）。走っている評価も ⌘. でここに止める（P13） |
+| デバッガ | `halt` と失敗で評価を止め、Debugger 窓で Proceed、Abort、Step over、Step into、Step out を行う（P10、P11）。走っている評価も ⌘. でここに止める（P13）。選んだフレームを Restart でやり直す（P14） |
 
 ## インストール
 
@@ -30,8 +30,8 @@ English (canonical GitHub text): [README.md](README.md)
 
 | ファイル | 中身 |
 |---|---|
-| `Ao-1.2.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
-| `ao-cli-1.2.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
+| `Ao-1.3.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
+| `ao-cli-1.3.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
 | `SHA256SUMS` | 上の 2 つのアーカイブの SHA-256 |
 
 ダウンロードを確かめます。
@@ -44,7 +44,7 @@ shasum -a 256 -c SHA256SUMS
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.2.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.3.0-macos-arm64/ao
 ```
 
 ## Ao.app の使い方
@@ -84,6 +84,7 @@ Object class class == Metaclass.
 | Step over | このメソッドの次の文か、呼び出し元に戻ったところで止まる |
 | Step into | 加えて、送信した先のメソッドやブロックの最初の命令でも止まる |
 | Step out | 呼び出し元に戻ったところで止まる |
+| Restart | 選んだメソッドかブロックのフレームを先頭からやり直す（内側のフレームは捨て、その `ensure:` は走らない）。ネイティブの行ではできない |
 | Abort | 評価を終わらせる（`ensure:` のブロックは走る） |
 
 Proceed や step で Print it が終わると、結果が Workspace に入ります。Debugger を閉じると評価を中止します。スタックあふれ、メモリ不足、デッドロックは止めずに中止します。そのときは Workspace に **Debug** ボタンが出て、中止が始まったときのスタックを開けます。評価が止まっている間は、イメージを保存できません。
@@ -97,7 +98,7 @@ Proceed や step で Print it が終わると、結果が Workspace に入りま
 ## `ao` CLI の使い方
 
 ```sh
-ao --version                               # 1.2.0
+ao --version                               # 1.3.0
 ao filein hello.st                         # チャンク形式のファイルを 1 つ file-in する
 ao filein --load-order vendor/LOAD_ORDER   # クラスライブラリを順に file-in する
 ao --test tests/                           # tests/ の *.st をすべてゴールデンテストとして実行する
@@ -116,7 +117,7 @@ self assert: (#(1 2 3) collect: [:x | x * 2]) equals: #(2 4 6).
 
 ## Ao に無いもの
 
-JIT（ユーザーメソッドはバイトコードで動く）、FFI、ネットワーク、Smalltalk の例外オブジェクトによる捕捉はありません。Debugger には Restart も編集もなく、ネイティブメソッドの中には step into しません。Squeak / Pharo / Xerox の `.image` は読めません。動くのは Apple Silicon の macOS だけです。非目標は SPEC §1.4 にあります。
+JIT（ユーザーメソッドはバイトコードで動く）、FFI、ネットワーク、Smalltalk の例外オブジェクトによる捕捉はありません。Debugger には編集がなく、ネイティブメソッドの中には step into しません。Squeak / Pharo / Xerox の `.image` は読めません。動くのは Apple Silicon の macOS だけです。非目標は SPEC §1.4 にあります。
 
 ## ソースからのビルド
 

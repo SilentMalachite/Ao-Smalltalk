@@ -4,6 +4,8 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-04
+
 Phase P14 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.2.0 load in 1.3.0.
 
 The live Debugger can Restart a selected interpreted frame from the start of its method or block (SPEC §3.9, §3.10, §3.13). Inner interpreted frames and native C stacks between them are discarded. Inner `ensure:` / `ifCurtailed:` blocks do not run (use Abort when cleanup is required). Synthesized native / DNU rows cannot Restart. Proceed-incapable stops (`NonBoolean receiver`, `cannot return`) may Restart an interpreted frame. Halt's "nil as the send result" path is not used.
@@ -11,11 +13,15 @@ The live Debugger can Restart a selected interpreted frame from the start of its
 ### Runtime
 
 - C ABI: `ao_debug_can_restart(pid, frame_index)` and `ao_debug_restart(pid, frame_index, out, out_len, err)`. Restart is an outermost entry (busy → `AO_ERR`). Answers match Proceed (`AO_OK` / `AO_ERR_HALT` / `AO_ERR_EVAL`). A synthesized or out-of-range index answers `AO_ERR` with `restart refused: not an interpreted frame`.
-- The selected interpreted frame's pc is 0, its operand stack is empty, extra temps are nil, and arguments are kept. The process resumes until it ends or halts again.
+- The selected interpreted frame's pc is 0, its operand stack is empty, extra temps are nil, and arguments (and a block's copied values) are kept. The process resumes until it ends or halts again.
 
 ### Ao.app
 
 - Live Debugger button row: Proceed, Abort, Restart, Step over, Step into, Step out. Restart follows the selected row (`ao_debug_can_restart`). Post-mortem Debugger has no Restart.
+
+### Project
+
+- Release assets: `Ao-1.3.0-macos-arm64.zip`, `ao-cli-1.3.0-macos-arm64.tar.gz`, and `SHA256SUMS`.
 
 ### Known limitations
 
@@ -24,6 +30,10 @@ The live Debugger can Restart a selected interpreted frame from the start of its
 - No JIT, FFI, networking, or catching of Smalltalk exception objects (SPEC §1.4, §5).
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
+
+### Install
+
+Requires an Apple Silicon Mac with macOS 14 or later. Download `Ao-1.3.0-macos-arm64.zip` (the app) and/or `ao-cli-1.3.0-macos-arm64.tar.gz` (the CLI), then check them with `shasum -a 256 -c SHA256SUMS`. The builds are not notarized: after the first launch attempt, choose **Open Anyway** in System Settings → Privacy & Security, or run `xattr -dr com.apple.quarantine Ao.app`. See the [README](https://github.com/SilentMalachite/Ao-Smalltalk/blob/v1.3.0/README.md) for usage.
 
 ## [1.2.0] - 2026-09-30
 
@@ -166,7 +176,8 @@ The first release. It completes phases P0–P9 of SPEC §2.3, the v1 definition:
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
 
-[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/SilentMalachite/Ao-Smalltalk/releases/tag/v1.0.0
