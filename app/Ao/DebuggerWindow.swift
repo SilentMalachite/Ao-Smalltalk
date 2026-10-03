@@ -152,7 +152,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   private(set) var generation: Int32
   private(set) var reason: String
   private(set) var frames: [DebugFrame]
-  // Live only: Proceed, Abort, Step over, Step into, Step out.
+  // Live only: Proceed, Abort, Restart, Step over, Step into, Step out.
   private(set) var buttons: [NSButton] = []
   private let buttonActions = DebuggerButtonActions()
   // Runs a Proceed or Step: the Workspace wraps it (its inspect hook for an Inspect it).
@@ -387,6 +387,15 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     resume { ao_debug_proceed($0, $1, $2, $3) }
   }
 
+  func restart() {
+    guard let selectedFrame else {
+      return
+    }
+    resume { pid, out, outLen, err in
+      ao_debug_restart(pid, Int32(selectedFrame), out, outLen, err)
+    }
+  }
+
   func stepOver() {
     resume { ao_debug_step_over($0, $1, $2, $3) }
   }
@@ -500,12 +509,22 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     return (variableTable.view(atColumn: column, row: row, makeIfNecessary: true) as? NSTextField)?.stringValue
   }
 
-  // SPEC §3.9: Proceed and the Steps only when the halt can go on; nothing once it is gone.
+  // SPEC §3.9: Proceed and the Steps only when the halt can go on; Restart when the selected
+  // row is an interpreted frame; nothing once it is gone.
   private func updateButtons() {
     let halted = !finished && ao_debug_select(pid) == Int32(AO_OK)
     let canGoOn = halted && ao_debug_can_proceed(pid) == 1
+    let frame = selectedFrame ?? -1
+    let canRestart = halted && ao_debug_can_restart(pid, Int32(frame)) == 1
     for button in buttons {
-      button.isEnabled = button.title == "Abort" ? halted : canGoOn
+      switch button.title {
+      case "Abort":
+        button.isEnabled = halted
+      case "Restart":
+        button.isEnabled = canRestart
+      default:
+        button.isEnabled = canGoOn
+      }
     }
   }
 
@@ -517,6 +536,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     let runs: [(String, @MainActor (DebuggerWindow) -> Void)] = [
       ("Proceed", { $0.proceed() }),
       ("Abort", { $0.abort() }),
+      ("Restart", { $0.restart() }),
       ("Step over", { $0.stepOver() }),
       ("Step into", { $0.stepInto() }),
       ("Step out", { $0.stepOut() })
@@ -578,7 +598,12 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   }
 
   func tableViewSelectionDidChange(_ notification: Notification) {
-    guard (notification.object as? NSTableView) === frameTable, let selectedFrame else {
+    guard (notification.object as? NSTableView) === frameTable else {
+      return
+    }
+    guard let selectedFrame else {
+      // No row: nothing for Restart to target.
+      updateButtons()
       return
     }
     showFrame(selectedFrame)
@@ -605,6 +630,8 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       sourceView.scrollRangeToVisible(NSRange(location: 0, length: 0))
     }
     variableTable.reloadData()
+    // SPEC §3.9: Restart は選んだ行の種類で有効/無効が変わる。
+    updateButtons()
   }
 
   // nil when the runtime refuses (busy, or the snapshot went); a failed printString is class only.

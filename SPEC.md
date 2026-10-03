@@ -129,14 +129,15 @@ ao-smalltalk/
 | P11 | ライブデバッガ | `halt` と失敗で評価を止める、Proceed / Abort / Step、Debug it（§3.13） |
 | P12 | Browser の削除 | Browser からメソッドとクラスを削除する、`ao_remove_method`、`ao_remove_class`（§3.9「削除」） |
 | P13 | 評価の中断 | Ao.app の ⌘. / Interrupt でライブ評価を理由 `interrupted` で止める（§3.9、§3.10、§3.13） |
+| P14 | Restart | ライブ Debugger で選んだ解釈フレームを本体先頭からやり直す（§3.9、§3.13） |
 
-P9 完了が v1。P10、P11、P12、P13 は v1 のあとのフェーズである。
+P9 完了が v1。P10、P11、P12、P13、P14 は v1 のあとのフェーズである。
 
 ### 2.4 リリース
 
 版は Semantic Versioning に従う。v1 の版は `1.0.0`、タグは `v<版>`（例 `v1.0.0`）である。
 
-- v1 のあとのフェーズ（P10〜P12）は、`.aoimage` の形式、`ao` の CLI、Smalltalk の既存の振る舞いを変えずに機能を足すので、マイナー版を上げる。P12 までを含む版は `1.1.0` である。P13（評価の中断）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.2.0` に含める。C ABI（`bridge/ao_abi.h`）はリリースの添付物に含まず、同じ版のアプリとランタイムの間だけで使うので、その変更では版を分けない。
+- v1 のあとのフェーズ（P10〜P12）は、`.aoimage` の形式、`ao` の CLI、Smalltalk の既存の振る舞いを変えずに機能を足すので、マイナー版を上げる。P12 までを含む版は `1.1.0` である。P13（評価の中断）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.2.0` に含める。P14（Restart）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.3.0` に含める。C ABI（`bridge/ao_abi.h`）はリリースの添付物に含まず、同じ版のアプリとランタイムの間だけで使うので、その変更では版を分けない。
 
 - 版の正本は `ao::version_string`（`ao --version` と `ao_version` の値）である。リリースの版には `-` 以降を付けない。`ao::compiler::version` も同じ値にする。
 - 版ごとの変更点を `CHANGELOG.md`（英語）に書く。
@@ -988,8 +989,8 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 ライブ Debugger（P11）:
 
 - 止まったプロセスを pid（§3.10）で識別する。同じ pid の窓は 1 枚で、開いていれば前面に戻す。読みの前に毎回 `ao_debug_select(pid)` で対象を選ぶ（事後 Debugger は 0 を選ぶ）。タイトルは `Debugger: <理由>` である。
-- frames の上にボタン列を置く: Proceed、Abort、Step over、Step into、Step out（VoiceOver ラベルは同じ名前）。`ao_debug_can_proceed` が 0 なら（`NonBoolean receiver`、`cannot return`）、Proceed と 3 つの Step を無効にする。
-- ボタンは対応する `ao_debug_*`（§3.10）を呼ぶ。答えが `AO_ERR_HALT` なら（また止まった。step を含む）、理由、フレーム、ソース、temp 名を読み直し、最内のフレームを選ぶ。`AO_OK` か `AO_ERR_EVAL` なら、窓を閉じて結果を評価を始めた Workspace に渡す（上の Workspace）。Abort は窓を閉じる。
+- frames の上にボタン列を置く: Proceed、Abort、Restart、Step over、Step into、Step out（VoiceOver ラベルは同じ名前）。`ao_debug_can_proceed` が 0 なら（`NonBoolean receiver`、`cannot return`）、Proceed と 3 つの Step を無効にする。Restart は `ao_debug_can_restart(pid, 選んだフレームの index)` が 0 なら無効にする（合成ネイティブ / DNU、範囲外、事後 Debugger）。Proceed 不能でも、解釈フレームが選ばれていれば Restart は有効である。
+- ボタンは対応する `ao_debug_*`（§3.10）を呼ぶ。Restart は選んだフレームの index を渡す。答えが `AO_ERR_HALT` なら（また止まった。step を含む）、理由、フレーム、ソース、temp 名を読み直し、最内のフレームを選ぶ。`AO_OK` か `AO_ERR_EVAL` なら、窓を閉じて結果を評価を始めた Workspace に渡す（上の Workspace）。Abort は窓を閉じる。
 - ボタン以外で窓を閉じたら（プロセスがまだ止まっていれば）、`ao_debug_abort` を呼ぶ。評価の実行中（pump が窓の閉じる操作を配送したとき。§3.10）は `ao_debug_abort` が busy で断られるので、窓を閉じない（Abort ボタンと同じ）。
 - 値の print と inspect は、`ao_debug_select(pid)` が `AO_OK` のときだけ行う（止まっている間）。そうでなければ値は `-` にし、ボタンを無効にする。
 - ライブ Debugger を開いたまま、別の Do it ができる。
@@ -1093,7 +1094,7 @@ Browser での操作:
 - `scripts/package-app.sh` は次を行う。
   - Release でビルドする。
   - `image/vendor` を `Contents/Resources/vendor` に写す。
-  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（v1 は `1.0.0`、P12 までは `1.1.0`、P13 までは `1.2.0`。§2.4）である。
+  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（v1 は `1.0.0`、P12 までは `1.1.0`、P13 までは `1.2.0`、P14 までは `1.3.0`。§2.4）である。
   - アドホック署名する。`codesign --verify --strict` が通る。
 
 ### 3.10 ブリッジ
@@ -1132,9 +1133,9 @@ OS のプロセスにセッションは 1 つ。`ao::boot()` はそれを 1 つ�
 - `ao_workspace_reset`、`ao_eval`、`ao_accept_method`、`ao_accept_method_id`、`ao_accept_class`
 - `ao_remove_method`、`ao_remove_class`
 - `ao_debug_frame_receiver_print`、`ao_debug_frame_temp_print`、`ao_debug_inspect`、`ao_debug_clear`
-- `ao_debug_proceed`、`ao_debug_step_into`、`ao_debug_step_over`、`ao_debug_step_out`、`ao_debug_abort`
+- `ao_debug_proceed`、`ao_debug_step_into`、`ao_debug_step_over`、`ao_debug_step_out`、`ao_debug_restart`、`ao_debug_abort`
 
-拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load`、`ao_remove_method`、`ao_remove_class` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`、`ao_set_runloop_pump_hook`）、中断要求（`ao_request_interrupt`。下の「評価の中断」）、ブラウザの読み取り（`ao_browser_*`（`ao_browser_class_id` を含む）、`ao_version`）、評価結果の読み出し（`ao_eval_result_length`、`ao_eval_result_copy`。下の「評価結果」）、捕捉の設定とスナップショットの読み（`ao_set_debug_capture`、`ao_debug_generation` から `ao_debug_frame_temp_name` まで。下の「デバッガの読み出し」）、ライブデバッガの設定と読み（`ao_set_debug_mode`、`ao_debug_halted_pid`、`ao_debug_halted_count`、`ao_debug_can_proceed`、`ao_debug_select`。下の「ライブデバッガの操作」）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。止まったプロセス（§3.13）は走っていないので、それだけでは busy でない。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
+拒んだ呼び出しはセッションに触れない。呼び出し元の評価はそのまま続き、その結果を返す。`ao_image_load`、`ao_remove_method`、`ao_remove_class` の理由は `runtime is busy`、`ao_eval` の `out` は空文字（`out` が NULL でなく `out_len` が 1 以上のとき）である。フックの設定（`ao_set_transcript_hook`、`ao_set_inspect_hook`、`ao_set_runloop_pump_hook`）、中断要求（`ao_request_interrupt`。下の「評価の中断」）、ブラウザの読み取り（`ao_browser_*`（`ao_browser_class_id` を含む）、`ao_version`）、評価結果の読み出し（`ao_eval_result_length`、`ao_eval_result_copy`。下の「評価結果」）、捕捉の設定とスナップショットの読み（`ao_set_debug_capture`、`ao_debug_generation` から `ao_debug_frame_temp_name` まで。下の「デバッガの読み出し」）、ライブデバッガの設定と読み（`ao_set_debug_mode`、`ao_debug_halted_pid`、`ao_debug_halted_count`、`ao_debug_can_proceed`、`ao_debug_can_restart`、`ao_debug_select`。下の「ライブデバッガの操作」）は busy でも呼べる。busy の判定は 1 か所にまとめる。インタプリタが実行中とは、ベースプロセスで評価が走っているか、ベース以外のプロセス（§3.4）が走っていることである。止まったプロセス（§3.13）は走っていないので、それだけでは busy でない。ベース以外のプロセスから呼ばれたフックの中の呼び出しも、drain（§3.4）の間の呼び出しも拒む。
 
 ABI の関数は C++ の例外を境界の外へ出さない。関数の中で捕捉し、int を返す関数は `AO_ERR`（件数を返す関数は -1）を返す。`ao_image_load` の理由は `image load failed` である。
 
@@ -1150,7 +1151,7 @@ AO_ERR_NOSOURCE = 5
 AO_ERR_HALT = 6
 ```
 
-`AO_ERR_HALT` は、ライブモードの評価、Proceed、Step がプロセスを止めて返ったことを表す（§3.13、下の「ライブデバッガの操作」）。
+`AO_ERR_HALT` は、ライブモードの評価、Proceed、Step、Restart がプロセスを止めて返ったことを表す（§3.13、下の「ライブデバッガの操作」）。
 
 文字列バッファは、`buf_len > 0` なら必ず NUL で終わる。入り切らないときは `AO_ERR_RANGE`（`ao_browser_source` の `AO_ERR_NOSOURCE` だけは例外で、下に書く）。`ao_version` も同じで、切り詰めたら（`buf` は NUL で終わる）`AO_ERR_RANGE`、`buf` が NULL か `buf_len` が 1 未満なら `AO_ERR` を返す。`ao_eval_result_copy`（下の「評価結果」）も同じ規則に従う。
 
@@ -1391,6 +1392,7 @@ void ao_set_debug_mode(int mode);
 int64_t ao_debug_halted_pid(void);
 int ao_debug_halted_count(void);
 int ao_debug_can_proceed(int64_t pid);
+int ao_debug_can_restart(int64_t pid, int frame_index);
 int ao_debug_select(int64_t pid);
 
 /* 最外の入口。busy なら AO_ERR */
@@ -1398,14 +1400,16 @@ int ao_debug_proceed(int64_t pid, char* out, int out_len, AoSpan* err);
 int ao_debug_step_into(int64_t pid, char* out, int out_len, AoSpan* err);
 int ao_debug_step_over(int64_t pid, char* out, int out_len, AoSpan* err);
 int ao_debug_step_out(int64_t pid, char* out, int out_len, AoSpan* err);
+int ao_debug_restart(int64_t pid, int frame_index, char* out, int out_len, AoSpan* err);
 int ao_debug_abort(int64_t pid);
 ```
 
 - `ao_set_debug_mode` は `AO_DEBUG_POSTMORTEM`（既定）か `AO_DEBUG_LIVE` を設定する。ほかの値は何もしない。値は ABI 側が持ち、boot、shutdown、ロードをまたいで残る（`ao_set_debug_capture` と同じ持ち方）。次の `ao_eval` から効く。CLI と `ao --test` は呼ばない。
 - pid はプロセスの番号（1 以上）である。ランタイムの中で使い回さない（セッションを作り直しても重ならない）。
-- `ao_debug_halted_pid` は、最後に止まったプロセスの pid を返す。そのプロセスがもう止まっていなければ、またはセッションが無ければ 0 である。`ao_debug_halted_count` は止まっているプロセスの数を返す（セッションが無ければ -1）。`ao_debug_can_proceed` は、pid が止まっていて Proceed と Step ができれば 1、それ以外は 0 を返す。
+- `ao_debug_halted_pid` は、最後に止まったプロセスの pid を返す。そのプロセスがもう止まっていなければ、またはセッションが無ければ 0 である。`ao_debug_halted_count` は止まっているプロセスの数を返す（セッションが無ければ -1）。`ao_debug_can_proceed` は、pid が止まっていて Proceed と Step ができれば 1、それ以外は 0 を返す。`ao_debug_can_restart` は、pid が止まっていて `frame_index` がそのプロセスの解釈フレーム（種類 0 または 1。§3.13）なら 1、それ以外は 0 を返す（busy でも呼べる）。
 - `ao_debug_select` は読む対象を選ぶ。0 はスナップショット、止まったプロセスの pid はそのプロセスである。どちらも `AO_OK`。止まっていない pid（終わった、走っている、知らない）は `AO_ERR` を返し、選択はその pid のまま、読みは空になる（フレーム数 0、`ao_debug_reason` は `AO_ERR`）。選んだプロセスがあとで止まっていなくなったときも、読みは空である。セッションが無ければ `AO_ERR`。boot、shutdown、ロードで選択は 0 に戻る。止まったプロセスの `ao_debug_reason` は停止の理由、`ao_debug_frame_count` は最内から 256 までのフレーム数、`ao_debug_frame_total` は総数である。
 - `ao_debug_proceed` と 3 つの step は、止まったプロセスを続ける（§3.13）。`ao_eval` と同じく最外の入口で、入口で評価結果とスナップショットを消し、終わったら drain する。答えは `ao_eval` と同じで、止めた評価の mode による: 終われば `AO_OK`（Print it は `out` に printString、Inspect it は inspect フック、Do it と Debug it は空）か `AO_ERR_RANGE`、また止まれば `AO_ERR_HALT`（`err->message` に理由、`out` は空）、失敗すれば `AO_ERR_EVAL` と理由。評価結果（上の「評価結果」）も `ao_eval` と同じく残す。pid が止まっていない、Proceed できない停止（`ao_debug_can_proceed` が 0）、セッションが無い、`out` が NULL か `out_len` が 1 未満なら、何もせずに `AO_ERR`（`out` は空、`err` は 0-0 で空）。
+- `ao_debug_restart` は、止まったプロセスの `frame_index` の解釈フレームを本体の先頭からやり直す（§3.13）。答えの形、drain、評価結果、入場時の消去は Proceed と同じである。`ao_debug_can_restart` が 0 なら何もせずに `AO_ERR`（`out` は空）。種類 2 または範囲外のときは `err->message` を `restart refused: not an interpreted frame` にする。pid が止まっていない、セッションが無い、`out` が NULL か `out_len` が 1 未満なら、Proceed の拒否と同じく空の `AO_ERR` である。Proceed 不能の停止でも、解釈フレームなら呼べる。
 - `ao_debug_abort` は止まったプロセスを `terminate` し（後始末を走らせる。§3.13）、drain して `AO_OK` を返す。pid が止まっていない、セッションが無ければ `AO_ERR`。
 
 #### 評価の中断
@@ -1422,7 +1426,7 @@ int ao_request_interrupt(void);
 
 - `ao_set_runloop_pump_hook` は、transcript / inspect フックと同型である。ABI 側が保持し、boot、shutdown、ロードをまたいで残る。boot の前にも設定できる。NULL を設定すると外れる。busy の間も設定できる。未登録（NULL）なら pump は何もしない。
 - `ao_request_interrupt` はセッションの中断要求フラグを立てる。セッションが無ければ `AO_ERR`、あれば `AO_OK`。**busy 中でも呼べる**（評価の内側から効かせる入口なので、上の「再入と例外」の拒む一覧には入れない）。フラグはセッションに 1 つで、多重押しは 1 回分（溜めない）。
-- フラグの消費は、理由 `interrupted` で評価プロセスを止めたときである。abort、評価の正常終了、ライブ停止（理由を問わない）で評価が戻るとき、次の `ao_eval` 入場時、ライブデバッガの Proceed / Step（`ao_debug_proceed`、`ao_debug_step_*`）の入場時にもクリアし、前の評価や停止の間の要求を持ち越さない（別の理由で止まったあとの Step が `interrupted` で止まらない）。
+- フラグの消費は、理由 `interrupted` で評価プロセスを止めたときである。abort、評価の正常終了、ライブ停止（理由を問わない）で評価が戻るとき、次の `ao_eval` 入場時、ライブデバッガの Proceed / Step / Restart（`ao_debug_proceed`、`ao_debug_step_*`、`ao_debug_restart`）の入場時にもクリアし、前の評価や停止の間の要求を持ち越さない（別の理由で止まったあとの Step が `interrupted` で止まらない）。
 - **ライブモード off では止めない**（フラグを立てても評価は完走する。CLI と `ao --test` の既定）。止め方と検査点は §3.13 に書く。
 
 ### 3.11 イメージ形式 `.aoimage`
@@ -1653,6 +1657,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 
 操作:
 
+- Restart: 選んだ解釈フレーム（種類 0 または 1。`frame_index` は `ao_debug_frame_*` と同じく最内が 0 で、合成フレームを含む）を、その活性化の先頭からやり直す。より内側の解釈フレームと、その間のネイティブの C スタックは捨てる。捨てる側の `ensure:` / `ifCurtailed:` は走らせない（Abort とは違う。後始末が要るときは Abort を使う）。対象フレームの pc は 0、オペランドスタックは空、進行中の送信は無し、引数スロットはそのまま、残りの temp は nil である。ブロックを選んだときはその活性化だけ先頭へ戻す。ホームのメソッドを選んだときはブロック側を捨てる。種類 2（合成ネイティブ / DNU）は拒む。Proceed 不能の停止でも、解釈フレームならできる。再開のあと、halt 型の「止めた送信の値 nil」にはしない（本体をやり直す）。答えは Proceed と同じである（§3.10）。
 - Proceed: 止めた送信の値として nil を返し、続きを走らせる（Blue Book）。`halt`、`error:`、`doesNotUnderstand:` は nil を答える。失敗した送信（`failed: #sel`）は、送信の値として nil をオペランドスタックに積む。ネイティブがじかに（間に解釈フレームを挟まずに）送った `error:` など（文言のある失敗）を Proceed したあと、そのネイティブが失敗の印（空 OOP）を返したときも、インタプリタの送信の値は nil とし、もう一度止めない。より深い解釈メソッドの中の停止を Proceed したあとの、ネイティブの別の失敗は今までどおり止める。step、Debug it、`interrupted` の停止からは、止めた命令から続ける（halt 型の「送信の値 nil」ではない）。Proceed できない停止には `AO_ERR` を返す。中断のフラグは停止時に消費済みなので、Proceed のあと再要求するまで再停止しない。
 - Step: プロセスに step の印を立てて Proceed と同じく続ける。インタプリタのループの先頭（命令を実行する前）で印を見て、下の位置に来たら理由 `step` で止める。深さは、そのプロセスの連鎖の解釈フレームの段数である。基準の深さは、止まったときの最内の解釈フレームの深さである。
   - Step into: 基準より深いフレーム（送信した先の解釈メソッド、ブロック）の最初の命令、基準より浅いフレーム（呼び出し元に戻ったところ）、基準と同じ深さの文の先頭（§3.8 の文の先頭表）。ネイティブの中には入らない（ネイティブが呼んだブロックとメソッドには入る）。
@@ -1662,10 +1667,10 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
   - 印はそのプロセスだけのものである。abort の最中と、abort の途中で走る後始末の中では止めず、印を残して続ける。止まっているプロセスがすでに 8 あって止められないときは、その理由（`step`、`debug it`、`interrupted`）で abort する。評価プロセスが終われば、止まらずに答えを返す。
   - インタプリタのループに足すのは、印を見る 1 分岐だけである（§1.3）。
 - Abort: 止まったプロセスを `terminate` する（後始末を走らせる。§3.4）。後始末の中の失敗は止めない（abort の最中）。後始末が切り替えれば、`terminate` と同じくそこで戻り、残りはあとの drain と評価で続く。
-- Proceed と Step の答えは `ao_eval` の末尾と同じである（§3.10 の「ライブデバッガの操作」）。
+- Proceed と Step と Restart の答えは `ao_eval` の末尾と同じである（§3.10 の「ライブデバッガの操作」）。
 - Debug it（`AO_EVAL_DEBUGIT`）: step into の印を立てて評価プロセスを始め、doIt の最初の命令の前で理由 `debug it` で止める（`AO_ERR_HALT`）。終わったときの答えは Do it と同じである（`out` は空）。
 
-やらない: Restart（フレームの再実行）、Debugger の中の編集と Accept、temp の書き換え、ネイティブへの step into、ベースの停止、評価プロセスでないプロセスの停止、ネイティブ safepoint での中断、ネイティブへの safepoint 強制挿入、ライブモード off での中断停止、CLI の `SIGINT`、Escape キー。
+やらない: Debugger の中の編集と Accept、temp の書き換え、ネイティブへの step into、ネイティブフレームの Restart、ベースの停止、評価プロセスでないプロセスの停止、ネイティブ safepoint での中断、ネイティブへの safepoint 強制挿入、ライブモード off での中断停止、CLI の `SIGINT`、Escape キー。
 
 ---
 
@@ -1699,6 +1704,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 - `debug_abi_test`: デバッガの読み出し（§3.10）。最内が先頭（`EvalErrorFillsFramesInnermostFirst`）、失敗した送信の区間（`FrameSourceHighlightsFailingSend`）、doIt の座標（`DoItFrameSourceDropsPrefix`）、ラベル（`BlockFrameLabelIsBracketsIn`、`NativeFrameLabelNamesSymbol`）、busy の拒否（`TempPrintIsRefusedWhileBusy`）、printString の abort がスナップショットを置き換えない（`TempPrintAbortDoesNotReplaceSnapshot`）、printString の中から捕捉を有効にしても出るまで効かない（`CaptureTurnedOnDuringTempPrintWaitsForTheEnd`）、次の評価と generation（`NextEvalClearsSnapshotAndBumpsGeneration`）、消去でルートの数が戻る（`ClearDropsRoots`）、捕捉が無効ならフレーム無し（`CaptureOffLeavesNoFrames`）、プレースホルダと `arg1` / `t1`（`NoSourceMethodAnswersPlaceholderAndGenericTempNames`）、inspect フック（`InspectFiresHookWithTempValue`）、drain 中のプロセスの失敗（`ProcessFailureIsReadableAfterEval`）、バッファの規則（`BuffersFollowRangeRule`）、設定が boot とロードをまたぐ（`CaptureSettingSurvivesBootAndLoad`）。`image_save_load_test` の `FailedLoadKeepsDebugGeneration`: 探針の abort で失敗したロードは generation とスナップショットを変えない
 - ライブデバッガ（§3.13。P11）: `session_abi_test` に評価プロセス（`LiveModeRunsDoItOnEvalProcess`、`LiveModeErrorAnswersEvalErrorAndCaptures`、`LiveModeDeadlockFailsEvalProcessAndRunsEnsure`、`LiveModeSharesWorkspaceBindings`、`DefaultModeUnchanged`）。`debug_abi_test` に停止（`HaltStopsWithHaltCodeAndLiveTemps`、`DnuAndErrorAndFailedSendStop`、`NonBooleanAndCannotReturnStopWithoutProceed`、`StackOverflowAndOomStillAbort`、`NinthHaltAborts`、`HaltedProcessIsNotBusy`、`SelectUnknownPidFails`）、Proceed と Abort（`ProceedAnswersNilAndFinishesPrintIt`、`ProceedCanHaltAgain`、`AbortRunsEnsureBlocks`、`ErrorInCleanupDuringAbortDoesNotStop`、`ProceedOnNonProceedableIsRefused`、`ProceedWhileBusyIsRefused`）、Step と Debug it（`StepOverMovesToNextStatement`、`StepOverDoesNotEnterBlocks`、`StepIntoEntersInterpretedMethod`、`StepIntoSkipsNative`、`StepOutStopsInSender`、`StepPastEndFinishesEval`、`DebugItStopsAtFirstBytecode`）。`image_save_load_test` の `SaveWithHaltedProcessIsRefused`。`process_test` に評価プロセスの状態遷移
 - 評価の中断（§3.10、§3.13。P13）: `debug_abi_test` に、ライブモードでタイトな後方ジャンプのループ中にフラグを立てると `AO_ERR_HALT` と理由 `interrupted` で、停止は命令境界で合成の最内ネイティブフレームが無い（`InterruptHaltsTightLoopAtBytecodeBoundary`）、Proceed は止めた命令から続きループが再開し、フラグは 1 回で消費されて再要求なしでは再停止しない（`InterruptProceedResumesWithoutRearm`）、ライブモード off ではフラグがあっても評価が完走する（`InterruptIgnoredWhenNotLive`）、中断停止中の Save Image 拒否は P11 と同じ（`SaveImageRefusedWhileInterruptedHalt`）、busy 中の `ao_request_interrupt` は成功する（`RequestInterruptSucceedsWhileBusy`）、pump 未登録でもフラグだけで止まれる（`InterruptWithoutPumpUsesPendingFlag`）、評価プロセスでないプロセスの実行中にフラグを立ててもそのプロセスは止まらない（`InterruptDoesNotHaltForkedProcess`）、止まっているプロセスが 8 あるときの中断は理由 `interrupted` で abort する（`NinthInterruptAborts`）、後方ジャンプの無いブロックの起動（`timesRepeat:` から呼ばれるブロック）でも止まる（`InterruptStopsAtBlockActivationWithoutBackwardJump`）、飛ばずに抜けた後方条件ジャンプでは止まらない（`InterruptIgnoredOnUntakenBackwardJump`）、別の理由の停止のあと立った要求で Proceed が `interrupted` で止まらない（`ProceedClearsStaleInterruptRequest`）、中断の Proceed のあと再要求するとまた `interrupted` で止まる（`InterruptAgainAfterProceedHaltsAgain`）、後方ジャンプで止めたときのコンテキストの pc は飛び先（`InterruptOnBackwardJumpShowsTargetPc`）。Kernel 走査、`ao --test image/tests`、既存デバッガ系は緑のまま。`docs/bench.md` のホットループ比が揺らぎを超えて悪化しない
+- Restart（§3.10、§3.13。P14）: `debug_abi_test` に、合成ネイティブ（index 0）の拒否（`RestartNativeFrameIsRefused`）、`halt` の sender をやり直すと本体がもう一度走り halt の nil にはしない（`HaltThenRestartDoesNotAnswerHaltNil`）、入れ子の外側を選ぶ（`RestartOuterInterpretedFrameDropsInner`）、ブロックとホームの差（`RestartBlockKeepsHome`、`RestartHomeDropsBlock`）、ブロックの copied 値と temp vector を保つ（`RestartBlockKeepsCopiedValue`、`RestartBlockKeepsTempVector`）、送信の失敗で止まったフレームもやり直す（`RestartAfterFailedSendRerunsFrame`）、外側を選んだとき内側の `ensure:` / `ifCurtailed:` が走らない（`RestartDoesNotRunInnerEnsure`、`RestartDoesNotRunInnerIfCurtailed`）、step と `interrupted` からもできる（`RestartFromStep`、`RestartFromInterrupt`）、Proceed 不能でも解釈フレームならできる（`RestartOnNonProceedable`）、事後と未知 pid の拒否（`RestartPostmortemIsRefused`、`RestartUnknownPidFails`）、busy の拒否（`RestartWhileBusyIsRefused`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
 - `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる
@@ -1729,6 +1735,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - Debugger（§3.9、§3.13）: Debug ボタンと最内が先頭のフレーム（`testDoItErrorShowsDebugButtonAndOpensDebuggerWithInnermostFrameFirst`）、失敗した送信の選択（`testSelectingFrameSelectsFailingSendSpanInSource`）、`self` と引数と temps の値（`testVariablesListSelfArgsAndTempsWithPrintStrings`）、ダブルクリックで Inspector（`testDoubleClickVariableOpensInspector`）、プレースホルダ（`testNoSourceFrameShowsPlaceholderReadOnly`）、次の評価のあとの Inspect（`testNextEvalDisablesInspectInOpenDebugger`）、文字の大きさ（`testDebuggerSourceFollowsTextSize`）、コンパイルエラーでは Debug を出さない（`testCompileErrorShowsNoDebugButton`）、`process failed:`（`testProcessFailureShowsReasonAndDebugButton`）、VoiceOver ラベル（`testDebuggerControlsHaveAccessibilityLabels`）
 - ライブ Debugger（§3.9、§3.13。P11）: `self halt` で開き temps が見える（`testHaltOpensLiveDebuggerWithTemps`）、Proceed で Print it の結果を挿入（`testProceedInsertsPrintItResult`）、Abort で `ensure:` が走り窓が閉じる（`testAbortRunsEnsureAndClosesWindow`）、Step で選択が動く（`testStepButtonsMoveSelection`）、Proceed できない停止でボタンが無効（`testNonProceedableDisablesProceedAndStep`）、窓を閉じると Abort（`testClosingWindowAbortsProcess`）、窓を開いたまま Do it（`testDoItWhileDebuggerOpen`）、Debug it（`testDebugItStopsAtFirstStatement`）。`ToolWindowTests.testMainMenuListsToolsAndSmalltalkKeys` に `⌘⇧D`、`AcceptTests.testSaveWithHaltedProcessShowsReason`
 - 評価の中断（§3.9、§3.10。P13）: Interrupt メニュー項目と ⌘. のバインド（`testInterruptMenuItemAndCommandPeriod`）、評価中に中断要求するとライブ Debugger が開き理由に `interrupted` が含まれる（`testInterruptDuringEvalOpensLiveDebuggerWithInterruptedReason`）、評価していないときの Interrupt がクラッシュや不正な halt を残さない（`testInterruptWhenIdleIsHarmless`）、pump がキューのイベントを配り、外すと配らない（`testRunLoopPumpHookCanBeSetAndCleared`）、評価中に送った ⌘. のキーイベントが pump からメニューに届き `interrupted` で止まる（`testCommandPeriodKeyEventDuringEvalInterrupts`）、入れ子の `EvaluationActivity.whileActive` が外側の評価中の状態を保つ（`testNestedEvaluationActivityStaysActiveUntilOutermostEnds`）、評価中に閉じようとしたライブ Debugger は閉じず止まったプロセスも残る（`testClosingLiveDebuggerDuringEvaluationKeepsIt`）、評価中に本文が短くなった Print it は末尾に挿入する（`testPrintItAfterEditDuringEvaluationInsertsAtEnd`）
+- Restart（§3.9、§3.13。P14）: ボタン列に Restart がある（`testHaltOpensLiveDebuggerWithTemps` のボタン名）、合成ネイティブでは無効で解釈フレームでは有効（`testRestartDisabledOnNativeFrameEnabledOnInterpreted`）、Restart で本体がもう一度走る（`testRestartRerunsMethodFromStart`）
 - Browser の削除（§3.9「削除」。P12）: Smalltalk メニューの 2 項目と有効・無効（`testRemoveMenuItemsFollowSelection`）、右クリックメニュー（`testContextMenusOfferRemove`）、確認で Remove を選ぶとメソッドが消えセレクタの選択が外れる（`testRemoveMethodAfterConfirmUpdatesLists`）、Cancel で何も変わらない（`testCancelRemoveChangesNothing`）、クラスの削除で一覧から消える（`testRemoveClassAfterConfirmUpdatesLists`）、拒否でエラー欄に理由が出て一覧が変わらない（`testRefusedRemoveShowsReason`）、Accept していない編集があれば破棄の確認が先（`testRemoveAsksToDiscardEditsFirst`）。クラス ID（P12 追補）: 別名だけが持つ旧クラスの行と新しい同名のクラスの行が、それぞれ自分のクラスを表示し、消し、Accept する（`AcceptTests.testAliasedOldClassRowActsOnItsOwnClass`）、イメージのロードのあと同じ名前のクラスを選び直し、削除が新しいセッションのクラスに効く（`AcceptTests.testImageLoadReselectsTheClassByName`）、行は 1 クラス 1 行で ID を持つ（`BrowserModelTests.testClassRowsCarryOneIdPerClass`）
 - ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
 
@@ -1889,6 +1896,18 @@ P13（§3.9、§3.10、§3.13）は次をすべて満たす。上の項目は変
 - [x] ライブモード off（CLI 既定と `ao --test`）ではフラグがあっても止まらず、振る舞いが変わらない
 - [x] Kernel 走査緑、`docs/bench.md` の比が悪化しない
 - [x] `PHASE` は `P13`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
+
+### Restart
+
+P14（§3.9、§3.10、§3.13）は次をすべて満たす。上の項目は変えない。
+
+- [x] Workspace の `self halt` で、合成ネイティブ行の Restart は無効で、その sender の Restart は本体を先頭からやり直す（halt の nil にはしない）
+- [x] 入れ子の解釈メソッドの外側を Restart すると内側は捨てられる
+- [x] 内側の `ensure:` は Restart では走らず、Abort では走る
+- [x] Proceed 不能（`3 ifTrue: [4]`）でも doIt の Restart はできる
+- [x] ライブモード off（CLI 既定と `ao --test`）は変えない
+- [x] Kernel 走査緑、`docs/bench.md` の比が悪化しない
+- [x] `PHASE` は `P14`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
 
 ---
 

@@ -133,13 +133,20 @@ struct FrameLink {
     frame.depth = ctx.topFrame != nullptr ? ctx.topFrame->depth + 1 : 0;
     ctx.topFrame = &frame;
   }
-  ~FrameLink() { ctx.topFrame = frame.prev; }
+  ~FrameLink() {
+    ctx.topFrame = frame.prev;
+    // A Restart target that leaves without restarting: no later frame may match its address.
+    if (ctx.restartFrame == &frame) [[unlikely]] {
+      ctx.restartFrame = nullptr;
+    }
+  }
   FrameLink(const FrameLink&) = delete;
   FrameLink& operator=(const FrameLink&) = delete;
 };
 
 struct Leave {
   bool leave = false;
+  bool restart = false;
   Oop value{};
 };
 
@@ -163,7 +170,13 @@ void clearNonlocal(CallContext& ctx) {
   ctx.nonlocalValue = Oop{};
 }
 
-Leave consumeNonlocal(CallContext& ctx, bool isMethod, Oop methodContext, bool outermost) {
+Leave consumeNonlocal(CallContext& ctx, const Frame& frame, bool isMethod, bool outermost) {
+  // SPEC §3.13 Restart: the frames above the target unwind, and the target starts over.
+  if (ctx.restarting) [[unlikely]] {
+    Leave r = miss();
+    r.restart = ctx.restartFrame == &frame;
+    return r;
+  }
   // An abort has no home: no frame stops it (SPEC §3.4). The outermost entry clears it.
   if (ctx.aborting) {
     return miss();
@@ -171,7 +184,7 @@ Leave consumeNonlocal(CallContext& ctx, bool isMethod, Oop methodContext, bool o
   if (!ctx.nonlocalReturn) {
     return {};
   }
-  if (isMethod && ctx.nonlocalHome == methodContext) {
+  if (isMethod && ctx.nonlocalHome == frame.context) {
     const Oop value = ctx.nonlocalValue;
     clearNonlocal(ctx);
     return hit(value);
@@ -361,7 +374,9 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
     result = Oop::nil();
   }
   frame.sendReceiver = nullptr;
-  const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);
+  // A Restart set by a halt in the send or by stopFailedSend's own halt above leaves here too
+  // (unwinding() is true while restarting, so a restart under way does not halt again).
+  const Leave nl = consumeNonlocal(ctx, frame, !frame.isBlock, outermost);
   if (nl.leave) {
     return nl;
   }
@@ -376,7 +391,7 @@ Leave branchTruth(CallContext& ctx, Frame& frame, Oop value, bool outermost, boo
     return {};
   }
   // mustBeBoolean unwound: a non-local return may end at this frame; an abort never does.
-  const Leave nl = consumeNonlocal(ctx, !frame.isBlock, frame.context, outermost);
+  const Leave nl = consumeNonlocal(ctx, frame, !frame.isBlock, outermost);
   return nl.leave ? nl : miss();
 }
 
@@ -467,6 +482,58 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
   return ctx.scheduler->halt(ctx, reason, true);
 }
 
+// A block activation's copied values (kBlockCopied of its context) into its last temps.
+// False when the copied slot is malformed (neither nil nor a pointer object that fits).
+bool seedCopied(CallContext& ctx, Oop context, Temps& temps, std::uint8_t numTemps) {
+  const Oop copied = ctx.heap.slotAt(context, kBlockCopied);
+  if (copied.isNil()) {
+    return true;
+  }
+  if (!copied.isHeap() || (ctx.heap.flags(copied) & kFlagBytes) != 0) {
+    return false;
+  }
+  const std::uint32_t cn = ctx.heap.size(copied);
+  if (cn > numTemps) {
+    return false;
+  }
+  for (std::uint32_t i = 0; i < cn; ++i) {
+    temps.put(numTemps - cn + i, ctx.heap.slotAt(copied, i));
+  }
+  return true;
+}
+
+bool applyRestart(CallContext& ctx, Frame& frame, Temps& temps, OperandStack& stack,
+                  std::uint8_t numArgs, std::uint8_t numTemps) {
+  if (!ctx.restarting || ctx.restartFrame != &frame) {
+    return false;
+  }
+  frame.pc = 0;
+  frame.sendReceiver = nullptr;
+  frame.sendSelector = nullptr;
+  frame.sendArgs = nullptr;
+  frame.sendArgc = 0;
+  while (stack.depth() > 0) {
+    Oop v;
+    stack.pop(&v);
+  }
+  for (std::uint32_t i = numArgs; i < temps.n; ++i) {
+    temps.put(i, Oop::nil());
+  }
+  // A block's copied values (the last temps) are part of its activation, as run() set them.
+  // Malformed now (written while halted): the restart ends in an abort, not a failed send.
+  if (frame.isBlock && !seedCopied(ctx, frame.context, temps, numTemps)) {
+    ctx.restarting = false;
+    ctx.restartFrame = nullptr;
+    abortEvaluation(ctx, "restart failed");
+    return false;
+  }
+  ctx.restarting = false;
+  ctx.restartFrame = nullptr;
+  ctx.proceededAt = nullptr;
+  ctx.stepMode = StepMode::None;
+  return true;
+}
+
 }  // namespace
 
 Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc,
@@ -532,22 +599,8 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
   for (std::uint32_t i = 0; i < argc; ++i) {
     temps.put(i, argHold.ptr()[i]);
   }
-  if (frame->isBlock) {
-    const Oop copied = ctx.heap.slotAt(frame->context, kBlockCopied);
-    if (copied.isHeap()) {
-      if ((ctx.heap.flags(copied) & kFlagBytes) != 0) {
-        return Oop{};
-      }
-      const std::uint32_t cn = ctx.heap.size(copied);
-      if (cn > numTemps) {
-        return Oop{};
-      }
-      for (std::uint32_t i = 0; i < cn; ++i) {
-        temps.put(numTemps - cn + i, ctx.heap.slotAt(copied, i));
-      }
-    } else if (!copied.isNil()) {
-      return Oop{};
-    }
+  if (frame->isBlock && !seedCopied(ctx, frame->context, temps, numTemps)) {
+    return Oop{};
   }
 
   OperandStack stack(ctx.roots);
@@ -559,7 +612,9 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     if (ao::interruptRequested()) {
       mirror(ctx, *frame, stack.depth());
       if (!checkInterrupt(ctx)) {
-        return Oop{};
+        if (!applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
+          return Oop{};
+        }
       }
     }
   }
@@ -571,6 +626,9 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     // SPEC §3.13: the one branch the live debugger's step adds to the loop.
     if (ctx.stepMode != StepMode::None) [[unlikely]] {
       if (!stepCheck(ctx, *frame)) {
+        if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
+          continue;
+        }
         return Oop{};
       }
     }
@@ -723,6 +781,12 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
         const Leave sent =
             performSend(ctx, *frame, stack, argb[1], selector, op == compiler::Op::SendSuper,
                         depth.outermost);
+        if (sent.restart) {
+          if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
+            continue;
+          }
+          return Oop{};
+        }
         if (sent.leave) {
           return sent.value;
         }
@@ -739,6 +803,12 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           }
           bool truth = false;
           const Leave nl = branchTruth(ctx, *frame, v, depth.outermost, &truth);
+          if (nl.restart) {
+            if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
+              continue;
+            }
+            return Oop{};
+          }
           if (nl.leave) {
             return nl.value;
           }
@@ -754,6 +824,9 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           if (rel < 0 && ao::checkpointWork() && ao::interruptRequested()) [[unlikely]] {
             mirror(ctx, *frame, stack.depth());
             if (!checkInterrupt(ctx)) {
+              if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
+                continue;
+              }
               return Oop{};
             }
           }
@@ -793,13 +866,26 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
             return Oop{};
           }
           const Oop answer = send(ctx, frame->context, sel.slot, &value.slot, 1, nullptr);
-          const Leave nl = consumeNonlocal(ctx, false, frame->context, depth.outermost);
+          const Leave nl = consumeNonlocal(ctx, *frame, false, depth.outermost);
+          if (nl.restart) {
+            if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
+              continue;
+            }
+            return Oop{};
+          }
           return nl.leave ? nl.value : answer;
         }
         ctx.nonlocalReturn = true;
         ctx.nonlocalHome = home;
         ctx.nonlocalValue = v;
-        return consumeNonlocal(ctx, false, frame->context, depth.outermost).value;
+        const Leave nl = consumeNonlocal(ctx, *frame, false, depth.outermost);
+        if (nl.restart) {
+          if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
+            continue;
+          }
+          return Oop{};
+        }
+        return nl.value;
       }
       case compiler::Op::CreateBlock: {
         Oop lit;

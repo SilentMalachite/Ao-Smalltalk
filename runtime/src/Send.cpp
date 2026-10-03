@@ -231,7 +231,9 @@ Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std
   return applyMethod(ctx, meth, receiver, args, argc);
 }
 
-bool unwinding(const CallContext& ctx) { return ctx.nonlocalReturn || ctx.aborting; }
+bool unwinding(const CallContext& ctx) {
+  return ctx.nonlocalReturn || ctx.aborting || ctx.restarting;
+}
 
 namespace {
 
@@ -376,6 +378,8 @@ void clearUnwinding(CallContext& ctx) {
   }
   ctx.aborting = false;
   ctx.abortReason = nullptr;
+  ctx.restarting = false;
+  ctx.restartFrame = nullptr;
   dropNonlocal(ctx);
 }
 

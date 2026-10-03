@@ -137,8 +137,10 @@ class Scheduler {
   int evalModeOf(std::uint64_t pid) const;
   // SPEC §3.13 操作, from the base. Proceed: the halted process pid (canProceed) goes on, and the
   // base waits for it as awaitEval does. Abort: it is terminated (its cleanups run on it); false
-  // when pid is not halted. Both leave the base not unwinding.
-  EvalEnd proceed(std::uint64_t pid);
+  // when pid is not halted. Both leave the base not unwinding. Restart proceeds with
+  // restartFrame (an interpreted frame of pid): that process need not be canProceed, and its
+  // halt reruns the frame.
+  EvalEnd proceed(std::uint64_t pid, const Frame* restartFrame = nullptr);
   // Step: proceed with the step mark set (SPEC §3.13 Step); the depth is its innermost frame's.
   EvalEnd step(std::uint64_t pid, StepMode mode);
   bool abortHalted(std::uint64_t pid);
