@@ -1338,6 +1338,35 @@ int sessionEvalResultLength() {
   return static_cast<int>(g_session->evalResult->size());
 }
 
+namespace {
+
+// SPEC §3.10 ライブデバッガの操作: Proceed, Step and Restart resume the halted process id as an
+// outermost entry like ao_eval: the result and the snapshot go first, and what an earlier entry
+// left is not blamed on it.
+int resumeHalted(Session& s, std::uint64_t id, StepMode step, char* out, int outLen, AoSpan* err,
+                 AoInspectFn inspect, void* inspectUser) {
+  s.evalResult = std::string();
+  sessionDebugClear();
+  // SPEC §3.10 評価の中断: a request raised while the process was halted is not carried in.
+  clearInterruptRequest();
+  resetRunLoopPumpThrottle();
+  CallContext& ctx = *s.ctx;
+  s.heap.clearOutOfMemory();
+  clearUnwinding(ctx);
+  refreshStackLimit(ctx);
+  ctx.abortSetAside = 0;
+  const int mode = s.scheduler->evalModeOf(id);
+  const Scheduler::EvalEnd end =
+      step == StepMode::None ? s.scheduler->proceed(id) : s.scheduler->step(id, step);
+  std::optional<std::string> printed = std::string();
+  std::string failure;
+  const int rc = answerAwaited(s, end, mode, out, outLen, err, inspect, inspectUser, &printed,
+                               &failure);
+  return finishEval(rc, true, std::move(printed), failure, out, outLen, err);
+}
+
+}  // namespace
+
 int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, AoSpan* err,
                        AoInspectFn inspect, void* inspectUser) {
   spanMessage(err, std::string());
@@ -1347,27 +1376,36 @@ int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, A
     blankOut(out, outLen);
     return AO_ERR;
   }
-  // SPEC §3.10 ライブデバッガの操作: an outermost entry like ao_eval: the result and the snapshot go
-  // first, and what an earlier entry left is not blamed on it.
-  s->evalResult = std::string();
-  sessionDebugClear();
-  // SPEC §3.10 評価の中断: a request raised while the process was halted is not carried in.
-  clearInterruptRequest();
-  resetRunLoopPumpThrottle();
-  CallContext& ctx = *s->ctx;
-  s->heap.clearOutOfMemory();
-  clearUnwinding(ctx);
-  refreshStackLimit(ctx);
-  ctx.abortSetAside = 0;
+  return resumeHalted(*s, static_cast<std::uint64_t>(pid), step, out, outLen, err, inspect,
+                      inspectUser);
+}
+
+int sessionDebugRestart(std::int64_t pid, int frameIndex, char* out, int outLen, AoSpan* err,
+                        AoInspectFn inspect, void* inspectUser) {
+  spanMessage(err, std::string());
+  Session* s = g_session.get();
+  if (s == nullptr || s->ctx == nullptr || s->scheduler == nullptr || out == nullptr ||
+      outLen < 1 || pid <= 0) {
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
   const auto id = static_cast<std::uint64_t>(pid);
-  const int mode = s->scheduler->evalModeOf(id);
-  const Scheduler::EvalEnd end =
-      step == StepMode::None ? s->scheduler->proceed(id) : s->scheduler->step(id, step);
-  std::optional<std::string> printed = std::string();
-  std::string failure;
-  const int rc = answerAwaited(*s, end, mode, out, outLen, err, inspect, inspectUser, &printed,
-                               &failure);
-  return finishEval(rc, true, std::move(printed), failure, out, outLen, err);
+  const std::string* reason = nullptr;
+  CallContext* fiber = s->scheduler->haltedContextMut(id, &reason);
+  if (fiber == nullptr) {
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  const LiveFrames frames(*fiber, *reason);
+  const Frame* target =
+      frameIndex >= 0 ? frames.frameAt(static_cast<std::uint32_t>(frameIndex)) : nullptr;
+  if (target == nullptr) {
+    spanMessage(err, "restart refused: not an interpreted frame");
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  fiber->restartFrame = target;
+  return resumeHalted(*s, id, StepMode::None, out, outLen, err, inspect, inspectUser);
 }
 
 int sessionDebugAbort(std::int64_t pid) {
@@ -2291,6 +2329,20 @@ int debugCanProceed(std::int64_t pid) {
                  s->scheduler->canProceed(static_cast<std::uint64_t>(pid))
              ? 1
              : 0;
+}
+
+int debugCanRestart(std::int64_t pid, int frameIndex) {
+  Session* s = session();
+  if (s == nullptr || s->scheduler == nullptr || pid <= 0 || frameIndex < 0) {
+    return 0;
+  }
+  const std::string* reason = nullptr;
+  const CallContext* ctx = s->scheduler->haltedContext(static_cast<std::uint64_t>(pid), &reason);
+  if (ctx == nullptr) {
+    return 0;
+  }
+  const LiveFrames frames(*ctx, *reason);
+  return frames.frameAt(static_cast<std::uint32_t>(frameIndex)) != nullptr ? 1 : 0;
 }
 
 int debugSelect(std::int64_t pid) {

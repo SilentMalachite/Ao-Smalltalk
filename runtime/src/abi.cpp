@@ -338,6 +338,10 @@ extern "C" int ao_debug_can_proceed(int64_t pid) {
   return guarded(0, [&] { return ao::debugCanProceed(pid); });
 }
 
+extern "C" int ao_debug_can_restart(int64_t pid, int frame_index) {
+  return guarded(0, [&] { return ao::debugCanRestart(pid, frame_index); });
+}
+
 extern "C" int ao_debug_select(int64_t pid) {
   return guarded(AO_ERR, [&] { return ao::debugSelect(pid); });
 }
@@ -396,17 +400,23 @@ extern "C" int ao_debug_clear(void) {
 // SPEC §3.10 ライブデバッガの操作: outermost entries, refused while busy.
 namespace {
 
-int debugResume(int64_t pid, ao::StepMode step, char* out, int out_len, AoSpan* err) {
+// Proceed, Step and Restart: one outermost entry around body; AO_ERR when it is refused.
+template <typename Body>
+int debugResumeEntry(char* out, int out_len, AoSpan* err, Body&& body) {
   const AbiEntry entry;
-  const int rc = !entry.entered() ? -1 : guarded(-1, [&] {
-    return ao::sessionDebugResume(pid, step, out, out_len, err, g_inspectFn, g_inspectUser);
-  });
+  const int rc = !entry.entered() ? -1 : guarded(-1, body);
   if (rc != -1) {
     return rc;
   }
   clearSpan(err);
   blankBuf(out, out_len);
   return AO_ERR;
+}
+
+int debugResume(int64_t pid, ao::StepMode step, char* out, int out_len, AoSpan* err) {
+  return debugResumeEntry(out, out_len, err, [&] {
+    return ao::sessionDebugResume(pid, step, out, out_len, err, g_inspectFn, g_inspectUser);
+  });
 }
 
 }  // namespace
@@ -425,6 +435,12 @@ extern "C" int ao_debug_step_over(int64_t pid, char* out, int out_len, AoSpan* e
 
 extern "C" int ao_debug_step_out(int64_t pid, char* out, int out_len, AoSpan* err) {
   return debugResume(pid, ao::StepMode::Out, out, out_len, err);
+}
+
+extern "C" int ao_debug_restart(int64_t pid, int frame_index, char* out, int out_len, AoSpan* err) {
+  return debugResumeEntry(out, out_len, err, [&] {
+    return ao::sessionDebugRestart(pid, frame_index, out, out_len, err, g_inspectFn, g_inspectUser);
+  });
 }
 
 extern "C" int ao_debug_abort(int64_t pid) {

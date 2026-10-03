@@ -322,9 +322,59 @@ final class DebuggerWindowTests: XCTestCase {
     debugger.selectFrame(1)
     XCTAssertEqual(debugger.variable(at: 1).name, "a")
     XCTAssertEqual(debugger.variable(at: 1).value, "42")
-    XCTAssertEqual(debugger.buttons.map(\.title), ["Proceed", "Abort", "Step over", "Step into", "Step out"])
+    XCTAssertEqual(debugger.buttons.map(\.title), ["Proceed", "Abort", "Restart", "Step over", "Step into", "Step out"])
     XCTAssertTrue(debugger.buttons.allSatisfy(\.isEnabled))
     XCTAssertEqual(debugger.buttons.map { $0.accessibilityLabel() ?? "" }, debugger.buttons.map(\.title))
+  }
+
+  // 合成ネイティブ行では Restart は無効、解釈フレームでは有効。
+  func testRestartDisabledOnNativeFrameEnabledOnInterpreted() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let workspace = workspace("self halt. 1")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertEqual(debugger.selectedFrame, 0)
+    let restart = debugger.buttons.first { $0.title == "Restart" }
+    XCTAssertNotNil(restart)
+    XCTAssertFalse(restart?.isEnabled ?? true)
+    debugger.selectFrame(1)
+    XCTAssertTrue(restart?.isEnabled ?? false)
+    // 選択を外すと Restart の対象がないので無効に戻る。
+    table(labelled: "Frames", in: debugger.window)?.deselectAll(nil)
+    XCTAssertNil(debugger.selectedFrame)
+    XCTAssertFalse(restart?.isEnabled ?? true)
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // Restart は本体を先頭からやり直す（halt の送信値 nil にはしない）。
+  func testRestartRerunsMethodFromStart() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let def =
+      "Object subclass: #DbgWinBump\n  instanceVariableNames: 't'\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'P14-Test'!\n"
+    var err = AoSpan()
+    let defined = def.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+    XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
+    acceptMethod("DbgWinBump", "bump\n  t isNil ifTrue: [t := 0].\n  t := t + 1.\n  self halt.\n  ^t")
+    let workspace = workspace("DbgWinBump new bump")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    button("Restart", in: debugger)?.performClick(nil)
+    XCTAssertTrue(debugger.window.isVisible)
+    button("Proceed", in: debugger)?.performClick(nil)
+    XCTAssertEqual(workspace.text, "DbgWinBump new bump2")
+    XCTAssertFalse(debugger.window.isVisible)
   }
 
   // Proceed runs the rest; the Print it's value goes into the Workspace after the evaluated text.
@@ -407,7 +457,7 @@ final class DebuggerWindowTests: XCTestCase {
       XCTFail("NonBoolean opened no Debugger")
       return
     }
-    XCTAssertEqual(debugger.buttons.filter(\.isEnabled).map(\.title), ["Abort"])
+    XCTAssertEqual(debugger.buttons.filter(\.isEnabled).map(\.title), ["Abort", "Restart"])
     button("Abort", in: debugger)?.performClick(nil)
     XCTAssertEqual(ao_debug_halted_count(), 0)
   }
@@ -703,12 +753,18 @@ final class DebuggerWindowTests: XCTestCase {
     (debugger.sourceText as NSString).substring(with: debugger.sourceSelection)
   }
 
-  private func acceptDbgWin(_ source: String) {
+  private func acceptMethod(_ className: String, _ source: String) {
     var err = AoSpan()
     let added = source.withCString { src in
-      withUnsafeMutablePointer(to: &err) { ao_accept_method("DbgWin", 0, src, $0) }
+      className.withCString { cls in
+        withUnsafeMutablePointer(to: &err) { ao_accept_method(cls, 0, src, $0) }
+      }
     }
     XCTAssertEqual(added, Int32(AO_OK), spanMessage(err))
+  }
+
+  private func acceptDbgWin(_ source: String) {
+    acceptMethod("DbgWin", source)
   }
 
   private func workspace(_ text: String) -> WorkspaceWindow {

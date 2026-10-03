@@ -515,7 +515,7 @@ bool Scheduler::runningEval() const { return current_->isEval; }
 bool Scheduler::canHalt(const CallContext& ctx) const {
   const Record& me = *current_;
   return me.isEval && me.id == awaited_ && me.ctx == &ctx && !ctx.aborting && !ctx.abandoning &&
-         ctx.abortSetAside == 0 && ctx.haltSuppressed == 0 && !me.abandon &&
+         !ctx.restarting && ctx.abortSetAside == 0 && ctx.haltSuppressed == 0 && !me.abandon &&
          !me.terminateRequested && haltedCount() < kMaxHalted;
 }
 
@@ -536,6 +536,12 @@ bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   me.haltReason.clear();
   me.proceedable = false;
   if (!afterResume(ctx, me)) {
+    ctx.restartFrame = nullptr;
+    ctx.restarting = false;
+    return false;
+  }
+  if (ctx.restartFrame != nullptr) {
+    ctx.restarting = true;
     return false;
   }
   ++ctx.haltProceeds;
@@ -566,6 +572,17 @@ const CallContext* Scheduler::haltedContext(std::uint64_t pid, const std::string
   return r->ctx;
 }
 
+CallContext* Scheduler::haltedContextMut(std::uint64_t pid, const std::string** reason) {
+  Record* r = pid != 0 ? findId(pid) : nullptr;
+  if (r == nullptr || r->state != State::Halted) {
+    return nullptr;
+  }
+  if (reason != nullptr) {
+    *reason = &r->haltReason;
+  }
+  return r->ctx;
+}
+
 bool Scheduler::canProceed(std::uint64_t pid) const {
   const Record* r = pid != 0 ? findId(pid) : nullptr;
   return r != nullptr && r->state == State::Halted && r->proceedable;
@@ -585,8 +602,10 @@ int Scheduler::evalModeOf(std::uint64_t pid) const {
 Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid) {
   assert(current_ == &base() && "proceed runs on the base process");
   Record* r = findId(pid);
-  assert(r != nullptr && r->state == State::Halted && r->proceedable && "proceed needs canProceed");
-  // In no list: awaitEval switches to it, and its halt returns true.
+  assert(r != nullptr && r->state == State::Halted &&
+         (r->proceedable || r->ctx->restartFrame != nullptr) &&
+         "proceed needs canProceed or a restart");
+  // In no list: awaitEval switches to it, and its halt returns (true, or false to restart).
   r->state = State::Suspended;
   return awaitEval(pid);
 }

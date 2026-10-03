@@ -254,7 +254,7 @@ Oop ao_BlockContext_ensure_(CallContext& ctx, const Oop& receiver, const Oop* ar
   Root result(ctx.roots);
   callBlock(ctx, receiver, nullptr, 0, &result.slot);
   // SPEC §3.4 abandon: the process ends without its cleanups.
-  if (!ctx.abandoning) {
+  if (!ctx.abandoning && !ctx.restarting) {
     runAside(ctx, args[0]);
   }
   return unwinding(ctx) ? Oop{} : result.slot;
@@ -271,7 +271,7 @@ Oop ao_BlockContext_ifCurtailed_(CallContext& ctx, const Oop& receiver, const Oo
     return result.slot;
   }
   // SPEC §3.4 abandon: the process ends without its cleanups.
-  if (!ctx.abandoning) {
+  if (!ctx.abandoning && !ctx.restarting) {
     runAside(ctx, args[0]);
   }
   return Oop{};

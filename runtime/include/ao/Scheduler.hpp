@@ -133,11 +133,14 @@ class Scheduler {
   const CallContext* haltedContext(std::uint64_t pid, const std::string** reason) const;
   bool canProceed(std::uint64_t pid) const;
   bool isHalted(std::uint64_t pid) const;
+  // The same, writable (Restart sets restartFrame on it).
+  CallContext* haltedContextMut(std::uint64_t pid, const std::string** reason);
   // The ao_eval mode the evaluating process pid answers for (0 when there is none).
   int evalModeOf(std::uint64_t pid) const;
   // SPEC §3.13 操作, from the base. Proceed: the halted process pid (canProceed) goes on, and the
   // base waits for it as awaitEval does. Abort: it is terminated (its cleanups run on it); false
-  // when pid is not halted. Both leave the base not unwinding.
+  // when pid is not halted. Both leave the base not unwinding. Restart proceeds too, once
+  // restartFrame is set: that process need not be canProceed, and its halt reruns the frame.
   EvalEnd proceed(std::uint64_t pid);
   // Step: proceed with the step mark set (SPEC §3.13 Step); the depth is its innermost frame's.
   EvalEnd step(std::uint64_t pid, StepMode mode);
