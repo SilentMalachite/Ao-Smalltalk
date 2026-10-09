@@ -8,7 +8,7 @@ English (canonical GitHub text): [README.md](README.md)
 
 ## 現状
 
-**Ao 1.4.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P15 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を（1.4.0）、P15 で Debugger の編集と Accept を足しました（1.4.0）。
+**Ao 1.4.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P15 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を（1.3.0）、P15 で Debugger の編集と Accept を足しました（1.4.0）。
 
 | 領域 | できること |
 |---|---|

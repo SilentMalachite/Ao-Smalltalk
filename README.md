@@ -8,7 +8,7 @@ Product spec: [SPEC.md](SPEC.md) (Japanese; product authority). Agent process: [
 
 ## Status
 
-**Ao 1.4.0** is the current release. It completes phases P0–P15 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0); P14 adds Restart in the Debugger (1.4.0); P15 adds editing and Accept in the Debugger (1.4.0):
+**Ao 1.4.0** is the current release. It completes phases P0–P15 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0); P14 adds Restart in the Debugger (1.3.0); P15 adds editing and Accept in the Debugger (1.4.0):
 
 | Area | What Ao does |
 |---|---|
