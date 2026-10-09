@@ -196,11 +196,14 @@ int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, A
                        AoInspectFn inspect, void* inspectUser);
 int sessionDebugRestart(std::int64_t pid, int frameIndex, char* out, int outLen, AoSpan* err,
                         AoInspectFn inspect, void* inspectUser);
+int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, char* out,
+                       int outLen, AoSpan* err, AoInspectFn inspect, void* inspectUser);
 int sessionDebugAbort(std::int64_t pid);
 std::int64_t debugHaltedPid();
 int debugHaltedCount();
 int debugCanProceed(std::int64_t pid);
 int debugCanRestart(std::int64_t pid, int frameIndex);
+int debugCanAccept(std::int64_t pid, int frameIndex);
 int debugSelect(std::int64_t pid);
 // `replaced`, when a heap object, is dropped from the rooted table (with its blocks) before
 // `method` is stored. `image`, when given, is what `method` was boxed from: its blocks are found

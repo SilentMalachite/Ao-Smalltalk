@@ -25,6 +25,12 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
 // Kernel-ness is cls itself). "missing class: <name>" when cls is no Behavior.
 bool acceptMethodInto(CallContext& ctx, Oop cls, bool meta, std::string_view source,
                       compiler::CompileError* error);
+// SPEC §3.13 Accept (P15): acceptMethodInto with the same rules and messages, for a source whose
+// selector must be `selector`. On success *installed (a root slot of the caller) holds the new
+// method.
+bool acceptMethodReplacing(CallContext& ctx, Oop cls, bool meta, std::string_view source,
+                           std::string_view selector, Oop* installed,
+                           compiler::CompileError* error);
 bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::CompileError* error);
 
 // SPEC §3.9 削除. cls is the class a Browser class ID names. Every check runs before anything

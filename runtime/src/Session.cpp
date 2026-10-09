@@ -14,6 +14,7 @@
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
+#include "InterpFrame.hpp"
 
 #include "ao_abi.h"
 
@@ -1340,12 +1341,65 @@ int sessionEvalResultLength() {
 
 namespace {
 
+// SPEC §3.13 Accept (P15): the activation an Accept of frame i of the halted process starts over —
+// frame i when it is a method, or its block's home method activation, still on the same chain —
+// when its method is an accepted one: a CompiledMethod with its own source entry (not the doIt's,
+// not a block's) that its methodClass's dictionary still holds under its selector. Null otherwise,
+// with the refusal in *refusal. Allocates nothing.
+const Frame* acceptTarget(Session& s, const CallContext& fiber, const LiveFrames& frames,
+                          int frameIndex, const char** refusal) {
+  *refusal = "debugger accept refused: not an accepted method";
+  const Frame* f =
+      frameIndex >= 0 ? frames.frameAt(static_cast<std::uint32_t>(frameIndex)) : nullptr;
+  if (f == nullptr) {
+    return nullptr;
+  }
+  if (f->isBlock) {
+    const Oop home = s.heap.slotAt(f->context, kBlockHome);
+    const Frame* h = nullptr;
+    for (const Frame* g = fiber.topFrame; g != nullptr; g = g->prev) {
+      if (!g->isBlock && g->context == home) {
+        h = g;
+        break;
+      }
+    }
+    if (h == nullptr) {
+      *refusal = "debugger accept refused: home frame is not on the stack";
+      return nullptr;
+    }
+    f = h;
+  }
+  const Oop m = f->method;
+  if (!m.isHeap() || s.heap.klass(m) != s.wk.compiledMethodClass) {
+    return nullptr;
+  }
+  const bool hasEntry =
+      std::any_of(s.methodSources.begin(), s.methodSources.end(),
+                  [m](const std::unique_ptr<Session::MethodSource>& e) { return e->method == m; });
+  if (!hasEntry) {
+    return nullptr;
+  }
+  const Oop cls = s.heap.slotAt(m, kCmSlotMethodClass);
+  const Oop sel = s.heap.slotAt(m, kCmSlotSelector);
+  if (!cls.isHeap() || !sel.isHeap()) {
+    return nullptr;
+  }
+  const Oop dict = s.heap.slotAt(cls, kClassSlotMethodDict);
+  if (!dict.isHeap() || MethodDictionary::at(s.heap, dict, sel) != m) {
+    return nullptr;
+  }
+  *refusal = nullptr;
+  return f;
+}
+
 // SPEC §3.10 ライブデバッガの操作: Proceed, Step and Restart resume the halted process id as an
 // outermost entry like ao_eval: the result and the snapshot go first, and what an earlier entry
 // left is not blamed on it.
-// restartFrame (with step None) makes it a Restart of that frame.
-int resumeHalted(Session& s, std::uint64_t id, StepMode step, const Frame* restartFrame, char* out,
-                 int outLen, AoSpan* err, AoInspectFn inspect, void* inspectUser) {
+// restartFrame (with step None) makes it a Restart of that frame; acceptCount acceptSlots with it
+// make it an Accept (P15).
+int resumeHalted(Session& s, std::uint64_t id, StepMode step, const Frame* restartFrame,
+                 const Oop* acceptSlots, std::size_t acceptCount, char* out, int outLen,
+                 AoSpan* err, AoInspectFn inspect, void* inspectUser) {
   s.evalResult = std::string();
   sessionDebugClear();
   // SPEC §3.10 評価の中断: a request raised while the process was halted is not carried in.
@@ -1358,7 +1412,8 @@ int resumeHalted(Session& s, std::uint64_t id, StepMode step, const Frame* resta
   ctx.abortSetAside = 0;
   const int mode = s.scheduler->evalModeOf(id);
   const Scheduler::EvalEnd end =
-      step == StepMode::None ? s.scheduler->proceed(id, restartFrame) : s.scheduler->step(id, step);
+      step == StepMode::None ? s.scheduler->proceed(id, restartFrame, acceptSlots, acceptCount)
+                             : s.scheduler->step(id, step);
   std::optional<std::string> printed = std::string();
   std::string failure;
   const int rc = answerAwaited(s, end, mode, out, outLen, err, inspect, inspectUser, &printed,
@@ -1377,8 +1432,8 @@ int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, A
     blankOut(out, outLen);
     return AO_ERR;
   }
-  return resumeHalted(*s, static_cast<std::uint64_t>(pid), step, nullptr, out, outLen, err, inspect,
-                      inspectUser);
+  return resumeHalted(*s, static_cast<std::uint64_t>(pid), step, nullptr, nullptr, 0, out, outLen,
+                      err, inspect, inspectUser);
 }
 
 int sessionDebugRestart(std::int64_t pid, int frameIndex, char* out, int outLen, AoSpan* err,
@@ -1405,7 +1460,80 @@ int sessionDebugRestart(std::int64_t pid, int frameIndex, char* out, int outLen,
     blankOut(out, outLen);
     return AO_ERR;
   }
-  return resumeHalted(*s, id, StepMode::None, target, out, outLen, err, inspect, inspectUser);
+  return resumeHalted(*s, id, StepMode::None, target, nullptr, 0, out, outLen, err, inspect,
+                      inspectUser);
+}
+
+int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, char* out,
+                       int outLen, AoSpan* err, AoInspectFn inspect, void* inspectUser) {
+  spanMessage(err, std::string());
+  Session* s = g_session.get();
+  if (s == nullptr || s->ctx == nullptr || s->scheduler == nullptr || source == nullptr ||
+      out == nullptr || outLen < 1 || pid <= 0) {
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  const auto id = static_cast<std::uint64_t>(pid);
+  const std::string* reason = nullptr;
+  const CallContext* fiber = s->scheduler->haltedContext(id, &reason);
+  if (fiber == nullptr) {
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  const LiveFrames frames(*fiber, *reason);
+  const char* refusal = nullptr;
+  const Frame* target = acceptTarget(*s, *fiber, frames, frameIndex, &refusal);
+  if (target == nullptr) {
+    spanMessage(err, refusal);
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  // [0] the accepted method, [1] the receiver, [2..] the arguments: pinned before the compile,
+  // which may collect, and handed to the process by proceed.
+  CallContext& ctx = *s->ctx;
+  const Oop old = target->method;
+  std::uint8_t numArgs = 0;
+  std::uint8_t numTemps = 0;
+  if (!decodeMethodHeader(ctx, old, &numArgs, &numTemps)) {
+    spanMessage(err, "debugger accept refused: not an accepted method");
+    blankOut(out, outLen);
+    return AO_ERR;
+  }
+  std::vector<Oop> slots(2u + numArgs, Oop::nil());
+  slots[1] = target->receiver;
+  for (std::uint32_t i = 0; i < numArgs; ++i) {
+    slots[2 + i] = target->temps->slots[i];
+  }
+  struct Pin {
+    Roots& roots;
+    std::vector<Oop>& v;
+    Pin(Roots& r, std::vector<Oop>& slotsRef) : roots(r), v(slotsRef) {
+      roots.pinRange(v.data(), v.size());
+    }
+    ~Pin() { roots.unpinRange(v.data(), v.size()); }
+    Pin(const Pin&) = delete;
+    Pin& operator=(const Pin&) = delete;
+  } pin(ctx.roots, slots);
+  Oop cls = s->heap.slotAt(old, kCmSlotMethodClass);
+  bool meta = false;
+  if (s->heap.klass(cls) == s->wk.metaclassClass) {
+    cls = s->heap.slotAt(cls, kClassSlotThisClass);
+    meta = true;
+  }
+  const std::string selector = byteText(s->heap, s->heap.slotAt(old, kCmSlotSelector));
+  compiler::CompileError error;
+  if (!acceptMethodReplacing(ctx, cls, meta, source, selector, &slots[0], &error)) {
+    // The span counts from the start of source (no doIt prefix), as ao_accept_method_id's.
+    spanMessage(err, error.message);
+    if (err != nullptr) {
+      err->start = error.span.start;
+      err->end = error.span.end;
+    }
+    blankOut(out, outLen);
+    return AO_ERR_COMPILE;
+  }
+  return resumeHalted(*s, id, StepMode::None, target, slots.data(), slots.size(), out, outLen, err,
+                      inspect, inspectUser);
 }
 
 int sessionDebugAbort(std::int64_t pid) {
@@ -2343,6 +2471,21 @@ int debugCanRestart(std::int64_t pid, int frameIndex) {
   }
   const LiveFrames frames(*ctx, *reason);
   return frames.frameAt(static_cast<std::uint32_t>(frameIndex)) != nullptr ? 1 : 0;
+}
+
+int debugCanAccept(std::int64_t pid, int frameIndex) {
+  Session* s = session();
+  if (s == nullptr || s->scheduler == nullptr || pid <= 0) {
+    return 0;
+  }
+  const std::string* reason = nullptr;
+  const CallContext* ctx = s->scheduler->haltedContext(static_cast<std::uint64_t>(pid), &reason);
+  if (ctx == nullptr) {
+    return 0;
+  }
+  const LiveFrames frames(*ctx, *reason);
+  const char* refusal = nullptr;
+  return acceptTarget(*s, *ctx, frames, frameIndex, &refusal) != nullptr ? 1 : 0;
 }
 
 int debugSelect(std::int64_t pid) {

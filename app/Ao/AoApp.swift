@@ -89,7 +89,16 @@ public final class AoApp: NSObject, NSApplicationDelegate {
         !EvaluationActivity.isActive
       },
       accept: {
-        sendToKeyBrowser(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.accept() }
+        let key = NSApplication.shared.keyWindow
+        if let debugger = DebuggerWindow.owning(key) {
+          debugger.accept()
+          return
+        }
+        sendToKeyBrowser(self.browser, keyWindow: key) { $0.accept() }
+      },
+      canAccept: {
+        !EvaluationActivity.isActive
+          && DebuggerWindow.allowsAccept(keyWindow: NSApplication.shared.keyWindow)
       },
       removeMethod: {
         sendToKeyBrowser(self.browser, keyWindow: NSApplication.shared.keyWindow) { $0.removeMethod() }

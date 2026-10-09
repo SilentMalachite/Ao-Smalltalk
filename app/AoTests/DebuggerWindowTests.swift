@@ -665,6 +665,364 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertTrue(debugger.buttons.allSatisfy { !$0.isEnabled })
   }
 
+  // SPEC §3.9 Debugger の編集: the source pane is editable only on a frame Accept can target.
+  func testDebuggerSourceEditableOnlyForAcceptableFrames() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinEdit")
+    acceptMethod("DbgWinEdit", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinEdit new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertEqual(debugger.frameLabels, ["Object>>halt native ao_Object_halt", "DbgWinEdit>>bar", "doIt"])
+    XCTAssertFalse(debugger.sourceIsEditable)
+    debugger.selectFrame(1)
+    XCTAssertTrue(debugger.sourceIsEditable)
+    XCTAssertTrue(debugger.canAcceptEdit)
+    debugger.selectFrame(2)
+    XCTAssertFalse(debugger.sourceIsEditable)
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // SPEC §3.9: a post-mortem Debugger stays read-only.
+  func testPostmortemDebuggerSourceStaysReadOnly() {
+    defineAccClass("DbgWinPm")
+    acceptMethod("DbgWinPm", "bar\n  ^nil foo")
+    guard let debugger = debugAfterDoIt("DbgWinPm new bar") else {
+      return
+    }
+    debugger.selectFrame(1)
+    XCTAssertFalse(debugger.sourceIsEditable)
+    XCTAssertFalse(debugger.canAcceptEdit)
+  }
+
+  // SPEC §3.9: Accept reads the frames anew and selects the new activation, innermost.
+  func testAcceptInDebuggerSelectsNewActivation() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAcc")
+    acceptMethod("DbgWinAcc", "bar\n  ^self zork")
+    let workspace = workspace("DbgWinAcc new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("DNU opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^42")
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    debugger.accept()
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(debugger.title, "Debugger: accepted")
+    XCTAssertEqual(debugger.selectedFrame, 0)
+    XCTAssertEqual(debugger.frameLabels.first, "DbgWinAcc>>bar")
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^42")
+    XCTAssertFalse(debugger.hasUnacceptedChanges)
+    XCTAssertEqual(debugger.errorText, "")
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  func testAcceptThenProceedInsertsNewResult() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAccP")
+    acceptMethod("DbgWinAccP", "bar\n  ^self zork")
+    let workspace = workspace("DbgWinAccP new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("DNU opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^42")
+    debugger.accept()
+    button("Proceed", in: debugger)?.performClick(nil)
+    XCTAssertEqual(workspace.text, "DbgWinAccP new bar42")
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9: a compile error goes to the error line, its span is selected, and nothing else moves.
+  func testAcceptCompileErrorShowsReasonAndKeepsText() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAccErr")
+    acceptMethod("DbgWinAccErr", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinAccErr new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    let broken = "bar\n  ^1 +"
+    debugger.replaceSource(broken)
+    debugger.accept()
+    XCTAssertNotEqual(debugger.errorText, "")
+    XCTAssertEqual(debugger.sourceText, broken)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.title, "Debugger: halt")
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    let errorLine = views(in: debugger.window.contentView, of: NSTextField.self)
+      .first { $0.accessibilityLabel() == "Accept error" }
+    XCTAssertEqual(errorLine?.stringValue, debugger.errorText)
+    XCTAssertEqual(errorLine?.font, NSFont.systemFont(ofSize: NSFont.systemFontSize))
+    // Choosing another frame (Discard) leaves no stale message.
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    debugger.selectFrame(2)
+    XCTAssertEqual(debugger.selectedFrame, 2)
+    XCTAssertEqual(debugger.errorText, "")
+    XCTAssertEqual(errorLine?.stringValue, "")
+  }
+
+  // Review Focus 4: after a compile error, a fixed Accept goes through and clears the error line.
+  func testAcceptAfterCompileErrorClearsErrorLine() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAccFix")
+    acceptMethod("DbgWinAccFix", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinAccFix new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^1 +")
+    debugger.accept()
+    XCTAssertNotEqual(debugger.errorText, "")
+    debugger.replaceSource("bar\n  ^5")
+    debugger.accept()
+    XCTAssertEqual(debugger.errorText, "")
+    XCTAssertEqual(debugger.title, "Debugger: accepted")
+    button("Proceed", in: debugger)?.performClick(nil)
+    XCTAssertEqual(workspace.text, "DbgWinAccFix new bar5")
+  }
+
+  // Review Focus 5: the error span counts UTF-8 bytes; the pane selects it in UTF-16.
+  func testAcceptCompileErrorSpanAfterJapaneseComment() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAccJa")
+    acceptMethod("DbgWinAccJa", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinAccJa new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    let broken = "bar\n  \"日本語のコメント\"\n  ^1 + )"
+    debugger.replaceSource(broken)
+    debugger.accept()
+    XCTAssertNotEqual(debugger.errorText, "")
+    let selection = debugger.sourceSelection
+    let comment = (broken as NSString).range(of: "\"日本語のコメント\"")
+    XCTAssertGreaterThan(selection.length, 0)
+    XCTAssertGreaterThanOrEqual(selection.location, NSMaxRange(comment))
+    XCTAssertLessThanOrEqual(NSMaxRange(selection), (broken as NSString).length)
+  }
+
+  // Final review 1: Discard on close goes back through windowShouldClose, so the process is aborted.
+  func testDiscardOnCloseAbortsTheProcess() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinCloseA")
+    acceptMethod("DbgWinCloseA", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinCloseA new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    debugger.window.performClose(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // Final review 1: an evaluation that is active when Discard answers keeps the window and the process.
+  func testDiscardOnCloseDuringEvaluationKeepsWindow() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinCloseB")
+    acceptMethod("DbgWinCloseB", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinCloseB new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.confirmDiscard = { _, decide in
+      EvaluationActivity.whileActive { decide(true) }
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    debugger.window.performClose(nil)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    button("Abort", in: debugger)?.performClick(nil)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: Cancel changes nothing even when the halt ended elsewhere while the question was up
+  // (the pane went read-only; the edit still counts as unaccepted).
+  func testCancelKeepsEditWhenHaltEndsDuringQuestion() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinCancelEnd")
+    acceptMethod("DbgWinCancelEnd", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("p := Processor activeProcess. DbgWinCancelEnd new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var asked = 0
+    debugger.confirmDiscard = { _, decide in
+      asked += 1
+      workspace.replaceText("p terminate")
+      workspace.selectAll()
+      workspace.doIt()
+      NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: debugger.window)
+      XCTAssertTrue(debugger.hasUnacceptedChanges)
+      decide(false)
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    debugger.selectFrame(2)
+    XCTAssertEqual(asked, 1)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+  }
+
+  // SPEC §3.9: with an unaccepted edit, choosing a frame, a button or closing asks first; Cancel
+  // changes nothing, Discard goes ahead.
+  func testUnacceptedEditAsksToDiscardFirst() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAsk")
+    acceptMethod("DbgWinAsk", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinAsk new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var asked = 0
+    var answer = false
+    debugger.confirmDiscard = { _, decide in
+      asked += 1
+      decide(answer)
+    }
+    debugger.selectFrame(1)
+    XCTAssertEqual(asked, 0)
+    debugger.replaceSource("bar\n  ^2")
+    // Frame: Cancel keeps the selection and the edit.
+    debugger.selectFrame(2)
+    XCTAssertEqual(asked, 1)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    // Buttons: Cancel does nothing.
+    button("Proceed", in: debugger)?.performClick(nil)
+    XCTAssertEqual(asked, 2)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    // Close: Cancel keeps the window and the process.
+    debugger.window.performClose(nil)
+    XCTAssertEqual(asked, 3)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    // Discard: the frame changes and the edit is gone.
+    answer = true
+    debugger.selectFrame(2)
+    XCTAssertEqual(asked, 4)
+    XCTAssertEqual(debugger.selectedFrame, 2)
+    XCTAssertFalse(debugger.hasUnacceptedChanges)
+    // No edit: no question.
+    button("Abort", in: debugger)?.performClick(nil)
+    XCTAssertEqual(asked, 4)
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9 Debugger の編集: an edit still counts once the halt ended elsewhere (the pane went
+  // read-only); choosing a frame or closing asks first, and Cancel keeps it.
+  func testEditKeptAfterHaltEndsElsewhereStillAsks() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinEndAsk")
+    acceptMethod("DbgWinEndAsk", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("p := Processor activeProcess. DbgWinEndAsk new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var asked = 0
+    var answer = false
+    debugger.confirmDiscard = { _, decide in
+      asked += 1
+      decide(answer)
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    workspace.replaceText("p terminate")
+    workspace.selectAll()
+    workspace.doIt()
+    NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: debugger.window)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+    XCTAssertFalse(debugger.sourceIsEditable)
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    // Frame: Cancel keeps the selection and the edit.
+    debugger.selectFrame(2)
+    XCTAssertEqual(asked, 1)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    // Close: Cancel keeps the window and the edit.
+    debugger.window.performClose(nil)
+    XCTAssertEqual(asked, 2)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    // Discard: the window closes.
+    answer = true
+    debugger.window.performClose(nil)
+    XCTAssertEqual(asked, 3)
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9 Debugger の編集: the pane is editable only while ao_debug_can_accept says so; a
+  // re-accept elsewhere (the Browser) makes it read-only when the Debugger comes back, text kept.
+  func testReacceptElsewhereMakesSourceReadOnlyOnReturn() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinReacc")
+    acceptMethod("DbgWinReacc", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinReacc new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    debugger.selectFrame(1)
+    XCTAssertTrue(debugger.sourceIsEditable)
+    debugger.replaceSource("bar\n  ^2")
+    acceptMethod("DbgWinReacc", "bar\n  self halt.\n  ^1")
+    NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: debugger.window)
+    XCTAssertFalse(debugger.canAcceptEdit)
+    XCTAssertFalse(debugger.sourceIsEditable)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    button("Abort", in: debugger)?.performClick(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
   // MARK: - helpers
 
   private static let outerSource = "outer: x\n  | y |\n  y := x.\n  ^self inner: y"
@@ -761,6 +1119,55 @@ final class DebuggerWindowTests: XCTestCase {
       }
     }
     XCTAssertEqual(added, Int32(AO_OK), spanMessage(err))
+  }
+
+  private func defineAccClass(_ name: String) {
+    var err = AoSpan()
+    let definition =
+      "Object subclass: #\(name)\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'P15-Test'!\n"
+    let defined = definition.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+    XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
+  }
+
+  // SPEC §3.9: Smalltalk → Accept follows the key live Debugger's pane; it stays off while
+  // evaluating, as before.
+  func testAcceptMenuFollowsDebuggerEditability() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinMenu")
+    acceptMethod("DbgWinMenu", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinMenu new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertTrue(DebuggerWindow.owning(debugger.window) === debugger)
+    XCTAssertNil(DebuggerWindow.owning(workspace.window))
+    XCTAssertFalse(DebuggerWindow.allowsAccept(keyWindow: debugger.window))  // native row
+    debugger.selectFrame(1)
+    XCTAssertTrue(DebuggerWindow.allowsAccept(keyWindow: debugger.window))
+    XCTAssertTrue(DebuggerWindow.allowsAccept(keyWindow: workspace.window))
+    XCTAssertTrue(DebuggerWindow.allowsAccept(keyWindow: nil))
+    // The menu item asks canAccept.
+    var allowed = false
+    var actions = MainMenu.Actions()
+    actions.canAccept = { allowed }
+    let menu = MainMenu.build(actions: actions)
+    guard let accept = menu.item(withTitle: "Smalltalk")?.submenu?.item(withTitle: "Accept") else {
+      XCTFail("missing Accept")
+      return
+    }
+    func enabled() -> Bool {
+      (accept.target as? NSMenuItemValidation)?.validateMenuItem(accept) ?? true
+    }
+    XCTAssertFalse(enabled())
+    allowed = true
+    XCTAssertTrue(enabled())
+    button("Abort", in: debugger)?.performClick(nil)
   }
 
   private func acceptDbgWin(_ source: String) {

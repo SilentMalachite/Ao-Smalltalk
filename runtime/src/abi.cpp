@@ -342,6 +342,10 @@ extern "C" int ao_debug_can_restart(int64_t pid, int frame_index) {
   return guarded(0, [&] { return ao::debugCanRestart(pid, frame_index); });
 }
 
+extern "C" int ao_debug_can_accept(int64_t pid, int frame_index) {
+  return guarded(0, [&] { return ao::debugCanAccept(pid, frame_index); });
+}
+
 extern "C" int ao_debug_select(int64_t pid) {
   return guarded(AO_ERR, [&] { return ao::debugSelect(pid); });
 }
@@ -440,6 +444,14 @@ extern "C" int ao_debug_step_out(int64_t pid, char* out, int out_len, AoSpan* er
 extern "C" int ao_debug_restart(int64_t pid, int frame_index, char* out, int out_len, AoSpan* err) {
   return debugResumeEntry(out, out_len, err, [&] {
     return ao::sessionDebugRestart(pid, frame_index, out, out_len, err, g_inspectFn, g_inspectUser);
+  });
+}
+
+extern "C" int ao_debug_accept(int64_t pid, int frame_index, const char* source, char* out,
+                               int out_len, AoSpan* err) {
+  return debugResumeEntry(out, out_len, err, [&] {
+    return ao::sessionDebugAccept(pid, frame_index, source, out, out_len, err, g_inspectFn,
+                                  g_inspectUser);
   });
 }
 

@@ -146,6 +146,20 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     return ao_debug_frame_count()
   }
 
+  // SPEC §3.9 Debugger の編集: the open Debugger whose window is `window`.
+  static func owning(_ window: NSWindow?) -> DebuggerWindow? {
+    guard let window else {
+      return nil
+    }
+    return open.first { $0.window === window }
+  }
+
+  // Smalltalk → Accept with `keyWindow` key: a Debugger there allows it only on an editable pane;
+  // any other window keeps the item as it was.
+  static func allowsAccept(keyWindow: NSWindow?) -> Bool {
+    owning(keyWindow)?.canAcceptEdit ?? true
+  }
+
   let window: NSWindow
   // 0: the post-mortem Debugger of the snapshot; else the halted process it shows (SPEC §3.9).
   let pid: Int64
@@ -163,6 +177,14 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   private let frameTable = NSTableView()
   private let variableTable = NSTableView()
   private let sourceView: NSTextView
+  // SPEC §3.9 Debugger の編集 (P15): the source as last shown, so an edit can be told apart, and
+  // the line where a refused Accept says why (live only).
+  private var shownSource = ""
+  private let errorLine = NSTextField(labelWithString: "")
+  // SPEC §3.9 Debugger の編集: asks before an unaccepted edit goes (Browser's question). Tests
+  // replace it.
+  var confirmDiscard: BrowserWindow.DiscardConfirmation = BrowserWindow.askToDiscard
+  private var confirming = false
   private let uniformFont = UniformFont()
   private var values: [Int: (className: String, value: String)] = [:]
   private var inspectors: [InspectorWindow] = []
@@ -196,6 +218,28 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
   var sourceIsEditable: Bool {
     sourceView.isEditable
+  }
+
+  var errorText: String {
+    errorLine.stringValue
+  }
+
+  var hasUnacceptedChanges: Bool {
+    // Not tied to isEditable: an edit kept after the halt ended elsewhere (pane now read-only)
+    // still asks before it goes.
+    sourceView.string != shownSource
+  }
+
+  // SPEC §3.9: live, halted, and the selected frame has an Accept target (ao_debug_can_accept).
+  var canAcceptEdit: Bool {
+    guard isLive, !finished, let selectedFrame, ao_debug_select(pid) == Int32(AO_OK) else {
+      return false
+    }
+    return ao_debug_can_accept(pid, Int32(selectedFrame)) == 1
+  }
+
+  func replaceSource(_ value: String) {
+    sourceView.string = value
   }
 
   var variableCount: Int {
@@ -298,7 +342,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     applyFont()
     frameTable.reloadData()
     if !frames.isEmpty {
-      selectFrame(0)
+      moveSelection(to: 0)
     }
     window.makeKeyAndOrderFront(nil)
   }
@@ -330,9 +374,38 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     guard index >= 0, index < frames.count else {
       return
     }
+    confirmIfEdited { self.moveSelection(to: index) }
+  }
+
+  private func moveSelection(to index: Int) {
+    guard index >= 0, index < frames.count else {
+      return
+    }
     frameTable.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     if frameTable.selectedRow == index {
       showFrame(index)
+    }
+  }
+
+  // SPEC §3.9 Debugger の編集: an unaccepted edit goes only after the question; Cancel leaves the
+  // selection and the operation alone. One question at a time.
+  private func confirmIfEdited(_ run: @escaping @MainActor () -> Void) {
+    guard !confirming else {
+      return
+    }
+    guard hasUnacceptedChanges else {
+      run()
+      return
+    }
+    confirming = true
+    confirmDiscard(window) { discard in
+      self.confirming = false
+      // Cancel changes nothing, even if the halt ended elsewhere while the question was up.
+      guard discard else {
+        return
+      }
+      self.sourceView.string = self.shownSource
+      run()
     }
   }
 
@@ -396,6 +469,21 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     }
   }
 
+  // SPEC §3.9 Debugger の編集: Smalltalk → Accept. A refusal or a compile error stays in the
+  // window (error line, span selected); a halt reads everything anew, as the buttons do.
+  func accept() {
+    guard let selectedFrame, canAcceptEdit else {
+      return
+    }
+    let text = sourceView.string
+    resume({ pid, out, outLen, err in
+      text.withCString { ao_debug_accept(pid, Int32(selectedFrame), $0, out, outLen, err) }
+    }, refused: { status, err in
+      self.errorLine.stringValue = spanMessage(err)
+      selectErrorSpan(status: status, span: err, source: text, base: 0, in: self.sourceView)
+    })
+  }
+
   func stepOver() {
     resume { ao_debug_step_over($0, $1, $2, $3) }
   }
@@ -421,7 +509,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     window.close()
   }
 
-  private func resume(_ call: (Int64, UnsafeMutablePointer<CChar>, Int32, UnsafeMutablePointer<AoSpan>) -> Int32) {
+  private func resume(
+    _ call: (Int64, UnsafeMutablePointer<CChar>, Int32, UnsafeMutablePointer<AoSpan>) -> Int32,
+    refused: ((Int32, AoSpan) -> Void)? = nil
+  ) {
     guard isLive, !finished else {
       return
     }
@@ -443,6 +534,13 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       reload()
       return
     }
+    // SPEC §3.9: Accept's refusals (a message) and compile errors leave the process halted.
+    if let refused,
+       status == Int32(AO_ERR_COMPILE) || (status == Int32(AO_ERR) && !spanMessage(err).isEmpty) {
+      refused(status, err)
+      updateButtons()
+      return
+    }
     guard status != Int32(AO_ERR) else {
       // Refused (busy) or no longer halted: nothing ran.
       updateButtons()
@@ -462,6 +560,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
   // The process halted again: everything is read anew, the innermost frame selected.
   private func reload() {
+    errorLine.stringValue = ""
     _ = ao_debug_select(pid)
     generation = ao_debug_generation()
     reason = readDebugText { ao_debug_reason($0, $1) }.text
@@ -471,9 +570,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     frameTable.reloadData()
     if frames.isEmpty {
       sourceView.string = ""
+      shownSource = ""
       variableTable.reloadData()
     } else {
-      selectFrame(0)
+      moveSelection(to: 0)
     }
     updateButtons()
   }
@@ -493,6 +593,9 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   // values become `-`.
   private func refreshLive() {
     updateButtons()
+    // SPEC §3.9 Debugger の編集: a re-accept elsewhere (the Browser) can take the frame's Accept
+    // target away; the pane follows, its text kept.
+    sourceView.isEditable = canAcceptEdit
     guard isLive, finished || ao_debug_select(pid) != Int32(AO_OK) else {
       return
     }
@@ -526,13 +629,26 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
         button.isEnabled = canGoOn
       }
     }
+    if !halted {
+      sourceView.isEditable = false
+    }
   }
 
   private func installButtons(above split: NSSplitView, size: NSSize) -> NSView {
     let barHeight: CGFloat = 32
     let container = NSView(frame: NSRect(origin: .zero, size: size))
     container.autoresizingMask = [.width, .height]
-    split.frame = NSRect(x: 0, y: 0, width: size.width, height: max(size.height - barHeight, 0))
+    let errorHeight: CGFloat = 20
+    split.frame = NSRect(
+      x: 0, y: errorHeight, width: size.width, height: max(size.height - barHeight - errorHeight, 0)
+    )
+    // SPEC §3.9: the error line keeps the system font size (文字の大きさ).
+    errorLine.frame = NSRect(x: 8, y: 2, width: max(size.width - 16, 0), height: 16)
+    errorLine.autoresizingMask = [.width, .maxYMargin]
+    errorLine.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    errorLine.lineBreakMode = .byTruncatingTail
+    errorLine.setAccessibilityLabel("Accept error")
+    container.addSubview(errorLine)
     let runs: [(String, @MainActor (DebuggerWindow) -> Void)] = [
       ("Proceed", { $0.proceed() }),
       ("Abort", { $0.abort() }),
@@ -556,7 +672,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
         guard let self else {
           return
         }
-        run(self)
+        self.confirmIfEdited { run(self) }
       }
     }
     container.addSubview(split)
@@ -597,6 +713,14 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     return cell
   }
 
+  func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+    guard tableView === frameTable, hasUnacceptedChanges else {
+      return true
+    }
+    confirmIfEdited { self.moveSelection(to: row) }
+    return false
+  }
+
   func tableViewSelectionDidChange(_ notification: Notification) {
     guard (notification.object as? NSTableView) === frameTable else {
       return
@@ -615,7 +739,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   private func showFrame(_ index: Int) {
     let frame = frames[index]
     values = [:]
+    errorLine.stringValue = ""
     sourceView.string = frame.source
+    shownSource = frame.source
+    sourceView.isEditable = canAcceptEdit
     applyFont()
     let length = (frame.source as NSString).length
     let span = frame.highlight
@@ -736,7 +863,16 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   // SPEC §3.9 評価の中断: during an evaluation (the pump dispatched the close) the abort would be
   // refused as busy, so the live window stays, as its Abort button would.
   func windowShouldClose(_ sender: NSWindow) -> Bool {
-    !(isLive && !finished && EvaluationActivity.isActive)
+    if isLive, !finished, EvaluationActivity.isActive {
+      return false
+    }
+    guard hasUnacceptedChanges else {
+      return true
+    }
+    // performClose, not close: the source is reverted by then, so windowShouldClose runs again and
+    // the busy check holds for an evaluation that started while the sheet was up.
+    confirmIfEdited { self.window.performClose(nil) }
+    return false
   }
 }
 

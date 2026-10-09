@@ -773,7 +773,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   // The macOS form of a destructive question: Discard first and destructive, which leaves the
   // sheet without a default button, so Return answers nothing; Cancel keeps the Escape key that
   // NSAlert gives a button titled Cancel.
-  private static func askToDiscard(_ window: NSWindow, _ decide: @escaping @MainActor (Bool) -> Void) {
+  static func askToDiscard(_ window: NSWindow, _ decide: @escaping @MainActor (Bool) -> Void) {
     let alert = NSAlert()
     alert.messageText = "Discard the changes you have not accepted?"
     alert.informativeText = "The source pane has edits that were not accepted."

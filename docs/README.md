@@ -33,10 +33,11 @@ GitHub 向けの案内（英語が正本）: [`README.md`](../README.md) / [`REA
 | P12 Browser の削除 | [phases/P12.md](phases/P12.md) | done |
 | P13 評価の中断 | [phases/P13.md](phases/P13.md) | done |
 | P14 Restart | [phases/P14.md](phases/P14.md) | done |
+| P15 Debugger の編集 | [phases/P15.md](phases/P15.md) | done |
 
-依存は直線: P0 → P1 → P2 → P3 → P4 → P5 → P6 → P6b → P7 → P8 → P9 → P10 → P11 → P12 → P13 → P14。
+依存は直線: P0 → P1 → P2 → P3 → P4 → P5 → P6 → P6b → P7 → P8 → P9 → P10 → P11 → P12 → P13 → P14 → P15。
 
-P9 の完了が v1 で、1.0.0 としてリリースした。P10〜P12 は 1.1.0、P13（評価の中断）は 1.2.0、P14（Restart）は 1.3.0 としてリリースした（SPEC §2.4、[`CHANGELOG.md`](../CHANGELOG.md)）。v1 のあとの変更は SPEC を先に直す。P10 以降の計画書は [`superpowers/plans/`](superpowers/plans/) に置く（P10: [2026-09-26-p10-debugger.md](superpowers/plans/2026-09-26-p10-debugger.md)。P11: [p11-ancient-matsumoto.md](plans/p11-ancient-matsumoto.md)。P12: [2026-09-26-p12-browser-remove.md](superpowers/plans/2026-09-26-p12-browser-remove.md)、P12 追補: [2026-09-27-p12-class-identity.md](superpowers/plans/2026-09-27-p12-class-identity.md)。P13: [2026-09-30-evaluation-interrupt.md](superpowers/plans/2026-09-30-evaluation-interrupt.md)。P14 の設計: [2026-10-03-debugger-restart-design.md](superpowers/specs/2026-10-03-debugger-restart-design.md)）。リリースの手順は [`CONTRIBUTING.ja.md`](../CONTRIBUTING.ja.md) の「リリース」にある。
+P9 の完了が v1 で、1.0.0 としてリリースした。P10〜P12 は 1.1.0、P13（評価の中断）は 1.2.0、P14（Restart）は 1.3.0 としてリリースした（SPEC §2.4、[`CHANGELOG.md`](../CHANGELOG.md)）。v1 のあとの変更は SPEC を先に直す。P10 以降の計画書は [`superpowers/plans/`](superpowers/plans/) に置く（P10: [2026-09-26-p10-debugger.md](superpowers/plans/2026-09-26-p10-debugger.md)。P11: [p11-ancient-matsumoto.md](plans/p11-ancient-matsumoto.md)。P12: [2026-09-26-p12-browser-remove.md](superpowers/plans/2026-09-26-p12-browser-remove.md)、P12 追補: [2026-09-27-p12-class-identity.md](superpowers/plans/2026-09-27-p12-class-identity.md)。P13: [2026-09-30-evaluation-interrupt.md](superpowers/plans/2026-09-30-evaluation-interrupt.md)。P14 の設計: [2026-10-03-debugger-restart-design.md](superpowers/specs/2026-10-03-debugger-restart-design.md)。P15: [2026-10-09-p15-debugger-accept.md](superpowers/plans/2026-10-09-p15-debugger-accept.md)）。リリースの手順は [`CONTRIBUTING.ja.md`](../CONTRIBUTING.ja.md) の「リリース」にある。
 
 ## PR
 

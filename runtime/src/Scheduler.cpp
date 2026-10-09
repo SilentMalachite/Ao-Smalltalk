@@ -538,6 +538,7 @@ bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   if (!afterResume(ctx, me)) {
     ctx.restartFrame = nullptr;
     ctx.restarting = false;
+    disarmAccept(ctx);
     return false;
   }
   if (ctx.restartFrame != nullptr) {
@@ -588,11 +589,24 @@ int Scheduler::evalModeOf(std::uint64_t pid) const {
   return r != nullptr && r->isEval ? r->evalMode : 0;
 }
 
-Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid, const Frame* restartFrame) {
+Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid, const Frame* restartFrame,
+                                      const Oop* acceptSlots, std::size_t acceptCount) {
   assert(current_ == &base() && "proceed runs on the base process");
   Record* r = findId(pid);
   assert(r != nullptr && r->state == State::Halted &&
          (r->proceedable || restartFrame != nullptr) && "proceed needs canProceed or a restart");
+  assert((acceptCount == 0 || restartFrame != nullptr) && "an Accept is a restart");
+  if (acceptCount > 0) {
+    // assign may throw before anything below changes; no GC runs between it and the pin. pinRange
+    // can throw too (its push_back); then the slots are cleared so none stays armed but unpinned.
+    r->ctx->acceptSlots.assign(acceptSlots, acceptSlots + acceptCount);
+    try {
+      r->ctx->roots.pinRange(r->ctx->acceptSlots.data(), acceptCount);
+    } catch (...) {
+      r->ctx->acceptSlots.clear();
+      throw;
+    }
+  }
   // Set only now, so a refused or failed entry before this never leaves a restart armed.
   r->ctx->restartFrame = restartFrame;
   // In no list: awaitEval switches to it, and its halt returns (true, or false to restart).

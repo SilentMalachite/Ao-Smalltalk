@@ -4,7 +4,10 @@
 
 // The snapshot's pinned roots (ClearDropsRoots). Not a public header.
 #include "../src/Session.hpp"
+#include "ao/Bootstrap.hpp"
 #include "ao/Gc.hpp"
+#include "ao/MethodDictionary.hpp"
+#include "ao/WellKnown.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -15,6 +18,35 @@
 #include <gtest/gtest.h>
 
 namespace {
+
+// SPEC §6: every pair left in a native-required dictionary (both sides) holds a NativeMethod.
+// The same scan as remove_abi_test.cpp's.
+bool kernelDictsAreNative() {
+  struct Scan {
+    ao::Session* s;
+    bool ok = true;
+    void visit(ao::Oop cls) {
+      if (!cls.isHeap()) return;
+      const ao::Oop dict = s->heap.slotAt(cls, ao::kClassSlotMethodDict);
+      if (!dict.isHeap()) return;
+      const ao::Oop inner = s->heap.slotAt(dict, ao::kDictSlotArray);
+      if (!inner.isHeap()) return;
+      for (std::uint32_t i = 0; i + 1 < s->heap.size(inner); i += 2) {
+        if (s->heap.slotAt(inner, i).isNil()) continue;
+        const ao::Oop v = s->heap.slotAt(inner, i + 1);
+        if (!v.isHeap() || s->heap.klass(v) != s->wk.nativeMethodClass) ok = false;
+      }
+    }
+  } scan{ao::session()};
+  scan.s->wk.eachNativeRequiredClass(
+      [](void* p, ao::Oop cls) {
+        auto* sc = static_cast<Scan*>(p);
+        sc->visit(cls);
+        sc->visit(sc->s->heap.klass(cls));
+      },
+      &scan);
+  return scan.ok;
+}
 
 class DebugAbi : public ::testing::Test {
  protected:
@@ -1678,6 +1710,551 @@ TEST_F(LiveRestart, RestartWhileBusyIsRefused) {
   EXPECT_EQ(AO_ERR, hook.answer);
   EXPECT_EQ(1, ao_debug_halted_count());
   EXPECT_EQ(AO_OK, ao_debug_abort(hook.pid));
+}
+
+// ---- P15: Debugger の編集 (SPEC §3.13 Accept, §3.10) ----
+
+class LiveAccept : public LiveDebug {
+ protected:
+  int acceptIn(std::int64_t pid, int frame, const char* src) {
+    err_ = AoSpan{};
+    return ao_debug_accept(pid, frame, src, out_, sizeof out_, &err_);
+  }
+  int proceed(std::int64_t pid) {
+    err_ = AoSpan{};
+    return ao_debug_proceed(pid, out_, sizeof out_, &err_);
+  }
+  // The index of the first frame labelled `want` in the selected process; -1 when none.
+  int frameLabeled(const std::string& want) {
+    for (int i = 0; i < ao_debug_frame_count(); ++i) {
+      if (label(i) == want) {
+        return i;
+      }
+    }
+    return -1;
+  }
+};
+
+// SPEC §3.13: a doIt frame is no accepted method; neither is the synthesized halt native.
+TEST_F(LiveAccept, AcceptDoItFrameIsRefused) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("doIt", label(1));
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+}
+
+TEST_F(LiveAccept, AcceptNativeFrameIsRefused) {
+  defineDbgLive();
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgLive new haltIn: 3"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 0));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));  // DbgLive>>haltIn:, accepted through ao_accept_method
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 99));
+  EXPECT_EQ(0, ao_debug_can_accept(pid, -1));
+}
+
+// SPEC §3.13: a method filed in from a chunk has no source entry (the placeholder frame).
+TEST_F(LiveAccept, AcceptPlaceholderFrameIsRefused) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("!Object subclass: #DbgAccChunk\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P15-Test'!\n"
+                                   "!DbgAccChunk methodsFor: 'x'!\n"
+                                   "stop\n  self halt.\n  ^1! !\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccChunk new stop"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccChunk>>stop", label(1));
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+}
+
+// SPEC §3.13: a method re-accepted from the Browser while halted is no longer the dictionary's.
+TEST_F(LiveAccept, AcceptReplacedMethodFrameIsRefused) {
+  defineClass("DbgAccRep");
+  accept("DbgAccRep", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccRep new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(1, ao_debug_can_accept(pid, 1));
+  accept("DbgAccRep", 0, "bar\n  ^2");
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+}
+
+// SPEC §3.13: a block whose home has returned has no home activation on the chain.
+TEST_F(LiveAccept, AcceptOnBlockWithDeadHomeIsRefused) {
+  defineClass("DbgAccDead");
+  accept("DbgAccDead", 0, "makeBlock\n  ^[self halt. 3]");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccDead new makeBlock value"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("[] in DbgAccDead>>makeBlock", label(1));
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+}
+
+TEST_F(LiveAccept, AcceptPostmortemIsRefused) {
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("self halt"));
+  EXPECT_EQ(0, ao_debug_can_accept(0, 0));
+  EXPECT_EQ(0, ao_debug_can_accept(424242, 1));
+}
+
+// SPEC §6 P15 受け入れ: the sender of a DNU accepted from the Debugger halts at the first instruction
+// of the new method (accepted); Proceed answers its value; the Browser and later sends see it.
+TEST_F(LiveAccept, AcceptStopsAtFirstInstructionOfNewMethod) {
+  defineClass("DbgAcc");
+  accept("DbgAcc", 0, "bar\n  ^self zork");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAcc new bar"));
+  EXPECT_STREQ("doesNotUnderstand: #zork", err_.message);
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAcc>>bar", label(1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^42")) << err_.message;
+  EXPECT_STREQ("accepted", err_.message);
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("accepted", reason());
+  ASSERT_EQ(2, ao_debug_frame_count());
+  EXPECT_EQ("DbgAcc>>bar", label(0));
+  EXPECT_EQ(0, ao_debug_frame_kind(0));
+  EXPECT_EQ("bar\n  ^42", source(0).text);
+  EXPECT_EQ("doIt", label(1));
+  EXPECT_EQ(1, ao_debug_can_proceed(pid));
+}
+
+TEST_F(LiveAccept, ProceedAfterAcceptAnswersNewMethodValue) {
+  defineClass("DbgAccP");
+  accept("DbgAccP", 0, "bar\n  ^self zork");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccP new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^42")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("42", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  const std::int64_t id = ao_browser_class_id("DbgAccP");
+  char buf[256] = "unset";
+  ASSERT_EQ(AO_OK, ao_browser_source(id, 0, "bar", buf, sizeof buf));
+  EXPECT_STREQ("bar\n  ^42", buf);
+  ASSERT_EQ(AO_OK, printIt("DbgAccP new bar"));
+  EXPECT_STREQ("42", out_);
+}
+
+TEST_F(LiveAccept, AcceptKeepsReceiverAndArguments) {
+  defineClass("DbgAccArgs", "k");
+  accept("DbgAccArgs", 0, "setK: v\n  k := v");
+  accept("DbgAccArgs", 0, "with: x and: y\n  self halt.\n  ^0");
+  ASSERT_EQ(AO_ERR_HALT, printIt("(DbgAccArgs new setK: 100) with: 20 and: 3"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccArgs>>with:and:", label(1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "with: x and: y\n  ^k + x + y")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("123", out_);
+}
+
+TEST_F(LiveAccept, AcceptWithMoreTempsAndDeeperStack) {
+  defineClass("DbgAccTemps");
+  accept("DbgAccTemps", 0, "calc\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccTemps new calc"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT,
+            acceptIn(pid, 1,
+                     "calc\n  | a b c d |\n  a := 1. b := 2. c := 3. d := 4.\n"
+                     "  ^a + (b * (c + (d * (a + (b * c)))))"))
+      << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  ASSERT_EQ(4, ao_debug_frame_temp_count(0));
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("63", out_);  // 1 + 2 * (3 + 4 * 7)
+}
+
+TEST_F(LiveAccept, AcceptOnBlockFrameRestartsHome) {
+  defineClass("DbgAccBlk");
+  accept("DbgAccBlk", 0, "run\n  ^[self halt. 1] value");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccBlk new run"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("[] in DbgAccBlk>>run", label(1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "run\n  ^5")) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("DbgAccBlk>>run", label(0));
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("5", out_);
+}
+
+TEST_F(LiveAccept, AcceptOuterFrameDropsInnerWithoutEnsure) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  defineClass("DbgAccNest");
+  accept("DbgAccNest", 0, "outer\n  ^self inner");
+  accept("DbgAccNest", 0, "inner\n  ^[self halt. 7] ensure: [Transcript show: 'done']");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccNest new outer"));
+  const std::int64_t pid = selectHalted();
+  const int outer = frameLabeled("DbgAccNest>>outer");
+  ASSERT_GE(outer, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, outer, "outer\n  ^8")) << err_.message;
+  EXPECT_TRUE(seen.empty());
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("8", out_);
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_TRUE(seen.empty());
+}
+
+// SPEC §3.13: an activation a native started (Collection>>includes: sends = to the needle) starts
+// over inside that native's send.
+TEST_F(LiveAccept, AcceptFrameActivatedFromNativeSend) {
+  defineClass("DbgAccEq");
+  accept("DbgAccEq", 0, "= other\n  self halt.\n  ^false");
+  ASSERT_EQ(AO_ERR_HALT, printIt("#(1) includes: DbgAccEq new"));
+  const std::int64_t pid = selectHalted();
+  const int eq = frameLabeled("DbgAccEq>>=");
+  ASSERT_GE(eq, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, eq, "= other\n  ^true")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("true", out_);
+}
+
+TEST_F(LiveAccept, AcceptFrameActivatedByPerform) {
+  defineClass("DbgAccPerf");
+  accept("DbgAccPerf", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPerf new perform: #bar"));
+  const std::int64_t pid = selectHalted();
+  const int bar = frameLabeled("DbgAccPerf>>bar");
+  ASSERT_GE(bar, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, bar, "bar\n  ^2")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("2", out_);
+}
+
+// SPEC §3.3: the inline caches of a send that ran before see the accepted method.
+TEST_F(LiveAccept, AcceptInDebuggerUpdatesCachedSends) {
+  defineClass("DbgAccCache");
+  accept("DbgAccCache", 0, "bar\n  self halt.\n  ^1");
+  accept("DbgAccCache", 0, "callBar\n  ^self bar");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccCache new callBar"));
+  ASSERT_EQ(AO_OK, proceed(ao_debug_halted_pid())) << err_.message;
+  EXPECT_STREQ("1", out_);
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccCache new callBar"));
+  const std::int64_t pid = selectHalted();
+  const int bar = frameLabeled("DbgAccCache>>bar");
+  ASSERT_GE(bar, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, bar, "bar\n  ^42")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("42", out_);
+  ASSERT_EQ(AO_OK, printIt("DbgAccCache new callBar"));
+  EXPECT_STREQ("42", out_);
+}
+
+// SPEC §3.13: outer activations of the old method (recursion) go on running it.
+TEST_F(LiveAccept, AcceptKeepsOuterRecursionOnOldMethod) {
+  defineClass("DbgAccRec");
+  accept("DbgAccRec", 0, "count: n\n  n = 0 ifTrue: [self halt. ^0].\n  ^(self count: n - 1) + 1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccRec new count: 2"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccRec>>count:", label(1));
+  ASSERT_EQ(AO_ERR_HALT,
+            acceptIn(pid, 1, "count: n\n  n = 0 ifTrue: [^100].\n  ^(self count: n - 1) + 10"))
+      << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("102", out_);  // the two outer activations add 1, not 10
+}
+
+// SPEC §3.13: the discarded activation's context is dead, so a block made there cannot return.
+TEST_F(LiveAccept, DiscardedActivationBlockCannotReturn) {
+  defineClass("DbgAccRet", "saved");
+  accept("DbgAccRet", 0, "saved\n  ^saved");
+  accept("DbgAccRet", 0, "stash\n  saved := [^1].\n  self halt.\n  ^2");
+  ASSERT_EQ(AO_OK, doIt("dbgAccRet := DbgAccRet new"));
+  ASSERT_EQ(AO_ERR_HALT, printIt("dbgAccRet stash"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "stash\n  ^3")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("3", out_);
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("dbgAccRet saved value"));
+  EXPECT_NE(std::string::npos, std::string(err_.message).find("cannot return")) << err_.message;
+}
+
+TEST_F(LiveAccept, AcceptOnNonProceedable) {
+  defineClass("DbgAccBad");
+  accept("DbgAccBad", 0, "bad\n  ^3 ifTrue: [4]");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccBad new bad"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(0, ao_debug_can_proceed(pid));
+  const int bad = frameLabeled("DbgAccBad>>bad");
+  ASSERT_GE(bad, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, bad, "bad\n  ^4")) << err_.message;
+  EXPECT_STREQ("accepted", err_.message);
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("4", out_);
+}
+
+// Review Focus 1: the accepted activation can be accepted again.
+TEST_F(LiveAccept, AcceptTwiceOnSameFrame) {
+  defineClass("DbgAcc2");
+  accept("DbgAcc2", 0, "bar\n  ^self zork");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAcc2 new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^1")) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 0));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 0, "bar\n  ^2")) << err_.message;
+  EXPECT_STREQ("accepted", err_.message);
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("2", out_);
+}
+
+// Review Focus 2: a class-side method goes back into the metaclass's dictionary.
+TEST_F(LiveAccept, AcceptClassSideMethod) {
+  defineClass("DbgAccMeta");
+  accept("DbgAccMeta", 1, "make\n  self halt.\n  ^1");
+  accept("DbgAccMeta", 0, "make\n  ^-1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccMeta make"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccMeta class>>make", label(1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "make\n  ^7")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("7", out_);
+  ASSERT_EQ(AO_OK, printIt("DbgAccMeta new make"));
+  EXPECT_STREQ("-1", out_);
+}
+
+// Review Focus 3: Abort after Accept runs the outer ensure:, never the discarded inner one.
+TEST_F(LiveAccept, AbortAfterAcceptRunsOnlyOuterEnsure) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  defineClass("DbgAccAbort");
+  accept("DbgAccAbort", 0, "outer\n  ^[self inner] ensure: [Transcript show: 'outer']");
+  accept("DbgAccAbort", 0, "inner\n  ^self deep");
+  accept("DbgAccAbort", 0, "deep\n  ^[self halt. 1] ensure: [Transcript show: 'deep']");
+  ASSERT_EQ(AO_ERR_HALT, doIt("DbgAccAbort new outer"));
+  const std::int64_t pid = selectHalted();
+  const int inner = frameLabeled("DbgAccAbort>>inner");
+  ASSERT_GE(inner, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, inner, "inner\n  ^2")) << err_.message;
+  EXPECT_TRUE(seen.empty());
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(std::vector<std::string>{"outer"}, seen);
+}
+
+TEST_F(LiveAccept, AcceptCompileErrorChangesNothing) {
+  defineClass("DbgAccErr");
+  accept("DbgAccErr", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccErr new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "bar\n  ^1 +"));
+  EXPECT_STRNE("", err_.message);
+  EXPECT_LE(err_.start, err_.end);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("halt", reason());
+  EXPECT_EQ("bar\n  self halt.\n  ^1", source(1).text);
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("1", out_);
+}
+
+// SPEC §3.10 ao_debug_accept: a compile error or a selector change leaves the evaluation result,
+// the snapshot and the interrupt request alone. Every ao_eval empties both the result and the
+// snapshot, so the two cannot be there together: each is checked beside the halted process.
+TEST_F(LiveAccept, AcceptFailureKeepsResultSnapshotAndInterrupt) {
+  defineClass("DbgAccKeep");
+  accept("DbgAccKeep", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccKeep new bar"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_GT(pid, 0);
+  auto failBoth = [&] {
+    EXPECT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "bar\n  ^1 +"));
+    EXPECT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "baz\n  ^2"));
+    EXPECT_EQ(1, ao_debug_halted_count());
+  };
+  // A post-mortem snapshot beside the halted process.
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("nil foo"));
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, ao_debug_select(0));
+  const int generation = ao_debug_generation();
+  const int frames = ao_debug_frame_count();
+  ASSERT_GT(frames, 0);
+  EXPECT_EQ(AO_OK, ao_request_interrupt());
+  failBoth();
+  EXPECT_TRUE(ao::interruptRequested());
+  EXPECT_EQ(generation, ao_debug_generation());
+  ASSERT_EQ(AO_OK, ao_debug_select(0));
+  EXPECT_EQ(frames, ao_debug_frame_count());
+  EXPECT_EQ("doesNotUnderstand: #foo", reason());
+  // A kept evaluation result beside the halted process.
+  ASSERT_EQ(AO_OK, printIt("42")) << err_.message;
+  ASSERT_EQ(2, ao_eval_result_length());
+  EXPECT_EQ(AO_OK, ao_request_interrupt());
+  failBoth();
+  EXPECT_TRUE(ao::interruptRequested());
+  EXPECT_EQ(2, ao_eval_result_length());
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("1", out_);
+}
+
+// Final review 3: Accept pins the new method's slots; every way out gives them back.
+TEST_F(LiveAccept, AcceptPinsReturnToBaseline) {
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  defineClass("DbgAccPin");
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  // Warm the selectors this test interns, so they do not count as growth.
+  ao_set_debug_capture(0);
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  ASSERT_EQ(AO_OK, ao_debug_abort(selectHalted()));
+  ao_set_debug_capture(1);
+  ASSERT_EQ(AO_OK, printIt("3"));
+  const auto base = s->roots.counts();
+  auto expectBase = [&](const char* what) {
+    EXPECT_EQ(base.pinnedSlots, s->roots.counts().pinnedSlots) << what;
+    EXPECT_EQ(base.slots, s->roots.counts().slots) << what;
+  };
+  // Accept + Proceed.
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^2")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+  expectBase("accept+proceed");
+  // Accept + Abort.
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^3")) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_abort(pid));
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+  expectBase("accept+abort");
+  // Accept twice, then Proceed.
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^4")) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 0, "bar\n  ^5")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+  expectBase("accept twice+proceed");
+  // Refused (selector change) and compile-error Accepts pin nothing.
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  pid = selectHalted();
+  const std::size_t halted = s->roots.counts().pinnedSlots;
+  EXPECT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "bar\n  ^1 +"));
+  EXPECT_EQ(halted, s->roots.counts().pinnedSlots);
+  EXPECT_NE(AO_ERR_HALT, acceptIn(pid, 1, "other\n  ^1"));
+  EXPECT_EQ(halted, s->roots.counts().pinnedSlots);
+  ASSERT_EQ(AO_OK, ao_debug_abort(pid));
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+  expectBase("refused");
+}
+
+TEST_F(LiveAccept, AcceptSelectorChangeIsRefused) {
+  defineClass("DbgAccSel");
+  accept("DbgAccSel", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccSel new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "baz\n  ^2"));
+  EXPECT_STREQ("debugger accept refused: selector changed to baz", err_.message);
+  EXPECT_EQ(0u, err_.start);
+  EXPECT_EQ(0u, err_.end);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("DbgAccSel new baz"));
+  EXPECT_STREQ("doesNotUnderstand: #baz", err_.message);
+}
+
+TEST_F(LiveAccept, AcceptRefusalMessages) {
+  defineClass("DbgAccMsg");
+  accept("DbgAccMsg", 0, "makeBlock\n  ^[self halt. 3]");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccMsg new makeBlock value"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 1, "makeBlock\n  ^4"));
+  EXPECT_STREQ("debugger accept refused: home frame is not on the stack", err_.message);
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 0, "x\n  ^1"));
+  EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 2, "doIt\n  ^1"));  // the doIt
+  EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 99, "x\n  ^1"));
+  EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+  EXPECT_EQ(0u, err_.start);
+  EXPECT_EQ(0u, err_.end);
+  EXPECT_EQ(1, ao_debug_halted_count());
+}
+
+TEST_F(LiveAccept, AcceptUnknownPidFails) {
+  EXPECT_EQ(AO_ERR, acceptIn(424242, 1, "bar\n  ^1"));
+  EXPECT_STREQ("", err_.message);
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 1, nullptr));
+  EXPECT_STREQ("", err_.message);
+  EXPECT_EQ(AO_ERR, ao_debug_accept(pid, 1, "bar\n  ^1", nullptr, 16, &err_));
+  EXPECT_EQ(AO_ERR, ao_debug_accept(pid, 1, "bar\n  ^1", out_, 0, &err_));
+  EXPECT_EQ(1, ao_debug_halted_count());
+}
+
+// A terminate from Smalltalk unwinds the halted process before it returns, so no Accept can meet a
+// pending terminate: it is refused and installs nothing.
+TEST_F(LiveAccept, AcceptAfterTerminateElsewhereIsRefused) {
+  defineClass("DbgAccTerm");
+  accept("DbgAccTerm", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, doIt("p := Processor activeProcess. DbgAccTerm new bar"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, doIt("p terminate"));
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 1, "bar\n  ^2"));
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccTerm new bar"));
+  EXPECT_STREQ("halt", err_.message);
+  EXPECT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+}
+
+TEST_F(LiveAccept, AcceptWhileBusyIsRefused) {
+  defineClass("DbgAccBusy");
+  accept("DbgAccBusy", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccBusy new bar"));
+  struct Hook {
+    std::int64_t pid = 0;
+    int answer = 0;
+    int can = -1;
+  } hook;
+  hook.pid = ao_debug_halted_pid();
+  ao_set_transcript_hook(
+      [](const char*, int, int is_clear, void* user) {
+        if (is_clear != 0) {
+          return;
+        }
+        auto* p = static_cast<Hook*>(user);
+        char out[16];
+        AoSpan err{};
+        p->can = ao_debug_can_accept(p->pid, 1);
+        p->answer = ao_debug_accept(p->pid, 1, "bar\n  ^2", out, sizeof out, &err);
+      },
+      &hook);
+  ASSERT_EQ(AO_OK, doIt("Transcript show: 'x'"));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(1, hook.can);
+  EXPECT_EQ(AO_ERR, hook.answer);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, proceed(hook.pid)) << err_.message;
+  EXPECT_STREQ("1", out_);
+}
+
+TEST_F(LiveAccept, KernelScanStaysGreenAfterDebuggerAccept) {
+  ASSERT_TRUE(kernelDictsAreNative());
+  accept("Object", 0, "p15scan\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("Object new p15scan"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "p15scan\n  ^2")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("2", out_);
+  // The installed method is a CompiledMethod in a Kernel dictionary until it is removed.
+  AoSpan removeErr{};
+  ASSERT_EQ(AO_OK, ao_remove_method(ao_browser_class_id("Object"), 0, "p15scan", &removeErr))
+      << removeErr.message;
+  EXPECT_TRUE(kernelDictsAreNative());
+  ASSERT_EQ(AO_OK, printIt("3 + 4"));
+  EXPECT_STREQ("7", out_);
 }
 
 }  // namespace
