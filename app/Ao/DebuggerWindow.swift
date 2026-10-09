@@ -398,7 +398,8 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     confirming = true
     confirmDiscard(window) { discard in
       self.confirming = false
-      guard discard || !self.hasUnacceptedChanges else {
+      // Cancel changes nothing, even if the halt ended elsewhere while the question was up.
+      guard discard else {
         return
       }
       self.sourceView.string = self.shownSource

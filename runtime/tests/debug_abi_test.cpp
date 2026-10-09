@@ -2156,6 +2156,21 @@ TEST_F(LiveAccept, AcceptUnknownPidFails) {
   EXPECT_EQ(1, ao_debug_halted_count());
 }
 
+// A terminate from Smalltalk unwinds the halted process before it returns, so no Accept can meet a
+// pending terminate: it is refused and installs nothing.
+TEST_F(LiveAccept, AcceptAfterTerminateElsewhereIsRefused) {
+  defineClass("DbgAccTerm");
+  accept("DbgAccTerm", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, doIt("p := Processor activeProcess. DbgAccTerm new bar"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, doIt("p terminate"));
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 1, "bar\n  ^2"));
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccTerm new bar"));
+  EXPECT_STREQ("halt", err_.message);
+  EXPECT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+}
+
 TEST_F(LiveAccept, AcceptWhileBusyIsRefused) {
   defineClass("DbgAccBusy");
   accept("DbgAccBusy", 0, "bar\n  self halt.\n  ^1");

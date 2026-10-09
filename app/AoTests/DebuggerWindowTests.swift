@@ -870,6 +870,38 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(ao_debug_halted_count(), 0)
   }
 
+  // SPEC §3.9: Cancel changes nothing even when the halt ended elsewhere while the question was up
+  // (the pane went read-only, so the edit no longer counts as unaccepted).
+  func testCancelKeepsEditWhenHaltEndsDuringQuestion() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinCancelEnd")
+    acceptMethod("DbgWinCancelEnd", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("p := Processor activeProcess. DbgWinCancelEnd new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var asked = 0
+    debugger.confirmDiscard = { _, decide in
+      asked += 1
+      workspace.replaceText("p terminate")
+      workspace.selectAll()
+      workspace.doIt()
+      NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: debugger.window)
+      XCTAssertFalse(debugger.hasUnacceptedChanges)
+      decide(false)
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    debugger.selectFrame(2)
+    XCTAssertEqual(asked, 1)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+  }
+
   // SPEC §3.9: with an unaccepted edit, choosing a frame, a button or closing asks first; Cancel
   // changes nothing, Discard goes ahead.
   func testUnacceptedEditAsksToDiscardFirst() {
