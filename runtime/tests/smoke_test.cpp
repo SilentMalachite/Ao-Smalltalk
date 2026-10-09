@@ -15,11 +15,11 @@ TEST(Smoke, VersionStringIsNonEmpty) {
   EXPECT_GT(std::strlen(buf), 0u);
 }
 
-// SPEC §2.4: P14 までを含む版は 1.3.0。リリースの版に `-` 以降を付けない。
-TEST(Smoke, VersionStringIsReleaseOneThreeZero) {
+// SPEC §2.4: P15 までを含む版は 1.4.0。リリースの版に `-` 以降を付けない。
+TEST(Smoke, VersionStringIsReleaseOneFourZero) {
   char buf[64];
   ASSERT_EQ(0, ao::version_string(buf, sizeof(buf)));
-  EXPECT_STREQ("1.3.0", buf);
+  EXPECT_STREQ("1.4.0", buf);
 }
 
 TEST(AbiSmoke, BootVersionShutdown) {
