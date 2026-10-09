@@ -770,6 +770,12 @@ final class DebuggerWindowTests: XCTestCase {
       .first { $0.accessibilityLabel() == "Accept error" }
     XCTAssertEqual(errorLine?.stringValue, debugger.errorText)
     XCTAssertEqual(errorLine?.font, NSFont.systemFont(ofSize: NSFont.systemFontSize))
+    // Choosing another frame (Discard) leaves no stale message.
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    debugger.selectFrame(2)
+    XCTAssertEqual(debugger.selectedFrame, 2)
+    XCTAssertEqual(debugger.errorText, "")
+    XCTAssertEqual(errorLine?.stringValue, "")
   }
 
   // Review Focus 4: after a compile error, a fixed Accept goes through and clears the error line.
@@ -818,6 +824,50 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertGreaterThan(selection.length, 0)
     XCTAssertGreaterThanOrEqual(selection.location, NSMaxRange(comment))
     XCTAssertLessThanOrEqual(NSMaxRange(selection), (broken as NSString).length)
+  }
+
+  // Final review 1: Discard on close goes back through windowShouldClose, so the process is aborted.
+  func testDiscardOnCloseAbortsTheProcess() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinCloseA")
+    acceptMethod("DbgWinCloseA", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinCloseA new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    debugger.window.performClose(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // Final review 1: an evaluation that is active when Discard answers keeps the window and the process.
+  func testDiscardOnCloseDuringEvaluationKeepsWindow() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinCloseB")
+    acceptMethod("DbgWinCloseB", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinCloseB new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.confirmDiscard = { _, decide in
+      EvaluationActivity.whileActive { decide(true) }
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    debugger.window.performClose(nil)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    button("Abort", in: debugger)?.performClick(nil)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
   }
 
   // SPEC §3.9: with an unaccepted edit, choosing a frame, a button or closing asks first; Cancel

@@ -376,6 +376,9 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   }
 
   private func moveSelection(to index: Int) {
+    guard index >= 0, index < frames.count else {
+      return
+    }
     frameTable.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     if frameTable.selectedRow == index {
       showFrame(index)
@@ -729,6 +732,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   private func showFrame(_ index: Int) {
     let frame = frames[index]
     values = [:]
+    errorLine.stringValue = ""
     sourceView.string = frame.source
     shownSource = frame.source
     sourceView.isEditable = canAcceptEdit
@@ -858,7 +862,9 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     guard hasUnacceptedChanges else {
       return true
     }
-    confirmIfEdited { self.window.close() }
+    // performClose, not close: the source is reverted by then, so windowShouldClose runs again and
+    // the busy check holds for an evaluation that started while the sheet was up.
+    confirmIfEdited { self.window.performClose(nil) }
     return false
   }
 }
