@@ -163,6 +163,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   private let frameTable = NSTableView()
   private let variableTable = NSTableView()
   private let sourceView: NSTextView
+  // SPEC §3.9 Debugger の編集 (P15): the source as last shown, so an edit can be told apart, and
+  // the line where a refused Accept says why (live only).
+  private var shownSource = ""
+  private let errorLine = NSTextField(labelWithString: "")
   private let uniformFont = UniformFont()
   private var values: [Int: (className: String, value: String)] = [:]
   private var inspectors: [InspectorWindow] = []
@@ -196,6 +200,26 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
   var sourceIsEditable: Bool {
     sourceView.isEditable
+  }
+
+  var errorText: String {
+    errorLine.stringValue
+  }
+
+  var hasUnacceptedChanges: Bool {
+    sourceView.isEditable && sourceView.string != shownSource
+  }
+
+  // SPEC §3.9: live, halted, and the selected frame has an Accept target (ao_debug_can_accept).
+  var canAcceptEdit: Bool {
+    guard isLive, !finished, let selectedFrame, ao_debug_select(pid) == Int32(AO_OK) else {
+      return false
+    }
+    return ao_debug_can_accept(pid, Int32(selectedFrame)) == 1
+  }
+
+  func replaceSource(_ value: String) {
+    sourceView.string = value
   }
 
   var variableCount: Int {
@@ -396,6 +420,21 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     }
   }
 
+  // SPEC §3.9 Debugger の編集: Smalltalk → Accept. A refusal or a compile error stays in the
+  // window (error line, span selected); a halt reads everything anew, as the buttons do.
+  func accept() {
+    guard let selectedFrame, canAcceptEdit else {
+      return
+    }
+    let text = sourceView.string
+    resume({ pid, out, outLen, err in
+      text.withCString { ao_debug_accept(pid, Int32(selectedFrame), $0, out, outLen, err) }
+    }, refused: { status, err in
+      self.errorLine.stringValue = spanMessage(err)
+      selectErrorSpan(status: status, span: err, source: text, base: 0, in: self.sourceView)
+    })
+  }
+
   func stepOver() {
     resume { ao_debug_step_over($0, $1, $2, $3) }
   }
@@ -421,7 +460,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     window.close()
   }
 
-  private func resume(_ call: (Int64, UnsafeMutablePointer<CChar>, Int32, UnsafeMutablePointer<AoSpan>) -> Int32) {
+  private func resume(
+    _ call: (Int64, UnsafeMutablePointer<CChar>, Int32, UnsafeMutablePointer<AoSpan>) -> Int32,
+    refused: ((Int32, AoSpan) -> Void)? = nil
+  ) {
     guard isLive, !finished else {
       return
     }
@@ -443,6 +485,13 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       reload()
       return
     }
+    // SPEC §3.9: Accept's refusals (a message) and compile errors leave the process halted.
+    if let refused,
+       status == Int32(AO_ERR_COMPILE) || (status == Int32(AO_ERR) && !spanMessage(err).isEmpty) {
+      refused(status, err)
+      updateButtons()
+      return
+    }
     guard status != Int32(AO_ERR) else {
       // Refused (busy) or no longer halted: nothing ran.
       updateButtons()
@@ -462,6 +511,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
   // The process halted again: everything is read anew, the innermost frame selected.
   private func reload() {
+    errorLine.stringValue = ""
     _ = ao_debug_select(pid)
     generation = ao_debug_generation()
     reason = readDebugText { ao_debug_reason($0, $1) }.text
@@ -526,13 +576,26 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
         button.isEnabled = canGoOn
       }
     }
+    if !halted {
+      sourceView.isEditable = false
+    }
   }
 
   private func installButtons(above split: NSSplitView, size: NSSize) -> NSView {
     let barHeight: CGFloat = 32
     let container = NSView(frame: NSRect(origin: .zero, size: size))
     container.autoresizingMask = [.width, .height]
-    split.frame = NSRect(x: 0, y: 0, width: size.width, height: max(size.height - barHeight, 0))
+    let errorHeight: CGFloat = 20
+    split.frame = NSRect(
+      x: 0, y: errorHeight, width: size.width, height: max(size.height - barHeight - errorHeight, 0)
+    )
+    // SPEC §3.9: the error line keeps the system font size (文字の大きさ).
+    errorLine.frame = NSRect(x: 8, y: 2, width: max(size.width - 16, 0), height: 16)
+    errorLine.autoresizingMask = [.width, .maxYMargin]
+    errorLine.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    errorLine.lineBreakMode = .byTruncatingTail
+    errorLine.setAccessibilityLabel("Accept error")
+    container.addSubview(errorLine)
     let runs: [(String, @MainActor (DebuggerWindow) -> Void)] = [
       ("Proceed", { $0.proceed() }),
       ("Abort", { $0.abort() }),
@@ -616,6 +679,8 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     let frame = frames[index]
     values = [:]
     sourceView.string = frame.source
+    shownSource = frame.source
+    sourceView.isEditable = canAcceptEdit
     applyFont()
     let length = (frame.source as NSString).length
     let span = frame.highlight

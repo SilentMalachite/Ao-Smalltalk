@@ -665,6 +665,161 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertTrue(debugger.buttons.allSatisfy { !$0.isEnabled })
   }
 
+  // SPEC §3.9 Debugger の編集: the source pane is editable only on a frame Accept can target.
+  func testDebuggerSourceEditableOnlyForAcceptableFrames() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinEdit")
+    acceptMethod("DbgWinEdit", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinEdit new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertEqual(debugger.frameLabels, ["Object>>halt native ao_Object_halt", "DbgWinEdit>>bar", "doIt"])
+    XCTAssertFalse(debugger.sourceIsEditable)
+    debugger.selectFrame(1)
+    XCTAssertTrue(debugger.sourceIsEditable)
+    XCTAssertTrue(debugger.canAcceptEdit)
+    debugger.selectFrame(2)
+    XCTAssertFalse(debugger.sourceIsEditable)
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // SPEC §3.9: a post-mortem Debugger stays read-only.
+  func testPostmortemDebuggerSourceStaysReadOnly() {
+    defineAccClass("DbgWinPm")
+    acceptMethod("DbgWinPm", "bar\n  ^nil foo")
+    guard let debugger = debugAfterDoIt("DbgWinPm new bar") else {
+      return
+    }
+    debugger.selectFrame(1)
+    XCTAssertFalse(debugger.sourceIsEditable)
+    XCTAssertFalse(debugger.canAcceptEdit)
+  }
+
+  // SPEC §3.9: Accept reads the frames anew and selects the new activation, innermost.
+  func testAcceptInDebuggerSelectsNewActivation() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAcc")
+    acceptMethod("DbgWinAcc", "bar\n  ^self zork")
+    let workspace = workspace("DbgWinAcc new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("DNU opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^42")
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    debugger.accept()
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(debugger.title, "Debugger: accepted")
+    XCTAssertEqual(debugger.selectedFrame, 0)
+    XCTAssertEqual(debugger.frameLabels.first, "DbgWinAcc>>bar")
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^42")
+    XCTAssertFalse(debugger.hasUnacceptedChanges)
+    XCTAssertEqual(debugger.errorText, "")
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  func testAcceptThenProceedInsertsNewResult() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAccP")
+    acceptMethod("DbgWinAccP", "bar\n  ^self zork")
+    let workspace = workspace("DbgWinAccP new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("DNU opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^42")
+    debugger.accept()
+    button("Proceed", in: debugger)?.performClick(nil)
+    XCTAssertEqual(workspace.text, "DbgWinAccP new bar42")
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9: a compile error goes to the error line, its span is selected, and nothing else moves.
+  func testAcceptCompileErrorShowsReasonAndKeepsText() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAccErr")
+    acceptMethod("DbgWinAccErr", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinAccErr new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    let broken = "bar\n  ^1 +"
+    debugger.replaceSource(broken)
+    debugger.accept()
+    XCTAssertNotEqual(debugger.errorText, "")
+    XCTAssertEqual(debugger.sourceText, broken)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.title, "Debugger: halt")
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    let errorLine = views(in: debugger.window.contentView, of: NSTextField.self)
+      .first { $0.accessibilityLabel() == "Accept error" }
+    XCTAssertEqual(errorLine?.stringValue, debugger.errorText)
+    XCTAssertEqual(errorLine?.font, NSFont.systemFont(ofSize: NSFont.systemFontSize))
+  }
+
+  // Review Focus 4: after a compile error, a fixed Accept goes through and clears the error line.
+  func testAcceptAfterCompileErrorClearsErrorLine() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAccFix")
+    acceptMethod("DbgWinAccFix", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinAccFix new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^1 +")
+    debugger.accept()
+    XCTAssertNotEqual(debugger.errorText, "")
+    debugger.replaceSource("bar\n  ^5")
+    debugger.accept()
+    XCTAssertEqual(debugger.errorText, "")
+    XCTAssertEqual(debugger.title, "Debugger: accepted")
+    button("Proceed", in: debugger)?.performClick(nil)
+    XCTAssertEqual(workspace.text, "DbgWinAccFix new bar5")
+  }
+
+  // Review Focus 5: the error span counts UTF-8 bytes; the pane selects it in UTF-16.
+  func testAcceptCompileErrorSpanAfterJapaneseComment() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAccJa")
+    acceptMethod("DbgWinAccJa", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinAccJa new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    let broken = "bar\n  \"日本語のコメント\"\n  ^1 + )"
+    debugger.replaceSource(broken)
+    debugger.accept()
+    XCTAssertNotEqual(debugger.errorText, "")
+    let selection = debugger.sourceSelection
+    let comment = (broken as NSString).range(of: "\"日本語のコメント\"")
+    XCTAssertGreaterThan(selection.length, 0)
+    XCTAssertGreaterThanOrEqual(selection.location, NSMaxRange(comment))
+    XCTAssertLessThanOrEqual(NSMaxRange(selection), (broken as NSString).length)
+  }
+
   // MARK: - helpers
 
   private static let outerSource = "outer: x\n  | y |\n  y := x.\n  ^self inner: y"
@@ -761,6 +916,17 @@ final class DebuggerWindowTests: XCTestCase {
       }
     }
     XCTAssertEqual(added, Int32(AO_OK), spanMessage(err))
+  }
+
+  private func defineAccClass(_ name: String) {
+    var err = AoSpan()
+    let definition =
+      "Object subclass: #\(name)\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'P15-Test'!\n"
+    let defined = definition.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+    XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
   }
 
   private func acceptDbgWin(_ source: String) {
