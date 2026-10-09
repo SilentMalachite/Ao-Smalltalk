@@ -978,6 +978,44 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
   }
 
+  // SPEC §3.9: Smalltalk → Accept follows the key live Debugger's pane; it stays off while
+  // evaluating, as before.
+  func testAcceptMenuFollowsDebuggerEditability() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinMenu")
+    acceptMethod("DbgWinMenu", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinMenu new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertTrue(DebuggerWindow.owning(debugger.window) === debugger)
+    XCTAssertNil(DebuggerWindow.owning(workspace.window))
+    XCTAssertFalse(DebuggerWindow.allowsAccept(keyWindow: debugger.window))  // native row
+    debugger.selectFrame(1)
+    XCTAssertTrue(DebuggerWindow.allowsAccept(keyWindow: debugger.window))
+    XCTAssertTrue(DebuggerWindow.allowsAccept(keyWindow: workspace.window))
+    XCTAssertTrue(DebuggerWindow.allowsAccept(keyWindow: nil))
+    // The menu item asks canAccept.
+    var allowed = false
+    var actions = MainMenu.Actions()
+    actions.canAccept = { allowed }
+    let menu = MainMenu.build(actions: actions)
+    guard let accept = menu.item(withTitle: "Smalltalk")?.submenu?.item(withTitle: "Accept") else {
+      XCTFail("missing Accept")
+      return
+    }
+    func enabled() -> Bool {
+      (accept.target as? NSMenuItemValidation)?.validateMenuItem(accept) ?? true
+    }
+    XCTAssertFalse(enabled())
+    allowed = true
+    XCTAssertTrue(enabled())
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
   private func acceptDbgWin(_ source: String) {
     acceptMethod("DbgWin", source)
   }

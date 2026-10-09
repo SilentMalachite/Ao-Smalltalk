@@ -146,6 +146,20 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     return ao_debug_frame_count()
   }
 
+  // SPEC §3.9 Debugger の編集: the open Debugger whose window is `window`.
+  static func owning(_ window: NSWindow?) -> DebuggerWindow? {
+    guard let window else {
+      return nil
+    }
+    return open.first { $0.window === window }
+  }
+
+  // Smalltalk → Accept with `keyWindow` key: a Debugger there allows it only on an editable pane;
+  // any other window keeps the item as it was.
+  static func allowsAccept(keyWindow: NSWindow?) -> Bool {
+    owning(keyWindow)?.canAcceptEdit ?? true
+  }
+
   let window: NSWindow
   // 0: the post-mortem Debugger of the snapshot; else the halted process it shows (SPEC §3.9).
   let pid: Int64

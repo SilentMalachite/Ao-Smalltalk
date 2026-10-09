@@ -12,6 +12,8 @@ enum MainMenu {
     var canInterrupt: () -> Bool = { false }
     var canEvaluate: () -> Bool = { true }
     var accept: () -> Void = {}
+    // SPEC §3.9 Debugger の編集: off while evaluating, and on a key Debugger without an editable pane.
+    var canAccept: () -> Bool = { true }
     // SPEC §3.9 削除: the Remove items, and whether each is enabled (the key Browser has a
     // selector / a class).
     var removeMethod: () -> Void = {}
@@ -65,7 +67,7 @@ enum MainMenu {
       actionItem("Inspect it", key: "", run: { _ in actions.inspectIt() }, enabled: actions.canEvaluate),
       debugIt,
       actionItem("Interrupt", key: ".", run: { _ in actions.interrupt() }, enabled: actions.canInterrupt),
-      actionItem("Accept", key: "", run: { _ in actions.accept() }, enabled: actions.canEvaluate),
+      actionItem("Accept", key: "", run: { _ in actions.accept() }, enabled: actions.canAccept),
       actionItem("Remove Method…", key: "", run: { _ in actions.removeMethod() }, enabled: actions.canRemoveMethod),
       actionItem("Remove Class…", key: "", run: { _ in actions.removeClass() }, enabled: actions.canRemoveClass),
       actionItem("Show Hierarchy", key: "", run: { _ in actions.showHierarchy() })
