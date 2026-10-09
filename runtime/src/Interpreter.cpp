@@ -138,6 +138,7 @@ struct FrameLink {
     // A Restart target that leaves without restarting: no later frame may match its address.
     if (ctx.restartFrame == &frame) [[unlikely]] {
       ctx.restartFrame = nullptr;
+      disarmAccept(ctx);
     }
   }
   FrameLink(const FrameLink&) = delete;
@@ -456,6 +457,10 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
       reached = true;
       reason = "debug it";
       break;
+    case StepMode::Accepted:
+      reached = true;
+      reason = "accepted";
+      break;
     case StepMode::Into:
       reached = d != ctx.stepDepth || statementStart();
       break;
@@ -505,6 +510,16 @@ bool seedCopied(CallContext& ctx, Oop context, Temps& temps, std::uint8_t numTem
 bool applyRestart(CallContext& ctx, Frame& frame, Temps& temps, OperandStack& stack,
                   std::uint8_t numArgs, std::uint8_t numTemps) {
   if (!ctx.restarting || ctx.restartFrame != &frame) {
+    return false;
+  }
+  // SPEC §3.13 Accept: the target leaves (its context dies on the way out), and the applyMethod it
+  // returns to starts the accepted method in its place.
+  if (!ctx.acceptSlots.empty()) {
+    ctx.restarting = false;
+    ctx.restartFrame = nullptr;
+    ctx.proceededAt = nullptr;
+    ctx.stepMode = StepMode::None;
+    ctx.reactivating = true;
     return false;
   }
   frame.pc = 0;
@@ -987,6 +1002,50 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
   }
 }
 
+void disarmAccept(CallContext& ctx) {
+  if (ctx.acceptSlots.empty()) {
+    return;
+  }
+  ctx.roots.unpinRange(ctx.acceptSlots.data(), ctx.acceptSlots.size());
+  ctx.acceptSlots.clear();
+}
+
+bool decodeMethodHeader(CallContext& ctx, Oop method, std::uint8_t* numArgs,
+                        std::uint8_t* numTemps) {
+  return decodeHeader(ctx, method, numArgs, numTemps);
+}
+
+namespace {
+
+// SPEC §3.13 Accept (P15): the target activation has left. The send that started it now starts the
+// accepted method with the same receiver and arguments, without a lookup, and halts before its
+// first instruction (accepted). An Accept of the new activation comes back here.
+[[gnu::noinline]] Oop reactivateAccepted(CallContext& ctx) {
+  for (;;) {
+    ctx.reactivating = false;
+    const auto argc = static_cast<std::uint32_t>(ctx.acceptSlots.size() - 2);
+    Root method(ctx.roots, ctx.acceptSlots[0]);
+    Root receiver(ctx.roots, ctx.acceptSlots[1]);
+    RootedArray args(ctx.roots, argc);
+    for (std::uint32_t i = 0; i < argc; ++i) {
+      args.ptr()[i] = ctx.acceptSlots[2 + i];
+    }
+    disarmAccept(ctx);
+    ctx.stepMode = StepMode::Accepted;
+    const Oop result =
+        Interpreter::run(ctx, method.slot, receiver.slot, args.ptr(), argc, Oop::nil());
+    // The new activation did not reach its first instruction: the mark goes, not to a caller.
+    if (ctx.stepMode == StepMode::Accepted) {
+      ctx.stepMode = StepMode::None;
+    }
+    if (!ctx.reactivating) {
+      return result;
+    }
+  }
+}
+
+}  // namespace
+
 Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc,
                 Oop block) {
   if (!method.isHeap()) {
@@ -1009,7 +1068,11 @@ Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std
     return NativeMethod::apply(ctx, method, receiver, args, argc);
   }
   if (k == ctx.wk.compiledMethodClass) {
-    return Interpreter::run(ctx, method, receiver, args, argc, block);
+    const Oop result = Interpreter::run(ctx, method, receiver, args, argc, block);
+    if (ctx.reactivating) [[unlikely]] {
+      return reactivateAccepted(ctx);
+    }
+    return result;
   }
   return Oop{};
 }

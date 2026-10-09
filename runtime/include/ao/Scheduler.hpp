@@ -139,8 +139,10 @@ class Scheduler {
   // base waits for it as awaitEval does. Abort: it is terminated (its cleanups run on it); false
   // when pid is not halted. Both leave the base not unwinding. Restart proceeds with
   // restartFrame (an interpreted frame of pid): that process need not be canProceed, and its
-  // halt reruns the frame.
-  EvalEnd proceed(std::uint64_t pid, const Frame* restartFrame = nullptr);
+  // halt reruns the frame. Accept (P15) also hands acceptCount slots (the accepted method, the
+  // receiver, the arguments), copied into pid's acceptSlots and pinned.
+  EvalEnd proceed(std::uint64_t pid, const Frame* restartFrame = nullptr,
+                  const Oop* acceptSlots = nullptr, std::size_t acceptCount = 0);
   // Step: proceed with the step mark set (SPEC §3.13 Step); the depth is its innermost frame's.
   EvalEnd step(std::uint64_t pid, StepMode mode);
   bool abortHalted(std::uint64_t pid);

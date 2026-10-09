@@ -1684,6 +1684,10 @@ TEST_F(LiveRestart, RestartWhileBusyIsRefused) {
 
 class LiveAccept : public LiveDebug {
  protected:
+  int acceptIn(std::int64_t pid, int frame, const char* src) {
+    err_ = AoSpan{};
+    return ao_debug_accept(pid, frame, src, out_, sizeof out_, &err_);
+  }
   int proceed(std::int64_t pid) {
     err_ = AoSpan{};
     return ao_debug_proceed(pid, out_, sizeof out_, &err_);
@@ -1759,6 +1763,243 @@ TEST_F(LiveAccept, AcceptPostmortemIsRefused) {
   ASSERT_EQ(AO_ERR_EVAL, doIt("self halt"));
   EXPECT_EQ(0, ao_debug_can_accept(0, 0));
   EXPECT_EQ(0, ao_debug_can_accept(424242, 1));
+}
+
+// SPEC §6 P15 受け入れ: the sender of a DNU accepted from the Debugger halts at the first instruction
+// of the new method (accepted); Proceed answers its value; the Browser and later sends see it.
+TEST_F(LiveAccept, AcceptStopsAtFirstInstructionOfNewMethod) {
+  defineClass("DbgAcc");
+  accept("DbgAcc", 0, "bar\n  ^self zork");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAcc new bar"));
+  EXPECT_STREQ("doesNotUnderstand: #zork", err_.message);
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAcc>>bar", label(1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^42")) << err_.message;
+  EXPECT_STREQ("accepted", err_.message);
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("accepted", reason());
+  ASSERT_EQ(2, ao_debug_frame_count());
+  EXPECT_EQ("DbgAcc>>bar", label(0));
+  EXPECT_EQ(0, ao_debug_frame_kind(0));
+  EXPECT_EQ("bar\n  ^42", source(0).text);
+  EXPECT_EQ("doIt", label(1));
+  EXPECT_EQ(1, ao_debug_can_proceed(pid));
+}
+
+TEST_F(LiveAccept, ProceedAfterAcceptAnswersNewMethodValue) {
+  defineClass("DbgAccP");
+  accept("DbgAccP", 0, "bar\n  ^self zork");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccP new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^42")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("42", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  const std::int64_t id = ao_browser_class_id("DbgAccP");
+  char buf[256] = "unset";
+  ASSERT_EQ(AO_OK, ao_browser_source(id, 0, "bar", buf, sizeof buf));
+  EXPECT_STREQ("bar\n  ^42", buf);
+  ASSERT_EQ(AO_OK, printIt("DbgAccP new bar"));
+  EXPECT_STREQ("42", out_);
+}
+
+TEST_F(LiveAccept, AcceptKeepsReceiverAndArguments) {
+  defineClass("DbgAccArgs", "k");
+  accept("DbgAccArgs", 0, "setK: v\n  k := v");
+  accept("DbgAccArgs", 0, "with: x and: y\n  self halt.\n  ^0");
+  ASSERT_EQ(AO_ERR_HALT, printIt("(DbgAccArgs new setK: 100) with: 20 and: 3"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccArgs>>with:and:", label(1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "with: x and: y\n  ^k + x + y")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("123", out_);
+}
+
+TEST_F(LiveAccept, AcceptWithMoreTempsAndDeeperStack) {
+  defineClass("DbgAccTemps");
+  accept("DbgAccTemps", 0, "calc\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccTemps new calc"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT,
+            acceptIn(pid, 1,
+                     "calc\n  | a b c d |\n  a := 1. b := 2. c := 3. d := 4.\n"
+                     "  ^a + (b * (c + (d * (a + (b * c)))))"))
+      << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  ASSERT_EQ(4, ao_debug_frame_temp_count(0));
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("63", out_);  // 1 + 2 * (3 + 4 * 7)
+}
+
+TEST_F(LiveAccept, AcceptOnBlockFrameRestartsHome) {
+  defineClass("DbgAccBlk");
+  accept("DbgAccBlk", 0, "run\n  ^[self halt. 1] value");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccBlk new run"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("[] in DbgAccBlk>>run", label(1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "run\n  ^5")) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("DbgAccBlk>>run", label(0));
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("5", out_);
+}
+
+TEST_F(LiveAccept, AcceptOuterFrameDropsInnerWithoutEnsure) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  defineClass("DbgAccNest");
+  accept("DbgAccNest", 0, "outer\n  ^self inner");
+  accept("DbgAccNest", 0, "inner\n  ^[self halt. 7] ensure: [Transcript show: 'done']");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccNest new outer"));
+  const std::int64_t pid = selectHalted();
+  const int outer = frameLabeled("DbgAccNest>>outer");
+  ASSERT_GE(outer, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, outer, "outer\n  ^8")) << err_.message;
+  EXPECT_TRUE(seen.empty());
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("8", out_);
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_TRUE(seen.empty());
+}
+
+// SPEC §3.13: an activation a native started (Collection>>includes: sends = to the needle) starts
+// over inside that native's send.
+TEST_F(LiveAccept, AcceptFrameActivatedFromNativeSend) {
+  defineClass("DbgAccEq");
+  accept("DbgAccEq", 0, "= other\n  self halt.\n  ^false");
+  ASSERT_EQ(AO_ERR_HALT, printIt("#(1) includes: DbgAccEq new"));
+  const std::int64_t pid = selectHalted();
+  const int eq = frameLabeled("DbgAccEq>>=");
+  ASSERT_GE(eq, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, eq, "= other\n  ^true")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("true", out_);
+}
+
+TEST_F(LiveAccept, AcceptFrameActivatedByPerform) {
+  defineClass("DbgAccPerf");
+  accept("DbgAccPerf", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPerf new perform: #bar"));
+  const std::int64_t pid = selectHalted();
+  const int bar = frameLabeled("DbgAccPerf>>bar");
+  ASSERT_GE(bar, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, bar, "bar\n  ^2")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("2", out_);
+}
+
+// SPEC §3.3: the inline caches of a send that ran before see the accepted method.
+TEST_F(LiveAccept, AcceptInDebuggerUpdatesCachedSends) {
+  defineClass("DbgAccCache");
+  accept("DbgAccCache", 0, "bar\n  self halt.\n  ^1");
+  accept("DbgAccCache", 0, "callBar\n  ^self bar");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccCache new callBar"));
+  ASSERT_EQ(AO_OK, proceed(ao_debug_halted_pid())) << err_.message;
+  EXPECT_STREQ("1", out_);
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccCache new callBar"));
+  const std::int64_t pid = selectHalted();
+  const int bar = frameLabeled("DbgAccCache>>bar");
+  ASSERT_GE(bar, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, bar, "bar\n  ^42")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("42", out_);
+  ASSERT_EQ(AO_OK, printIt("DbgAccCache new callBar"));
+  EXPECT_STREQ("42", out_);
+}
+
+// SPEC §3.13: outer activations of the old method (recursion) go on running it.
+TEST_F(LiveAccept, AcceptKeepsOuterRecursionOnOldMethod) {
+  defineClass("DbgAccRec");
+  accept("DbgAccRec", 0, "count: n\n  n = 0 ifTrue: [self halt. ^0].\n  ^(self count: n - 1) + 1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccRec new count: 2"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccRec>>count:", label(1));
+  ASSERT_EQ(AO_ERR_HALT,
+            acceptIn(pid, 1, "count: n\n  n = 0 ifTrue: [^100].\n  ^(self count: n - 1) + 10"))
+      << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("102", out_);  // the two outer activations add 1, not 10
+}
+
+// SPEC §3.13: the discarded activation's context is dead, so a block made there cannot return.
+TEST_F(LiveAccept, DiscardedActivationBlockCannotReturn) {
+  defineClass("DbgAccRet", "saved");
+  accept("DbgAccRet", 0, "saved\n  ^saved");
+  accept("DbgAccRet", 0, "stash\n  saved := [^1].\n  self halt.\n  ^2");
+  ASSERT_EQ(AO_OK, doIt("dbgAccRet := DbgAccRet new"));
+  ASSERT_EQ(AO_ERR_HALT, printIt("dbgAccRet stash"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "stash\n  ^3")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("3", out_);
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("dbgAccRet saved value"));
+  EXPECT_NE(std::string::npos, std::string(err_.message).find("cannot return")) << err_.message;
+}
+
+TEST_F(LiveAccept, AcceptOnNonProceedable) {
+  defineClass("DbgAccBad");
+  accept("DbgAccBad", 0, "bad\n  ^3 ifTrue: [4]");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccBad new bad"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(0, ao_debug_can_proceed(pid));
+  const int bad = frameLabeled("DbgAccBad>>bad");
+  ASSERT_GE(bad, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, bad, "bad\n  ^4")) << err_.message;
+  EXPECT_STREQ("accepted", err_.message);
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("4", out_);
+}
+
+// Review Focus 1: the accepted activation can be accepted again.
+TEST_F(LiveAccept, AcceptTwiceOnSameFrame) {
+  defineClass("DbgAcc2");
+  accept("DbgAcc2", 0, "bar\n  ^self zork");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAcc2 new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^1")) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 0));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 0, "bar\n  ^2")) << err_.message;
+  EXPECT_STREQ("accepted", err_.message);
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("2", out_);
+}
+
+// Review Focus 2: a class-side method goes back into the metaclass's dictionary.
+TEST_F(LiveAccept, AcceptClassSideMethod) {
+  defineClass("DbgAccMeta");
+  accept("DbgAccMeta", 1, "make\n  self halt.\n  ^1");
+  accept("DbgAccMeta", 0, "make\n  ^-1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccMeta make"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccMeta class>>make", label(1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "make\n  ^7")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("7", out_);
+  ASSERT_EQ(AO_OK, printIt("DbgAccMeta new make"));
+  EXPECT_STREQ("-1", out_);
+}
+
+// Review Focus 3: Abort after Accept runs the outer ensure:, never the discarded inner one.
+TEST_F(LiveAccept, AbortAfterAcceptRunsOnlyOuterEnsure) {
+  std::vector<std::string> seen;
+  ao_set_transcript_hook(collectChunks, &seen);
+  defineClass("DbgAccAbort");
+  accept("DbgAccAbort", 0, "outer\n  ^[self inner] ensure: [Transcript show: 'outer']");
+  accept("DbgAccAbort", 0, "inner\n  ^self deep");
+  accept("DbgAccAbort", 0, "deep\n  ^[self halt. 1] ensure: [Transcript show: 'deep']");
+  ASSERT_EQ(AO_ERR_HALT, doIt("DbgAccAbort new outer"));
+  const std::int64_t pid = selectHalted();
+  const int inner = frameLabeled("DbgAccAbort>>inner");
+  ASSERT_GE(inner, 0);
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, inner, "inner\n  ^2")) << err_.message;
+  EXPECT_TRUE(seen.empty());
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(std::vector<std::string>{"outer"}, seen);
 }
 
 }  // namespace

@@ -15,6 +15,11 @@ class Interpreter {
 // Aborts with "stack overflow" instead of applying when the C stack is nearly used up.
 Oop applyMethod(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc,
                 Oop block = Oop::nil());
+// SPEC §3.13 Accept (P15): unpins and empties ctx.acceptSlots. Nothing when they are empty.
+void disarmAccept(CallContext& ctx);
+// A CompiledMethod header's argument and temp counts (SPEC §3.5). False when it is malformed.
+bool decodeMethodHeader(CallContext& ctx, Oop method, std::uint8_t* numArgs,
+                        std::uint8_t* numTemps);
 // Sets ctx's stack guard to its fiber's stack (fiberStackLow/High) or, when that is 0, to the
 // current thread's stack, keeping min(512 KiB, size/4) in reserve.
 void refreshStackLimit(CallContext& ctx);

@@ -447,6 +447,14 @@ extern "C" int ao_debug_restart(int64_t pid, int frame_index, char* out, int out
   });
 }
 
+extern "C" int ao_debug_accept(int64_t pid, int frame_index, const char* source, char* out,
+                               int out_len, AoSpan* err) {
+  return debugResumeEntry(out, out_len, err, [&] {
+    return ao::sessionDebugAccept(pid, frame_index, source, out, out_len, err, g_inspectFn,
+                                  g_inspectUser);
+  });
+}
+
 extern "C" int ao_debug_abort(int64_t pid) {
   const AbiEntry entry;
   if (!entry.entered()) {

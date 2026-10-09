@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 namespace ao {
 
@@ -53,7 +54,7 @@ using StatementHook = bool (*)(Oop method, std::uint32_t pc);
 
 // SPEC §3.13 step: what a stepping process stops at (None: it does not step). DebugIt stops at
 // the first instruction it reaches.
-enum class StepMode : std::uint8_t { None, Into, Over, Out, DebugIt };
+enum class StepMode : std::uint8_t { None, Into, Over, Out, DebugIt, Accepted };
 // Finds or makes the workspace binding (an Association) for name; empty Oop on failure.
 using BindingHook = Oop (*)(CallContext& ctx, std::string_view name);
 
@@ -135,6 +136,12 @@ struct CallContext {
   // whether unwinding toward it.
   const Frame* restartFrame = nullptr;
   bool restarting = false;
+  // SPEC §3.13 Accept (P15): armed with restartFrame. [0] the accepted method, [1] the receiver,
+  // [2..] the arguments of the target activation; one pinned range of roots while armed (empty:
+  // a plain Restart). reactivating: the target has left, and the applyMethod it returns to starts
+  // the accepted method in its place.
+  std::vector<Oop> acceptSlots{};
+  bool reactivating = false;
   // While > 0 this process does not halt (the scheduler updating its own lists): a failure
   // aborts as without a debugger.
   std::uint32_t haltSuppressed = 0;

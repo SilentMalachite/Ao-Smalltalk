@@ -196,6 +196,8 @@ int sessionDebugResume(std::int64_t pid, StepMode step, char* out, int outLen, A
                        AoInspectFn inspect, void* inspectUser);
 int sessionDebugRestart(std::int64_t pid, int frameIndex, char* out, int outLen, AoSpan* err,
                         AoInspectFn inspect, void* inspectUser);
+int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, char* out,
+                       int outLen, AoSpan* err, AoInspectFn inspect, void* inspectUser);
 int sessionDebugAbort(std::int64_t pid);
 std::int64_t debugHaltedPid();
 int debugHaltedCount();

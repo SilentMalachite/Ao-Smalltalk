@@ -1430,8 +1430,13 @@ bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
   return acceptMethodInto(ctx, ctx.wk.named(className), meta, source, error);
 }
 
-bool acceptMethodInto(CallContext& ctx, Oop target, bool meta, std::string_view source,
-                      compiler::CompileError* error) {
+namespace {
+
+// acceptMethodInto's one path. selector: the selector the source must define (Accept, P15), or
+// null. installed: when not null, the new method on success.
+bool acceptInto(CallContext& ctx, Oop target, bool meta, std::string_view source,
+                [[maybe_unused]] const std::string_view* selector, Oop* installed,
+                compiler::CompileError* error) {
   if (error != nullptr) {
     *error = {};
   }
@@ -1505,7 +1510,23 @@ bool acceptMethodInto(CallContext& ctx, Oop target, bool meta, std::string_view 
   // SPEC §3.10, §3.13: kept was boxed from cr.image, so its blocks sit at the image's literal
   // indices.
   rememberMethodSource(kept.slot, text.slot, replaced, &cr.image);
+  if (installed != nullptr) {
+    *installed = kept.slot;
+  }
   return true;
+}
+
+}  // namespace
+
+bool acceptMethodInto(CallContext& ctx, Oop target, bool meta, std::string_view source,
+                      compiler::CompileError* error) {
+  return acceptInto(ctx, target, meta, source, nullptr, nullptr, error);
+}
+
+bool acceptMethodReplacing(CallContext& ctx, Oop cls, bool meta, std::string_view source,
+                           std::string_view selector, Oop* installed,
+                           compiler::CompileError* error) {
+  return acceptInto(ctx, cls, meta, source, &selector, installed, error);
 }
 
 bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::CompileError* error) {
