@@ -871,7 +871,7 @@ final class DebuggerWindowTests: XCTestCase {
   }
 
   // SPEC §3.9: Cancel changes nothing even when the halt ended elsewhere while the question was up
-  // (the pane went read-only, so the edit no longer counts as unaccepted).
+  // (the pane went read-only; the edit still counts as unaccepted).
   func testCancelKeepsEditWhenHaltEndsDuringQuestion() {
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
     defineAccClass("DbgWinCancelEnd")
@@ -890,7 +890,7 @@ final class DebuggerWindowTests: XCTestCase {
       workspace.selectAll()
       workspace.doIt()
       NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: debugger.window)
-      XCTAssertFalse(debugger.hasUnacceptedChanges)
+      XCTAssertTrue(debugger.hasUnacceptedChanges)
       decide(false)
     }
     debugger.selectFrame(1)
@@ -948,6 +948,78 @@ final class DebuggerWindowTests: XCTestCase {
     // No edit: no question.
     button("Abort", in: debugger)?.performClick(nil)
     XCTAssertEqual(asked, 4)
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9 Debugger の編集: an edit still counts once the halt ended elsewhere (the pane went
+  // read-only); choosing a frame or closing asks first, and Cancel keeps it.
+  func testEditKeptAfterHaltEndsElsewhereStillAsks() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinEndAsk")
+    acceptMethod("DbgWinEndAsk", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("p := Processor activeProcess. DbgWinEndAsk new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var asked = 0
+    var answer = false
+    debugger.confirmDiscard = { _, decide in
+      asked += 1
+      decide(answer)
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    workspace.replaceText("p terminate")
+    workspace.selectAll()
+    workspace.doIt()
+    NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: debugger.window)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+    XCTAssertFalse(debugger.sourceIsEditable)
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    // Frame: Cancel keeps the selection and the edit.
+    debugger.selectFrame(2)
+    XCTAssertEqual(asked, 1)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    // Close: Cancel keeps the window and the edit.
+    debugger.window.performClose(nil)
+    XCTAssertEqual(asked, 2)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    // Discard: the window closes.
+    answer = true
+    debugger.window.performClose(nil)
+    XCTAssertEqual(asked, 3)
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
+  // SPEC §3.9 Debugger の編集: the pane is editable only while ao_debug_can_accept says so; a
+  // re-accept elsewhere (the Browser) makes it read-only when the Debugger comes back, text kept.
+  func testReacceptElsewhereMakesSourceReadOnlyOnReturn() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinReacc")
+    acceptMethod("DbgWinReacc", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinReacc new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    debugger.selectFrame(1)
+    XCTAssertTrue(debugger.sourceIsEditable)
+    debugger.replaceSource("bar\n  ^2")
+    acceptMethod("DbgWinReacc", "bar\n  self halt.\n  ^1")
+    NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: debugger.window)
+    XCTAssertFalse(debugger.canAcceptEdit)
+    XCTAssertFalse(debugger.sourceIsEditable)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    button("Abort", in: debugger)?.performClick(nil)
     XCTAssertFalse(debugger.window.isVisible)
   }
 

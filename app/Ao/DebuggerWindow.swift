@@ -225,7 +225,9 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   }
 
   var hasUnacceptedChanges: Bool {
-    sourceView.isEditable && sourceView.string != shownSource
+    // Not tied to isEditable: an edit kept after the halt ended elsewhere (pane now read-only)
+    // still asks before it goes.
+    sourceView.string != shownSource
   }
 
   // SPEC §3.9: live, halted, and the selected frame has an Accept target (ao_debug_can_accept).
@@ -568,6 +570,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     frameTable.reloadData()
     if frames.isEmpty {
       sourceView.string = ""
+      shownSource = ""
       variableTable.reloadData()
     } else {
       moveSelection(to: 0)
@@ -590,6 +593,9 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   // values become `-`.
   private func refreshLive() {
     updateButtons()
+    // SPEC §3.9 Debugger の編集: a re-accept elsewhere (the Browser) can take the frame's Accept
+    // target away; the pane follows, its text kept.
+    sourceView.isEditable = canAcceptEdit
     guard isLive, finished || ao_debug_select(pid) != Int32(AO_OK) else {
       return
     }

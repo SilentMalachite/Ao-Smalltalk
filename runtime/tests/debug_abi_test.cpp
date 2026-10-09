@@ -2039,16 +2039,54 @@ TEST_F(LiveAccept, AcceptCompileErrorChangesNothing) {
   accept("DbgAccErr", 0, "bar\n  self halt.\n  ^1");
   ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccErr new bar"));
   const std::int64_t pid = selectHalted();
-  const int resultBefore = ao_eval_result_length();
   ASSERT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "bar\n  ^1 +"));
   EXPECT_STRNE("", err_.message);
   EXPECT_LE(err_.start, err_.end);
   EXPECT_EQ(1, ao_debug_halted_count());
-  EXPECT_EQ(resultBefore, ao_eval_result_length());
   ASSERT_EQ(AO_OK, ao_debug_select(pid));
   EXPECT_EQ("halt", reason());
   EXPECT_EQ("bar\n  self halt.\n  ^1", source(1).text);
   EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("1", out_);
+}
+
+// SPEC §3.10 ao_debug_accept: a compile error or a selector change leaves the evaluation result,
+// the snapshot and the interrupt request alone. Every ao_eval empties both the result and the
+// snapshot, so the two cannot be there together: each is checked beside the halted process.
+TEST_F(LiveAccept, AcceptFailureKeepsResultSnapshotAndInterrupt) {
+  defineClass("DbgAccKeep");
+  accept("DbgAccKeep", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccKeep new bar"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_GT(pid, 0);
+  auto failBoth = [&] {
+    EXPECT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "bar\n  ^1 +"));
+    EXPECT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "baz\n  ^2"));
+    EXPECT_EQ(1, ao_debug_halted_count());
+  };
+  // A post-mortem snapshot beside the halted process.
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("nil foo"));
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  ASSERT_EQ(AO_OK, ao_debug_select(0));
+  const int generation = ao_debug_generation();
+  const int frames = ao_debug_frame_count();
+  ASSERT_GT(frames, 0);
+  EXPECT_EQ(AO_OK, ao_request_interrupt());
+  failBoth();
+  EXPECT_TRUE(ao::interruptRequested());
+  EXPECT_EQ(generation, ao_debug_generation());
+  ASSERT_EQ(AO_OK, ao_debug_select(0));
+  EXPECT_EQ(frames, ao_debug_frame_count());
+  EXPECT_EQ("doesNotUnderstand: #foo", reason());
+  // A kept evaluation result beside the halted process.
+  ASSERT_EQ(AO_OK, printIt("42")) << err_.message;
+  ASSERT_EQ(2, ao_eval_result_length());
+  EXPECT_EQ(AO_OK, ao_request_interrupt());
+  failBoth();
+  EXPECT_TRUE(ao::interruptRequested());
+  EXPECT_EQ(2, ao_eval_result_length());
   ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
   EXPECT_STREQ("1", out_);
 }
