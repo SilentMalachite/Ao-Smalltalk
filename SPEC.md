@@ -1106,7 +1106,7 @@ Browser での操作:
 - `scripts/package-app.sh` は次を行う。
   - Release でビルドする。
   - `image/vendor` を `Contents/Resources/vendor` に写す。
-  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（v1 は `1.0.0`、P12 までは `1.1.0`、P13 までは `1.2.0`、P14 までは `1.3.0`。§2.4）である。
+  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（v1 は `1.0.0`、P12 までは `1.1.0`、P13 までは `1.2.0`、P14 までは `1.3.0`、P15 までは `1.4.0`。§2.4）である。
   - アドホック署名する。`codesign --verify --strict` が通る。
 
 ### 3.10 ブリッジ
