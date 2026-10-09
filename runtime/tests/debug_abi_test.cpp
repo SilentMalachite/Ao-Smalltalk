@@ -2053,6 +2053,63 @@ TEST_F(LiveAccept, AcceptCompileErrorChangesNothing) {
   EXPECT_STREQ("1", out_);
 }
 
+// Final review 3: Accept pins the new method's slots; every way out gives them back.
+TEST_F(LiveAccept, AcceptPinsReturnToBaseline) {
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  defineClass("DbgAccPin");
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  // Warm the selectors this test interns, so they do not count as growth.
+  ao_set_debug_capture(0);
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  ASSERT_EQ(AO_OK, ao_debug_abort(selectHalted()));
+  ao_set_debug_capture(1);
+  ASSERT_EQ(AO_OK, printIt("3"));
+  const auto base = s->roots.counts();
+  auto expectBase = [&](const char* what) {
+    EXPECT_EQ(base.pinnedSlots, s->roots.counts().pinnedSlots) << what;
+    EXPECT_EQ(base.slots, s->roots.counts().slots) << what;
+  };
+  // Accept + Proceed.
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^2")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+  expectBase("accept+proceed");
+  // Accept + Abort.
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^3")) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_abort(pid));
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+  expectBase("accept+abort");
+  // Accept twice, then Proceed.
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "bar\n  ^4")) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 0, "bar\n  ^5")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+  expectBase("accept twice+proceed");
+  // Refused (selector change) and compile-error Accepts pin nothing.
+  accept("DbgAccPin", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPin new bar"));
+  pid = selectHalted();
+  const std::size_t halted = s->roots.counts().pinnedSlots;
+  EXPECT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "bar\n  ^1 +"));
+  EXPECT_EQ(halted, s->roots.counts().pinnedSlots);
+  EXPECT_NE(AO_ERR_HALT, acceptIn(pid, 1, "other\n  ^1"));
+  EXPECT_EQ(halted, s->roots.counts().pinnedSlots);
+  ASSERT_EQ(AO_OK, ao_debug_abort(pid));
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+  expectBase("refused");
+}
+
 TEST_F(LiveAccept, AcceptSelectorChangeIsRefused) {
   defineClass("DbgAccSel");
   accept("DbgAccSel", 0, "bar\n  self halt.\n  ^1");

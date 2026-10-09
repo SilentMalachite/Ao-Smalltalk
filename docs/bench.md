@@ -85,6 +85,7 @@ ms (ns per iteration):
 | Build | Commit | inlined ms | native ms | ratio |
 |---|---|---|---|---|
 | Release | `ac349e6` | 254 | 990 | 2.57 |
-| Release | P15 | 256 | 998 | 2.57 |
+| Release | P15 (`fca9939`) | 256 | 998 | 2.57 |
 
 - Raw runs (inlined / native ms), alternating `ac349e6` and P15: 254/991 and 259/999; 254/990 and 256/998; 254/989 and 257/998; 255/989 and 256/998; 256/995 and 255/1000. The ratio did not change.
+- The native column is about 0.8% slower in all 5 alternating pairs (990 to 998 ms), consistent with `applyMethod` no longer tail-calling `run` (one more C frame per send). The ratio criterion holds.

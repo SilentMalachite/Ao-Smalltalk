@@ -597,9 +597,15 @@ Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid, const Frame* restartFra
          (r->proceedable || restartFrame != nullptr) && "proceed needs canProceed or a restart");
   assert((acceptCount == 0 || restartFrame != nullptr) && "an Accept is a restart");
   if (acceptCount > 0) {
-    // assign may throw before anything below changes; no GC runs between it and the pin.
+    // assign may throw before anything below changes; no GC runs between it and the pin. pinRange
+    // can throw too (its push_back); then the slots are cleared so none stays armed but unpinned.
     r->ctx->acceptSlots.assign(acceptSlots, acceptSlots + acceptCount);
-    r->ctx->roots.pinRange(r->ctx->acceptSlots.data(), acceptCount);
+    try {
+      r->ctx->roots.pinRange(r->ctx->acceptSlots.data(), acceptCount);
+    } catch (...) {
+      r->ctx->acceptSlots.clear();
+      throw;
+    }
   }
   // Set only now, so a refused or failed entry before this never leaves a restart armed.
   r->ctx->restartFrame = restartFrame;
