@@ -8,7 +8,7 @@ Product spec: [SPEC.md](SPEC.md) (Japanese; product authority). Agent process: [
 
 ## Status
 
-**Ao 1.3.0** is the current release. It completes phases P0–P14 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0); P14 adds Restart in the Debugger (1.3.0):
+**Ao 1.4.0** is the current release. It completes phases P0–P15 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0); P14 adds Restart in the Debugger (1.4.0); P15 adds editing and Accept in the Debugger (1.4.0):
 
 | Area | What Ao does |
 |---|---|
@@ -20,7 +20,7 @@ Product spec: [SPEC.md](SPEC.md) (Japanese; product authority). Agent process: [
 | Class library | Non-Kernel classes filed in from a pinned Cuis-Smalltalk excerpt (`image/vendor`) |
 | Images | `.aoimage` save and load. Native methods are re-bound by symbol name on load |
 | Tools | AppKit Transcript, Workspace (Do it / Print it / Inspect it / Debug it), and a five-pane System Browser with Accept and Remove |
-| Debugger | `halt` and failures stop the evaluation in a Debugger window with Proceed, Abort, Step over, Step into, and Step out (P10, P11). ⌘. stops a running evaluation there too (P13). Restart reruns a selected frame (P14) |
+| Debugger | `halt` and failures stop the evaluation in a Debugger window with Proceed, Abort, Step over, Step into, and Step out (P10, P11). ⌘. stops a running evaluation there too (P13). Restart reruns a selected frame (P14). The live Debugger's source pane can be edited and Accepted, which restarts the frame with the new method (P15) |
 
 ## Install
 
@@ -30,8 +30,8 @@ Download from the [Releases](https://github.com/SilentMalachite/Ao-Smalltalk/rel
 
 | File | Contents |
 |---|---|
-| `Ao-1.3.0-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
-| `ao-cli-1.3.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
+| `Ao-1.4.0-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
+| `ao-cli-1.4.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
 | `SHA256SUMS` | SHA-256 checksums of the two archives |
 
 Check the downloads:
@@ -44,7 +44,7 @@ The builds are ad-hoc signed, not notarized. macOS blocks them the first time. E
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.3.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.4.0-macos-arm64/ao
 ```
 
 ## Using Ao.app
@@ -60,6 +60,7 @@ In the Workspace, select source and use the **Smalltalk** menu:
 | Inspect it | — | Evaluate and show the result in an inspector window |
 | Debug it | ⌘⇧D | Evaluate in the Debugger, stopped before the first statement |
 | Interrupt | ⌘. | Stop the running evaluation in the Debugger (reason `interrupted`) |
+| Accept | — | In the live Debugger, install the edited method and restart the frame with it (Smalltalk → Accept, on an editable frame) |
 
 ```smalltalk
 3 + 4.
@@ -98,7 +99,7 @@ Evaluation runs on the main thread. **Smalltalk → Interrupt** (⌘.) stops a l
 ## Using the `ao` CLI
 
 ```sh
-ao --version                               # 1.3.0
+ao --version                               # 1.4.0
 ao filein hello.st                         # file in one chunk-format file
 ao filein --load-order vendor/LOAD_ORDER   # file in the class library in order
 ao --test tests/                           # run every *.st in tests/ as a golden test
@@ -117,7 +118,7 @@ See SPEC §4.4 for the full `ao --test` contract.
 
 ## Not in Ao
 
-No JIT (user methods run as bytecode), no FFI, no networking, and no catching of Smalltalk exception objects. The Debugger has no editing, and does not step into native methods. Ao does not load Squeak, Pharo, or Xerox `.image` files. It runs only on Apple Silicon macOS. SPEC §1.4 lists the non-goals.
+No JIT (user methods run as bytecode), no FFI, no networking, and no catching of Smalltalk exception objects. The Debugger does not step into native methods, and the post-mortem Debugger and doIt frames cannot be edited. Ao does not load Squeak, Pharo, or Xerox `.image` files. It runs only on Apple Silicon macOS. SPEC §1.4 lists the non-goals.
 
 ## Build from source
 

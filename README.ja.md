@@ -8,7 +8,7 @@ English (canonical GitHub text): [README.md](README.md)
 
 ## 現状
 
-**Ao 1.3.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P14 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を足しました（1.3.0）。
+**Ao 1.4.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P15 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を（1.4.0）、P15 で Debugger の編集と Accept を足しました（1.4.0）。
 
 | 領域 | できること |
 |---|---|
@@ -20,7 +20,7 @@ English (canonical GitHub text): [README.md](README.md)
 | クラスライブラリ | 非 Kernel クラスを、版を固定した Cuis-Smalltalk の抜粋（`image/vendor`）から file-in する |
 | イメージ | `.aoimage` の保存と読み込み。ネイティブメソッドはロード時にシンボル名で結び直す |
 | ツール | AppKit の Transcript、Workspace（Do it / Print it / Inspect it / Debug it）、Accept と削除ができる 5 ペインの System Browser |
-| デバッガ | `halt` と失敗で評価を止め、Debugger 窓で Proceed、Abort、Step over、Step into、Step out を行う（P10、P11）。走っている評価も ⌘. でここに止める（P13）。選んだフレームを Restart でやり直す（P14） |
+| デバッガ | `halt` と失敗で評価を止め、Debugger 窓で Proceed、Abort、Step over、Step into、Step out を行う（P10、P11）。走っている評価も ⌘. でここに止める（P13）。選んだフレームを Restart でやり直す（P14）。ライブ Debugger のソース欄は編集して Accept でき、新しいメソッドでそのフレームを最初からやり直す（P15） |
 
 ## インストール
 
@@ -30,8 +30,8 @@ English (canonical GitHub text): [README.md](README.md)
 
 | ファイル | 中身 |
 |---|---|
-| `Ao-1.3.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
-| `ao-cli-1.3.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
+| `Ao-1.4.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
+| `ao-cli-1.4.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
 | `SHA256SUMS` | 上の 2 つのアーカイブの SHA-256 |
 
 ダウンロードを確かめます。
@@ -44,7 +44,7 @@ shasum -a 256 -c SHA256SUMS
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.3.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.4.0-macos-arm64/ao
 ```
 
 ## Ao.app の使い方
@@ -60,6 +60,7 @@ Workspace でソースを選択し、**Smalltalk** メニューを使います�
 | Inspect it | — | 評価し、結果をインスペクタのウィンドウに出す |
 | Debug it | ⌘⇧D | Debugger の中で評価する。最初の文の前で止まる |
 | Interrupt | ⌘. | 走っている評価を Debugger に止める（理由 `interrupted`） |
+| Accept | — | ライブ Debugger で編集したメソッドを入れ、そのフレームを新しいメソッドでやり直す（Smalltalk → Accept。編集できるフレームのとき） |
 
 ```smalltalk
 3 + 4.
@@ -98,7 +99,7 @@ Proceed や step で Print it が終わると、結果が Workspace に入りま
 ## `ao` CLI の使い方
 
 ```sh
-ao --version                               # 1.3.0
+ao --version                               # 1.4.0
 ao filein hello.st                         # チャンク形式のファイルを 1 つ file-in する
 ao filein --load-order vendor/LOAD_ORDER   # クラスライブラリを順に file-in する
 ao --test tests/                           # tests/ の *.st をすべてゴールデンテストとして実行する
@@ -117,7 +118,7 @@ self assert: (#(1 2 3) collect: [:x | x * 2]) equals: #(2 4 6).
 
 ## Ao に無いもの
 
-JIT（ユーザーメソッドはバイトコードで動く）、FFI、ネットワーク、Smalltalk の例外オブジェクトによる捕捉はありません。Debugger には編集がなく、ネイティブメソッドの中には step into しません。Squeak / Pharo / Xerox の `.image` は読めません。動くのは Apple Silicon の macOS だけです。非目標は SPEC §1.4 にあります。
+JIT（ユーザーメソッドはバイトコードで動く）、FFI、ネットワーク、Smalltalk の例外オブジェクトによる捕捉はありません。Debugger はネイティブメソッドの中に step into しません。事後 Debugger と doIt のフレームは編集できません。Squeak / Pharo / Xerox の `.image` は読めません。動くのは Apple Silicon の macOS だけです。非目標は SPEC §1.4 にあります。
 
 ## ソースからのビルド
 

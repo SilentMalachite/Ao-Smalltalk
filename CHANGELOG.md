@@ -4,7 +4,9 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
-Phase P15 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change.
+## [1.4.0] - 2026-10-09
+
+Phase P15 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.3.0 load in 1.4.0.
 
 The live Debugger's source pane can be edited on frames whose method was accepted in this session (SPEC §3.9, §3.10, §3.13). Smalltalk → Accept installs the method into its defining class and starts the frame's activation over with the new method, in the send that started it, with the same receiver and arguments; it halts before the first instruction with reason `accepted`. Inner frames are discarded without running their `ensure:` / `ifCurtailed:` blocks.
 
@@ -17,9 +19,22 @@ The live Debugger's source pane can be edited on frames whose method was accepte
 - The live Debugger's source pane is editable on frames `ao_debug_can_accept` allows, with an error line for refused Accepts. Choosing another frame, pressing a button or closing the window with an unaccepted edit asks first.
 - Smalltalk → Accept goes to the key live Debugger when its pane is editable.
 
+### Project
+
+- Release assets: `Ao-1.4.0-macos-arm64.zip`, `ao-cli-1.4.0-macos-arm64.tar.gz`, and `SHA256SUMS`.
+
 ### Known limitations
 
 - No editing in the post-mortem Debugger or of the doIt, no selector change from the Debugger, and no class definitions from the Debugger.
+- The live Debugger does not step into natives.
+- A frame whose method has no source (re-accepted or removed while halted, loaded from an image, or filed in) has no statement starts, so Step over and Step into do not stop at its statements: they stop only in a deeper frame (Step into) or back in the sender (SPEC §3.13).
+- No JIT, FFI, networking, or catching of Smalltalk exception objects (SPEC §1.4, §5).
+- The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
+- The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
+
+### Install
+
+Requires an Apple Silicon Mac with macOS 14 or later. Download `Ao-1.4.0-macos-arm64.zip` (the app) and/or `ao-cli-1.4.0-macos-arm64.tar.gz` (the CLI), then check them with `shasum -a 256 -c SHA256SUMS`. The builds are not notarized: after the first launch attempt, choose **Open Anyway** in System Settings → Privacy & Security, or run `xattr -dr com.apple.quarantine Ao.app`. See the [README](https://github.com/SilentMalachite/Ao-Smalltalk/blob/v1.4.0/README.md) for usage.
 
 ## [1.3.0] - 2026-10-04
 
@@ -193,7 +208,8 @@ The first release. It completes phases P0–P9 of SPEC §2.3, the v1 definition:
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
 
-[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.0.0...v1.1.0
