@@ -820,6 +820,55 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertLessThanOrEqual(NSMaxRange(selection), (broken as NSString).length)
   }
 
+  // SPEC §3.9: with an unaccepted edit, choosing a frame, a button or closing asks first; Cancel
+  // changes nothing, Discard goes ahead.
+  func testUnacceptedEditAsksToDiscardFirst() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinAsk")
+    acceptMethod("DbgWinAsk", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinAsk new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var asked = 0
+    var answer = false
+    debugger.confirmDiscard = { _, decide in
+      asked += 1
+      decide(answer)
+    }
+    debugger.selectFrame(1)
+    XCTAssertEqual(asked, 0)
+    debugger.replaceSource("bar\n  ^2")
+    // Frame: Cancel keeps the selection and the edit.
+    debugger.selectFrame(2)
+    XCTAssertEqual(asked, 1)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    // Buttons: Cancel does nothing.
+    button("Proceed", in: debugger)?.performClick(nil)
+    XCTAssertEqual(asked, 2)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    // Close: Cancel keeps the window and the process.
+    debugger.window.performClose(nil)
+    XCTAssertEqual(asked, 3)
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    // Discard: the frame changes and the edit is gone.
+    answer = true
+    debugger.selectFrame(2)
+    XCTAssertEqual(asked, 4)
+    XCTAssertEqual(debugger.selectedFrame, 2)
+    XCTAssertFalse(debugger.hasUnacceptedChanges)
+    // No edit: no question.
+    button("Abort", in: debugger)?.performClick(nil)
+    XCTAssertEqual(asked, 4)
+    XCTAssertFalse(debugger.window.isVisible)
+  }
+
   // MARK: - helpers
 
   private static let outerSource = "outer: x\n  | y |\n  y := x.\n  ^self inner: y"

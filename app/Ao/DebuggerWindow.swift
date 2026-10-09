@@ -167,6 +167,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   // the line where a refused Accept says why (live only).
   private var shownSource = ""
   private let errorLine = NSTextField(labelWithString: "")
+  // SPEC §3.9 Debugger の編集: asks before an unaccepted edit goes (Browser's question). Tests
+  // replace it.
+  var confirmDiscard: BrowserWindow.DiscardConfirmation = BrowserWindow.askToDiscard
+  private var confirming = false
   private let uniformFont = UniformFont()
   private var values: [Int: (className: String, value: String)] = [:]
   private var inspectors: [InspectorWindow] = []
@@ -322,7 +326,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     applyFont()
     frameTable.reloadData()
     if !frames.isEmpty {
-      selectFrame(0)
+      moveSelection(to: 0)
     }
     window.makeKeyAndOrderFront(nil)
   }
@@ -354,9 +358,34 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     guard index >= 0, index < frames.count else {
       return
     }
+    confirmIfEdited { self.moveSelection(to: index) }
+  }
+
+  private func moveSelection(to index: Int) {
     frameTable.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     if frameTable.selectedRow == index {
       showFrame(index)
+    }
+  }
+
+  // SPEC §3.9 Debugger の編集: an unaccepted edit goes only after the question; Cancel leaves the
+  // selection and the operation alone. One question at a time.
+  private func confirmIfEdited(_ run: @escaping @MainActor () -> Void) {
+    guard !confirming else {
+      return
+    }
+    guard hasUnacceptedChanges else {
+      run()
+      return
+    }
+    confirming = true
+    confirmDiscard(window) { discard in
+      self.confirming = false
+      guard discard || !self.hasUnacceptedChanges else {
+        return
+      }
+      self.sourceView.string = self.shownSource
+      run()
     }
   }
 
@@ -523,7 +552,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       sourceView.string = ""
       variableTable.reloadData()
     } else {
-      selectFrame(0)
+      moveSelection(to: 0)
     }
     updateButtons()
   }
@@ -619,7 +648,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
         guard let self else {
           return
         }
-        run(self)
+        self.confirmIfEdited { run(self) }
       }
     }
     container.addSubview(split)
@@ -658,6 +687,14 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     cell.drawsBackground = false
     cell.lineBreakMode = .byTruncatingTail
     return cell
+  }
+
+  func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+    guard tableView === frameTable, hasUnacceptedChanges else {
+      return true
+    }
+    confirmIfEdited { self.moveSelection(to: row) }
+    return false
   }
 
   func tableViewSelectionDidChange(_ notification: Notification) {
@@ -801,7 +838,14 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   // SPEC §3.9 評価の中断: during an evaluation (the pump dispatched the close) the abort would be
   // refused as busy, so the live window stays, as its Abort button would.
   func windowShouldClose(_ sender: NSWindow) -> Bool {
-    !(isLive && !finished && EvaluationActivity.isActive)
+    if isLive, !finished, EvaluationActivity.isActive {
+      return false
+    }
+    guard hasUnacceptedChanges else {
+      return true
+    }
+    confirmIfEdited { self.window.close() }
+    return false
   }
 }
 
