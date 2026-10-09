@@ -4,7 +4,10 @@
 
 // The snapshot's pinned roots (ClearDropsRoots). Not a public header.
 #include "../src/Session.hpp"
+#include "ao/Bootstrap.hpp"
 #include "ao/Gc.hpp"
+#include "ao/MethodDictionary.hpp"
+#include "ao/WellKnown.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -15,6 +18,35 @@
 #include <gtest/gtest.h>
 
 namespace {
+
+// SPEC §6: every pair left in a native-required dictionary (both sides) holds a NativeMethod.
+// The same scan as remove_abi_test.cpp's.
+bool kernelDictsAreNative() {
+  struct Scan {
+    ao::Session* s;
+    bool ok = true;
+    void visit(ao::Oop cls) {
+      if (!cls.isHeap()) return;
+      const ao::Oop dict = s->heap.slotAt(cls, ao::kClassSlotMethodDict);
+      if (!dict.isHeap()) return;
+      const ao::Oop inner = s->heap.slotAt(dict, ao::kDictSlotArray);
+      if (!inner.isHeap()) return;
+      for (std::uint32_t i = 0; i + 1 < s->heap.size(inner); i += 2) {
+        if (s->heap.slotAt(inner, i).isNil()) continue;
+        const ao::Oop v = s->heap.slotAt(inner, i + 1);
+        if (!v.isHeap() || s->heap.klass(v) != s->wk.nativeMethodClass) ok = false;
+      }
+    }
+  } scan{ao::session()};
+  scan.s->wk.eachNativeRequiredClass(
+      [](void* p, ao::Oop cls) {
+        auto* sc = static_cast<Scan*>(p);
+        sc->visit(cls);
+        sc->visit(sc->s->heap.klass(cls));
+      },
+      &scan);
+  return scan.ok;
+}
 
 class DebugAbi : public ::testing::Test {
  protected:
@@ -2000,6 +2032,119 @@ TEST_F(LiveAccept, AbortAfterAcceptRunsOnlyOuterEnsure) {
   EXPECT_EQ(AO_OK, ao_debug_abort(pid));
   ao_set_transcript_hook(nullptr, nullptr);
   EXPECT_EQ(std::vector<std::string>{"outer"}, seen);
+}
+
+TEST_F(LiveAccept, AcceptCompileErrorChangesNothing) {
+  defineClass("DbgAccErr");
+  accept("DbgAccErr", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccErr new bar"));
+  const std::int64_t pid = selectHalted();
+  const int resultBefore = ao_eval_result_length();
+  ASSERT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "bar\n  ^1 +"));
+  EXPECT_STRNE("", err_.message);
+  EXPECT_LE(err_.start, err_.end);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  EXPECT_EQ(resultBefore, ao_eval_result_length());
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ("halt", reason());
+  EXPECT_EQ("bar\n  self halt.\n  ^1", source(1).text);
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("1", out_);
+}
+
+TEST_F(LiveAccept, AcceptSelectorChangeIsRefused) {
+  defineClass("DbgAccSel");
+  accept("DbgAccSel", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccSel new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_COMPILE, acceptIn(pid, 1, "baz\n  ^2"));
+  EXPECT_STREQ("debugger accept refused: selector changed to baz", err_.message);
+  EXPECT_EQ(0u, err_.start);
+  EXPECT_EQ(0u, err_.end);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("DbgAccSel new baz"));
+  EXPECT_STREQ("doesNotUnderstand: #baz", err_.message);
+}
+
+TEST_F(LiveAccept, AcceptRefusalMessages) {
+  defineClass("DbgAccMsg");
+  accept("DbgAccMsg", 0, "makeBlock\n  ^[self halt. 3]");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccMsg new makeBlock value"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 1, "makeBlock\n  ^4"));
+  EXPECT_STREQ("debugger accept refused: home frame is not on the stack", err_.message);
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 0, "x\n  ^1"));
+  EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 2, "doIt\n  ^1"));  // the doIt
+  EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 99, "x\n  ^1"));
+  EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+  EXPECT_EQ(0u, err_.start);
+  EXPECT_EQ(0u, err_.end);
+  EXPECT_EQ(1, ao_debug_halted_count());
+}
+
+TEST_F(LiveAccept, AcceptUnknownPidFails) {
+  EXPECT_EQ(AO_ERR, acceptIn(424242, 1, "bar\n  ^1"));
+  EXPECT_STREQ("", err_.message);
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt"));
+  const std::int64_t pid = ao_debug_halted_pid();
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 1, nullptr));
+  EXPECT_STREQ("", err_.message);
+  EXPECT_EQ(AO_ERR, ao_debug_accept(pid, 1, "bar\n  ^1", nullptr, 16, &err_));
+  EXPECT_EQ(AO_ERR, ao_debug_accept(pid, 1, "bar\n  ^1", out_, 0, &err_));
+  EXPECT_EQ(1, ao_debug_halted_count());
+}
+
+TEST_F(LiveAccept, AcceptWhileBusyIsRefused) {
+  defineClass("DbgAccBusy");
+  accept("DbgAccBusy", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccBusy new bar"));
+  struct Hook {
+    std::int64_t pid = 0;
+    int answer = 0;
+    int can = -1;
+  } hook;
+  hook.pid = ao_debug_halted_pid();
+  ao_set_transcript_hook(
+      [](const char*, int, int is_clear, void* user) {
+        if (is_clear != 0) {
+          return;
+        }
+        auto* p = static_cast<Hook*>(user);
+        char out[16];
+        AoSpan err{};
+        p->can = ao_debug_can_accept(p->pid, 1);
+        p->answer = ao_debug_accept(p->pid, 1, "bar\n  ^2", out, sizeof out, &err);
+      },
+      &hook);
+  ASSERT_EQ(AO_OK, doIt("Transcript show: 'x'"));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(1, hook.can);
+  EXPECT_EQ(AO_ERR, hook.answer);
+  EXPECT_EQ(1, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, proceed(hook.pid)) << err_.message;
+  EXPECT_STREQ("1", out_);
+}
+
+TEST_F(LiveAccept, KernelScanStaysGreenAfterDebuggerAccept) {
+  ASSERT_TRUE(kernelDictsAreNative());
+  accept("Object", 0, "p15scan\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("Object new p15scan"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "p15scan\n  ^2")) << err_.message;
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("2", out_);
+  // The installed method is a CompiledMethod in a Kernel dictionary until it is removed.
+  AoSpan removeErr{};
+  ASSERT_EQ(AO_OK, ao_remove_method(ao_browser_class_id("Object"), 0, "p15scan", &removeErr))
+      << removeErr.message;
+  EXPECT_TRUE(kernelDictsAreNative());
+  ASSERT_EQ(AO_OK, printIt("3 + 4"));
+  EXPECT_STREQ("7", out_);
 }
 
 }  // namespace

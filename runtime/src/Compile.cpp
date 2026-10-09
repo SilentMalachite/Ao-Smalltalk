@@ -1435,7 +1435,7 @@ namespace {
 // acceptMethodInto's one path. selector: the selector the source must define (Accept, P15), or
 // null. installed: when not null, the new method on success.
 bool acceptInto(CallContext& ctx, Oop target, bool meta, std::string_view source,
-                [[maybe_unused]] const std::string_view* selector, Oop* installed,
+                const std::string_view* selector, Oop* installed,
                 compiler::CompileError* error) {
   if (error != nullptr) {
     *error = {};
@@ -1461,6 +1461,12 @@ bool acceptInto(CallContext& ctx, Oop target, bool meta, std::string_view source
     if (error != nullptr) {
       *error = std::move(cr.error);
     }
+    return false;
+  }
+
+  // SPEC §3.13 Accept (P15): a source for another selector installs nothing.
+  if (selector != nullptr && cr.image.selector != *selector) {
+    assignError(error, "debugger accept refused: selector changed to " + cr.image.selector);
     return false;
   }
 
