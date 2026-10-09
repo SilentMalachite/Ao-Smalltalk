@@ -4,6 +4,23 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
+Phase P15 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change.
+
+The live Debugger's source pane can be edited on frames whose method was accepted in this session (SPEC §3.9, §3.10, §3.13). Smalltalk → Accept installs the method into its defining class and starts the frame's activation over with the new method, in the send that started it, with the same receiver and arguments; it halts before the first instruction with reason `accepted`. Inner frames are discarded without running their `ensure:` / `ifCurtailed:` blocks.
+
+### Runtime
+
+- C ABI: `ao_debug_can_accept(pid, frame_index)` and `ao_debug_accept(pid, frame_index, source, out, out_len, err)`. Accept is an outermost entry (busy → `AO_ERR`). Answers match Proceed. Refusals: `debugger accept refused: not an accepted method`, `debugger accept refused: home frame is not on the stack` (`AO_ERR`), and `debugger accept refused: selector changed to <selector>` (`AO_ERR_COMPILE`). A refused or failed Accept changes nothing and leaves the process halted.
+
+### Ao.app
+
+- The live Debugger's source pane is editable on frames `ao_debug_can_accept` allows, with an error line for refused Accepts. Choosing another frame, pressing a button or closing the window with an unaccepted edit asks first.
+- Smalltalk → Accept goes to the key live Debugger when its pane is editable.
+
+### Known limitations
+
+- No editing in the post-mortem Debugger or of the doIt, no selector change from the Debugger, and no class definitions from the Debugger.
+
 ## [1.3.0] - 2026-10-04
 
 Phase P14 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.2.0 load in 1.3.0.

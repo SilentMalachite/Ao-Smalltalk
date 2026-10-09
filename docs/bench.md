@@ -75,3 +75,16 @@ ms (ns per iteration):
 ## P13 interrupt safepoint
 
 - Not remeasured in the P13 completion session (2026-09-30). The interrupt check sits on the existing interpreter back-jump safepoint path (same family as P11's per-instruction step branch, which showed no measurable change above). If a later session suspects hot-loop regression, re-run `KernelBench.InlinedToDoMillion` / `TenMillionToDo` as in the P11 section and record medians here.
+
+## P15 accept branch
+
+- Machine: Apple Silicon (`Apple M1 Max`). Date: 2026-10-09.
+- Commits: `ac349e6` (before P15) and the P15 branch head (one `ctx.reactivating` test after `Interpreter::run` returns in `applyMethod`).
+- Method: as the P11 section; medians of 5 alternate runs.
+
+| Build | Commit | inlined ms | native ms | ratio |
+|---|---|---|---|---|
+| Release | `ac349e6` | 254 | 990 | 2.57 |
+| Release | P15 | 256 | 998 | 2.57 |
+
+- Raw runs (inlined / native ms), alternating `ac349e6` and P15: 254/991 and 259/999; 254/990 and 256/998; 254/989 and 257/998; 255/989 and 256/998; 256/995 and 255/1000. The ratio did not change.

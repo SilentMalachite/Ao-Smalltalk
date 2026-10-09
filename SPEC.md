@@ -1947,16 +1947,16 @@ P14（§3.9、§3.10、§3.13）は次をすべて満たす。上の項目は変
 
 P15（§3.9、§3.10、§3.13）は次をすべて満たす。上の項目は変えない。
 
-- [ ] Browser で `Foo>>bar` を `^self zork` で Accept し、Workspace の `Foo new bar` を Print it して止まったライブ Debugger で、`Foo>>bar` を選んで `^42` に直して Accept すると、`Foo>>bar` の最初の命令で `accepted` で止まり、Proceed で `42` が挿入される
-- [ ] そのあと Browser で `Foo>>bar` を開くと直したソースが出て、Workspace の `Foo new bar` も `42` を答える
-- [ ] コンパイルエラーの Accept は Debugger の error 行に理由を出し、テキストもメソッドも変えず、プロセスは止まったまま
-- [ ] セレクタを変えた Accept は `selector changed` で拒まれる
-- [ ] doIt、合成ネイティブ、vendor のメソッドのフレームは編集できない
-- [ ] 外側のフレームで Accept すると内側は捨てられ、内側の `ensure:` は走らない
-- [ ] Accept していない編集があれば、フレームの選択、ボタン、窓を閉じる前に破棄の確認が出る
-- [ ] ライブモード off（CLI 既定と `ao --test`）は変えない
-- [ ] Kernel 走査緑、`docs/bench.md` の比が悪化しない
-- [ ] `PHASE` は `P15`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
+- [x] Browser で `Foo>>bar` を `^self zork` で Accept し、Workspace の `Foo new bar` を Print it して止まったライブ Debugger で、`Foo>>bar` を選んで `^42` に直して Accept すると、`Foo>>bar` の最初の命令で `accepted` で止まり、Proceed で `42` が挿入される
+- [x] そのあと Browser で `Foo>>bar` を開くと直したソースが出て、Workspace の `Foo new bar` も `42` を答える
+- [x] コンパイルエラーの Accept は Debugger の error 行に理由を出し、テキストもメソッドも変えず、プロセスは止まったまま
+- [x] セレクタを変えた Accept は `selector changed` で拒まれる
+- [x] doIt、合成ネイティブ、vendor のメソッドのフレームは編集できない
+- [x] 外側のフレームで Accept すると内側は捨てられ、内側の `ensure:` は走らない
+- [x] Accept していない編集があれば、フレームの選択、ボタン、窓を閉じる前に破棄の確認が出る
+- [x] ライブモード off（CLI 既定と `ao --test`）は変えない
+- [x] Kernel 走査緑、`docs/bench.md` の比が悪化しない
+- [x] `PHASE` は `P15`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
 
 ---
 
