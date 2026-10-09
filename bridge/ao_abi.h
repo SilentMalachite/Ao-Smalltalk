@@ -45,9 +45,9 @@ typedef struct AoSpan {
    ao_accept_method_id, ao_accept_class, ao_remove_method, ao_remove_class,
    ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
    ao_debug_clear, ao_debug_proceed, ao_debug_step_into, ao_debug_step_over, ao_debug_step_out,
-   ao_debug_restart
+   ao_debug_restart, ao_debug_accept
    or ao_debug_abort runs, or the interpreter does. Called then (from a transcript or inspect
-   hook, or a native), each of these twenty-two does nothing and answers AO_ERR: ao_image_load,
+   hook, or a native), each of these twenty-three does nothing and answers AO_ERR: ao_image_load,
    ao_remove_method and ao_remove_class
    with the reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
    setters (ao_set_transcript_hook, ao_set_inspect_hook, ao_set_runloop_pump_hook),
@@ -55,7 +55,7 @@ typedef struct AoSpan {
    ao_eval_result_length, ao_eval_result_copy,
    ao_set_debug_capture, ao_set_debug_mode, the snapshot reads (ao_debug_generation to
    ao_debug_frame_temp_name) and the live reads (ao_debug_halted_pid to ao_debug_select,
-   ao_debug_can_restart) may be
+   ao_debug_can_restart, ao_debug_can_accept) may be
    called then. A halted process (SPEC §3.13) does not run, so it alone does not make the runtime
    busy. No C++ exception leaves any of these functions: it becomes AO_ERR (-1 for
    the *_count functions, ao_eval_result_length, and the ao_debug_* functions below that answer a
@@ -221,6 +221,9 @@ int64_t ao_debug_halted_pid(void);
 int ao_debug_halted_count(void);
 int ao_debug_can_proceed(int64_t pid);
 int ao_debug_can_restart(int64_t pid, int frame_index);
+/* SPEC §3.10 P15: 1 when pid is halted and frame_index has an Accept target (§3.13 Accept); 0
+   otherwise. Callable while busy. */
+int ao_debug_can_accept(int64_t pid, int frame_index);
 int ao_debug_select(int64_t pid);
 /* SPEC §3.10 ライブデバッガの操作. Outermost entries: AO_ERR while busy. Proceed goes on from
    the halt of pid (halt, error: and doesNotUnderstand: answer nil; a failed send's value is nil)
@@ -246,6 +249,14 @@ int ao_debug_step_out(int64_t pid, char* out, int out_len, AoSpan* err);
    Same answers as Proceed. AO_ERR with "restart refused: not an interpreted frame" when the
    index is a synthesized native or DNU, or out of range. Proceed-incapable halts may restart. */
 int ao_debug_restart(int64_t pid, int frame_index, char* out, int out_len, AoSpan* err);
+/* SPEC §3.13 Accept (P15): compile source into the defining class of the target method of
+   frame_index (the frame, or a block's home), then start that activation over with the new
+   method in the send that started it, halting before its first instruction ("accepted").
+   AO_ERR "debugger accept refused: ..." when it has no target; AO_ERR_COMPILE for a compile
+   error, a refused overwrite or "debugger accept refused: selector changed to <sel>": nothing
+   changes then and the process stays halted. Otherwise the answers of Proceed. */
+int ao_debug_accept(int64_t pid, int frame_index, const char* source, char* out, int out_len,
+                    AoSpan* err);
 /* AO_ERR when class_name does not name a class (Processor, Smalltalk, an undefined name).
    AO_ERR_COMPILE for a compile error or a refused native overwrite. */
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);

@@ -14,6 +14,7 @@
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
+#include "InterpFrame.hpp"
 
 #include "ao_abi.h"
 
@@ -1340,6 +1341,57 @@ int sessionEvalResultLength() {
 
 namespace {
 
+// SPEC §3.13 Accept (P15): the activation an Accept of frame i of the halted process starts over —
+// frame i when it is a method, or its block's home method activation, still on the same chain —
+// when its method is an accepted one: a CompiledMethod with its own source entry (not the doIt's,
+// not a block's) that its methodClass's dictionary still holds under its selector. Null otherwise,
+// with the refusal in *refusal. Allocates nothing.
+const Frame* acceptTarget(Session& s, const CallContext& fiber, const LiveFrames& frames,
+                          int frameIndex, const char** refusal) {
+  *refusal = "debugger accept refused: not an accepted method";
+  const Frame* f =
+      frameIndex >= 0 ? frames.frameAt(static_cast<std::uint32_t>(frameIndex)) : nullptr;
+  if (f == nullptr) {
+    return nullptr;
+  }
+  if (f->isBlock) {
+    const Oop home = s.heap.slotAt(f->context, kBlockHome);
+    const Frame* h = nullptr;
+    for (const Frame* g = fiber.topFrame; g != nullptr; g = g->prev) {
+      if (!g->isBlock && g->context == home) {
+        h = g;
+        break;
+      }
+    }
+    if (h == nullptr) {
+      *refusal = "debugger accept refused: home frame is not on the stack";
+      return nullptr;
+    }
+    f = h;
+  }
+  const Oop m = f->method;
+  if (!m.isHeap() || s.heap.klass(m) != s.wk.compiledMethodClass) {
+    return nullptr;
+  }
+  const bool hasEntry =
+      std::any_of(s.methodSources.begin(), s.methodSources.end(),
+                  [m](const std::unique_ptr<Session::MethodSource>& e) { return e->method == m; });
+  if (!hasEntry) {
+    return nullptr;
+  }
+  const Oop cls = s.heap.slotAt(m, kCmSlotMethodClass);
+  const Oop sel = s.heap.slotAt(m, kCmSlotSelector);
+  if (!cls.isHeap() || !sel.isHeap()) {
+    return nullptr;
+  }
+  const Oop dict = s.heap.slotAt(cls, kClassSlotMethodDict);
+  if (!dict.isHeap() || MethodDictionary::at(s.heap, dict, sel) != m) {
+    return nullptr;
+  }
+  *refusal = nullptr;
+  return f;
+}
+
 // SPEC §3.10 ライブデバッガの操作: Proceed, Step and Restart resume the halted process id as an
 // outermost entry like ao_eval: the result and the snapshot go first, and what an earlier entry
 // left is not blamed on it.
@@ -2343,6 +2395,21 @@ int debugCanRestart(std::int64_t pid, int frameIndex) {
   }
   const LiveFrames frames(*ctx, *reason);
   return frames.frameAt(static_cast<std::uint32_t>(frameIndex)) != nullptr ? 1 : 0;
+}
+
+int debugCanAccept(std::int64_t pid, int frameIndex) {
+  Session* s = session();
+  if (s == nullptr || s->scheduler == nullptr || pid <= 0) {
+    return 0;
+  }
+  const std::string* reason = nullptr;
+  const CallContext* ctx = s->scheduler->haltedContext(static_cast<std::uint64_t>(pid), &reason);
+  if (ctx == nullptr) {
+    return 0;
+  }
+  const LiveFrames frames(*ctx, *reason);
+  const char* refusal = nullptr;
+  return acceptTarget(*s, *ctx, frames, frameIndex, &refusal) != nullptr ? 1 : 0;
 }
 
 int debugSelect(std::int64_t pid) {

@@ -1680,4 +1680,85 @@ TEST_F(LiveRestart, RestartWhileBusyIsRefused) {
   EXPECT_EQ(AO_OK, ao_debug_abort(hook.pid));
 }
 
+// ---- P15: Debugger の編集 (SPEC §3.13 Accept, §3.10) ----
+
+class LiveAccept : public LiveDebug {
+ protected:
+  int proceed(std::int64_t pid) {
+    err_ = AoSpan{};
+    return ao_debug_proceed(pid, out_, sizeof out_, &err_);
+  }
+  // The index of the first frame labelled `want` in the selected process; -1 when none.
+  int frameLabeled(const std::string& want) {
+    for (int i = 0; i < ao_debug_frame_count(); ++i) {
+      if (label(i) == want) {
+        return i;
+      }
+    }
+    return -1;
+  }
+};
+
+// SPEC §3.13: a doIt frame is no accepted method; neither is the synthesized halt native.
+TEST_F(LiveAccept, AcceptDoItFrameIsRefused) {
+  ASSERT_EQ(AO_ERR_HALT, doIt("self halt"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("doIt", label(1));
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+}
+
+TEST_F(LiveAccept, AcceptNativeFrameIsRefused) {
+  defineDbgLive();
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgLive new haltIn: 3"));
+  const std::int64_t pid = selectHalted();
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 0));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));  // DbgLive>>haltIn:, accepted through ao_accept_method
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 99));
+  EXPECT_EQ(0, ao_debug_can_accept(pid, -1));
+}
+
+// SPEC §3.13: a method filed in from a chunk has no source entry (the placeholder frame).
+TEST_F(LiveAccept, AcceptPlaceholderFrameIsRefused) {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("!Object subclass: #DbgAccChunk\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P15-Test'!\n"
+                                   "!DbgAccChunk methodsFor: 'x'!\n"
+                                   "stop\n  self halt.\n  ^1! !\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccChunk new stop"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccChunk>>stop", label(1));
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+}
+
+// SPEC §3.13: a method re-accepted from the Browser while halted is no longer the dictionary's.
+TEST_F(LiveAccept, AcceptReplacedMethodFrameIsRefused) {
+  defineClass("DbgAccRep");
+  accept("DbgAccRep", 0, "bar\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccRep new bar"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(1, ao_debug_can_accept(pid, 1));
+  accept("DbgAccRep", 0, "bar\n  ^2");
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+}
+
+// SPEC §3.13: a block whose home has returned has no home activation on the chain.
+TEST_F(LiveAccept, AcceptOnBlockWithDeadHomeIsRefused) {
+  defineClass("DbgAccDead");
+  accept("DbgAccDead", 0, "makeBlock\n  ^[self halt. 3]");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccDead new makeBlock value"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("[] in DbgAccDead>>makeBlock", label(1));
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+}
+
+TEST_F(LiveAccept, AcceptPostmortemIsRefused) {
+  ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+  ASSERT_EQ(AO_ERR_EVAL, doIt("self halt"));
+  EXPECT_EQ(0, ao_debug_can_accept(0, 0));
+  EXPECT_EQ(0, ao_debug_can_accept(424242, 1));
+}
+
 }  // namespace

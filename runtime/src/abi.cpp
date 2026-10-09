@@ -342,6 +342,10 @@ extern "C" int ao_debug_can_restart(int64_t pid, int frame_index) {
   return guarded(0, [&] { return ao::debugCanRestart(pid, frame_index); });
 }
 
+extern "C" int ao_debug_can_accept(int64_t pid, int frame_index) {
+  return guarded(0, [&] { return ao::debugCanAccept(pid, frame_index); });
+}
+
 extern "C" int ao_debug_select(int64_t pid) {
   return guarded(AO_ERR, [&] { return ao::debugSelect(pid); });
 }

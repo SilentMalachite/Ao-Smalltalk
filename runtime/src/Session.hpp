@@ -201,6 +201,7 @@ std::int64_t debugHaltedPid();
 int debugHaltedCount();
 int debugCanProceed(std::int64_t pid);
 int debugCanRestart(std::int64_t pid, int frameIndex);
+int debugCanAccept(std::int64_t pid, int frameIndex);
 int debugSelect(std::int64_t pid);
 // `replaced`, when a heap object, is dropped from the rooted table (with its blocks) before
 // `method` is stored. `image`, when given, is what `method` was boxed from: its blocks are found
