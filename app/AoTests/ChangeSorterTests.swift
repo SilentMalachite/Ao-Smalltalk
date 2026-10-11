@@ -401,4 +401,119 @@ final class ChangeSorterTests: XCTestCase {
     XCTAssertTrue(app.openImage(from: url))
     XCTAssertEqual(app.changeSorter?.setTitles, ["• Unnamed1"])
   }
+
+  // SPEC §3.9 Change Sorter: while busy (§3.10) New…, Remove from Change Set, Move to and File Out…
+  // do nothing; each shows `runtime is busy` in the error field, and the lists stay as they were.
+  func testWindowWritesWhileBusyShowRuntimeIsBusy() {
+    boot()
+    acceptClass("P16Busy")
+    acceptMethod("P16Busy", "a\n  ^1")
+    var err = AoSpan()
+    XCTAssertEqual(ao_changes_new("Other", nil, &err), Int32(AO_OK))
+    let sorter = ChangeSorterWindow()
+    sorter.selectRows(set: 0, class: 0)
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-p16-\(UUID().uuidString).st")
+    defer { try? FileManager.default.removeItem(at: url) }
+    sorter.askName = { _, _, answer in answer("Busy") }
+    sorter.chooseFileOut = { _, _, answer in answer(url) }
+    guard let other = sorter.model.sets.last?.id else {
+      XCTFail("no second set")
+      return
+    }
+    var errors: [String] = []
+    whileBusy {
+      sorter.newSet()
+      errors.append(sorter.errorText)
+      sorter.removeEntry(className: "P16Busy", method: nil)
+      errors.append(sorter.errorText)
+      sorter.moveEntry(className: "P16Busy", method: nil, to: other)
+      errors.append(sorter.errorText)
+      sorter.fileOut()
+      errors.append(sorter.errorText)
+    }
+    XCTAssertEqual(errors, Array(repeating: "runtime is busy", count: 4))
+    XCTAssertEqual(sorter.setTitles, ["Unnamed1", "• Other"])
+    XCTAssertEqual(sorter.classTitles, ["P16Busy +"])
+    XCTAssertEqual(sorter.methodTitles, ["a +"])
+    XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+  }
+
+  // SPEC §3.9 Change Sorter: while busy Make Current does nothing and shows `Make Current failed`
+  // (ao_changes_set_current gives no reason); the mark stays.
+  func testMakeCurrentWhileBusyShowsMakeCurrentFailed() {
+    boot()
+    var err = AoSpan()
+    XCTAssertEqual(ao_changes_new("Second", nil, &err), Int32(AO_OK))
+    let sorter = ChangeSorterWindow()
+    sorter.selectRows(set: 0)
+    whileBusy { sorter.makeCurrent() }
+    XCTAssertEqual(sorter.errorText, "Make Current failed")
+    XCTAssertEqual(sorter.setTitles, ["Unnamed1", "• Second"])
+    XCTAssertTrue(sorter.canMakeCurrent)
+  }
+
+  // SPEC §3.9 File Out Change Set…: while busy nothing is written; the alert gives `runtime is busy`.
+  func testFileOutChangeSetWhileBusyShowsTheReasonInTheAlert() {
+    let app = launchApp()
+    var alerts: [NSAlert] = []
+    app.presentAlert = { alerts.append($0) }
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-p16-\(UUID().uuidString).st")
+    defer { try? FileManager.default.removeItem(at: url) }
+    var wrote = true
+    whileBusy { wrote = app.fileOutCurrentChangeSet(to: url) }
+    XCTAssertFalse(wrote)
+    XCTAssertEqual(alerts.first?.messageText, "Could not file out the change set")
+    XCTAssertEqual(alerts.first?.informativeText, url.path + "\nruntime is busy")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+  }
+
+  // SPEC §3.9 File In…: while busy nothing is filed in; the Transcript gets `runtime is busy` in the
+  // failed form.
+  func testFileInWhileBusyWritesTheReasonToTheTranscript() {
+    let launch = LaunchSet.make()
+    let url = temporaryFile(
+      "Object subclass: #P16BusyIn\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+        + "  poolDictionaries: ''\n  category: 'P16-In'!\n")
+    defer { try? FileManager.default.removeItem(at: url) }
+    var status = Int32(AO_OK)
+    whileBusy { status = fileInChangeFile(at: url, transcript: launch.transcript) }
+    XCTAssertEqual(status, Int32(AO_ERR))
+    XCTAssertEqual(launch.transcript.text, "file-in failed: \(url.path)\n\(url.path):0-0: runtime is busy\n")
+    XCTAssertEqual(BrowserModel.classID(named: "P16BusyIn"), 0)
+  }
+
+  // Runs body inside a transcript hook, where the runtime is busy (SPEC §3.10 再入).
+  private func whileBusy(_ body: @escaping () -> Void) {
+    let box = Unmanaged.passRetained(BusyBody(body))
+    defer { box.release() }
+    ao_set_transcript_hook(busyBodyHook, box.toOpaque())
+    let source = "Transcript show: 'x'. 7"
+    var out = [CChar](repeating: 0, count: 64)
+    var err = AoSpan()
+    let status = ao_eval(source, Int32(source.utf8.count), Int32(AO_EVAL_PRINTIT), &out, Int32(out.count), &err)
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(status, Int32(AO_OK), spanMessage(err))
+  }
+}
+
+// A transcript hook for the busy tests: `user` is a BusyBody, run on each show.
+private final class BusyBody {
+  let run: () -> Void
+  init(_ run: @escaping () -> Void) {
+    self.run = run
+  }
+}
+
+private func busyBodyHook(
+  _ utf8: UnsafePointer<CChar>?,
+  _ len: Int32,
+  _ isClear: Int32,
+  _ user: UnsafeMutableRawPointer?
+) {
+  guard isClear == 0, let user else {
+    return
+  }
+  Unmanaged<BusyBody>.fromOpaque(user).takeUnretainedValue().run()
 }
