@@ -23,6 +23,10 @@ enum MainMenu {
     var showHierarchy: () -> Void = {}
     var saveImage: () -> Void = {}
     var openImage: () -> Void = {}
+    // SPEC §3.9 Change Sorter (P16): File In…, File Out Change Set… and Tools → Change Sorter.
+    var fileIn: () -> Void = {}
+    var fileOutChangeSet: () -> Void = {}
+    var showChangeSorter: () -> Void = {}
     var showBrowser: () -> Void = {}
     var showTranscript: () -> Void = {}
     var showWorkspace: () -> Void = {}
@@ -43,6 +47,9 @@ enum MainMenu {
     bar.addItem(top("File", items: [
       actionItem("Save Image…", key: "", run: { _ in actions.saveImage() }),
       actionItem("Open Image…", key: "", run: { _ in actions.openImage() }),
+      .separator(),
+      actionItem("File In…", key: "", run: { _ in actions.fileIn() }),
+      actionItem("File Out Change Set…", key: "", run: { _ in actions.fileOutChangeSet() }),
       .separator(),
       responderItem("Close", key: "w", action: #selector(NSWindow.performClose(_:)))
     ]))
@@ -76,6 +83,7 @@ enum MainMenu {
       actionItem("Browser", key: "", run: { _ in actions.showBrowser() }),
       actionItem("Transcript", key: "", run: { _ in actions.showTranscript() }),
       actionItem("Workspace", key: "", run: { _ in actions.showWorkspace() }),
+      actionItem("Change Sorter", key: "", run: { _ in actions.showChangeSorter() }),
       .separator(),
       fixedPitch,
       .separator(),

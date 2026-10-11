@@ -1392,7 +1392,7 @@ final class AcceptTests: XCTestCase {
     let file = menu.item(withTitle: "File")?.submenu
     XCTAssertEqual(
       file?.items.map(\.title),
-      ["Save Image…", "Open Image…", "", "Close"]
+      ["Save Image…", "Open Image…", "", "File In…", "File Out Change Set…", "", "Close"]
     )
   }
 

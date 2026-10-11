@@ -1,6 +1,7 @@
 #include "ao/Compile.hpp"
 
 #include "Session.hpp"
+#include "ChangeSet.hpp"
 #include "ao/CompiledMethod.hpp"
 
 #include "ao/Bootstrap.hpp"
@@ -238,6 +239,15 @@ bool isKernelClass(const WellKnown& wk, Oop cls) {
   return probe.found;
 }
 
+// SPEC §3.10: whether installing sel on tgt (the side of cls the method goes to; old is what tgt's
+// own dictionary holds for sel, or nil) would hide a native: old is one, or, in a Kernel class
+// (cls itself, named or by ID, so an alias is one too), the lookup from tgt hits one. Neither
+// intern nor lookup GCs, so the raw Oops the caller passes stay valid.
+bool hidesNative(CallContext& ctx, Oop cls, Oop tgt, Oop sel, Oop old) {
+  const Oop found = sel.isHeap() && isKernelClass(ctx.wk, cls) ? lookup(ctx.heap, tgt, sel) : old;
+  return found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass;
+}
+
 // The file is filled in by whoever knows it (fileInLoadOrder). method is set for a method-level
 // error only (SPEC §3.12).
 void addError(std::vector<FileInError>& errors, compiler::CompileError error,
@@ -317,14 +327,26 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
   return true;
 }
 
+// How applyChunkActions applies what it reads. FileIn: the vendor file-in and `ao filein` (a
+// definition makes a new class, no sources, no records). Accept: ao_accept_class (a definition keeps
+// or reshapes an existing class; records, no sources). Recorded: File In... (P16; as Accept, and
+// each method keeps its source).
+enum class ChunkMode { FileIn, Accept, Recorded };
+
+// Defined below; applyMethodsFor records under the class's own name.
+std::string ownClassName(CallContext& ctx, Oop cls);
+
 bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
-                     std::vector<FileInError>& errors) {
+                     std::vector<FileInError>& errors, ChunkMode mode) {
   Root cls(ctx.roots, ctx.wk.named(action.className));
   if (!cls.slot.isHeap()) {
     addError(errors, {action.span, "missing class: " + action.className});
     return false;
   }
-  if (refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action, errors)) {
+  // SPEC §3.10 / §3.12: File In... (Recorded) does not refuse a Kernel class's chunk wholesale; each
+  // method is judged below by Accept's native overwrite rule. The other modes refuse it.
+  if (mode != ChunkMode::Recorded &&
+      refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action, errors)) {
     return false;
   }
   const Oop target = action.meta ? ctx.heap.klass(cls.slot) : cls.slot;
@@ -336,6 +358,10 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
   compiler::CompileEnv env;
   fillInstVars(ctx, tgt.slot, env);
   fillClassVars(ctx, tgt.slot, env);
+  // SPEC §3.9 記録: under the class's own name (a chunk naming an alias records the class).
+  const std::string own = mode != ChunkMode::FileIn && isClassShaped(ctx.heap, cls.slot)
+                              ? ownClassName(ctx, cls.slot)
+                              : std::string();
   // SPEC §3.12: a method-level error names its method and does not stop the rest.
   for (const auto& m : action.methods) {
     compiler::CompileResult cr = compiler::compileMethod(m.source, env);
@@ -347,24 +373,49 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                methodKey(action, compiler::parseMethod(m.source).method.name));
       continue;
     }
-    const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
-    const Oop sel = ctx.wk.intern(cr.image.selector);
-    if (dict.isHeap() && sel.isHeap()) {
-      const Oop existing = MethodDictionary::at(ctx.heap, dict, sel);
-      if (existing.isHeap() && ctx.heap.klass(existing) == ctx.wk.nativeMethodClass) {
-        addError(errors, {m.span, "native selector overwrite refused: " + cr.image.selector},
-                 methodKey(action, cr.image.selector));
-        continue;
+    // The method the selector names before the install (nil: none). Interned first, so the
+    // dictionary is read after the last allocation.
+    Root old(ctx.roots, Oop::nil());
+    bool findsNative = false;
+    {
+      const Oop sel = ctx.wk.intern(cr.image.selector);
+      const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
+      if (dict.isHeap() && sel.isHeap()) {
+        old.slot = MethodDictionary::at(ctx.heap, dict, sel);
       }
+      findsNative = hidesNative(ctx, cls.slot, tgt.slot, sel, old.slot);
+    }
+    if (findsNative) {
+      addError(errors, {m.span, "native selector overwrite refused: " + cr.image.selector},
+               methodKey(action, cr.image.selector));
+      continue;
     }
     if (const std::string var = unboundClassVariable(ctx, cr.image, tgt.slot); !var.empty()) {
       addError(errors, {m.span, unboundClassVariableMessage(var)},
                methodKey(action, cr.image.selector));
       continue;
     }
-    const Oop installed = installMethod(ctx, tgt.slot, cr.image);
-    if (!installed.isHeap()) {
+    // SPEC §3.10 File In... (P16): the text is boxed before the install, as Accept boxes it.
+    Root text(ctx.roots, Oop::nil());
+    if (mode == ChunkMode::Recorded) {
+      text.slot = boxUtf8(ctx, m.source);
+      if (!text.slot.isHeap()) {
+        addError(errors, {m.span, "method source allocation failed"},
+                 methodKey(action, cr.image.selector));
+        continue;
+      }
+    }
+    Root kept(ctx.roots, installMethod(ctx, tgt.slot, cr.image));
+    if (!kept.slot.isHeap()) {
       addError(errors, {m.span, "install failed"}, methodKey(action, cr.image.selector));
+      continue;
+    }
+    if (mode == ChunkMode::Recorded) {
+      // kept was boxed from cr.image, so its blocks sit at the image's literal indices.
+      rememberMethodSource(kept.slot, text.slot, old.slot.isHeap() ? old.slot : Oop{}, &cr.image);
+    }
+    if (mode != ChunkMode::FileIn) {
+      noteMethodChange(ctx, own, action.meta, cr.image.selector, old.slot.isHeap());
     }
   }
   return true;
@@ -1159,17 +1210,26 @@ bool acceptClassDef(CallContext& ctx, const compiler::ChunkAction& action,
 // False when a chunk stopped the file-in (a class definition failed, a methodsFor: was refused
 // or named no class). Errors that do not stop it are only added to errors.
 bool applyChunkActions(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
-                       std::vector<FileInError>& errors, bool accept = false) {
+                       std::vector<FileInError>& errors, ChunkMode mode = ChunkMode::FileIn) {
   for (const auto& action : actions) {
     switch (action.kind) {
-      case compiler::ChunkKind::ClassDef:
-        // SPEC §3.9: only ao_accept_class keeps or reshapes an existing class; file-in does not.
-        if (!(accept ? acceptClassDef(ctx, action, errors) : applyClassDef(ctx, action, errors))) {
+      case compiler::ChunkKind::ClassDef: {
+        // SPEC §3.9 記録: a name that named a class before the definition is Changed.
+        const bool existed = mode != ChunkMode::FileIn && namesBehavior(ctx, action.className);
+        // SPEC §3.9: ao_accept_class and File In... keep or reshape an existing class; the vendor
+        // file-in and `ao filein` do not.
+        const bool applied = mode == ChunkMode::FileIn ? applyClassDef(ctx, action, errors)
+                                                       : acceptClassDef(ctx, action, errors);
+        if (!applied) {
           return false;
         }
+        if (mode != ChunkMode::FileIn) {
+          noteClassChange(ctx, action.className, existed);
+        }
         break;
+      }
       case compiler::ChunkKind::MethodsFor:
-        if (!applyMethodsFor(ctx, action, errors)) {
+        if (!applyMethodsFor(ctx, action, errors, mode)) {
           return false;
         }
         break;
@@ -1310,9 +1370,10 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
 }
 
 bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
-                 std::vector<compiler::CompileError>& errors) {
+                 std::vector<compiler::CompileError>& errors, FileInMode mode) {
   std::vector<FileInError> found;
-  const bool completed = applyChunkActions(ctx, actions, found);
+  const bool completed = applyChunkActions(
+      ctx, actions, found, mode == FileInMode::Recorded ? ChunkMode::Recorded : ChunkMode::FileIn);
   for (auto& e : found) {
     errors.push_back(std::move(e.error));
   }
@@ -1320,20 +1381,20 @@ bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& act
 }
 
 bool fileInString(CallContext& ctx, std::string_view src,
-                  std::vector<compiler::CompileError>& errors) {
+                  std::vector<compiler::CompileError>& errors, FileInMode mode) {
   const std::size_t before = errors.size();
   const std::vector<compiler::ChunkAction> actions = compiler::parseChunks(src, errors);
-  return applyChunks(ctx, actions, errors) && errors.size() == before;
+  return applyChunks(ctx, actions, errors, mode) && errors.size() == before;
 }
 
 bool fileInFile(CallContext& ctx, const std::filesystem::path& path,
-                std::vector<compiler::CompileError>& errors) {
+                std::vector<compiler::CompileError>& errors, FileInMode mode) {
   std::string src;
   if (!readSource(path, &src)) {
     errors.push_back(compiler::CompileError{{}, "cannot read: " + path.string()});
     return false;
   }
-  return fileInString(ctx, src, errors);
+  return fileInString(ctx, src, errors, mode);
 }
 
 std::vector<std::string> deferredMethods(const std::filesystem::path& deferredMd) {
@@ -1479,12 +1540,8 @@ bool acceptInto(CallContext& ctx, Oop target, bool meta, std::string_view source
       old.slot = MethodDictionary::at(ctx.heap, dict, sel);
     }
     // SPEC §3.10: in a Kernel class, a native the selector finds through the superclasses is
-    // not hidden either. Kernel-ness is the class itself (named or by ID), so an alias is one too.
-    // Neither intern nor lookup GCs, so the raw Oops stay valid.
-    const Oop found = sel.isHeap() && isKernelClass(ctx.wk, cls.slot)
-                          ? lookup(ctx.heap, tgt.slot, sel)
-                          : old.slot;
-    findsNative = found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass;
+    // not hidden either (hidesNative).
+    findsNative = hidesNative(ctx, cls.slot, tgt.slot, sel, old.slot);
   }
   if (findsNative) {
     assignError(error, "native selector overwrite refused: " + cr.image.selector);
@@ -1516,6 +1573,8 @@ bool acceptInto(CallContext& ctx, Oop target, bool meta, std::string_view source
   // SPEC §3.10, §3.13: kept was boxed from cr.image, so its blocks sit at the image's literal
   // indices.
   rememberMethodSource(kept.slot, text.slot, replaced, &cr.image);
+  // SPEC §3.9 記録: the method is in its dictionary and has its source.
+  noteMethodChange(ctx, name, meta, cr.image.selector, replaced.isHeap());
   if (installed != nullptr) {
     *installed = kept.slot;
   }
@@ -1564,7 +1623,7 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
   }
   // SPEC §3.9: a definition of an existing class keeps it or reshapes it (acceptClassDef).
   std::vector<FileInError> found;
-  const bool completed = applyChunkActions(ctx, actions, found, /*accept=*/true);
+  const bool completed = applyChunkActions(ctx, actions, found, ChunkMode::Accept);
   for (auto& e : found) {
     errors.push_back(std::move(e.error));
   }
@@ -1614,6 +1673,7 @@ bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selec
   // SPEC §3.3: the one function every method change goes through. Nothing above collected.
   invalidateMethodCache(ctx.cache, sel);
   forgetMethodSource(method);
+  noteMethodRemoval(ctx, own, meta, selector);
   return true;
 }
 
@@ -1656,6 +1716,7 @@ bool removeClassOf(CallContext& ctx, Oop cls, std::string* reason) {
   invalidateMethodCache(ctx.cache, Oop{});
   forgetMethodSourcesOf(ctx, cls);
   forgetMethodSourcesOf(ctx, ctx.heap.klass(cls));
+  noteClassRemoval(ctx, own);
   return true;
 }
 

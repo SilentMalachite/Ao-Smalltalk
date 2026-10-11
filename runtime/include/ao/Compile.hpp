@@ -55,12 +55,20 @@ bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selec
 bool removeClassOf(CallContext& ctx, Oop cls, std::string* reason);
 // SPEC §3.12: a method-level error does not stop the file-in, but any error fails it. These
 // answer false when they add an error to errors (a class definition that failed stops the rest).
+// SPEC §3.10 File In... (P16). Plain: the vendor file-in and `ao filein` (a definition makes a new
+// class; no sources, no change records). Recorded: File In...: a definition keeps or reshapes an
+// existing class (as ao_accept_class), each method keeps its source (as an Accept), and both are
+// recorded in the current change set (SPEC §3.9).
+enum class FileInMode { Plain, Recorded };
 bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
-                 std::vector<compiler::CompileError>& errors);
+                 std::vector<compiler::CompileError>& errors,
+                 FileInMode mode = FileInMode::Plain);
 bool fileInString(CallContext& ctx, std::string_view src,
-                  std::vector<compiler::CompileError>& errors);
+                  std::vector<compiler::CompileError>& errors,
+                  FileInMode mode = FileInMode::Plain);
 bool fileInFile(CallContext& ctx, const std::filesystem::path& path,
-                std::vector<compiler::CompileError>& errors);
+                std::vector<compiler::CompileError>& errors,
+                FileInMode mode = FileInMode::Plain);
 // SPEC §3.12: a file-in error. file names the file it happened in. method is `Class>>selector`
 // (`Class class>>selector`) for a method-level error (a compile error, a refused native
 // overwrite, a failed install) and empty for any other.

@@ -4,6 +4,14 @@ All notable changes to Ao are recorded here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Change sets (phase P16 of SPEC §2.3): Accepts and removals are recorded in the session's current change set. Tools → Change Sorter lists the sets, their classes and methods with their kinds (`+`, `~`, `−`), makes new sets, makes one current, forgets or moves entries, and files a set out as a chunk-format `.st` file (removals become comment chunks).
+- File → File In… loads a `.st` file into the session: the methods keep their sources, an existing class keeps its methods, and everything read is recorded in the current change set. The result goes to the Transcript.
+- C ABI: `ao_changes_*` and `ao_filein_file`.
+
+The `.aoimage` format and the `ao` CLI do not change: change sets are not saved in images, and `ao filein` and the vendor file-in keep no sources and record nothing.
+
 ## [1.4.0] - 2026-10-09
 
 Phase P15 of SPEC §2.3. The `.aoimage` format and the `ao` CLI do not change: images saved by 1.3.0 load in 1.4.0.

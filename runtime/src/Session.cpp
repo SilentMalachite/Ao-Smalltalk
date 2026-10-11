@@ -568,6 +568,22 @@ int sessionFileInLoadOrder(const char* path) {
   return fileInLoadOrder(*g_session->ctx, path, errors) ? 0 : 1;
 }
 
+int sessionFileInFile(const char* path, compiler::CompileError* first) {
+  if (g_session == nullptr || g_session->ctx == nullptr || path == nullptr) {
+    return 1;
+  }
+  // SPEC §3.10 File In...: any error fails it; the first one says where and why.
+  std::vector<compiler::CompileError> errors;
+  const bool ok = fileInFile(*g_session->ctx, path, errors, FileInMode::Recorded);
+  if (ok && errors.empty()) {
+    return 0;
+  }
+  if (first != nullptr && !errors.empty()) {
+    *first = std::move(errors.front());
+  }
+  return 1;
+}
+
 void ensureKernelNatives(Session& s) {
   // An image may have a Transcript metaclass without a dictionary; the class-side natives need one.
   const Oop meta = s.wk.transcriptMetaclass;
@@ -582,6 +598,20 @@ void ensureKernelNatives(Session& s) {
   kernel::installMissing(s.heap, s.roots, s.wk, s.cache.get());
   // SPEC §3.5: installMissing may have added one of the eight; a kept user method may hide one.
   s.wk.checkSmallIntegerFastPath();
+}
+
+int writeBuf(const std::string& text, char* buf, int len) {
+  if (buf == nullptr || len <= 0) {
+    return AO_ERR;
+  }
+  const auto room = static_cast<std::size_t>(len - 1);
+  const bool fits = text.size() <= room;
+  const std::size_t n = fits ? text.size() : room;
+  if (n != 0) {
+    std::memcpy(buf, text.data(), n);
+  }
+  buf[n] = '\0';
+  return fits ? AO_OK : AO_ERR_RANGE;
 }
 
 namespace {
@@ -620,20 +650,6 @@ std::string byteText(Heap& heap, Oop obj) {
   }
   const char* bytes = reinterpret_cast<const char*>(heap.bytes(obj));
   return std::string(bytes, static_cast<std::size_t>(n));
-}
-
-int writeBuf(const std::string& text, char* buf, int len) {
-  if (buf == nullptr || len <= 0) {
-    return AO_ERR;
-  }
-  const auto room = static_cast<std::size_t>(len - 1);
-  const bool fits = text.size() <= room;
-  const std::size_t n = fits ? text.size() : room;
-  if (n != 0) {
-    std::memcpy(buf, text.data(), n);
-  }
-  buf[n] = '\0';
-  return fits ? AO_OK : AO_ERR_RANGE;
 }
 
 std::string classNameOf(Heap& heap, Oop cls) {
@@ -918,32 +934,6 @@ Oop superclassShown(Session& s, Oop cls, int meta) {
     }
   }
   return sup;
-}
-
-std::string definitionOf(Session& s, const ClassRow& row) {
-  std::string text;
-  if (!pointerSlots(s.heap, row.cls, kClassSlotSuperclass + 1)) {
-    text = "nil";
-  } else {
-    const Oop sup = s.heap.slotAt(row.cls, kClassSlotSuperclass);
-    text = sup.isHeap() ? classNameOf(s.heap, sup) : std::string("nil");
-  }
-  text += " subclass: #";
-  text += row.name;
-  text += "\n  instanceVariableNames: '";
-  text += instVarList(s.heap, row.cls);
-  text += "'\n  classVariableNames: '";
-  text += classVarList(s.heap, s.wk, row.cls);
-  text += "'\n  poolDictionaries: ''\n  category: '";
-  // SPEC §3.10: a string literal in a chunk, so accepting the text again keeps the category.
-  for (const char c : definitionCategory(s.heap, row.cls)) {
-    if (c == '\'' || c == '!') {
-      text.push_back(c);
-    }
-    text.push_back(c);
-  }
-  text += "'";
-  return text;
 }
 
 // SPEC §3.10: the listed classes whose superclass slot is cls itself (identity, not name), in the
@@ -1904,6 +1894,65 @@ int browserSource(std::int64_t classId, int meta, const char* selector, char* bu
   return AO_ERR;
 }
 
+std::string classDefinitionText(Session& s, Oop cls) {
+  std::string text;
+  if (!pointerSlots(s.heap, cls, kClassSlotSuperclass + 1)) {
+    text = "nil";
+  } else {
+    const Oop sup = s.heap.slotAt(cls, kClassSlotSuperclass);
+    text = sup.isHeap() ? classNameOf(s.heap, sup) : std::string("nil");
+  }
+  text += " subclass: #";
+  text += classNameOf(s.heap, cls);
+  text += "\n  instanceVariableNames: '";
+  text += instVarList(s.heap, cls);
+  text += "'\n  classVariableNames: '";
+  text += classVarList(s.heap, s.wk, cls);
+  text += "'\n  poolDictionaries: ''\n  category: '";
+  // SPEC §3.10: a string literal in a chunk, so accepting the text again keeps the category.
+  for (const char c : definitionCategory(s.heap, cls)) {
+    if (c == '\'' || c == '!') {
+      text.push_back(c);
+    }
+    text.push_back(c);
+  }
+  text += "'";
+  return text;
+}
+
+Oop boundClassNamed(Session& s, const std::string& name) {
+  // As ao_browser_class_id resolves a name (SPEC §3.9 File Out items 2 and 4): the class Smalltalk
+  // binds it to, whatever that class's own name.
+  const Oop cls = s.wk.named(name);
+  if (!pointerSlots(s.heap, cls, kClassSlotCount) ||
+      s.heap.klass(s.heap.klass(cls)) != s.wk.metaclassClass) {
+    return Oop{};
+  }
+  return cls;
+}
+
+std::string superclassNameOf(Session& s, Oop cls) {
+  if (!pointerSlots(s.heap, cls, kClassSlotSuperclass + 1)) {
+    return {};
+  }
+  const Oop sup = s.heap.slotAt(cls, kClassSlotSuperclass);
+  return sup.isHeap() ? classNameOf(s.heap, sup) : std::string();
+}
+
+bool liveMethodSource(Session& s, Oop cls, bool meta, const std::string& selector,
+                      std::string& text) {
+  const Oop side = sideOf(s, cls, meta ? 1 : 0);
+  const Oop sel = s.wk.findSymbol(selector);
+  if (!pointerSlots(s.heap, side, kClassSlotMethodDict + 1) || !sel.isHeap()) {
+    return false;
+  }
+  const Oop method = MethodDictionary::at(s.heap, s.heap.slotAt(side, kClassSlotMethodDict), sel);
+  if (!method.isHeap() || s.heap.klass(method) == s.wk.nativeMethodClass) {
+    return false;
+  }
+  return methodSource(method, text);
+}
+
 int browserClassDefinition(std::int64_t classId, char* buf, int len) {
   Session* s = session();
   if (s == nullptr) {
@@ -1914,7 +1963,7 @@ int browserClassDefinition(std::int64_t classId, char* buf, int len) {
   if (row == nullptr) {
     return AO_ERR;
   }
-  return writeBuf(definitionOf(*s, *row), buf, len);
+  return writeBuf(classDefinitionText(*s, row->cls), buf, len);
 }
 
 int browserSuperclass(std::int64_t classId, int meta, std::int64_t* superclassId, char* buf,
