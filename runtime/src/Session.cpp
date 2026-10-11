@@ -568,6 +568,22 @@ int sessionFileInLoadOrder(const char* path) {
   return fileInLoadOrder(*g_session->ctx, path, errors) ? 0 : 1;
 }
 
+int sessionFileInFile(const char* path, compiler::CompileError* first) {
+  if (g_session == nullptr || g_session->ctx == nullptr || path == nullptr) {
+    return 1;
+  }
+  // SPEC §3.10 File In...: any error fails it; the first one says where and why.
+  std::vector<compiler::CompileError> errors;
+  const bool ok = fileInFile(*g_session->ctx, path, errors, FileInMode::Recorded);
+  if (ok && errors.empty()) {
+    return 0;
+  }
+  if (first != nullptr && !errors.empty()) {
+    *first = std::move(errors.front());
+  }
+  return 1;
+}
+
 void ensureKernelNatives(Session& s) {
   // An image may have a Transcript metaclass without a dictionary; the class-side natives need one.
   const Oop meta = s.wk.transcriptMetaclass;

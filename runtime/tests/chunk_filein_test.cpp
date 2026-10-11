@@ -385,3 +385,22 @@ TEST(ChunkFileIn, ErrorSpanCountsUndoubledBangs) {
   EXPECT_EQ(src.find(']'), errs[0].span.start) << errs[0].message;
   EXPECT_EQ(src.find(']') + 1, errs[0].span.end) << errs[0].message;
 }
+
+// SPEC §3.9 File Out: the header, removal and lost-source comment chunks of a filed-out change set
+// are expressions, which a file-in reads past without an error.
+TEST(ChunkFileIn, FiledOutCommentChunksAreSkipped) {
+  Boot b;
+  const char* src =
+      "\"Change Set: Fix \"\"1\"\"!!\nDate: 2026-10-11\nAo 1.5.0\"!\n\n"
+      "\"Removed: Counter>>reset\"!\n"
+      "\"Removed class: Scratch\"!\n"
+      "\"Counter>>total source not available\"!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_TRUE(errs.empty()) << errs[0].message;
+  ASSERT_EQ(4u, acts.size());
+  for (const auto& a : acts) {
+    EXPECT_EQ(ao::compiler::ChunkKind::DoIt, a.kind);
+  }
+  EXPECT_TRUE(ao::fileInString(b.ctx, src, errs)) << (errs.empty() ? "" : errs[0].message);
+}

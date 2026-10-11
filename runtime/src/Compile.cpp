@@ -381,10 +381,24 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                methodKey(action, cr.image.selector));
       continue;
     }
+    // SPEC §3.10 File In... (P16): the text is boxed before the install, as Accept boxes it.
+    Root text(ctx.roots, Oop::nil());
+    if (mode == ChunkMode::Recorded) {
+      text.slot = boxUtf8(ctx, m.source);
+      if (!text.slot.isHeap()) {
+        addError(errors, {m.span, "method source allocation failed"},
+                 methodKey(action, cr.image.selector));
+        continue;
+      }
+    }
     Root kept(ctx.roots, installMethod(ctx, tgt.slot, cr.image));
     if (!kept.slot.isHeap()) {
       addError(errors, {m.span, "install failed"}, methodKey(action, cr.image.selector));
       continue;
+    }
+    if (mode == ChunkMode::Recorded) {
+      // kept was boxed from cr.image, so its blocks sit at the image's literal indices.
+      rememberMethodSource(kept.slot, text.slot, old.slot.isHeap() ? old.slot : Oop{}, &cr.image);
     }
     if (mode != ChunkMode::FileIn) {
       noteMethodChange(ctx, own, action.meta, cr.image.selector, old.slot.isHeap());
@@ -1342,9 +1356,10 @@ Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image)
 }
 
 bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
-                 std::vector<compiler::CompileError>& errors) {
+                 std::vector<compiler::CompileError>& errors, FileInMode mode) {
   std::vector<FileInError> found;
-  const bool completed = applyChunkActions(ctx, actions, found);
+  const bool completed = applyChunkActions(
+      ctx, actions, found, mode == FileInMode::Recorded ? ChunkMode::Recorded : ChunkMode::FileIn);
   for (auto& e : found) {
     errors.push_back(std::move(e.error));
   }
@@ -1352,20 +1367,20 @@ bool applyChunks(CallContext& ctx, const std::vector<compiler::ChunkAction>& act
 }
 
 bool fileInString(CallContext& ctx, std::string_view src,
-                  std::vector<compiler::CompileError>& errors) {
+                  std::vector<compiler::CompileError>& errors, FileInMode mode) {
   const std::size_t before = errors.size();
   const std::vector<compiler::ChunkAction> actions = compiler::parseChunks(src, errors);
-  return applyChunks(ctx, actions, errors) && errors.size() == before;
+  return applyChunks(ctx, actions, errors, mode) && errors.size() == before;
 }
 
 bool fileInFile(CallContext& ctx, const std::filesystem::path& path,
-                std::vector<compiler::CompileError>& errors) {
+                std::vector<compiler::CompileError>& errors, FileInMode mode) {
   std::string src;
   if (!readSource(path, &src)) {
     errors.push_back(compiler::CompileError{{}, "cannot read: " + path.string()});
     return false;
   }
-  return fileInString(ctx, src, errors);
+  return fileInString(ctx, src, errors, mode);
 }
 
 std::vector<std::string> deferredMethods(const std::filesystem::path& deferredMd) {

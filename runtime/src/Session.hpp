@@ -130,6 +130,9 @@ int sessionImageSave(const char* path);
 // SPEC §3.10: nonzero when the load or its probes fail; *reason (when given) then says why.
 int sessionImageLoad(const char* path, std::string* reason = nullptr);
 int sessionFileInLoadOrder(const char* path);
+// SPEC §3.10 ao_filein_file (P16): fileInFile in FileInMode::Recorded on the session. Nonzero on
+// any error; *first (when given) is the first one, its span in the file.
+int sessionFileInFile(const char* path, compiler::CompileError* first);
 int sessionWorkspaceReset();
 int sessionEval(const char* source, int sourceLen, int mode, char* out, int outLen, AoSpan* err,
                 AoInspectFn inspect, void* inspectUser);

@@ -802,3 +802,27 @@ extern "C" int ao_changes_file_out(int64_t set_id, const char* path, AoSpan* err
     return ao::sessionChangesFileOut(set_id, path, reason);
   });
 }
+
+// SPEC §3.10 File In... (P16): outermost. AO_ERR with the first error's span and message, or
+// "runtime is busy" / "file-in failed" with 0-0.
+extern "C" int ao_filein_file(const char* path, AoSpan* err) {
+  clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    setMessage(err, "runtime is busy");
+    return AO_ERR;
+  }
+  ao::compiler::CompileError first;
+  const int rc = guarded(-1, [&] {
+    return ao::sessionFileInFile(path, &first) == 0 ? AO_OK : AO_ERR;
+  });
+  if (rc == AO_OK) {
+    return AO_OK;
+  }
+  if (rc == -1 || first.message.empty()) {
+    setMessage(err, "file-in failed");
+  } else {
+    fillSpan(err, first);
+  }
+  return AO_ERR;
+}

@@ -191,6 +191,20 @@ std::string fileOut(std::int64_t set, const std::string& name) {
   return text;
 }
 
+// The Browser's source of the method, or "<rc>" when it has none.
+std::string sourceOf(const char* cls, int meta, const char* sel) {
+  char buf[1024];
+  const int rc =
+      ao_browser_source(ao_browser_class_id(cls), meta, sel, buf, static_cast<int>(sizeof buf));
+  return rc == AO_OK ? std::string(buf) : "<" + std::to_string(rc) + ">";
+}
+
+std::string writeTemp(const std::string& name, const std::string& text) {
+  const std::string path = tempPath(name);
+  std::ofstream(path, std::ios::binary) << text;
+  return path;
+}
+
 }  // namespace
 
 // SPEC §3.9 Change Sorter, §3.10: a new session holds one empty set, Unnamed1, which is current.
@@ -727,4 +741,134 @@ TEST_F(ChangesAbi, FileOutIsRefusedWhileBusy) {
   EXPECT_EQ(AO_ERR, rc);
   EXPECT_EQ("runtime is busy", msg);
   EXPECT_FALSE(std::filesystem::exists(path));
+}
+
+// SPEC §3.10 File In... (P16): the methods keep their sources, and the definitions and methods go
+// into the current set.
+TEST_F(ChangesAbi, FileInKeepsSourcesAndRecordsInTheCurrentSet) {
+  const std::string path = writeTemp("filein.st",
+                                     "Object subclass: #P16In\n"
+                                     "  instanceVariableNames: 'n'\n"
+                                     "  classVariableNames: ''\n"
+                                     "  poolDictionaries: ''\n"
+                                     "  category: 'P16-In'!\n\n"
+                                     "!P16In methodsFor: 'user'!\n"
+                                     "n\n  ^n ifNil: [0]!\n\n"
+                                     "bump\n  n := self n + 1! !\n\n"
+                                     "!P16In class methodsFor: 'user'!\n"
+                                     "fresh\n  ^self new! !\n");
+  AoSpan err{};
+  std::strcpy(err.message, "stale");
+  ASSERT_EQ(AO_OK, ao_filein_file(path.c_str(), &err)) << err.message;
+  EXPECT_STREQ("", err.message);
+  const std::int64_t set = ao_changes_current();
+  EXPECT_EQ(std::vector<std::string>{"P16In+"}, classesOf(set));
+  EXPECT_EQ((std::vector<std::string>{"bump+", "n+"}), methodsOf(set, "P16In", 0));
+  EXPECT_EQ(std::vector<std::string>{"fresh+"}, methodsOf(set, "P16In", 1));
+  EXPECT_EQ("n\n  ^n ifNil: [0]", sourceOf("P16In", 0, "n"));
+  EXPECT_EQ("bump\n  n := self n + 1", sourceOf("P16In", 0, "bump"));
+  EXPECT_EQ("fresh\n  ^self new", sourceOf("P16In", 1, "fresh"));
+  EXPECT_EQ("0", printIt("P16In fresh n"));
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.10 File In...: a definition of a class that exists keeps it (as ao_accept_class), so its
+// other methods stay; the vendor file-in would rebind the name to a new class.
+TEST_F(ChangesAbi, FileInKeepsTheMethodsOfAnExistingClass) {
+  defineClass("P16Keep", "Object", "", "P16-In");
+  accept("P16Keep", 0, "old\n  ^1");
+  const std::int64_t set = newSet("FileIn");
+  const std::string path = writeTemp("keep.st",
+                                     "Object subclass: #P16Keep\n"
+                                     "  instanceVariableNames: ''\n"
+                                     "  classVariableNames: ''\n"
+                                     "  poolDictionaries: ''\n"
+                                     "  category: 'P16-In'!\n\n"
+                                     "!P16Keep methodsFor: 'user'!\n"
+                                     "added\n  ^2! !\n");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_filein_file(path.c_str(), &err)) << err.message;
+  EXPECT_EQ("1", printIt("P16Keep new old"));
+  EXPECT_EQ("2", printIt("P16Keep new added"));
+  EXPECT_EQ(std::vector<std::string>{"P16Keep~"}, classesOf(set));
+  EXPECT_EQ(std::vector<std::string>{"added+"}, methodsOf(set, "P16Keep", 0));
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.10 File In...: an error answers the first one with its span in the file; the chunks
+// before it stay applied and recorded.
+TEST_F(ChangesAbi, FileInErrorAnswersTheFirstErrorAndKeepsEarlierChunks) {
+  const std::string text =
+      "Object subclass: #P16Early\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'P16-In'!\n\n"
+      "!P16Acount methodsFor: 'user'!\n"
+      "x\n  ^1! !\n";
+  const std::string path = writeTemp("broken.st", text);
+  AoSpan err{};
+  ASSERT_EQ(AO_ERR, ao_filein_file(path.c_str(), &err));
+  EXPECT_STREQ("missing class: P16Acount", err.message);
+  ASSERT_LT(err.start, err.end);
+  EXPECT_EQ("P16Acount methodsFor: 'user'", text.substr(err.start, err.end - err.start));
+  EXPECT_EQ(std::vector<std::string>{"P16Early+"}, classesOf(ao_changes_current()));
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.10 File In...: an unreadable path and a NULL path say why.
+TEST_F(ChangesAbi, FileInRefusesAnUnreadablePath) {
+  const std::string path = tempPath("missing.st");
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR, ao_filein_file(path.c_str(), &err));
+  EXPECT_EQ("cannot read: " + path, std::string(err.message));
+  EXPECT_EQ(0u, err.start);
+  EXPECT_EQ(0u, err.end);
+  EXPECT_EQ(AO_ERR, ao_filein_file(nullptr, &err));
+  EXPECT_STREQ("file-in failed", err.message);
+}
+
+// SPEC §3.9 File Out, §3.10 File In...: a filed-out set files back in after a new boot with the same
+// definitions and sources, recorded as added, so filing it out again writes the same body. The set's
+// name has a quote and a bang: the header escapes them and File In reads the header as a comment.
+TEST_F(ChangesAbi, FiledOutSetFilesBackInAfterBoot) {
+  newSet("Fix \"1\"!");
+  defineClass("P16Trip", "Object", "count", "Trips");
+  accept("P16Trip", 0, "increment\n  count := (count ifNil: [0]) + 1.\n  ^count");
+  accept("P16Trip", 1, "start\n  ^self new increment; yourself");
+  accept("P16Trip", 0, "shout\n  ^'Hi!'");
+  const std::string path = tempPath("trip.st");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_changes_file_out(ao_changes_current(), path.c_str(), &err)) << err.message;
+  const std::string text = readFile(path);
+  EXPECT_EQ(0u, text.find("\"Change Set: Fix \"\"1\"\"!!\nDate: ")) << text;
+  const std::string first = afterHeader(text);
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_filein_file(path.c_str(), &err)) << err.message;
+  EXPECT_EQ("shout\n  ^'Hi!'", sourceOf("P16Trip", 0, "shout"));
+  EXPECT_EQ("2", printIt("P16Trip start increment"));
+  EXPECT_EQ(first, afterHeader(fileOut(ao_changes_current(), "trip-again.st")));
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.10 再入: from a hook File In applies nothing and says "runtime is busy".
+TEST_F(ChangesAbi, FileInIsRefusedWhileBusy) {
+  const std::string path = writeTemp("busy-in.st",
+                                     "Object subclass: #P16BusyIn\n"
+                                     "  instanceVariableNames: ''\n"
+                                     "  classVariableNames: ''\n"
+                                     "  poolDictionaries: ''\n"
+                                     "  category: 'P16-In'!\n");
+  int rc = -9;
+  std::string msg;
+  whileBusy([&] {
+    AoSpan err{};
+    rc = ao_filein_file(path.c_str(), &err);
+    msg = err.message;
+  });
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("runtime is busy", msg);
+  EXPECT_EQ(0, ao_browser_class_id("P16BusyIn"));
+  std::filesystem::remove(path);
 }
