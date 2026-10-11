@@ -6,9 +6,12 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ao {
+
+struct CallContext;
 
 // SPEC §3.9 Change Sorter (P16): an entry's kind. The values are the ABI's (SPEC §3.10).
 enum class ChangeKind : int {
@@ -46,6 +49,25 @@ struct ChangeSets {
   std::int64_t current = 0;
   ChangeSets();
 };
+
+// SPEC §3.9 種類の規則. After an Accept: none → Added when nothing was replaced, else Changed;
+// Added stays Added; Changed stays Changed; Removed → Changed. Never nullopt.
+std::optional<ChangeKind> kindAfterAccept(std::optional<ChangeKind> was, bool replaced);
+// After a removal: none → Removed; Added → nullopt (the entry goes); Changed and Removed →
+// Removed.
+std::optional<ChangeKind> kindAfterRemoval(std::optional<ChangeKind> was);
+
+// SPEC §3.9 記録: each updates the current set of the session whose heap ctx runs on (a fiber of it
+// too). Nothing without a session, for another heap (a test's own Boot, the CLI), or for an empty
+// class name. className is the class's own name. Never throws: without the memory for it, the
+// record is not made and the set is as it was.
+void noteMethodChange(CallContext& ctx, const std::string& className, bool meta,
+                      std::string_view selector, bool replaced) noexcept;
+void noteMethodRemoval(CallContext& ctx, const std::string& className, bool meta,
+                       std::string_view selector) noexcept;
+// existed: the name named a class (a Behavior) before the definition.
+void noteClassChange(CallContext& ctx, const std::string& className, bool existed) noexcept;
+void noteClassRemoval(CallContext& ctx, const std::string& className) noexcept;
 
 // SPEC §3.10 チェンジセット: the ao_changes_* bodies with the ABI's answers. A write answers AO_OK,
 // or AO_ERR with the reason in *reason (left empty when the ABI's message is the generic one).

@@ -1,6 +1,7 @@
 #include "ao/Compile.hpp"
 
 #include "Session.hpp"
+#include "ChangeSet.hpp"
 #include "ao/CompiledMethod.hpp"
 
 #include "ao/Bootstrap.hpp"
@@ -317,8 +318,17 @@ bool applyClassDef(CallContext& ctx, const compiler::ChunkAction& action,
   return true;
 }
 
+// How applyChunkActions applies what it reads. FileIn: the vendor file-in and `ao filein` (a
+// definition makes a new class, no sources, no records). Accept: ao_accept_class (a definition keeps
+// or reshapes an existing class; records, no sources). Recorded: File In... (P16; as Accept, and
+// each method keeps its source).
+enum class ChunkMode { FileIn, Accept, Recorded };
+
+// Defined below; applyMethodsFor records under the class's own name.
+std::string ownClassName(CallContext& ctx, Oop cls);
+
 bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
-                     std::vector<FileInError>& errors) {
+                     std::vector<FileInError>& errors, ChunkMode mode) {
   Root cls(ctx.roots, ctx.wk.named(action.className));
   if (!cls.slot.isHeap()) {
     addError(errors, {action.span, "missing class: " + action.className});
@@ -336,6 +346,10 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
   compiler::CompileEnv env;
   fillInstVars(ctx, tgt.slot, env);
   fillClassVars(ctx, tgt.slot, env);
+  // SPEC §3.9 記録: under the class's own name (a chunk naming an alias records the class).
+  const std::string own = mode != ChunkMode::FileIn && isClassShaped(ctx.heap, cls.slot)
+                              ? ownClassName(ctx, cls.slot)
+                              : std::string();
   // SPEC §3.12: a method-level error names its method and does not stop the rest.
   for (const auto& m : action.methods) {
     compiler::CompileResult cr = compiler::compileMethod(m.source, env);
@@ -347,24 +361,33 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                methodKey(action, compiler::parseMethod(m.source).method.name));
       continue;
     }
-    const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
-    const Oop sel = ctx.wk.intern(cr.image.selector);
-    if (dict.isHeap() && sel.isHeap()) {
-      const Oop existing = MethodDictionary::at(ctx.heap, dict, sel);
-      if (existing.isHeap() && ctx.heap.klass(existing) == ctx.wk.nativeMethodClass) {
-        addError(errors, {m.span, "native selector overwrite refused: " + cr.image.selector},
-                 methodKey(action, cr.image.selector));
-        continue;
+    // The method the selector names before the install (nil: none). Interned first, so the
+    // dictionary is read after the last allocation.
+    Root old(ctx.roots, Oop::nil());
+    {
+      const Oop sel = ctx.wk.intern(cr.image.selector);
+      const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
+      if (dict.isHeap() && sel.isHeap()) {
+        old.slot = MethodDictionary::at(ctx.heap, dict, sel);
       }
+    }
+    if (old.slot.isHeap() && ctx.heap.klass(old.slot) == ctx.wk.nativeMethodClass) {
+      addError(errors, {m.span, "native selector overwrite refused: " + cr.image.selector},
+               methodKey(action, cr.image.selector));
+      continue;
     }
     if (const std::string var = unboundClassVariable(ctx, cr.image, tgt.slot); !var.empty()) {
       addError(errors, {m.span, unboundClassVariableMessage(var)},
                methodKey(action, cr.image.selector));
       continue;
     }
-    const Oop installed = installMethod(ctx, tgt.slot, cr.image);
-    if (!installed.isHeap()) {
+    Root kept(ctx.roots, installMethod(ctx, tgt.slot, cr.image));
+    if (!kept.slot.isHeap()) {
       addError(errors, {m.span, "install failed"}, methodKey(action, cr.image.selector));
+      continue;
+    }
+    if (mode != ChunkMode::FileIn) {
+      noteMethodChange(ctx, own, action.meta, cr.image.selector, old.slot.isHeap());
     }
   }
   return true;
@@ -1159,17 +1182,26 @@ bool acceptClassDef(CallContext& ctx, const compiler::ChunkAction& action,
 // False when a chunk stopped the file-in (a class definition failed, a methodsFor: was refused
 // or named no class). Errors that do not stop it are only added to errors.
 bool applyChunkActions(CallContext& ctx, const std::vector<compiler::ChunkAction>& actions,
-                       std::vector<FileInError>& errors, bool accept = false) {
+                       std::vector<FileInError>& errors, ChunkMode mode = ChunkMode::FileIn) {
   for (const auto& action : actions) {
     switch (action.kind) {
-      case compiler::ChunkKind::ClassDef:
-        // SPEC §3.9: only ao_accept_class keeps or reshapes an existing class; file-in does not.
-        if (!(accept ? acceptClassDef(ctx, action, errors) : applyClassDef(ctx, action, errors))) {
+      case compiler::ChunkKind::ClassDef: {
+        // SPEC §3.9 記録: a name that named a class before the definition is Changed.
+        const bool existed = mode != ChunkMode::FileIn && namesBehavior(ctx, action.className);
+        // SPEC §3.9: ao_accept_class and File In... keep or reshape an existing class; the vendor
+        // file-in and `ao filein` do not.
+        const bool applied = mode == ChunkMode::FileIn ? applyClassDef(ctx, action, errors)
+                                                       : acceptClassDef(ctx, action, errors);
+        if (!applied) {
           return false;
         }
+        if (mode != ChunkMode::FileIn) {
+          noteClassChange(ctx, action.className, existed);
+        }
         break;
+      }
       case compiler::ChunkKind::MethodsFor:
-        if (!applyMethodsFor(ctx, action, errors)) {
+        if (!applyMethodsFor(ctx, action, errors, mode)) {
           return false;
         }
         break;
@@ -1516,6 +1548,8 @@ bool acceptInto(CallContext& ctx, Oop target, bool meta, std::string_view source
   // SPEC §3.10, §3.13: kept was boxed from cr.image, so its blocks sit at the image's literal
   // indices.
   rememberMethodSource(kept.slot, text.slot, replaced, &cr.image);
+  // SPEC §3.9 記録: the method is in its dictionary and has its source.
+  noteMethodChange(ctx, name, meta, cr.image.selector, replaced.isHeap());
   if (installed != nullptr) {
     *installed = kept.slot;
   }
@@ -1564,7 +1598,7 @@ bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::Comp
   }
   // SPEC §3.9: a definition of an existing class keeps it or reshapes it (acceptClassDef).
   std::vector<FileInError> found;
-  const bool completed = applyChunkActions(ctx, actions, found, /*accept=*/true);
+  const bool completed = applyChunkActions(ctx, actions, found, ChunkMode::Accept);
   for (auto& e : found) {
     errors.push_back(std::move(e.error));
   }
@@ -1614,6 +1648,7 @@ bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selec
   // SPEC §3.3: the one function every method change goes through. Nothing above collected.
   invalidateMethodCache(ctx.cache, sel);
   forgetMethodSource(method);
+  noteMethodRemoval(ctx, own, meta, selector);
   return true;
 }
 
@@ -1656,6 +1691,7 @@ bool removeClassOf(CallContext& ctx, Oop cls, std::string* reason) {
   invalidateMethodCache(ctx.cache, Oop{});
   forgetMethodSourcesOf(ctx, cls);
   forgetMethodSourcesOf(ctx, ctx.heap.klass(cls));
+  noteClassRemoval(ctx, own);
   return true;
 }
 

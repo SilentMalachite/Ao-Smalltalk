@@ -2,6 +2,7 @@
 
 #include "Session.hpp"
 
+#include <algorithm>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -57,7 +58,131 @@ bool methodSide(std::int64_t setId, const char* className, int meta,
   return true;
 }
 
+// SPEC §3.9 記録: the current set of the session whose heap ctx runs on; null otherwise.
+ChangeSet* recordingSet(CallContext& ctx, const std::string& className) {
+  Session* s = session();
+  if (s == nullptr || &ctx.heap != &s->heap || className.empty()) {
+    return nullptr;
+  }
+  return findSet(*s, s->changes.current);
+}
+
+// A class entry with neither a definition kind nor a method entry goes.
+void dropIfEmpty(ChangeSet& set, std::string_view className) {
+  std::erase_if(set.classes, [&](const ClassChange& c) {
+    return c.name == className && !c.definition && c.instanceSide.empty() && c.classSide.empty();
+  });
+}
+
+std::optional<ChangeKind> kindOf(const std::map<std::string, ChangeKind>& side,
+                                 const std::string& selector) {
+  const auto found = side.find(selector);
+  return found == side.end() ? std::nullopt : std::optional<ChangeKind>(found->second);
+}
+
 }  // namespace
+
+std::optional<ChangeKind> kindAfterAccept(std::optional<ChangeKind> was, bool replaced) {
+  if (!was) {
+    return replaced ? ChangeKind::Changed : ChangeKind::Added;
+  }
+  return *was == ChangeKind::Added ? ChangeKind::Added : ChangeKind::Changed;
+}
+
+std::optional<ChangeKind> kindAfterRemoval(std::optional<ChangeKind> was) {
+  if (was == ChangeKind::Added) {
+    return std::nullopt;
+  }
+  return ChangeKind::Removed;
+}
+
+void noteMethodChange(CallContext& ctx, const std::string& className, bool meta,
+                      std::string_view selector, bool replaced) noexcept {
+  try {
+    ChangeSet* set = recordingSet(ctx, className);
+    if (set == nullptr) {
+      return;
+    }
+    std::string key(selector);
+    if (ClassChange* entry = findClass(*set, className)) {
+      auto& side = sideOf(*entry, meta);
+      const ChangeKind kind = *kindAfterAccept(kindOf(side, key), replaced);
+      side.insert_or_assign(std::move(key), kind);
+      return;
+    }
+    ClassChange made{className, std::nullopt, {}, {}};
+    sideOf(made, meta).emplace(std::move(key), *kindAfterAccept(std::nullopt, replaced));
+    set->classes.push_back(std::move(made));
+  } catch (...) {
+    // SPEC §3.9 記録: without the memory the record is not made; the Accept stands.
+  }
+}
+
+void noteMethodRemoval(CallContext& ctx, const std::string& className, bool meta,
+                       std::string_view selector) noexcept {
+  try {
+    ChangeSet* set = recordingSet(ctx, className);
+    if (set == nullptr) {
+      return;
+    }
+    std::string key(selector);
+    ClassChange* entry = findClass(*set, className);
+    if (entry == nullptr) {
+      ClassChange made{className, std::nullopt, {}, {}};
+      sideOf(made, meta).emplace(std::move(key), ChangeKind::Removed);
+      set->classes.push_back(std::move(made));
+      return;
+    }
+    auto& side = sideOf(*entry, meta);
+    if (const std::optional<ChangeKind> now = kindAfterRemoval(kindOf(side, key))) {
+      side.insert_or_assign(std::move(key), *now);
+      return;
+    }
+    // Added in this set: the entry goes, and an emptied class entry with it.
+    side.erase(key);
+    dropIfEmpty(*set, className);
+  } catch (...) {
+  }
+}
+
+void noteClassChange(CallContext& ctx, const std::string& className, bool existed) noexcept {
+  try {
+    ChangeSet* set = recordingSet(ctx, className);
+    if (set == nullptr) {
+      return;
+    }
+    if (ClassChange* entry = findClass(*set, className)) {
+      entry->definition = kindAfterAccept(entry->definition, existed);
+      return;
+    }
+    set->classes.push_back(ClassChange{className, kindAfterAccept(std::nullopt, existed), {}, {}});
+  } catch (...) {
+  }
+}
+
+void noteClassRemoval(CallContext& ctx, const std::string& className) noexcept {
+  try {
+    ChangeSet* set = recordingSet(ctx, className);
+    if (set == nullptr) {
+      return;
+    }
+    ClassChange* entry = findClass(*set, className);
+    if (entry == nullptr) {
+      set->classes.push_back(ClassChange{className, ChangeKind::Removed, {}, {}});
+      return;
+    }
+    // SPEC §3.9 種類の規則: a class added in this set goes with its methods; another is Removed and
+    // its method entries go.
+    if (entry->definition == ChangeKind::Added) {
+      std::erase_if(set->classes, [&](const ClassChange& c) { return c.name == className; });
+      return;
+    }
+    entry->definition = ChangeKind::Removed;
+    entry->instanceSide.clear();
+    entry->classSide.clear();
+  } catch (...) {
+  }
+}
 
 ChangeSets::ChangeSets() {
   sets.push_back(ChangeSet{nextChangeSetId(), "Unnamed1", {}});
