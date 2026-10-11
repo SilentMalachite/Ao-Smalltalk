@@ -245,6 +245,20 @@ void ensureKernelNatives(Session& s);
 // ends in NUL); AO_ERR for a NULL buf or len < 1.
 int writeBuf(const std::string& text, char* buf, int len);
 
+// SPEC §3.9 File Out (P16): what the change set writer reads, by the class's own name.
+// The class Smalltalk binds name to, when it is a class (not a metaclass, not another global) whose
+// own name is name; the empty Oop otherwise. Allocates nothing.
+Oop boundClassNamed(Session& s, const std::string& name);
+// ao_browser_class_definition's text for cls: chunk-safe already (the category's `!` and `'`
+// doubled).
+std::string classDefinitionText(Session& s, Oop cls);
+// The own name of cls's superclass; empty for nil.
+std::string superclassNameOf(Session& s, Oop cls);
+// The source-table text of the method selector names in cls's side (the metaclass's when meta);
+// false when there is no such method, it is a NativeMethod, or it has no source.
+bool liveMethodSource(Session& s, Oop cls, bool meta, const std::string& selector,
+                      std::string& text);
+
 // SPEC §3.10 クラス ID: the ID of the listed class Smalltalk binds name to; 0 when none, name is
 // NULL or there is no session. May throw std::bad_alloc (the class list issues IDs).
 std::int64_t browserClassId(const char* name);

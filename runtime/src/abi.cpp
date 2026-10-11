@@ -796,3 +796,9 @@ extern "C" int ao_changes_move(int64_t from_id, int64_t to_id, const char* class
     return ao::sessionChangesMove(from_id, to_id, class_name, meta, selector, reason);
   });
 }
+
+extern "C" int ao_changes_file_out(int64_t set_id, const char* path, AoSpan* err) {
+  return changesWrite(err, "file out failed", [&](std::string* reason) {
+    return ao::sessionChangesFileOut(set_id, path, reason);
+  });
+}

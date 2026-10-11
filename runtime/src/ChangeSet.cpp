@@ -1,11 +1,15 @@
 #include "ChangeSet.hpp"
 
 #include "Session.hpp"
+#include "ao/Runtime.hpp"
 
 #include <algorithm>
+#include <ctime>
+#include <fstream>
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 
 namespace ao {
 namespace {
@@ -107,6 +111,139 @@ ClassChange targetCopy(ChangeSet& to, const char* className) {
     return *found;
   }
   return ClassChange{className, std::nullopt, {}, {}};
+}
+
+// SPEC §3.8 チャンク形式: every `!` doubled, in strings and comments too, then the closing `!`.
+std::string chunk(std::string_view text) {
+  std::string out;
+  out.reserve(text.size() + 1);
+  for (const char c : text) {
+    if (c == '!') {
+      out.push_back('!');
+    }
+    out.push_back(c);
+  }
+  out.push_back('!');
+  return out;
+}
+
+// A comment chunk: text in double quotes (a `"` in it doubled), as a chunk.
+std::string commentChunk(std::string_view text) {
+  std::string body = "\"";
+  for (const char c : text) {
+    if (c == '"') {
+      body.push_back('"');
+    }
+    body.push_back(c);
+  }
+  body.push_back('"');
+  return chunk(body);
+}
+
+// The local date, YYYY-MM-DD.
+std::string today() {
+  const std::time_t now = std::time(nullptr);
+  std::tm local{};
+  localtime_r(&now, &local);
+  char buf[16];
+  return std::strftime(buf, sizeof buf, "%Y-%m-%d", &local) == 0 ? std::string()
+                                                                  : std::string(buf);
+}
+
+// SPEC §3.9 File Out: names, each after the superclasses it has among them, otherwise in order.
+std::vector<std::string> superclassOrder(Session& s, const std::vector<std::string>& names) {
+  const std::unordered_set<std::string> wanted(names.begin(), names.end());
+  std::unordered_set<std::string> placed;
+  std::vector<std::string> out;
+  for (const std::string& name : names) {
+    // The chain from name up to the first class out of the set or already placed.
+    std::vector<std::string> chain;
+    std::string at = name;
+    while (wanted.count(at) != 0 && placed.count(at) == 0 &&
+           std::find(chain.begin(), chain.end(), at) == chain.end()) {
+      chain.push_back(at);
+      const Oop cls = boundClassNamed(s, at);
+      at = cls.isEmpty() ? std::string() : superclassNameOf(s, cls);
+    }
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+      placed.insert(*it);
+      out.push_back(*it);
+    }
+  }
+  return out;
+}
+
+// SPEC §3.9 File Out の形式.
+std::string fileOutText(Session& s, const ChangeSet& set) {
+  char version[32] = "";
+  version_string(version, static_cast<int>(sizeof version));
+  std::string out = commentChunk("Change Set: " + set.name + "\nDate: " + today() + "\nAo " +
+                                 version);
+  out += "\n\n";
+  // What has no source, as comment chunks after the removals: the methods first, then the classes
+  // (SPEC §3.9 File Out item 4).
+  std::vector<std::string> lostSources;
+  std::vector<std::string> lostDefinitions;
+  std::vector<std::string> defined;
+  for (const ClassChange& c : set.classes) {
+    if (c.definition && *c.definition != ChangeKind::Removed) {
+      defined.push_back(c.name);
+    }
+  }
+  for (const std::string& name : superclassOrder(s, defined)) {
+    const Oop cls = boundClassNamed(s, name);
+    if (cls.isEmpty()) {
+      lostDefinitions.push_back(name + " definition not available");
+      continue;
+    }
+    // Chunk-safe already: written as it is.
+    out += classDefinitionText(s, cls) + "!\n\n";
+  }
+  for (const ClassChange& c : set.classes) {
+    const Oop cls = boundClassNamed(s, c.name);
+    for (const bool meta : {false, true}) {
+      std::vector<std::string> sources;
+      for (const auto& [selector, kind] : meta ? c.classSide : c.instanceSide) {
+        if (kind == ChangeKind::Removed) {
+          continue;
+        }
+        std::string text;
+        if (!cls.isEmpty() && liveMethodSource(s, cls, meta, selector, text)) {
+          sources.push_back(std::move(text));
+        } else {
+          lostSources.push_back(entryName(c.name, meta, selector) + " source not available");
+        }
+      }
+      if (sources.empty()) {
+        continue;
+      }
+      out += "!" + c.name + (meta ? " class" : "") + " methodsFor: 'user'!\n";
+      for (std::size_t i = 0; i < sources.size(); ++i) {
+        out += chunk(sources[i]);
+        out += i + 1 < sources.size() ? "\n\n" : " !\n\n";
+      }
+    }
+  }
+  for (const ClassChange& c : set.classes) {
+    for (const bool meta : {false, true}) {
+      for (const auto& [selector, kind] : meta ? c.classSide : c.instanceSide) {
+        if (kind == ChangeKind::Removed) {
+          out += commentChunk("Removed: " + entryName(c.name, meta, selector)) + "\n";
+        }
+      }
+    }
+  }
+  for (const ClassChange& c : set.classes) {
+    if (c.definition == ChangeKind::Removed) {
+      out += commentChunk("Removed class: " + c.name) + "\n";
+    }
+  }
+  for (const std::vector<std::string>* lost : {&lostSources, &lostDefinitions}) {
+    for (const std::string& text : *lost) {
+      out += commentChunk(text) + "\n";
+    }
+  }
+  return out;
 }
 
 }  // namespace
@@ -398,6 +535,27 @@ int sessionChangesMove(std::int64_t fromId, std::int64_t toId, const char* class
   putClass(*to, std::move(merged));
   side.erase(found);
   dropIfEmpty(*from, className);
+  return AO_OK;
+}
+
+int sessionChangesFileOut(std::int64_t setId, const char* path, std::string* reason) {
+  Session* s = session();
+  if (s == nullptr || path == nullptr) {
+    return AO_ERR;
+  }
+  ChangeSet* set = findSet(*s, setId);
+  if (set == nullptr) {
+    *reason = "unknown change set";
+    return AO_ERR;
+  }
+  const std::string text = fileOutText(*s, *set);
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  out.write(text.data(), static_cast<std::streamsize>(text.size()));
+  out.close();
+  if (!out) {
+    *reason = std::string("cannot write file: ") + path;
+    return AO_ERR;
+  }
   return AO_OK;
 }
 

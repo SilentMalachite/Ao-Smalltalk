@@ -920,32 +920,6 @@ Oop superclassShown(Session& s, Oop cls, int meta) {
   return sup;
 }
 
-std::string definitionOf(Session& s, const ClassRow& row) {
-  std::string text;
-  if (!pointerSlots(s.heap, row.cls, kClassSlotSuperclass + 1)) {
-    text = "nil";
-  } else {
-    const Oop sup = s.heap.slotAt(row.cls, kClassSlotSuperclass);
-    text = sup.isHeap() ? classNameOf(s.heap, sup) : std::string("nil");
-  }
-  text += " subclass: #";
-  text += row.name;
-  text += "\n  instanceVariableNames: '";
-  text += instVarList(s.heap, row.cls);
-  text += "'\n  classVariableNames: '";
-  text += classVarList(s.heap, s.wk, row.cls);
-  text += "'\n  poolDictionaries: ''\n  category: '";
-  // SPEC §3.10: a string literal in a chunk, so accepting the text again keeps the category.
-  for (const char c : definitionCategory(s.heap, row.cls)) {
-    if (c == '\'' || c == '!') {
-      text.push_back(c);
-    }
-    text.push_back(c);
-  }
-  text += "'";
-  return text;
-}
-
 // SPEC §3.10: the listed classes whose superclass slot is cls itself (identity, not name), in the
 // class list's order.
 std::vector<const ClassRow*> subclassRows(Session& s, Oop cls, const std::vector<ClassRow>& rows) {
@@ -1904,6 +1878,63 @@ int browserSource(std::int64_t classId, int meta, const char* selector, char* bu
   return AO_ERR;
 }
 
+std::string classDefinitionText(Session& s, Oop cls) {
+  std::string text;
+  if (!pointerSlots(s.heap, cls, kClassSlotSuperclass + 1)) {
+    text = "nil";
+  } else {
+    const Oop sup = s.heap.slotAt(cls, kClassSlotSuperclass);
+    text = sup.isHeap() ? classNameOf(s.heap, sup) : std::string("nil");
+  }
+  text += " subclass: #";
+  text += classNameOf(s.heap, cls);
+  text += "\n  instanceVariableNames: '";
+  text += instVarList(s.heap, cls);
+  text += "'\n  classVariableNames: '";
+  text += classVarList(s.heap, s.wk, cls);
+  text += "'\n  poolDictionaries: ''\n  category: '";
+  // SPEC §3.10: a string literal in a chunk, so accepting the text again keeps the category.
+  for (const char c : definitionCategory(s.heap, cls)) {
+    if (c == '\'' || c == '!') {
+      text.push_back(c);
+    }
+    text.push_back(c);
+  }
+  text += "'";
+  return text;
+}
+
+Oop boundClassNamed(Session& s, const std::string& name) {
+  const Oop cls = s.wk.named(name);
+  if (!pointerSlots(s.heap, cls, kClassSlotCount) ||
+      s.heap.klass(s.heap.klass(cls)) != s.wk.metaclassClass || classNameOf(s.heap, cls) != name) {
+    return Oop{};
+  }
+  return cls;
+}
+
+std::string superclassNameOf(Session& s, Oop cls) {
+  if (!pointerSlots(s.heap, cls, kClassSlotSuperclass + 1)) {
+    return {};
+  }
+  const Oop sup = s.heap.slotAt(cls, kClassSlotSuperclass);
+  return sup.isHeap() ? classNameOf(s.heap, sup) : std::string();
+}
+
+bool liveMethodSource(Session& s, Oop cls, bool meta, const std::string& selector,
+                      std::string& text) {
+  const Oop side = sideOf(s, cls, meta ? 1 : 0);
+  const Oop sel = s.wk.findSymbol(selector);
+  if (!pointerSlots(s.heap, side, kClassSlotMethodDict + 1) || !sel.isHeap()) {
+    return false;
+  }
+  const Oop method = MethodDictionary::at(s.heap, s.heap.slotAt(side, kClassSlotMethodDict), sel);
+  if (!method.isHeap() || s.heap.klass(method) == s.wk.nativeMethodClass) {
+    return false;
+  }
+  return methodSource(method, text);
+}
+
 int browserClassDefinition(std::int64_t classId, char* buf, int len) {
   Session* s = session();
   if (s == nullptr) {
@@ -1914,7 +1945,7 @@ int browserClassDefinition(std::int64_t classId, char* buf, int len) {
   if (row == nullptr) {
     return AO_ERR;
   }
-  return writeBuf(definitionOf(*s, *row), buf, len);
+  return writeBuf(classDefinitionText(*s, row->cls), buf, len);
 }
 
 int browserSuperclass(std::int64_t classId, int meta, std::int64_t* superclassId, char* buf,

@@ -87,4 +87,7 @@ int sessionChangesDrop(std::int64_t setId, const char* className, int meta, cons
 int sessionChangesMove(std::int64_t fromId, std::int64_t toId, const char* className, int meta,
                        const char* selector, std::string* reason);
 
+// SPEC §3.9 File Out: writes the set to path, replacing it.
+int sessionChangesFileOut(std::int64_t setId, const char* path, std::string* reason);
+
 }  // namespace ao

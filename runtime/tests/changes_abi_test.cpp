@@ -168,6 +168,29 @@ int frameLabeled(const char* label) {
   return -1;
 }
 
+std::string readFile(const std::string& path) {
+  std::ifstream in(path, std::ios::binary);
+  std::ostringstream all;
+  all << in.rdbuf();
+  return all.str();
+}
+
+// The file out after its header chunk (whose date changes).
+std::string afterHeader(const std::string& text) {
+  const std::size_t end = text.find("\"!\n\n");
+  return end == std::string::npos ? text : text.substr(end + 4);
+}
+
+// The set filed out to a temporary file, read back.
+std::string fileOut(std::int64_t set, const std::string& name) {
+  const std::string path = tempPath(name);
+  AoSpan err{};
+  EXPECT_EQ(AO_OK, ao_changes_file_out(set, path.c_str(), &err)) << err.message;
+  const std::string text = readFile(path);
+  std::filesystem::remove(path);
+  return text;
+}
+
 }  // namespace
 
 // SPEC §3.9 Change Sorter, §3.10: a new session holds one empty set, Unnamed1, which is current.
@@ -573,4 +596,135 @@ TEST_F(ChangesAbi, DropAndMoveAreRefusedWhileBusy) {
   EXPECT_EQ(AO_ERR, moveRc);
   EXPECT_EQ("runtime is busy", moveMsg);
   EXPECT_EQ(std::vector<std::string>{"P16Busy+"}, classesOf(first));
+}
+
+// SPEC §3.9 File Out: the header, the definitions, the methods by class and side, then the
+// removals as comment chunks.
+TEST_F(ChangesAbi, FileOutWritesHeaderDefinitionsMethodsAndRemovals) {
+  defineClass("P16Counter", "Object", "count", "Examples");
+  accept("P16Counter", 0, "reset\n  count := 0");
+  const std::int64_t set = newSet("Unnamed2");
+  defineClass("P16Counter", "Object", "count", "Examples");
+  accept("P16Counter", 0, "increment\n  count := (count ifNil: [0]) + 1.\n  ^count");
+  accept("P16Counter", 1, "new\n  ^super new reset");
+  EXPECT_EQ("", removeMethod("P16Counter", 0, "reset"));
+  const std::string text = fileOut(set, "counter.st");
+  char version[32];
+  ASSERT_EQ(AO_OK, ao_version(version, static_cast<int>(sizeof version)));
+  EXPECT_TRUE(std::regex_search(
+      text, std::regex("^\"Change Set: Unnamed2\nDate: [0-9]{4}-[0-9]{2}-[0-9]{2}\nAo ")))
+      << text;
+  EXPECT_NE(std::string::npos, text.find("\nAo " + std::string(version) + "\"!\n\n")) << text;
+  EXPECT_EQ(
+      "Object subclass: #P16Counter\n"
+      "  instanceVariableNames: 'count'\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Examples'!\n"
+      "\n"
+      "!P16Counter methodsFor: 'user'!\n"
+      "increment\n"
+      "  count := (count ifNil: [0]) + 1.\n"
+      "  ^count! !\n"
+      "\n"
+      "!P16Counter class methodsFor: 'user'!\n"
+      "new\n"
+      "  ^super new reset! !\n"
+      "\n"
+      "\"Removed: P16Counter>>reset\"!\n",
+      afterHeader(text));
+}
+
+// SPEC §3.9 File Out: a superclass in the set is defined before its subclasses, whatever order the
+// set recorded them in.
+TEST_F(ChangesAbi, FileOutDefinesSuperclassesFirst) {
+  defineClass("P16Base", "Object");
+  defineClass("P16Sub", "P16Base");
+  const std::int64_t set = newSet("Order");
+  defineClass("P16Sub", "P16Base", "", "Other");
+  defineClass("P16Base", "Object", "", "Other");
+  EXPECT_EQ((std::vector<std::string>{"P16Sub~", "P16Base~"}), classesOf(set));
+  const std::string body = afterHeader(fileOut(set, "order.st"));
+  const std::size_t base = body.find("Object subclass: #P16Base");
+  const std::size_t sub = body.find("P16Base subclass: #P16Sub");
+  ASSERT_NE(std::string::npos, base) << body;
+  ASSERT_NE(std::string::npos, sub) << body;
+  EXPECT_LT(base, sub);
+}
+
+// SPEC §3.8, §3.9 File Out: every `!` is doubled, in strings and comments too, and a `"` in the
+// set's name is doubled in the header comment.
+TEST_F(ChangesAbi, FileOutDoublesBangsAndQuotes) {
+  const std::int64_t set = newSet("Fix \"1\"!");
+  defineClass("P16Bang", "Object");
+  accept("P16Bang", 0, "shout\n  \"Loud!\"\n  ^'Hi!'");
+  const std::string text = fileOut(set, "bang.st");
+  EXPECT_EQ(0u, text.find("\"Change Set: Fix \"\"1\"\"!!\nDate: ")) << text;
+  EXPECT_NE(std::string::npos, text.find("shout\n  \"Loud!!\"\n  ^'Hi!!'! !\n")) << text;
+}
+
+// SPEC §3.9 File Out: a method without source is a comment chunk after the removals, not code.
+TEST_F(ChangesAbi, FileOutWritesACommentForAMethodWithoutSource) {
+  const std::int64_t set = ao_changes_current();
+  defineClass("P16NoSrc", "Object");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("!P16NoSrc methodsFor: 'x'!\nlost\n  ^1! !", &err))
+      << err.message;
+  const std::string body = afterHeader(fileOut(set, "nosrc.st"));
+  EXPECT_EQ(std::string::npos, body.find("methodsFor:")) << body;
+  EXPECT_NE(std::string::npos, body.find("\"P16NoSrc>>lost source not available\"!\n")) << body;
+}
+
+// SPEC §3.9 File Out item 4: the comments for methods without source come before those for
+// classes without a definition.
+TEST_F(ChangesAbi, FileOutWritesMissingSourcesBeforeMissingDefinitions) {
+  const std::int64_t set = ao_changes_current();
+  defineClass("P16NoSrc", "Object");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("!P16NoSrc methodsFor: 'x'!\nlost\n  ^1! !", &err))
+      << err.message;
+  defineClass("P16Gone", "Object");
+  EXPECT_EQ("3", printIt("Smalltalk at: #P16Gone put: 3"));
+  const std::string body = afterHeader(fileOut(set, "missing.st"));
+  const std::size_t source = body.find("\"P16NoSrc>>lost source not available\"!\n");
+  const std::size_t definition = body.find("\"P16Gone definition not available\"!\n");
+  ASSERT_NE(std::string::npos, source) << body;
+  ASSERT_NE(std::string::npos, definition) << body;
+  EXPECT_LT(source, definition) << body;
+}
+
+// SPEC §3.9 File Out: a removed class is a comment chunk, and its definition is not written.
+TEST_F(ChangesAbi, FileOutWritesAClassRemovalAsAComment) {
+  defineClass("P16Scratch", "Object");
+  const std::int64_t set = newSet("Removals");
+  EXPECT_EQ("", removeClass("P16Scratch"));
+  EXPECT_EQ("\"Removed class: P16Scratch\"!\n", afterHeader(fileOut(set, "scratch.st")));
+}
+
+// SPEC §3.10 チェンジセット: an unknown set, a path that cannot be written and a NULL path say why.
+TEST_F(ChangesAbi, FileOutRefusesUnknownSetAndUnwritablePath) {
+  AoSpan err{};
+  const std::int64_t set = ao_changes_current();
+  EXPECT_EQ(AO_ERR, ao_changes_file_out(set + 1000, tempPath("x.st").c_str(), &err));
+  EXPECT_STREQ("unknown change set", err.message);
+  const std::string bad = tempPath("no-such-dir") + "/x.st";
+  EXPECT_EQ(AO_ERR, ao_changes_file_out(set, bad.c_str(), &err));
+  EXPECT_EQ("cannot write file: " + bad, std::string(err.message));
+  EXPECT_EQ(AO_ERR, ao_changes_file_out(set, nullptr, &err));
+  EXPECT_STREQ("file out failed", err.message);
+}
+
+// SPEC §3.10 再入: from a hook File Out writes nothing and says "runtime is busy".
+TEST_F(ChangesAbi, FileOutIsRefusedWhileBusy) {
+  const std::string path = tempPath("busy.st");
+  int rc = -9;
+  std::string msg;
+  whileBusy([&] {
+    AoSpan err{};
+    rc = ao_changes_file_out(ao_changes_current(), path.c_str(), &err);
+    msg = err.message;
+  });
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_EQ("runtime is busy", msg);
+  EXPECT_FALSE(std::filesystem::exists(path));
 }
