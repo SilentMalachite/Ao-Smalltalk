@@ -1,5 +1,5 @@
 "changeset — SPEC §3.9 種類の規則、§3.10 チェンジセット（P17）。ChangeSet を参照する唯一のテストファイルなので、始まりは遅延の初期化の直後。"
-| first work other entry sels |
+| first work other entry sels out fo expect base sub |
 "遅延の初期化: 最初の参照で空の Unnamed1 が current になる"
 first := ChangeSet current.
 self assert: first name equals: 'Unnamed1'.
@@ -119,3 +119,38 @@ self assert: ((other changesFor: #Order) kindOf: #zeta meta: false) equals: #add
 work makeCurrent.
 self assert: ChangeSet current == work equals: true.
 self assert: ChangeSet allChangeSets size equals: 3.
+
+"File Out（SPEC §3.9 File Out の形式）。ao --test はセッションの外なのでソースは無く、メソッドは source not available の行になる"
+base := Object subclass: #P17Base instanceVariableNames: 'a' classVariableNames: '' poolDictionaries: '' category: 'P17-Test'.
+sub := base subclass: #P17Sub instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'P17-Test'.
+Smalltalk at: #P17NotAClass put: 3.
+Smalltalk at: #P17Meta put: base class.
+out := ChangeSet newNamed: 'Out "q" !'.
+ChangeSet noteClassChange: #P17Sub existed: false.
+ChangeSet noteClassChange: #P17Base existed: false.
+ChangeSet noteClassChange: #Missing existed: true.
+ChangeSet noteMethodChange: #P17Base selector: #kept meta: false existed: false.
+ChangeSet noteMethodChange: #P17Base selector: #made meta: true existed: false.
+ChangeSet noteMethodRemoval: #P17Base selector: #gone meta: false.
+ChangeSet noteClassRemoval: #Dropped.
+fo := out fileOutStringDate: '2026-10-12' version: '9.9.9'.
+expect := WriteStream on: String new.
+expect nextPutAll: '"Change Set: Out ""q"" !!'; cr;
+	nextPutAll: 'Date: 2026-10-12'; cr;
+	nextPutAll: 'Ao 9.9.9"!'; cr; cr;
+	nextPutAll: base definition; nextPutAll: '!'; cr; cr;
+	nextPutAll: sub definition; nextPutAll: '!'; cr; cr;
+	nextPutAll: '"Removed: P17Base>>gone"!'; cr;
+	nextPutAll: '"Removed class: Dropped"!'; cr;
+	nextPutAll: '"P17Base>>kept source not available"!'; cr;
+	nextPutAll: '"P17Base class>>made source not available"!'; cr;
+	nextPutAll: '"Missing definition not available"!'; cr.
+self assert: fo equals: expect contents.
+self assert: (ChangeSet classNamed: #P17Base) == base equals: true.
+self assert: (ChangeSet classNamed: 'P17Sub') == sub equals: true.
+self assert: (ChangeSet classNamed: #P17NotAClass) equals: nil.
+self assert: (ChangeSet classNamed: #P17Meta) equals: nil.
+self assert: (ChangeSet classNamed: #NoSuchGlobal) equals: nil.
+"スーパークラスは記録の順に関わらず先"
+self assert: (ChangeSet superclassOrder: (OrderedCollection new add: #P17Sub; add: #Missing; add: #P17Base; yourself)) size equals: 3.
+self assert: ((ChangeSet superclassOrder: (OrderedCollection new add: #P17Sub; add: #Missing; add: #P17Base; yourself)) at: 1) equals: #P17Base.

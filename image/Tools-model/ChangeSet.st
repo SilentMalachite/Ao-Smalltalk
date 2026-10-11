@@ -168,6 +168,51 @@ entryName: className selector: aSelector meta: meta
 	s nextPutAll: '>>'; nextPutAll: aSelector.
 	^s contents! !
 
+!ChangeSet class methodsFor: 'fileIn/Out'!
+classNamed: aSymbol
+	"Smalltalk が aSymbol に束縛しているクラス（メタクラスでもほかの値でもない）。無ければ nil。"
+	| value |
+	value := Smalltalk at: aSymbol asSymbol ifAbsent: [nil].
+	value class class == Metaclass ifFalse: [^nil].
+	^value!
+
+superclassOrder: classNames
+	"名前の並び。それぞれを、並びの中にあるスーパークラスのあとに置く。ほかは元の順。"
+	| placed out chain at cls i |
+	placed := OrderedCollection new.
+	out := OrderedCollection new.
+	classNames do: [:each |
+		chain := OrderedCollection new.
+		at := each.
+		[at notNil and: [(classNames includes: at) and: [(placed includes: at) not and: [(chain includes: at) not]]]] whileTrue: [
+			chain add: at.
+			cls := self classNamed: at.
+			at := (cls isNil or: [cls superclass isNil]) ifTrue: [nil] ifFalse: [cls superclass name asSymbol]].
+		i := chain size.
+		[i > 0] whileTrue: [
+			placed add: (chain at: i).
+			out add: (chain at: i).
+			i := i - 1]].
+	^out!
+
+chunk: aString on: aStream
+	"SPEC §3.8 チャンク形式: `!!` をすべて重ね、閉じる `!!` を足す。"
+	aString do: [:c |
+		c = $!! ifTrue: [aStream nextPut: $!!].
+		aStream nextPut: c].
+	aStream nextPut: $!!!
+
+commentChunk: aString on: aStream
+	"aString を二重引用符で囲み（中の `""` は重ねる）、チャンクにする。"
+	| body |
+	body := WriteStream on: String new.
+	body nextPut: $".
+	aString do: [:c |
+		c = $" ifTrue: [body nextPut: $"].
+		body nextPut: c].
+	body nextPut: $".
+	self chunk: body contents on: aStream! !
+
 !ChangeSet methodsFor: 'private'!
 setName: aString id: anInteger
 	name := aString.
@@ -294,3 +339,71 @@ moveSelector: aSelector class: className meta: meta to: aChangeSet
 	(aChangeSet entryFor: className) at: aSelector meta: meta put: (entry kindOf: aSelector meta: meta).
 	entry forget: aSelector meta: meta.
 	self dropIfEmpty: className! !
+
+!ChangeSet methodsFor: 'fileIn/Out'!
+fileOutStringDate: aDate version: aVersion
+	"SPEC §3.9 File Out の形式。aDate は YYYY-MM-DD、aVersion は Ao の版（C++ が渡す）。"
+	| out header lostSources lostDefinitions |
+	out := WriteStream on: String new.
+	header := WriteStream on: String new.
+	header nextPutAll: 'Change Set: '; nextPutAll: name; cr;
+		nextPutAll: 'Date: '; nextPutAll: aDate; cr;
+		nextPutAll: 'Ao '; nextPutAll: aVersion.
+	ChangeSet commentChunk: header contents on: out.
+	out cr; cr.
+	lostSources := OrderedCollection new.
+	lostDefinitions := OrderedCollection new.
+	self fileOutDefinitionsOn: out lost: lostDefinitions.
+	classChanges do: [:each |
+		self fileOut: each meta: false on: out lost: lostSources.
+		self fileOut: each meta: true on: out lost: lostSources].
+	classChanges do: [:each |
+		self fileOutRemovalsOf: each meta: false on: out.
+		self fileOutRemovalsOf: each meta: true on: out].
+	classChanges do: [:each |
+		each definitionKind == #removed ifTrue: [
+			ChangeSet commentChunk: (ChangeSet text: 'Removed class: ' with: each className) on: out.
+			out cr]].
+	lostSources do: [:text | ChangeSet commentChunk: text on: out. out cr].
+	lostDefinitions do: [:text | ChangeSet commentChunk: text on: out. out cr].
+	^out contents!
+
+fileOutDefinitionsOn: out lost: lost
+	| defined cls |
+	defined := OrderedCollection new.
+	classChanges do: [:each |
+		(each definitionKind notNil and: [each definitionKind ~~ #removed])
+			ifTrue: [defined add: each className]].
+	(ChangeSet superclassOrder: defined) do: [:each |
+		cls := ChangeSet classNamed: each.
+		cls isNil
+			ifTrue: [lost add: (ChangeSet text: each with: ' definition not available')]
+			ifFalse: [out nextPutAll: cls definition; nextPutAll: '!!'; cr; cr]]!
+
+fileOut: entry meta: meta on: out lost: lost
+	"その側の、削除でないメソッドのソースを 1 つの methodsFor: の節に。ソースの無いものは lost へ。"
+	| cls side sources source |
+	cls := ChangeSet classNamed: entry className.
+	side := cls isNil ifTrue: [nil] ifFalse: [meta ifTrue: [cls class] ifFalse: [cls]].
+	sources := OrderedCollection new.
+	(entry selectorsMeta: meta) do: [:sel |
+		(entry kindOf: sel meta: meta) == #removed ifFalse: [
+			source := side isNil ifTrue: [nil] ifFalse: [side sourceCodeAt: sel].
+			source isNil
+				ifTrue: [lost add: (ChangeSet text: (ChangeSet entryName: entry className selector: sel meta: meta) with: ' source not available')]
+				ifFalse: [sources add: source]]].
+	sources size = 0 ifTrue: [^self].
+	out nextPutAll: '!!'; nextPutAll: entry className.
+	meta ifTrue: [out nextPutAll: ' class'].
+	out nextPutAll: ' methodsFor: ''user''!!'; cr.
+	1 to: sources size do: [:i |
+		ChangeSet chunk: (sources at: i) on: out.
+		i < sources size
+			ifTrue: [out cr; cr]
+			ifFalse: [out nextPutAll: ' !!'; cr; cr]]!
+
+fileOutRemovalsOf: entry meta: meta on: out
+	(entry selectorsMeta: meta) do: [:sel |
+		(entry kindOf: sel meta: meta) == #removed ifTrue: [
+			ChangeSet commentChunk: (ChangeSet text: 'Removed: ' with: (ChangeSet entryName: entry className selector: sel meta: meta)) on: out.
+			out cr]]! !
