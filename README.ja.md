@@ -1,5 +1,12 @@
 # Ao
 
+[![CI](https://github.com/SilentMalachite/Ao-Smalltalk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SilentMalachite/Ao-Smalltalk/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/SilentMalachite/Ao-Smalltalk)](https://github.com/SilentMalachite/Ao-Smalltalk/releases)
+[![License](https://img.shields.io/github/license/SilentMalachite/Ao-Smalltalk)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20%28Apple%20Silicon%29-lightgrey?logo=apple)
+![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus)
+![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
+
 Ao は Apple Silicon Mac 向けの **新規** Smalltalk 処理系です。言語・オブジェクトモデル・開発ツールの契約は Smalltalk-80（Blue Book）に従います。Squeak / Pharo / OpenSmalltalk など既存処理系の VM ソースの移植ではありません。
 
 English (canonical GitHub text): [README.md](README.md)
