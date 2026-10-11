@@ -142,17 +142,45 @@ void printFileInErrors(const std::vector<ao::FileInError>& errors) {
   }
 }
 
+// SPEC §3.12 (P17): argv[begin, end) is one or more `--load-order <LOAD_ORDER>` pairs, nothing else.
+bool collectLoadOrders(int argc, char** argv, int begin, int end, std::vector<const char*>& out) {
+  if (begin >= end || end > argc || (end - begin) % 2 != 0) {
+    return false;
+  }
+  for (int i = begin; i < end; i += 2) {
+    if (std::strcmp(argv[i], "--load-order") != 0) {
+      return false;
+    }
+    out.push_back(argv[i + 1]);
+  }
+  return true;
+}
+
+// Files in the LOAD_ORDERs in order. False (and the rest is not read) as soon as one cannot be read.
+bool fileInLoadOrders(ao::CallContext& ctx, const std::vector<const char*>& loadOrders,
+                      std::vector<ao::FileInError>& errors) {
+  for (const char* loadOrder : loadOrders) {
+    if (!ao::fileInLoadOrder(ctx, loadOrder, errors)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 int runFileIn(int argc, char** argv) {
   if (argc < 3) {
     std::fputs("ao: usage: ao filein <file.st>\n"
-               "       ao filein --load-order <LOAD_ORDER>\n",
+               "       ao filein --load-order <LOAD_ORDER> [--load-order <LOAD_ORDER>]...\n",
                stderr);
     return 2;
   }
   const bool loadOrder = std::strcmp(argv[2], "--load-order") == 0;
+  std::vector<const char*> loadOrders;
   if (loadOrder) {
-    if (argc != 4) {
-      std::fputs("ao: usage: ao filein --load-order <LOAD_ORDER>\n", stderr);
+    // SPEC §3.12 (P17): one or more `--load-order <LOAD_ORDER>` pairs, nothing else.
+    if (!collectLoadOrders(argc, argv, 2, argc, loadOrders)) {
+      std::fputs("ao: usage: ao filein --load-order <LOAD_ORDER> [--load-order <LOAD_ORDER>]...\n",
+                 stderr);
       return 2;
     }
   } else if (argc != 3) {
@@ -177,7 +205,7 @@ int runFileIn(int argc, char** argv) {
   std::vector<ao::FileInError> errors;
   bool ok = false;
   if (loadOrder) {
-    ok = ao::fileInLoadOrder(ctx, argv[3], errors);
+    ok = fileInLoadOrders(ctx, loadOrders, errors);
   } else {
     std::vector<ao::compiler::CompileError> found;
     ok = ao::fileInFile(ctx, argv[2], found);
@@ -206,7 +234,7 @@ int bootAndRunTests(const std::string& dir) {
 
 int imageUsage() {
   std::fputs("ao: usage: ao image save <path>\n"
-             "       ao image save --load-order <LOAD_ORDER> <path>\n"
+             "       ao image save [--load-order <LOAD_ORDER>]... <path>\n"
              "       ao image load <path>\n",
              stderr);
   return 2;
@@ -222,18 +250,18 @@ int runImage(int argc, char** argv) {
     return imageUsage();
   }
 
-  const char* loadOrder = nullptr;
+  std::vector<const char*> loadOrders;
   const char* path = nullptr;
   if (isLoad) {
     if (argc != 4) {
       return imageUsage();
     }
     path = argv[3];
-  } else if (argc == 6 && std::strcmp(argv[3], "--load-order") == 0) {
-    loadOrder = argv[4];
-    path = argv[5];
   } else if (argc == 4 && std::strcmp(argv[3], "--load-order") != 0) {
     path = argv[3];
+  } else if (argc >= 6 && collectLoadOrders(argc, argv, 3, argc - 1, loadOrders)) {
+    // SPEC §3.12 (P17): `--load-order <LOAD_ORDER>` pairs (one or more), then the path.
+    path = argv[argc - 1];
   } else {
     return imageUsage();
   }
@@ -251,10 +279,10 @@ int runImage(int argc, char** argv) {
   if (isSave) {
     ao::Bootstrap::run(heap, roots, wk);
     scheduler.adoptImage();
-    if (loadOrder != nullptr) {
+    if (!loadOrders.empty()) {
       // SPEC §3.12: a failed file-in reports its errors like ao filein and writes no image.
       std::vector<ao::FileInError> errors;
-      const bool ok = ao::fileInLoadOrder(ctx, loadOrder, errors);
+      const bool ok = fileInLoadOrders(ctx, loadOrders, errors);
       printFileInErrors(errors);
       if (!ok) {
         return 1;
@@ -293,8 +321,8 @@ int main(int argc, char** argv) {
   if (argc >= 2 && std::strcmp(argv[1], "--help") == 0) {
     std::puts(
         "ao — Ao Smalltalk CLI\n  --help\n  --version\n  --test\n  extract-vendor <changes> <allowlist> <out-dir>\n"
-        "  filein <file.st>\n  filein --load-order <LOAD_ORDER>\n"
-        "  image save <path>\n  image save --load-order <LOAD_ORDER> <path>\n"
+        "  filein <file.st>\n  filein --load-order <LOAD_ORDER> [--load-order <LOAD_ORDER>]...\n"
+        "  image save <path>\n  image save --load-order <LOAD_ORDER> [--load-order <LOAD_ORDER>]... <path>\n"
         "  image load <path>");
     return 0;
   }

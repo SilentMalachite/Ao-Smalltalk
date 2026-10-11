@@ -1,0 +1,2 @@
+# Ao のツールが使うモデル（SPEC §2.2、§3.12）。vendor のあとに file-in する。Kernel だけを使う。
+ChangeSet.st

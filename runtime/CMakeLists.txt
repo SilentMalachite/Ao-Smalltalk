@@ -135,13 +135,16 @@ set_tests_properties(gcstress PROPERTIES ENVIRONMENT "AO_GC_STRESS=1")
 
 # CLI の vendor file-in（image/vendor/LOAD_ORDER）と Smalltalk のテスト（ao --test image/tests）を、
 # GC ストレス下で回す。ao --test は vendor を file-in しないので、先に filein を別プロセスで回す。
+# Tools-model（image/Tools-model）は、vendor のあとに続けて file-in する（--load-order を 2 つ）。
+# ao --test は Tools-model をテストの隣から読む。
 # ao filein は DEFERRED.md に列挙していないエラーを stderr に出し、あれば exit 1 で終わる（SPEC §3.12）。
 # ストレスなしの 1 回を基準にして、ストレス下の出力がそれと一致し、どちらも exit 0 であることを確かめる。
 # DEFERRED.md の集合との一致は、gcstress で回る vendor_filein_test が確かめる。
 add_test(NAME gcstress_vendor
-  COMMAND sh -c "AO_GC_STRESS=0 \"$0\" filein --load-order \"$1\" 2>\"$3.base\" && \"$0\" filein --load-order \"$1\" 2>\"$3.stress\" && diff \"$3.base\" \"$3.stress\" && \"$0\" --test \"$2\""
+  COMMAND sh -c "AO_GC_STRESS=0 \"$0\" filein --load-order \"$1\" --load-order \"$4\" 2>\"$3.base\" && \"$0\" filein --load-order \"$1\" --load-order \"$4\" 2>\"$3.stress\" && diff \"$3.base\" \"$3.stress\" && \"$0\" --test \"$2\""
           $<TARGET_FILE:ao> ${CMAKE_SOURCE_DIR}/image/vendor/LOAD_ORDER
-          ${CMAKE_SOURCE_DIR}/image/tests ${CMAKE_CURRENT_BINARY_DIR}/gcstress_vendor_filein)
+          ${CMAKE_SOURCE_DIR}/image/tests ${CMAKE_CURRENT_BINARY_DIR}/gcstress_vendor_filein
+          ${CMAKE_SOURCE_DIR}/image/Tools-model/LOAD_ORDER)
 set_tests_properties(gcstress_vendor PROPERTIES ENVIRONMENT "AO_GC_STRESS=1")
 
 # CLI を実プロセスで起動し、終了コードと stderr の行を確かめる（SPEC §3.12 の file-in、§4.4 の ao --test）。

@@ -84,6 +84,22 @@ EOF
   printf 'good.st\nnone.st\n' >missing/LOAD_ORDER
   cp kern.st good.st kernel/
   printf 'kern.st\ngood.st\n' >kernel/LOAD_ORDER
+  # SPEC §3.12 (P17): second/ subclasses CliGood, which only first/ defines.
+  mkdir -p first second
+  cp good.st first/
+  printf 'good.st\n' >first/LOAD_ORDER
+  cat >second/sub.st <<'EOF'
+!CliGood subclass: #CliSub
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+
+!CliSub methodsFor: 'probes'!
+four
+  ^self three + 1! !
+EOF
+  printf 'sub.st\n' >second/LOAD_ORDER
 }
 
 # bad.st の `^1 +` は `+`（ファイル本文の 166-167 バイト目）の後に式が無い。
@@ -112,6 +128,19 @@ case "$CASE" in
     stderr_is "$KERN_LINE"
     run 1 "$AO" filein --load-order kernel/LOAD_ORDER
     stderr_is "kernel/$KERN_LINE"
+    # SPEC §3.12 (P17): --load-order repeats; the files are read in order, so the second can use
+    # what the first defined (CliSub's superclass CliGood), and the second alone cannot.
+    run 0 "$AO" filein --load-order first/LOAD_ORDER --load-order second/LOAD_ORDER
+    stderr_is ''
+    run 1 "$AO" filein --load-order second/LOAD_ORDER
+    run 1 "$AO" filein --load-order second/LOAD_ORDER --load-order first/LOAD_ORDER
+    # The second is read too (its error shows), and a failed one stops the rest.
+    run 1 "$AO" filein --load-order first/LOAD_ORDER --load-order plain/LOAD_ORDER
+    stderr_is "plain/$BAD_LINE"
+    run 1 "$AO" filein --load-order missing/LOAD_ORDER --load-order plain/LOAD_ORDER
+    stderr_is 'missing/none.st:0-0: cannot read: missing/none.st'
+    run 2 "$AO" filein --load-order first/LOAD_ORDER --load-order
+    run 2 "$AO" filein --load-order first/LOAD_ORDER second/LOAD_ORDER
     ;;
   image_save)
     write_fixtures
@@ -124,6 +153,14 @@ case "$CASE" in
     run 0 "$AO" image save --load-order deferred/LOAD_ORDER deferred.aoimage
     stderr_is ''
     [ -s deferred.aoimage ] || fail "image not written"
+    # SPEC §3.12 (P17): --load-order repeats, in order; a failure in any writes no image.
+    run 0 "$AO" image save --load-order first/LOAD_ORDER --load-order second/LOAD_ORDER two.aoimage
+    stderr_is ''
+    [ -s two.aoimage ] || fail "image not written for two load orders"
+    run 0 "$AO" image load two.aoimage
+    run 1 "$AO" image save --load-order first/LOAD_ORDER --load-order plain/LOAD_ORDER three.aoimage
+    stderr_is "plain/$BAD_LINE"
+    [ ! -e three.aoimage ] || fail "image written after a failed second file-in"
     run 0 "$AO" image load deferred.aoimage
     stderr_is ''
     # SPEC §3.11: a version 1 image (before B4) is refused at the header, with its reason.
