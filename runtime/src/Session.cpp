@@ -1382,6 +1382,29 @@ const Frame* acceptTarget(Session& s, const CallContext& fiber, const LiveFrames
   return f;
 }
 
+// SPEC §3.13 Accept (P17): after the install and its record, process id is still halted on the
+// same fiber, target is still on its chain (compared by address before it is read), and its
+// receiver and arguments are still the pinned ones in slots[1..]. Allocates nothing.
+bool stillHalted(Session& s, std::uint64_t id, const CallContext* fiber, const Frame* target,
+                 const std::vector<Oop>& slots) {
+  if (s.scheduler == nullptr || s.scheduler->haltedContext(id, nullptr) != fiber) {
+    return false;
+  }
+  const Frame* f = fiber->topFrame;
+  while (f != nullptr && f != target) {
+    f = f->prev;
+  }
+  if (f == nullptr || f->receiver != slots[1]) {
+    return false;
+  }
+  for (std::size_t i = 2; i < slots.size(); ++i) {
+    if (f->temps == nullptr || f->temps->slots[i - 2] != slots[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // SPEC §3.10 ライブデバッガの操作: Proceed, Step and Restart resume the halted process id as an
 // outermost entry like ao_eval: the result and the snapshot go first, and what an earlier entry
 // left is not blamed on it.
@@ -1521,6 +1544,13 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
     }
     blankOut(out, outLen);
     return AO_ERR_COMPILE;
+  }
+  // SPEC §3.13 Accept (P17): the record in the current change set ran Smalltalk on the base, which
+  // may have terminated the process; target is read only once it is on the halted chain again.
+  if (!stillHalted(*s, id, fiber, target, slots)) {
+    spanMessage(err, "debugger accept refused: process is no longer halted");
+    blankOut(out, outLen);
+    return AO_ERR;
   }
   return resumeHalted(*s, id, StepMode::None, target, slots.data(), slots.size(), out, outLen, err,
                       inspect, inspectUser);

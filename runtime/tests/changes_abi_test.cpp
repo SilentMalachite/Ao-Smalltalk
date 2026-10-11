@@ -1111,3 +1111,38 @@ TEST_F(ChangesAbi, WorkspaceNewNamedRefusesWithTheReason) {
   EXPECT_EQ("'Work'", printIt("(ChangeSet newNamed: 'Work') name"));
   EXPECT_EQ(2, ao_changes_count());
 }
+
+// SPEC §3.13 Accept (P17): the record after a Debugger Accept runs the model, which may terminate
+// the halted process. The Accept then does not restart a frame that is gone: AO_ERR with the
+// reason, the new method stays, and the runtime goes on.
+TEST_F(ChangesAbi, DebuggerAcceptRefusesWhenTheRecordTerminatesTheProcess) {
+  defineClass("P17Victim", "Object");
+  accept("P17Victim", 0,
+         "answer\n  Smalltalk at: #P17Halted put: Processor activeProcess.\n  self halt.\n  ^1");
+  accept("ChangeSet", 1,
+         "noteMethodChange: c selector: s meta: m existed: e\n"
+         "  | p |\n"
+         "  p := Smalltalk at: #P17Halted ifAbsent: [nil].\n"
+         "  p isNil ifFalse: [p terminate]");
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  const char* source = "P17Victim new answer";
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_ERR_HALT, ao_eval(source, static_cast<int>(std::strlen(source)), AO_EVAL_PRINTIT,
+                                 out, static_cast<int>(sizeof out), &err));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_NE(0, pid);
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  const int frame = frameLabeled("P17Victim>>answer");
+  ASSERT_GE(frame, 0);
+  std::strcpy(out, "stale");
+  EXPECT_EQ(AO_ERR, ao_debug_accept(pid, frame, "answer\n  ^42", out,
+                                    static_cast<int>(sizeof out), &err));
+  EXPECT_STREQ("debugger accept refused: process is no longer halted", err.message);
+  EXPECT_EQ(0u, err.start);
+  EXPECT_EQ(0u, err.end);
+  EXPECT_STREQ("", out);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ("42", printIt("P17Victim new answer"));
+  EXPECT_EQ("7", printIt("3 + 4"));
+}
