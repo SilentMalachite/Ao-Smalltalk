@@ -217,6 +217,7 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
         return
       }
       self.report(fileOutChangeSet(id, to: url))
+      self.reload()
     }
   }
 
