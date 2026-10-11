@@ -239,6 +239,15 @@ bool isKernelClass(const WellKnown& wk, Oop cls) {
   return probe.found;
 }
 
+// SPEC §3.10: whether installing sel on tgt (the side of cls the method goes to; old is what tgt's
+// own dictionary holds for sel, or nil) would hide a native: old is one, or, in a Kernel class
+// (cls itself, named or by ID, so an alias is one too), the lookup from tgt hits one. Neither
+// intern nor lookup GCs, so the raw Oops the caller passes stay valid.
+bool hidesNative(CallContext& ctx, Oop cls, Oop tgt, Oop sel, Oop old) {
+  const Oop found = sel.isHeap() && isKernelClass(ctx.wk, cls) ? lookup(ctx.heap, tgt, sel) : old;
+  return found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass;
+}
+
 // The file is filled in by whoever knows it (fileInLoadOrder). method is set for a method-level
 // error only (SPEC §3.12).
 void addError(std::vector<FileInError>& errors, compiler::CompileError error,
@@ -334,7 +343,10 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
     addError(errors, {action.span, "missing class: " + action.className});
     return false;
   }
-  if (refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action, errors)) {
+  // SPEC §3.10 / §3.12: File In... (Recorded) does not refuse a Kernel class's chunk wholesale; each
+  // method is judged below by Accept's native overwrite rule. The other modes refuse it.
+  if (mode != ChunkMode::Recorded &&
+      refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action, errors)) {
     return false;
   }
   const Oop target = action.meta ? ctx.heap.klass(cls.slot) : cls.slot;
@@ -364,14 +376,16 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
     // The method the selector names before the install (nil: none). Interned first, so the
     // dictionary is read after the last allocation.
     Root old(ctx.roots, Oop::nil());
+    bool findsNative = false;
     {
       const Oop sel = ctx.wk.intern(cr.image.selector);
       const Oop dict = ctx.heap.slotAt(tgt.slot, kClassSlotMethodDict);
       if (dict.isHeap() && sel.isHeap()) {
         old.slot = MethodDictionary::at(ctx.heap, dict, sel);
       }
+      findsNative = hidesNative(ctx, cls.slot, tgt.slot, sel, old.slot);
     }
-    if (old.slot.isHeap() && ctx.heap.klass(old.slot) == ctx.wk.nativeMethodClass) {
+    if (findsNative) {
       addError(errors, {m.span, "native selector overwrite refused: " + cr.image.selector},
                methodKey(action, cr.image.selector));
       continue;
@@ -1526,12 +1540,8 @@ bool acceptInto(CallContext& ctx, Oop target, bool meta, std::string_view source
       old.slot = MethodDictionary::at(ctx.heap, dict, sel);
     }
     // SPEC §3.10: in a Kernel class, a native the selector finds through the superclasses is
-    // not hidden either. Kernel-ness is the class itself (named or by ID), so an alias is one too.
-    // Neither intern nor lookup GCs, so the raw Oops stay valid.
-    const Oop found = sel.isHeap() && isKernelClass(ctx.wk, cls.slot)
-                          ? lookup(ctx.heap, tgt.slot, sel)
-                          : old.slot;
-    findsNative = found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass;
+    // not hidden either (hidesNative).
+    findsNative = hidesNative(ctx, cls.slot, tgt.slot, sel, old.slot);
   }
   if (findsNative) {
     assignError(error, "native selector overwrite refused: " + cr.image.selector);

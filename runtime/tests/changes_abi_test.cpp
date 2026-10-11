@@ -852,6 +852,52 @@ TEST_F(ChangesAbi, FiledOutSetFilesBackInAfterBoot) {
   std::filesystem::remove(path);
 }
 
+// SPEC §3.10 File In...: a Kernel class's methodsFor: chunk is not refused wholesale, so a File Out of
+// a set that extends Object files back in after a new boot, and the class chunk after it is read.
+TEST_F(ChangesAbi, FiledOutKernelExtensionFilesBackIn) {
+  accept("Object", 0, "p16ext\n  ^41 + 1");
+  defineClass("P16Z", "Object");
+  accept("P16Z", 0, "z\n  ^7");
+  const std::string path = tempPath("kernel-ext.st");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_changes_file_out(ao_changes_current(), path.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_filein_file(path.c_str(), &err)) << err.message;
+  EXPECT_EQ("42", printIt("3 p16ext"));
+  EXPECT_EQ("42", printIt("Object new p16ext"));
+  EXPECT_EQ("7", printIt("P16Z new z"));
+  const std::int64_t set = ao_changes_current();
+  EXPECT_EQ((std::vector<std::string>{"P16Z+", "Object"}), classesOf(set));
+  EXPECT_EQ(std::vector<std::string>{"p16ext+"}, methodsOf(set, "Object", 0));
+  EXPECT_EQ(std::vector<std::string>{"z+"}, methodsOf(set, "P16Z", 0));
+  EXPECT_EQ("p16ext\n  ^41 + 1", sourceOf("Object", 0, "p16ext"));
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.10 File In...: on a Kernel class a selector that finds a native is refused as a method-level
+// error (as Accept refuses it); the file goes on, the other methods and later chunks apply.
+TEST_F(ChangesAbi, FileInRefusesNativeOverwriteOnKernelClassWithoutStopping) {
+  const std::string path = writeTemp("kernel-native.st",
+                                     "!SmallInteger methodsFor: 'x'!\n"
+                                     "<= other\n  ^false!\n"
+                                     "p16k\n  ^1! !\n\n"
+                                     "Object subclass: #P16After\n"
+                                     "  instanceVariableNames: ''\n"
+                                     "  classVariableNames: ''\n"
+                                     "  poolDictionaries: ''\n"
+                                     "  category: 'P16-In'!\n");
+  AoSpan err{};
+  ASSERT_EQ(AO_ERR, ao_filein_file(path.c_str(), &err));
+  EXPECT_STREQ("native selector overwrite refused: <=", err.message);
+  EXPECT_LT(err.start, err.end);
+  EXPECT_EQ("1", printIt("3 p16k"));
+  EXPECT_NE(0, ao_browser_class_id("P16After"));
+  EXPECT_EQ("true", printIt("3 <= 4"));
+  EXPECT_EQ(std::vector<std::string>{"p16k+"}, methodsOf(ao_changes_current(), "SmallInteger", 0));
+  std::filesystem::remove(path);
+}
+
 // SPEC §3.10 再入: from a hook File In applies nothing and says "runtime is busy".
 TEST_F(ChangesAbi, FileInIsRefusedWhileBusy) {
   const std::string path = writeTemp("busy-in.st",
