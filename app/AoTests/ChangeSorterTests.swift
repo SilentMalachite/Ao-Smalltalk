@@ -315,4 +315,90 @@ final class ChangeSorterTests: XCTestCase {
     let sorter = ChangeSorterWindow()
     XCTAssertEqual(sorter.paneAccessibilityLabels, ["Change sets", "Classes", "Methods", "Source", "Error"])
   }
+
+  private func launchApp() -> AoApp {
+    let app = AoApp()
+    app.applicationWillFinishLaunching(
+      Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApplication.shared)
+    )
+    return app
+  }
+
+  private func sendToolsItem(_ title: String) -> Bool {
+    guard let item = NSApplication.shared.mainMenu?.item(withTitle: "Tools")?.submenu?.item(withTitle: title),
+          let action = item.action else {
+      return false
+    }
+    return NSApplication.shared.sendAction(action, to: item.target, from: item)
+  }
+
+  private func temporaryFile(_ text: String, ext: String = "st") -> URL {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("ao-p16-\(UUID().uuidString).\(ext)")
+    XCTAssertNoThrow(try text.write(to: url, atomically: true, encoding: .utf8))
+    return url
+  }
+
+  // SPEC §3.9 Change Sorter: Tools → Change Sorter opens one window, however often it is chosen.
+  func testToolsChangeSorterOpensOneWindow() {
+    _ = launchApp()
+    let sorters = { NSApplication.shared.windows.filter { $0.title == "Change Sorter" && $0.isVisible } }
+    XCTAssertEqual(sorters().count, 0)
+    XCTAssertTrue(sendToolsItem("Change Sorter"))
+    XCTAssertTrue(sendToolsItem("Change Sorter"))
+    XCTAssertEqual(sorters().count, 1)
+  }
+
+  // SPEC §3.9 File In…: `filed in: <path>`, and the definitions and methods are recorded.
+  func testFileInWritesTheFiledInLineAndRecords() {
+    let launch = LaunchSet.make()
+    let url = temporaryFile(
+      "Object subclass: #P16FileIn\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+        + "  poolDictionaries: ''\n  category: 'P16-In'!\n\n!P16FileIn methodsFor: 'user'!\nx\n  ^1! !\n")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertEqual(fileInChangeFile(at: url, transcript: launch.transcript), Int32(AO_OK))
+    XCTAssertEqual(launch.transcript.text, "filed in: \(url.path)\n")
+    let model = ChangeSorterModel()
+    model.refresh()
+    XCTAssertEqual(model.classes, [ChangeClassRow(name: "P16FileIn", kind: .added)])
+  }
+
+  // SPEC §3.9 File In…: `file-in failed: <path>` and the first error in the `ao filein` form.
+  func testFailedFileInWritesTheFailedLineAndTheFirstError() {
+    let launch = LaunchSet.make()
+    let header = "P16Acount methodsFor: 'user'"
+    let url = temporaryFile("!\(header)!\nx\n  ^1! !\n")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertEqual(fileInChangeFile(at: url, transcript: launch.transcript), Int32(AO_ERR))
+    let end = 1 + header.utf8.count
+    XCTAssertEqual(
+      launch.transcript.text,
+      "file-in failed: \(url.path)\n\(url.path):1-\(end): missing class: P16Acount\n"
+    )
+  }
+
+  // SPEC §3.9 File Out Change Set…: a failure is an alert naming the file and the reason.
+  func testFileOutChangeSetFailureShowsAnAlert() {
+    let app = launchApp()
+    var alerts: [NSAlert] = []
+    app.presentAlert = { alerts.append($0) }
+    let url = URL(fileURLWithPath: "/nonexistent-ao-p16-dir/x.st")
+    XCTAssertFalse(app.fileOutCurrentChangeSet(to: url))
+    XCTAssertEqual(alerts.first?.messageText, "Could not file out the change set")
+    XCTAssertEqual(alerts.first?.informativeText, url.path + "\ncannot write file: " + url.path)
+  }
+
+  // Review Focus 4: Open Image… starts an open Change Sorter over.
+  func testOpenImageStartsAnOpenChangeSorterOver() {
+    let app = launchApp()
+    XCTAssertTrue(sendToolsItem("Change Sorter"))
+    var err = AoSpan()
+    XCTAssertEqual(ao_changes_new("Before", nil, &err), Int32(AO_OK))
+    app.changeSorter?.reload()
+    XCTAssertEqual(app.changeSorter?.setTitles, ["Unnamed1", "• Before"])
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("ao-p16-\(UUID().uuidString).aoimage")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertTrue(app.saveImage(to: url))
+    XCTAssertTrue(app.openImage(from: url))
+    XCTAssertEqual(app.changeSorter?.setTitles, ["• Unnamed1"])
+  }
 }

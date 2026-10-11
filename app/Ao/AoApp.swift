@@ -50,10 +50,27 @@ func fileInVendor(at dir: URL, transcript: TranscriptWindow) {
   FileHandle.standardError.write(Data(("ao: " + line + "\n").utf8))
 }
 
+/// SPEC §3.9 File In… (P16): files in one .st file (ao_filein_file) and writes the result to the
+/// Transcript: `filed in: <path>`, or `file-in failed: <path>` and the first error as
+/// `<path>:<start>-<end>: <message>`, the line form of `ao filein`.
+@MainActor
+func fileInChangeFile(at url: URL, transcript: TranscriptWindow?) -> Int32 {
+  var err = AoSpan()
+  let status = url.path.withCString { ao_filein_file($0, &err) }
+  if status == Int32(AO_OK) {
+    transcript?.append("filed in: \(url.path)\n")
+  } else {
+    transcript?.append(
+      "file-in failed: \(url.path)\n\(url.path):\(err.start)-\(err.end): \(spanMessage(err))\n")
+  }
+  return status
+}
+
 @MainActor
 public final class AoApp: NSObject, NSApplicationDelegate {
   private var launch: LaunchSet?
   private var browser: BrowserWindow?
+  private(set) var changeSorter: ChangeSorterWindow?
   private static var retained: AoApp?
 
   public static func launch() {
@@ -120,6 +137,9 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       },
       saveImage: { self.presentSaveImage() },
       openImage: { self.presentOpenImage() },
+      fileIn: { self.presentFileIn() },
+      fileOutChangeSet: { self.presentFileOutChangeSet() },
+      showChangeSorter: { self.showChangeSorter() },
       showBrowser: { self.showBrowser() },
       showTranscript: { self.launch?.transcript.orderFront() },
       showWorkspace: { self.launch?.workspace.orderFront() },
@@ -169,6 +189,7 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       return false
     }
     browser?.noteImageLoaded()
+    changeSorter?.noteImageLoaded()
     return true
   }
 
@@ -208,6 +229,62 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     }
   }
 
+  // SPEC §3.9 File In…: the Transcript gets the result; an open Change Sorter reads the records.
+  func fileIn(from url: URL) {
+    _ = fileInChangeFile(at: url, transcript: launch?.transcript)
+    changeSorter?.reload()
+  }
+
+  // SPEC §3.9 File Out Change Set…: the current set. A failure is an alert naming the file and the
+  // reason.
+  func fileOutCurrentChangeSet(to url: URL) -> Bool {
+    let result = fileOutChangeSet(ao_changes_current(), to: url)
+    guard result.status == Int32(AO_OK) else {
+      reportImageFailure("Could not file out the change set", url: url, reason: result.message)
+      return false
+    }
+    return true
+  }
+
+  private func presentFileIn() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.begin { response in
+      MainActor.assumeIsolated {
+        guard response == .OK, let url = panel.url else {
+          return
+        }
+        self.fileIn(from: url)
+      }
+    }
+  }
+
+  private func presentFileOutChangeSet() {
+    let model = ChangeSorterModel()
+    model.refresh()
+    let panel = NSSavePanel()
+    panel.canCreateDirectories = true
+    panel.nameFieldStringValue = (model.currentName ?? "Unnamed1") + ".st"
+    panel.begin { response in
+      MainActor.assumeIsolated {
+        guard response == .OK, let url = panel.url else {
+          return
+        }
+        _ = self.fileOutCurrentChangeSet(to: url)
+      }
+    }
+  }
+
+  private func showChangeSorter() {
+    if changeSorter == nil {
+      changeSorter = ChangeSorterWindow()
+    }
+    changeSorter?.reload()
+    changeSorter?.window.makeKeyAndOrderFront(nil)
+  }
+
   private func showBrowser() {
     if browser == nil {
       browser = BrowserWindow()
@@ -230,6 +307,7 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     launch?.transcript.applyFont()
     launch?.workspace.applyFont()
     browser?.applyFont()
+    changeSorter?.applyFont()
     for debugger in DebuggerWindow.open {
       debugger.applyFont()
     }

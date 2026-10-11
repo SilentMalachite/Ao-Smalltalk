@@ -307,7 +307,7 @@ final class ToolWindowTests: XCTestCase {
     let tools = menu.item(withTitle: "Tools")?.submenu
     XCTAssertEqual(
       tools?.items.map(\.title),
-      ["Browser", "Transcript", "Workspace", "", "Use Fixed Pitch", "", "Make Text Bigger", "Make Text Smaller", "Actual Size"]
+      ["Browser", "Transcript", "Workspace", "Change Sorter", "", "Use Fixed Pitch", "", "Make Text Bigger", "Make Text Smaller", "Actual Size"]
     )
     for (title, key) in [("Make Text Bigger", "+"), ("Make Text Smaller", "-"), ("Actual Size", "0")] {
       let item = tools?.item(withTitle: title)
