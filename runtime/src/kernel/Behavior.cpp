@@ -9,6 +9,8 @@
 #include "ao/MethodDictionary.hpp"
 #include "ao/Send.hpp"
 
+#include "../Session.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -211,6 +213,44 @@ Oop ao_Class_category(CallContext& ctx, const Oop& receiver, const Oop*, std::ui
   return ctx.heap.slotAt(receiver, kClassSlotCategory);
 }
 
+// SPEC §3.10 Behavior>>sourceCodeAt: (P17): the source-table text of the method aSelector names in
+// the receiver's own dictionary (a metaclass's is the class side). nil when there is none, it is a
+// NativeMethod, it has no source, or the receiver's heap is not the session's (the source table is
+// the session's). The selector is looked up, never interned.
+Oop ao_Behavior_sourceCodeAt_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc) {
+  if (argc != 1 || !receiver.isHeap()) {
+    return Oop{};
+  }
+  Session* s = session();
+  if (s == nullptr || &s->heap != &ctx.heap || !args[0].isHeap() ||
+      (ctx.heap.flags(args[0]) & kFlagBytes) == 0) {
+    return Oop::nil();
+  }
+  const Oop sel = ctx.wk.findSymbol(Str::toUtf8(ctx.heap, args[0]));
+  if (!sel.isHeap() || ctx.heap.size(receiver) <= kClassSlotMethodDict) {
+    return Oop::nil();
+  }
+  const Oop method =
+      MethodDictionary::at(ctx.heap, ctx.heap.slotAt(receiver, kClassSlotMethodDict), sel);
+  if (!method.isHeap() || ctx.heap.klass(method) == ctx.wk.nativeMethodClass) {
+    return Oop::nil();
+  }
+  std::string text;
+  if (!methodSource(method, text)) {
+    return Oop::nil();
+  }
+  return Str::fromUtf8(ctx, text);
+}
+
+// SPEC §3.10 Class>>definition (P17): ao_browser_class_definition's text as a String.
+Oop ao_Class_definition(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
+  if (argc != 0 || !receiver.isHeap()) {
+    return Oop{};
+  }
+  return Str::fromUtf8(ctx, classDefinitionText(ctx.heap, ctx.wk, receiver));
+}
+
 // SPEC §3.6: a copy of the Dictionary from each class variable's name to its binding (ClassPool).
 // nil for a Kernel class and for a metaclass.
 Oop ao_Class_classPool(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
@@ -368,6 +408,8 @@ void installBehavior(Heap& heap, WellKnown& wk) {
   putNative(heap, wk, cls, "selectors", 0, "ao_Behavior_selectors", ao_Behavior_selectors);
   putNative(heap, wk, cls, "compiledMethodAt:", 1, "ao_Behavior_compiledMethodAt_",
             ao_Behavior_compiledMethodAt_);
+  putNative(heap, wk, cls, "sourceCodeAt:", 1, "ao_Behavior_sourceCodeAt_",
+            ao_Behavior_sourceCodeAt_);
   putNative(heap, wk, cls, "includesSelector:", 1, "ao_Behavior_includesSelector_",
             ao_Behavior_includesSelector_);
   putNative(heap, wk, cls, "inheritsFrom:", 1, "ao_Behavior_inheritsFrom_",
@@ -380,6 +422,7 @@ void installBehavior(Heap& heap, WellKnown& wk) {
   const Oop classCls = wk.classClass;
   putNative(heap, wk, classCls, "name", 0, "ao_Class_name", ao_Class_name);
   putNative(heap, wk, classCls, "category", 0, "ao_Class_category", ao_Class_category);
+  putNative(heap, wk, classCls, "definition", 0, "ao_Class_definition", ao_Class_definition);
   putNative(heap, wk, classCls, "classPool", 0, "ao_Class_classPool", ao_Class_classPool);
   putNative(heap, wk, classCls,
             "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:", 5,

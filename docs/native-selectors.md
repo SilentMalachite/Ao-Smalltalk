@@ -61,3 +61,12 @@ C++ の関数名はマングル名と一致させる。
 | `literals` | `literals` | `ao_CompiledMethod_literals` |
 | `bytecodes` | `bytecodes` | `ao_CompiledMethod_bytecodes` |
 | `nativeCode` | `nativeCode` | `ao_CompiledMethod_nativeCode` |
+
+## Source access (P17)
+
+`Behavior>>sourceCodeAt:` と `Class>>definition` は、File Out 用に Smalltalk のチェンジセットが読むネイティブである。
+
+| セレクタ | selectorMangled | 例 |
+|---|---|---|
+| `sourceCodeAt:` | `sourceCodeAt_` | `ao_Behavior_sourceCodeAt_` |
+| `definition` | `definition` | `ao_Class_definition` |

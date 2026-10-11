@@ -1894,23 +1894,23 @@ int browserSource(std::int64_t classId, int meta, const char* selector, char* bu
   return AO_ERR;
 }
 
-std::string classDefinitionText(Session& s, Oop cls) {
+std::string classDefinitionText(Heap& heap, const WellKnown& wk, Oop cls) {
   std::string text;
-  if (!pointerSlots(s.heap, cls, kClassSlotSuperclass + 1)) {
+  if (!pointerSlots(heap, cls, kClassSlotSuperclass + 1)) {
     text = "nil";
   } else {
-    const Oop sup = s.heap.slotAt(cls, kClassSlotSuperclass);
-    text = sup.isHeap() ? classNameOf(s.heap, sup) : std::string("nil");
+    const Oop sup = heap.slotAt(cls, kClassSlotSuperclass);
+    text = sup.isHeap() ? classNameOf(heap, sup) : std::string("nil");
   }
   text += " subclass: #";
-  text += classNameOf(s.heap, cls);
+  text += classNameOf(heap, cls);
   text += "\n  instanceVariableNames: '";
-  text += instVarList(s.heap, cls);
+  text += instVarList(heap, cls);
   text += "'\n  classVariableNames: '";
-  text += classVarList(s.heap, s.wk, cls);
+  text += classVarList(heap, wk, cls);
   text += "'\n  poolDictionaries: ''\n  category: '";
   // SPEC §3.10: a string literal in a chunk, so accepting the text again keeps the category.
-  for (const char c : definitionCategory(s.heap, cls)) {
+  for (const char c : definitionCategory(heap, cls)) {
     if (c == '\'' || c == '!') {
       text.push_back(c);
     }
@@ -1918,6 +1918,10 @@ std::string classDefinitionText(Session& s, Oop cls) {
   }
   text += "'";
   return text;
+}
+
+std::string classDefinitionText(Session& s, Oop cls) {
+  return classDefinitionText(s.heap, s.wk, cls);
 }
 
 Oop boundClassNamed(Session& s, const std::string& name) {

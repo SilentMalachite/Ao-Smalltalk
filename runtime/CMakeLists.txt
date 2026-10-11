@@ -120,6 +120,7 @@ add_executable(ao_runtime_tests
   tests/debug_abi_test.cpp
   tests/remove_abi_test.cpp
   tests/changes_abi_test.cpp
+  tests/source_natives_test.cpp
 )
 target_link_libraries(ao_runtime_tests PRIVATE ao_runtime ao_compiler GTest::gtest_main)
 target_compile_definitions(ao_runtime_tests PRIVATE "AO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")

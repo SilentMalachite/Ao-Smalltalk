@@ -256,6 +256,9 @@ Oop boundClassNamed(Session& s, const std::string& name);
 // ao_browser_class_definition's text for cls: chunk-safe already (the category's `!` and `'`
 // doubled).
 std::string classDefinitionText(Session& s, Oop cls);
+// The same text from the heap alone (SPEC §3.10 Class>>definition, P17): what the native reads
+// with the CallContext's heap and well-known table. Allocates nothing.
+std::string classDefinitionText(Heap& heap, const WellKnown& wk, Oop cls);
 // The own name of cls's superclass; empty for nil.
 std::string superclassNameOf(Session& s, Oop cls);
 // The source-table text of the method selector names in cls's side (the metaclass's when meta);
