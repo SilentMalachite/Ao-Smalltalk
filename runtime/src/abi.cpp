@@ -2,6 +2,7 @@
 #include "ao/Compile.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/Runtime.hpp"
+#include "ChangeSet.hpp"
 #include "Session.hpp"
 
 #include <algorithm>
@@ -695,4 +696,89 @@ extern "C" int ao_browser_subclass_at(int64_t class_id, int index, int64_t* subc
   return guarded(AO_ERR, [&] {
     return ao::browserSubclassAt(class_id, index, subclass_id, buf, len);
   });
+}
+
+namespace {
+
+// SPEC §3.10 チェンジセット: a write. Outermost: while busy it answers AO_ERR with "runtime is
+// busy". An AO_ERR's message is the reason, or `failed` when there is none (no session, a bad
+// argument, an exception).
+template <typename Body>
+int changesWrite(AoSpan* err, std::string_view failed, Body&& body) {
+  clearSpan(err);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    setMessage(err, "runtime is busy");
+    return AO_ERR;
+  }
+  std::string reason;
+  const int rc = guarded(-1, [&] { return body(&reason); });
+  if (rc == AO_OK) {
+    return AO_OK;
+  }
+  setMessage(err, rc == -1 || reason.empty() ? failed : std::string_view(reason));
+  return AO_ERR;
+}
+
+}  // namespace
+
+// SPEC §3.10 チェンジセット: the reads take no AbiEntry and answer while busy, like the
+// ao_browser_* reads.
+extern "C" int ao_changes_count(void) {
+  return guarded(-1, [] { return ao::sessionChangesCount(); });
+}
+
+extern "C" int ao_changes_at(int index, int64_t* set_id, char* name, int name_len) {
+  if (set_id != nullptr) {
+    *set_id = 0;
+  }
+  return guarded(AO_ERR, [&] { return ao::sessionChangesAt(index, set_id, name, name_len); });
+}
+
+// Reads one field; it cannot throw.
+extern "C" int64_t ao_changes_current(void) { return ao::sessionChangesCurrent(); }
+
+extern "C" int ao_changes_class_count(int64_t set_id) {
+  return guarded(-1, [&] { return ao::sessionChangesClassCount(set_id); });
+}
+
+extern "C" int ao_changes_class_at(int64_t set_id, int index, char* name, int name_len,
+                                   int* kind) {
+  if (kind != nullptr) {
+    *kind = AO_CHANGE_NONE;
+  }
+  return guarded(AO_ERR, [&] {
+    return ao::sessionChangesClassAt(set_id, index, name, name_len, kind);
+  });
+}
+
+extern "C" int ao_changes_method_count(int64_t set_id, const char* class_name, int meta) {
+  return guarded(-1, [&] { return ao::sessionChangesMethodCount(set_id, class_name, meta); });
+}
+
+extern "C" int ao_changes_method_at(int64_t set_id, const char* class_name, int meta, int index,
+                                    char* selector, int len, int* kind) {
+  if (kind != nullptr) {
+    *kind = AO_CHANGE_NONE;
+  }
+  return guarded(AO_ERR, [&] {
+    return ao::sessionChangesMethodAt(set_id, class_name, meta, index, selector, len, kind);
+  });
+}
+
+extern "C" int ao_changes_new(const char* name, int64_t* set_id, AoSpan* err) {
+  if (set_id != nullptr) {
+    *set_id = 0;
+  }
+  return changesWrite(err, "change set failed", [&](std::string* reason) {
+    return ao::sessionChangesNew(name, set_id, reason);
+  });
+}
+
+extern "C" int ao_changes_set_current(int64_t set_id) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
+  return guarded(AO_ERR, [&] { return ao::sessionChangesSetCurrent(set_id); });
 }

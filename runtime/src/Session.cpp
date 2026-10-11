@@ -584,6 +584,20 @@ void ensureKernelNatives(Session& s) {
   s.wk.checkSmallIntegerFastPath();
 }
 
+int writeBuf(const std::string& text, char* buf, int len) {
+  if (buf == nullptr || len <= 0) {
+    return AO_ERR;
+  }
+  const auto room = static_cast<std::size_t>(len - 1);
+  const bool fits = text.size() <= room;
+  const std::size_t n = fits ? text.size() : room;
+  if (n != 0) {
+    std::memcpy(buf, text.data(), n);
+  }
+  buf[n] = '\0';
+  return fits ? AO_OK : AO_ERR_RANGE;
+}
+
 namespace {
 
 struct ClassRow {
@@ -620,20 +634,6 @@ std::string byteText(Heap& heap, Oop obj) {
   }
   const char* bytes = reinterpret_cast<const char*>(heap.bytes(obj));
   return std::string(bytes, static_cast<std::size_t>(n));
-}
-
-int writeBuf(const std::string& text, char* buf, int len) {
-  if (buf == nullptr || len <= 0) {
-    return AO_ERR;
-  }
-  const auto room = static_cast<std::size_t>(len - 1);
-  const bool fits = text.size() <= room;
-  const std::size_t n = fits ? text.size() : room;
-  if (n != 0) {
-    std::memcpy(buf, text.data(), n);
-  }
-  buf[n] = '\0';
-  return fits ? AO_OK : AO_ERR_RANGE;
 }
 
 std::string classNameOf(Heap& heap, Oop cls) {

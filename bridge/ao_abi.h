@@ -41,17 +41,21 @@ typedef struct AoSpan {
    is AO_ERR_RANGE (ao_browser_source's AO_ERR_NOSOURCE wins over it). */
 
 /* SPEC §3.10. The runtime is busy while ao_runtime_boot, ao_runtime_shutdown, ao_image_save,
-   ao_image_load, ao_filein_load_order, ao_workspace_reset, ao_eval, ao_accept_method,
-   ao_accept_method_id, ao_accept_class, ao_remove_method, ao_remove_class,
+   ao_image_load, ao_filein_load_order, ao_filein_file, ao_workspace_reset, ao_eval,
+   ao_accept_method, ao_accept_method_id, ao_accept_class, ao_remove_method, ao_remove_class,
+   ao_changes_new, ao_changes_set_current, ao_changes_drop, ao_changes_move, ao_changes_file_out,
    ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
    ao_debug_clear, ao_debug_proceed, ao_debug_step_into, ao_debug_step_over, ao_debug_step_out,
    ao_debug_restart, ao_debug_accept
    or ao_debug_abort runs, or the interpreter does. Called then (from a transcript or inspect
-   hook, or a native), each of these twenty-three does nothing and answers AO_ERR: ao_image_load,
-   ao_remove_method and ao_remove_class
+   hook, or a native), each of these twenty-nine does nothing and answers AO_ERR: ao_image_load,
+   ao_filein_file, ao_remove_method, ao_remove_class, ao_changes_new, ao_changes_drop,
+   ao_changes_move and ao_changes_file_out
    with the reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
    setters (ao_set_transcript_hook, ao_set_inspect_hook, ao_set_runloop_pump_hook),
    ao_request_interrupt, ao_version, the ao_browser_* reads (ao_browser_class_id too),
+   the ao_changes_* reads (ao_changes_count, ao_changes_at, ao_changes_current,
+   ao_changes_class_count, ao_changes_class_at, ao_changes_method_count, ao_changes_method_at),
    ao_eval_result_length, ao_eval_result_copy,
    ao_set_debug_capture, ao_set_debug_mode, the snapshot reads (ao_debug_generation to
    ao_debug_frame_temp_name) and the live reads (ao_debug_halted_pid to ao_debug_select,
@@ -285,6 +289,61 @@ int ao_remove_method(int64_t class_id, int meta, const char* selector, AoSpan* e
    / "has subclass <Sub>" / "has an unnamed subclass", "runtime is busy", or "remove failed" (no
    session). Nothing changes on AO_ERR. Allocates nothing on the heap. */
 int ao_remove_class(int64_t class_id, AoSpan* err);
+
+/* SPEC §3.9 Change Sorter, §3.10 チェンジセット (P16). Change sets are session memory: boot and
+   ao_image_load start over with one empty set, Unnamed1, which is current; ao_image_save does not
+   write them. A set ID is never used again in the process. The reads may be called while busy;
+   the writes (ao_changes_new, ao_changes_set_current, ao_changes_drop, ao_changes_move,
+   ao_changes_file_out) and ao_filein_file are outermost entries. The *_count functions answer -1
+   with no session, an unknown set ID, a NULL class_name or meta other than 0 or 1. The *_at
+   functions follow the buffer rule; their outputs (set_id, kind) may be NULL and get 0 on
+   AO_ERR. An err gets an empty message on AO_OK and the reason on AO_ERR. */
+enum {
+  AO_CHANGE_NONE = 0,
+  AO_CHANGE_ADDED = 1,
+  AO_CHANGE_CHANGED = 2,
+  AO_CHANGE_REMOVED = 3
+};
+/* The sets in the order they were made. */
+int ao_changes_count(void);
+int ao_changes_at(int index, int64_t* set_id, char* name, int name_len);
+/* The current set's ID; 0 with no session. */
+int64_t ao_changes_current(void);
+/* A new empty set, which becomes current; set_id gets its ID (0 on AO_ERR). AO_ERR: "change set
+   name empty" (NULL or ""), "change set name taken: <name>", "runtime is busy", "change set
+   failed" (no session). */
+int ao_changes_new(const char* name, int64_t* set_id, AoSpan* err);
+/* AO_ERR for an unknown ID, with no session, or while busy. */
+int ao_changes_set_current(int64_t set_id);
+/* A set's classes in the order first recorded. kind: the definition's kind, AO_CHANGE_NONE when
+   only its methods changed. */
+int ao_changes_class_count(int64_t set_id);
+int ao_changes_class_at(int64_t set_id, int index, char* name, int name_len, int* kind);
+/* One side's entries of a class in the set, by selector in byte order; the count is 0 when the
+   set has no entry for the class. */
+int ao_changes_method_count(int64_t set_id, const char* class_name, int meta);
+int ao_changes_method_at(int64_t set_id, const char* class_name, int meta, int index,
+                         char* selector, int len, int* kind);
+/* Forgets an entry; selector NULL forgets the class entry with its methods (meta is not read).
+   The methods and classes themselves do not change. AO_ERR: "unknown change set", "not in change
+   set: <Class>" or "not in change set: <Class>>><selector>" (<Class> with " class" when meta),
+   "runtime is busy", "change set failed" (no session, a NULL class_name, a bad meta). */
+int ao_changes_drop(int64_t set_id, const char* class_name, int meta, const char* selector,
+                    AoSpan* err);
+/* Moves an entry with its kind to to_id; the target's kind for the same entry is replaced, and
+   the target gets a class entry when it has none. AO_ERR as ao_changes_drop, and "same change
+   set". */
+int ao_changes_move(int64_t from_id, int64_t to_id, const char* class_name, int meta,
+                    const char* selector, AoSpan* err);
+/* Writes the set in the SPEC §3.9 File Out format, replacing path. AO_ERR: "unknown change set",
+   "cannot write file: <path>", "runtime is busy", "file out failed" (no session, a NULL path). */
+int ao_changes_file_out(int64_t set_id, const char* path, AoSpan* err);
+/* SPEC §3.10 File In... (P16): files in one chunk-format file. Each method keeps its source, a
+   class definition goes in as ao_accept_class's does, and both are recorded in the current set.
+   AO_ERR with the first error in err: its span in the file and its message ("cannot read: <path>"
+   with 0-0, "missing class: <name>", a compile error, ...), or "runtime is busy" / "file-in
+   failed" with 0-0. The chunks before an error stay applied. */
+int ao_filein_file(const char* path, AoSpan* err);
 
 #ifdef __cplusplus
 }

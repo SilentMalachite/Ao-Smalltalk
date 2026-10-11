@@ -4,6 +4,7 @@
 #include "ao/MethodImage.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Scheduler.hpp"
+#include "ChangeSet.hpp"
 
 #include "ao_abi.h"
 
@@ -85,6 +86,9 @@ struct Session final : DebugSink {
     Oop cls = Oop::nil();
   };
   std::vector<std::unique_ptr<ClassId>> classIds;
+  // SPEC §3.9 Change Sorter, §3.10 チェンジセット (P16): the session's change sets. Plain C++ data
+  // (names and kinds, no Oops): the GC does not trace it and the image does not hold it.
+  ChangeSets changes;
   // SPEC §3.13: the one snapshot of the session. Declared after roots, so it is destroyed (and
   // unroots its slots) first.
   DebugSnapshot debug{roots};
@@ -236,6 +240,10 @@ bool debugSpanAt(Oop method, std::uint32_t pc, std::uint32_t& start, std::uint32
 std::vector<const Oop*> methodSourceRootSlots(bool withSnapshot = true);
 void clearMethodSources();
 void ensureKernelNatives(Session& s);
+
+// SPEC §3.10 の文字列バッファ: text into buf with a NUL after it; AO_ERR_RANGE when cut (buf still
+// ends in NUL); AO_ERR for a NULL buf or len < 1.
+int writeBuf(const std::string& text, char* buf, int len);
 
 // SPEC §3.10 クラス ID: the ID of the listed class Smalltalk binds name to; 0 when none, name is
 // NULL or there is no session. May throw std::bad_alloc (the class list issues IDs).
