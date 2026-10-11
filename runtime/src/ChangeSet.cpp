@@ -80,6 +80,35 @@ std::optional<ChangeKind> kindOf(const std::map<std::string, ChangeKind>& side,
   return found == side.end() ? std::nullopt : std::optional<ChangeKind>(found->second);
 }
 
+// "<Class>>><selector>", "<Class> class>><selector>" on the class side (SPEC §3.9 削除).
+std::string entryName(std::string_view className, bool meta, std::string_view selector) {
+  std::string out(className);
+  if (meta) {
+    out += " class";
+  }
+  out += ">>";
+  out += selector;
+  return out;
+}
+
+// Puts entry in set: over the entry of the same name, or at the end.
+void putClass(ChangeSet& set, ClassChange&& entry) {
+  if (ClassChange* found = findClass(set, entry.name)) {
+    *found = std::move(entry);
+    return;
+  }
+  set.classes.push_back(std::move(entry));
+}
+
+// The target's entry for className as a copy to merge into; a new one without a definition when
+// the target has none.
+ClassChange targetCopy(ChangeSet& to, const char* className) {
+  if (ClassChange* found = findClass(to, className)) {
+    return *found;
+  }
+  return ClassChange{className, std::nullopt, {}, {}};
+}
+
 }  // namespace
 
 std::optional<ChangeKind> kindAfterAccept(std::optional<ChangeKind> was, bool replaced) {
@@ -285,6 +314,91 @@ int sessionChangesMethodAt(std::int64_t setId, const char* className, int meta, 
     *kind = static_cast<int>(it->second);
   }
   return writeBuf(it->first, selector, len);
+}
+
+int sessionChangesDrop(std::int64_t setId, const char* className, int meta, const char* selector,
+                       std::string* reason) {
+  Session* s = session();
+  if (s == nullptr || className == nullptr || (selector != nullptr && meta != 0 && meta != 1)) {
+    return AO_ERR;
+  }
+  ChangeSet* set = findSet(*s, setId);
+  if (set == nullptr) {
+    *reason = "unknown change set";
+    return AO_ERR;
+  }
+  ClassChange* entry = findClass(*set, className);
+  if (selector == nullptr) {
+    if (entry == nullptr) {
+      *reason = std::string("not in change set: ") + className;
+      return AO_ERR;
+    }
+    std::erase_if(set->classes, [&](const ClassChange& c) { return c.name == className; });
+    return AO_OK;
+  }
+  if (entry == nullptr || sideOf(*entry, meta == 1).erase(selector) == 0) {
+    *reason = "not in change set: " + entryName(className, meta == 1, selector);
+    return AO_ERR;
+  }
+  dropIfEmpty(*set, className);
+  return AO_OK;
+}
+
+int sessionChangesMove(std::int64_t fromId, std::int64_t toId, const char* className, int meta,
+                       const char* selector, std::string* reason) {
+  Session* s = session();
+  if (s == nullptr || className == nullptr || (selector != nullptr && meta != 0 && meta != 1)) {
+    return AO_ERR;
+  }
+  ChangeSet* from = findSet(*s, fromId);
+  ChangeSet* to = findSet(*s, toId);
+  if (from == nullptr || to == nullptr) {
+    *reason = "unknown change set";
+    return AO_ERR;
+  }
+  if (from == to) {
+    *reason = "same change set";
+    return AO_ERR;
+  }
+  ClassChange* entry = findClass(*from, className);
+  if (selector == nullptr) {
+    if (entry == nullptr) {
+      *reason = std::string("not in change set: ") + className;
+      return AO_ERR;
+    }
+    // SPEC §3.10 チェンジセット: the moved kinds replace the target's; a definition kind the moved
+    // entry lacks stays as the target has it.
+    ClassChange merged = targetCopy(*to, className);
+    if (entry->definition) {
+      merged.definition = entry->definition;
+    }
+    for (const auto& [sel, kind] : entry->instanceSide) {
+      merged.instanceSide.insert_or_assign(sel, kind);
+    }
+    for (const auto& [sel, kind] : entry->classSide) {
+      merged.classSide.insert_or_assign(sel, kind);
+    }
+    putClass(*to, std::move(merged));
+    std::erase_if(from->classes, [&](const ClassChange& c) { return c.name == className; });
+    return AO_OK;
+  }
+  if (entry == nullptr) {
+    *reason = "not in change set: " + entryName(className, meta == 1, selector);
+    return AO_ERR;
+  }
+  auto& side = sideOf(*entry, meta == 1);
+  const auto found = side.find(selector);
+  if (found == side.end()) {
+    *reason = "not in change set: " + entryName(className, meta == 1, selector);
+    return AO_ERR;
+  }
+  ClassChange merged = targetCopy(*to, className);
+  sideOf(merged, meta == 1).insert_or_assign(found->first, found->second);
+  // to is another vector, so entry, side and found stay valid.
+  putClass(*to, std::move(merged));
+  side.erase(found);
+  dropIfEmpty(*from, className);
+  return AO_OK;
 }
 
 }  // namespace ao

@@ -464,3 +464,113 @@ TEST_F(ChangesAbi, LoadOrderFileInRecordsNothing) {
   EXPECT_EQ(0, ao_changes_class_count(ao_changes_current()));
   std::filesystem::remove_all(dir);
 }
+
+// SPEC §3.9 Change Sorter: Remove from Change Set forgets the entry; the method stays.
+TEST_F(ChangesAbi, DropForgetsTheEntryAndKeepsTheMethod) {
+  const std::int64_t set = ao_changes_current();
+  defineClass("P16Drop", "Object");
+  accept("P16Drop", 0, "a\n  ^1");
+  accept("P16Drop", 0, "b\n  ^2");
+  AoSpan err{};
+  std::strcpy(err.message, "stale");
+  ASSERT_EQ(AO_OK, ao_changes_drop(set, "P16Drop", 0, "a", &err)) << err.message;
+  EXPECT_STREQ("", err.message);
+  EXPECT_EQ(std::vector<std::string>{"b+"}, methodsOf(set, "P16Drop", 0));
+  EXPECT_EQ("1", printIt("P16Drop new a"));
+  // selector NULL: the class entry with its methods; meta is not read.
+  ASSERT_EQ(AO_OK, ao_changes_drop(set, "P16Drop", 7, nullptr, &err)) << err.message;
+  EXPECT_EQ(0, ao_changes_class_count(set));
+  EXPECT_EQ("2", printIt("P16Drop new b"));
+}
+
+// SPEC §3.10 チェンジセット: a drop of what the set does not hold, or in an unknown set, says why.
+TEST_F(ChangesAbi, DropRefusesWhatTheSetDoesNotHold) {
+  const std::int64_t set = ao_changes_current();
+  defineClass("P16Miss", "Object");
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR, ao_changes_drop(set, "P16Miss", 1, "nope", &err));
+  EXPECT_STREQ("not in change set: P16Miss class>>nope", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_drop(set, "Nowhere", 0, nullptr, &err));
+  EXPECT_STREQ("not in change set: Nowhere", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_drop(set + 1000, "P16Miss", 0, nullptr, &err));
+  EXPECT_STREQ("unknown change set", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_drop(set, nullptr, 0, nullptr, &err));
+  EXPECT_STREQ("change set failed", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_drop(set, "P16Miss", 2, "x", &err));
+  EXPECT_STREQ("change set failed", err.message);
+  EXPECT_EQ(std::vector<std::string>{"P16Miss+"}, classesOf(set));
+}
+
+// SPEC §3.9 Change Sorter, §3.10: a method entry moves with its kind and replaces the target's;
+// the source's emptied class entry goes.
+TEST_F(ChangesAbi, MoveMethodEntryKeepsItsKind) {
+  const std::int64_t first = ao_changes_current();
+  defineClass("P16Move", "Object");
+  accept("P16Move", 0, "m\n  ^1");
+  const std::int64_t second = newSet("Second");
+  accept("P16Move", 0, "m\n  ^2");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_changes_move(second, first, "P16Move", 0, "m", &err)) << err.message;
+  EXPECT_EQ(0, ao_changes_class_count(second));
+  EXPECT_EQ(std::vector<std::string>{"P16Move+"}, classesOf(first));
+  EXPECT_EQ(std::vector<std::string>{"m~"}, methodsOf(first, "P16Move", 0));
+}
+
+// SPEC §3.10: a class entry moves with its methods; the target keeps its definition kind when the
+// moved entry has none, and gets a class entry when it has none.
+TEST_F(ChangesAbi, MoveClassEntryMergesIntoTheTarget) {
+  const std::int64_t first = ao_changes_current();
+  defineClass("P16Merge", "Object");
+  accept("P16Merge", 0, "x\n  ^1");
+  const std::int64_t second = newSet("Second");
+  accept("P16Merge", 1, "y\n  ^2");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_changes_move(second, first, "P16Merge", 0, nullptr, &err)) << err.message;
+  EXPECT_EQ(0, ao_changes_class_count(second));
+  EXPECT_EQ(std::vector<std::string>{"P16Merge+"}, classesOf(first));
+  EXPECT_EQ(std::vector<std::string>{"x+"}, methodsOf(first, "P16Merge", 0));
+  EXPECT_EQ(std::vector<std::string>{"y+"}, methodsOf(first, "P16Merge", 1));
+  const std::int64_t third = newSet("Third");
+  ASSERT_EQ(AO_OK, ao_changes_move(first, third, "P16Merge", 1, "y", &err)) << err.message;
+  EXPECT_EQ(std::vector<std::string>{"P16Merge"}, classesOf(third));
+  EXPECT_EQ(std::vector<std::string>{"y+"}, methodsOf(third, "P16Merge", 1));
+}
+
+// SPEC §3.10: a move to the same set or to an unknown one is refused, and nothing moves.
+TEST_F(ChangesAbi, MoveRefusesSameOrUnknownSet) {
+  const std::int64_t set = ao_changes_current();
+  defineClass("P16Stay", "Object");
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR, ao_changes_move(set, set, "P16Stay", 0, nullptr, &err));
+  EXPECT_STREQ("same change set", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_move(set, set + 1000, "P16Stay", 0, nullptr, &err));
+  EXPECT_STREQ("unknown change set", err.message);
+  const std::int64_t other = newSet("Other");
+  EXPECT_EQ(AO_ERR, ao_changes_move(set, other, "P16Stay", 0, "none", &err));
+  EXPECT_STREQ("not in change set: P16Stay>>none", err.message);
+  EXPECT_EQ(std::vector<std::string>{"P16Stay+"}, classesOf(set));
+  EXPECT_EQ(0, ao_changes_class_count(other));
+}
+
+// SPEC §3.10 再入: from a hook drop and move do nothing and say "runtime is busy".
+TEST_F(ChangesAbi, DropAndMoveAreRefusedWhileBusy) {
+  const std::int64_t first = ao_changes_current();
+  defineClass("P16Busy", "Object");
+  const std::int64_t second = newSet("Second");
+  int dropRc = -9;
+  int moveRc = -9;
+  std::string dropMsg;
+  std::string moveMsg;
+  whileBusy([&] {
+    AoSpan err{};
+    dropRc = ao_changes_drop(first, "P16Busy", 0, nullptr, &err);
+    dropMsg = err.message;
+    moveRc = ao_changes_move(first, second, "P16Busy", 0, nullptr, &err);
+    moveMsg = err.message;
+  });
+  EXPECT_EQ(AO_ERR, dropRc);
+  EXPECT_EQ("runtime is busy", dropMsg);
+  EXPECT_EQ(AO_ERR, moveRc);
+  EXPECT_EQ("runtime is busy", moveMsg);
+  EXPECT_EQ(std::vector<std::string>{"P16Busy+"}, classesOf(first));
+}

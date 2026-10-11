@@ -82,4 +82,9 @@ int sessionChangesMethodCount(std::int64_t setId, const char* className, int met
 int sessionChangesMethodAt(std::int64_t setId, const char* className, int meta, int index,
                            char* selector, int len, int* kind);
 
+int sessionChangesDrop(std::int64_t setId, const char* className, int meta, const char* selector,
+                       std::string* reason);
+int sessionChangesMove(std::int64_t fromId, std::int64_t toId, const char* className, int meta,
+                       const char* selector, std::string* reason);
+
 }  // namespace ao

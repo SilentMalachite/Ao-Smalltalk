@@ -782,3 +782,17 @@ extern "C" int ao_changes_set_current(int64_t set_id) {
   }
   return guarded(AO_ERR, [&] { return ao::sessionChangesSetCurrent(set_id); });
 }
+
+extern "C" int ao_changes_drop(int64_t set_id, const char* class_name, int meta,
+                               const char* selector, AoSpan* err) {
+  return changesWrite(err, "change set failed", [&](std::string* reason) {
+    return ao::sessionChangesDrop(set_id, class_name, meta, selector, reason);
+  });
+}
+
+extern "C" int ao_changes_move(int64_t from_id, int64_t to_id, const char* class_name, int meta,
+                               const char* selector, AoSpan* err) {
+  return changesWrite(err, "change set failed", [&](std::string* reason) {
+    return ao::sessionChangesMove(from_id, to_id, class_name, meta, selector, reason);
+  });
+}
