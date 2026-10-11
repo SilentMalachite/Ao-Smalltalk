@@ -728,10 +728,13 @@ extern "C" int ao_changes_count(void) {
   return guarded(-1, [] { return ao::sessionChangesCount(); });
 }
 
+// SPEC §3.10 の文字列バッファ: each *_at blanks its buffer first, so an AO_ERR still leaves it ending
+// in NUL.
 extern "C" int ao_changes_at(int index, int64_t* set_id, char* name, int name_len) {
   if (set_id != nullptr) {
     *set_id = 0;
   }
+  blankBuf(name, name_len);
   return guarded(AO_ERR, [&] { return ao::sessionChangesAt(index, set_id, name, name_len); });
 }
 
@@ -747,6 +750,7 @@ extern "C" int ao_changes_class_at(int64_t set_id, int index, char* name, int na
   if (kind != nullptr) {
     *kind = AO_CHANGE_NONE;
   }
+  blankBuf(name, name_len);
   return guarded(AO_ERR, [&] {
     return ao::sessionChangesClassAt(set_id, index, name, name_len, kind);
   });
@@ -761,6 +765,7 @@ extern "C" int ao_changes_method_at(int64_t set_id, const char* class_name, int 
   if (kind != nullptr) {
     *kind = AO_CHANGE_NONE;
   }
+  blankBuf(selector, len);
   return guarded(AO_ERR, [&] {
     return ao::sessionChangesMethodAt(set_id, class_name, meta, index, selector, len, kind);
   });

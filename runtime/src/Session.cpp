@@ -1921,9 +1921,11 @@ std::string classDefinitionText(Session& s, Oop cls) {
 }
 
 Oop boundClassNamed(Session& s, const std::string& name) {
+  // As ao_browser_class_id resolves a name (SPEC §3.9 File Out items 2 and 4): the class Smalltalk
+  // binds it to, whatever that class's own name.
   const Oop cls = s.wk.named(name);
   if (!pointerSlots(s.heap, cls, kClassSlotCount) ||
-      s.heap.klass(s.heap.klass(cls)) != s.wk.metaclassClass || classNameOf(s.heap, cls) != name) {
+      s.heap.klass(s.heap.klass(cls)) != s.wk.metaclassClass) {
     return Oop{};
   }
   return cls;

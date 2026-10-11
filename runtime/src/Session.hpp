@@ -248,9 +248,10 @@ void ensureKernelNatives(Session& s);
 // ends in NUL); AO_ERR for a NULL buf or len < 1.
 int writeBuf(const std::string& text, char* buf, int len);
 
-// SPEC §3.9 File Out (P16): what the change set writer reads, by the class's own name.
-// The class Smalltalk binds name to, when it is a class (not a metaclass, not another global) whose
-// own name is name; the empty Oop otherwise. Allocates nothing.
+// SPEC §3.9 File Out (P16): what the change set writer reads, by the name the set records.
+// The class Smalltalk binds name to, when it is a class (not a metaclass, not another global),
+// whatever its own name, as ao_browser_class_id resolves it; the empty Oop otherwise. Allocates
+// nothing.
 Oop boundClassNamed(Session& s, const std::string& name);
 // ao_browser_class_definition's text for cls: chunk-safe already (the category's `!` and `'`
 // doubled).

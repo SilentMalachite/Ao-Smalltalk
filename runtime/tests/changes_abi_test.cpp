@@ -301,6 +301,53 @@ TEST_F(ChangesAbi, ReadsFollowBufferRule) {
   EXPECT_STREQ("Unnamed1", name);
 }
 
+// SPEC §3.10 の文字列バッファ: a buffer with buf_len > 0 ends in NUL even when a read answers AO_ERR
+// (a bad index, an unknown ID, a NULL class name, a bad meta, no session).
+TEST_F(ChangesAbi, RefusedReadsLeaveTheBufferEndingInNul) {
+  defineClass("P16Read", "Object");
+  const std::int64_t set = ao_changes_current();
+  accept("P16Read", 0, "m\n  ^1");
+  std::int64_t got = 0;
+  int kind = -9;
+  const auto sentinel = [](char (&b)[4]) { std::memset(b, 'X', sizeof b); };
+  char b[4];
+  sentinel(b);
+  EXPECT_EQ(AO_ERR, ao_changes_at(5, &got, b, static_cast<int>(sizeof b)));
+  EXPECT_EQ('\0', b[0]);
+  sentinel(b);
+  EXPECT_EQ(AO_ERR, ao_changes_class_at(set + 1000, 0, b, static_cast<int>(sizeof b), &kind));
+  EXPECT_EQ('\0', b[0]);
+  sentinel(b);
+  EXPECT_EQ(AO_ERR, ao_changes_class_at(set, 5, b, static_cast<int>(sizeof b), &kind));
+  EXPECT_EQ('\0', b[0]);
+  sentinel(b);
+  EXPECT_EQ(AO_ERR, ao_changes_method_at(set, nullptr, 0, 0, b, static_cast<int>(sizeof b), &kind));
+  EXPECT_EQ('\0', b[0]);
+  sentinel(b);
+  EXPECT_EQ(AO_ERR,
+            ao_changes_method_at(set, "P16Read", 2, 0, b, static_cast<int>(sizeof b), &kind));
+  EXPECT_EQ('\0', b[0]);
+  sentinel(b);
+  EXPECT_EQ(AO_ERR,
+            ao_changes_method_at(set + 1000, "P16Read", 0, 0, b, static_cast<int>(sizeof b), &kind));
+  EXPECT_EQ('\0', b[0]);
+  sentinel(b);
+  EXPECT_EQ(AO_ERR,
+            ao_changes_method_at(set, "P16Read", 0, 5, b, static_cast<int>(sizeof b), &kind));
+  EXPECT_EQ('\0', b[0]);
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  sentinel(b);
+  EXPECT_EQ(AO_ERR, ao_changes_at(0, &got, b, static_cast<int>(sizeof b)));
+  EXPECT_EQ('\0', b[0]);
+  sentinel(b);
+  EXPECT_EQ(AO_ERR, ao_changes_class_at(set, 0, b, static_cast<int>(sizeof b), &kind));
+  EXPECT_EQ('\0', b[0]);
+  sentinel(b);
+  EXPECT_EQ(AO_ERR,
+            ao_changes_method_at(set, "P16Read", 0, 0, b, static_cast<int>(sizeof b), &kind));
+  EXPECT_EQ('\0', b[0]);
+}
+
 // SPEC §3.9 Change Sorter: boot and a successful image load start over with one empty Unnamed1
 // under a new ID; a failed load keeps the sets.
 TEST_F(ChangesAbi, BootAndImageLoadStartOver) {
@@ -705,6 +752,27 @@ TEST_F(ChangesAbi, FileOutWritesMissingSourcesBeforeMissingDefinitions) {
   ASSERT_NE(std::string::npos, source) << body;
   ASSERT_NE(std::string::npos, definition) << body;
   EXPECT_LT(source, definition) << body;
+}
+
+// SPEC §3.9 File Out items 2 and 4: a name resolves as ao_browser_class_id does (the class Smalltalk
+// binds it to), so File Out writes the definition and the source the Change Sorter shows for it.
+TEST_F(ChangesAbi, FileOutResolvesNamesLikeTheBrowser) {
+  defineClass("P16Bar", "Object", "", "Other");
+  accept("P16Bar", 0, "m\n  ^#bar");
+  const std::int64_t set = newSet("Rebound");
+  defineClass("P16Foo", "Object");
+  accept("P16Foo", 0, "m\n  ^#foo");
+  EXPECT_EQ("true", printIt("(Smalltalk at: #P16Foo put: P16Bar) == P16Bar"));
+  const std::int64_t id = ao_browser_class_id("P16Foo");
+  ASSERT_NE(0, id);
+  char definition[1024];
+  ASSERT_EQ(AO_OK,
+            ao_browser_class_definition(id, definition, static_cast<int>(sizeof definition)));
+  char source[1024];
+  ASSERT_EQ(AO_OK, ao_browser_source(id, 0, "m", source, static_cast<int>(sizeof source)));
+  const std::string body = afterHeader(fileOut(set, "rebound.st"));
+  EXPECT_EQ(std::string(definition) + "!\n\n!P16Foo methodsFor: 'user'!\n" + source + "! !\n\n",
+            body);
 }
 
 // SPEC §3.9 File Out: a removed class is a comment chunk, and its definition is not written.
