@@ -4,7 +4,6 @@
 #include "ao/MethodImage.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Scheduler.hpp"
-#include "ChangeSet.hpp"
 
 #include "ao_abi.h"
 
@@ -86,9 +85,6 @@ struct Session final : DebugSink {
     Oop cls = Oop::nil();
   };
   std::vector<std::unique_ptr<ClassId>> classIds;
-  // SPEC §3.9 Change Sorter, §3.10 チェンジセット (P16): the session's change sets. Plain C++ data
-  // (names and kinds, no Oops): the GC does not trace it and the image does not hold it.
-  ChangeSets changes;
   // SPEC §3.13: the one snapshot of the session. Declared after roots, so it is destroyed (and
   // unroots its slots) first.
   DebugSnapshot debug{roots};
@@ -248,7 +244,7 @@ void ensureKernelNatives(Session& s);
 // ends in NUL); AO_ERR for a NULL buf or len < 1.
 int writeBuf(const std::string& text, char* buf, int len);
 
-// SPEC §3.9 File Out (P16): what the change set writer reads, by the name the set records.
+// SPEC §3.10 チェンジセット (P17): how the change set layer finds the ChangeSet model's class.
 // The class Smalltalk binds name to, when it is a class (not a metaclass, not another global),
 // whatever its own name, as ao_browser_class_id resolves it; the empty Oop otherwise. Allocates
 // nothing.
@@ -259,12 +255,6 @@ std::string classDefinitionText(Session& s, Oop cls);
 // The same text from the heap alone (SPEC §3.10 Class>>definition, P17): what the native reads
 // with the CallContext's heap and well-known table. Allocates nothing.
 std::string classDefinitionText(Heap& heap, const WellKnown& wk, Oop cls);
-// The own name of cls's superclass; empty for nil.
-std::string superclassNameOf(Session& s, Oop cls);
-// The source-table text of the method selector names in cls's side (the metaclass's when meta);
-// false when there is no such method, it is a NativeMethod, or it has no source.
-bool liveMethodSource(Session& s, Oop cls, bool meta, const std::string& selector,
-                      std::string& text);
 
 // SPEC §3.10 クラス ID: the ID of the listed class Smalltalk binds name to; 0 when none, name is
 // NULL or there is no session. May throw std::bad_alloc (the class list issues IDs).

@@ -34,7 +34,8 @@ bool acceptMethodReplacing(CallContext& ctx, Oop cls, bool meta, std::string_vie
 bool acceptClassSource(CallContext& ctx, std::string_view source, compiler::CompileError* error);
 
 // SPEC §3.9 削除. cls is the class a Browser class ID names. Every check runs before anything
-// changes, and nothing here allocates on the heap (the selector is looked up, never interned).
+// changes, and nothing before the change allocates on the heap (the selector is looked up, never
+// interned); the record in the current change set (SPEC §3.9 記録) comes last and may collect.
 // False with the reason, never empty, in *reason: "not a class: <name>" (cls is no Behavior),
 // "selector not found: <Class>>><selector>" (an inherited or unknown selector, or a malformed
 // dictionary), "native method removal refused: <Class>>><selector>"; <name> is cls's own name
@@ -45,7 +46,8 @@ bool removeMethodOf(CallContext& ctx, Oop cls, bool meta, std::string_view selec
 
 // SPEC §3.9 削除. cls is the class a Browser class ID names; <name> is its own name slot ("an
 // unnamed class" when that is no String or empty). Every
-// check runs before anything changes; nothing here allocates on the heap. False with the reason in
+// check runs before anything changes; nothing before the change allocates on the heap; the record
+// in the current change set (SPEC §3.9 記録) comes last and may collect. False with the reason in
 // *reason: "not a class: <name>", "class removal refused: <name> is a fixed global", "... is a
 // kernel class" (by identity), "... is not bound to this class" (Smalltalk's <name> is another
 // object), "... has subclass <Sub>" (the smallest name of its live subclasses) or "... has an

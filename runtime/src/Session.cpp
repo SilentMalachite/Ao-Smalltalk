@@ -1935,28 +1935,6 @@ Oop boundClassNamed(Session& s, const std::string& name) {
   return cls;
 }
 
-std::string superclassNameOf(Session& s, Oop cls) {
-  if (!pointerSlots(s.heap, cls, kClassSlotSuperclass + 1)) {
-    return {};
-  }
-  const Oop sup = s.heap.slotAt(cls, kClassSlotSuperclass);
-  return sup.isHeap() ? classNameOf(s.heap, sup) : std::string();
-}
-
-bool liveMethodSource(Session& s, Oop cls, bool meta, const std::string& selector,
-                      std::string& text) {
-  const Oop side = sideOf(s, cls, meta ? 1 : 0);
-  const Oop sel = s.wk.findSymbol(selector);
-  if (!pointerSlots(s.heap, side, kClassSlotMethodDict + 1) || !sel.isHeap()) {
-    return false;
-  }
-  const Oop method = MethodDictionary::at(s.heap, s.heap.slotAt(side, kClassSlotMethodDict), sel);
-  if (!method.isHeap() || s.heap.klass(method) == s.wk.nativeMethodClass) {
-    return false;
-  }
-  return methodSource(method, text);
-}
-
 int browserClassDefinition(std::int64_t classId, char* buf, int len) {
   Session* s = session();
   if (s == nullptr) {
