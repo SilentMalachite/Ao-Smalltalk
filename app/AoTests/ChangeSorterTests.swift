@@ -4,7 +4,21 @@ import XCTest
 
 @MainActor
 final class ChangeSorterTests: XCTestCase {
+  // SPEC §3.9 起動と同梱 (P17): <repo>/image/Tools-model, three directories above app/AoTests/<file>.
+  private static let toolsModelURL = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .appendingPathComponent("image/Tools-model", isDirectory: true)
+
+  override func setUp() {
+    super.setUp()
+    // launchApp() files the tools model in from here, not from the test bundle's resources.
+    setenv("AO_TOOLS_MODEL_DIR", Self.toolsModelURL.path, 1)
+  }
+
   override func tearDown() {
+    unsetenv("AO_TOOLS_MODEL_DIR")
     // tearDown is nonisolated; XCTest calls it on the main thread.
     MainActor.assumeIsolated { Self.closeVisibleWindows() }
     ao_set_transcript_hook(nil, nil)
@@ -26,9 +40,12 @@ final class ChangeSorterTests: XCTestCase {
     }
   }
 
+  // The change sets are the Smalltalk class ChangeSet (P17), so a booted runtime needs the tools model.
   private func boot() {
     _ = NSApplication.shared
     XCTAssertEqual(ao_runtime_boot(), Int32(AO_OK))
+    let order = Self.toolsModelURL.appendingPathComponent("LOAD_ORDER").path
+    XCTAssertEqual(order.withCString { ao_filein_load_order($0) }, Int32(AO_OK))
   }
 
   private func acceptClass(_ name: String, ivars: String = "") {
@@ -292,8 +309,9 @@ final class ChangeSorterTests: XCTestCase {
     XCTAssertEqual(sorter.classTitles, ["P16Later +"])
   }
 
-  // Review Focus 4: after a load the window shows the new session's one set.
-  func testImageLoadStartsTheWindowOverWithUnnamed1() {
+  // SPEC §3.9 Change Sorter (P17): after a load the window shows the sets the image was saved with,
+  // and the one that was current is current again.
+  func testImageLoadBringsBackTheSavedSetsInTheWindow() {
     boot()
     let sorter = ChangeSorterWindow()
     sorter.askName = { _, _, answer in answer("Before") }
@@ -305,8 +323,8 @@ final class ChangeSorterTests: XCTestCase {
     var err = AoSpan()
     XCTAssertEqual(ao_image_load(url.path, &err), Int32(AO_OK), spanMessage(err))
     sorter.noteImageLoaded()
-    XCTAssertEqual(sorter.setTitles, ["• Unnamed1"])
-    XCTAssertEqual(sorter.window.subtitle, "Unnamed1 is current")
+    XCTAssertEqual(sorter.setTitles, ["Unnamed1", "• Before"])
+    XCTAssertEqual(sorter.window.subtitle, "Before is current")
   }
 
   // SPEC §3.9 Change Sorter: the VoiceOver labels.
@@ -351,12 +369,15 @@ final class ChangeSorterTests: XCTestCase {
   // SPEC §3.9 File In…: `filed in: <path>`, and the definitions and methods are recorded.
   func testFileInWritesTheFiledInLineAndRecords() {
     let launch = LaunchSet.make()
+    // The records go to the Smalltalk ChangeSet (P17), so the tools model comes first.
+    fileInToolsModel(at: Self.toolsModelURL, transcript: launch.transcript)
+    let toolsLine = "tools model loaded: \(Self.toolsModelURL.path)\n"
     let url = temporaryFile(
       "Object subclass: #P16FileIn\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
         + "  poolDictionaries: ''\n  category: 'P16-In'!\n\n!P16FileIn methodsFor: 'user'!\nx\n  ^1! !\n")
     defer { try? FileManager.default.removeItem(at: url) }
     XCTAssertEqual(fileInChangeFile(at: url, transcript: launch.transcript), Int32(AO_OK))
-    XCTAssertEqual(launch.transcript.text, "filed in: \(url.path)\n")
+    XCTAssertEqual(launch.transcript.text, toolsLine + "filed in: \(url.path)\n")
     let model = ChangeSorterModel()
     model.refresh()
     XCTAssertEqual(model.classes, [ChangeClassRow(name: "P16FileIn", kind: .added)])
@@ -387,8 +408,8 @@ final class ChangeSorterTests: XCTestCase {
     XCTAssertEqual(alerts.first?.informativeText, url.path + "\ncannot write file: " + url.path)
   }
 
-  // Review Focus 4: Open Image… starts an open Change Sorter over.
-  func testOpenImageStartsAnOpenChangeSorterOver() {
+  // SPEC §3.9 Change Sorter (P17): Open Image… shows an open Change Sorter the sets of the image.
+  func testOpenImageBringsBackTheSavedSetsInAnOpenChangeSorter() {
     let app = launchApp()
     XCTAssertTrue(sendToolsItem("Change Sorter"))
     var err = AoSpan()
@@ -399,7 +420,70 @@ final class ChangeSorterTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: url) }
     XCTAssertTrue(app.saveImage(to: url))
     XCTAssertTrue(app.openImage(from: url))
-    XCTAssertEqual(app.changeSorter?.setTitles, ["• Unnamed1"])
+    XCTAssertEqual(app.changeSorter?.setTitles, ["Unnamed1", "• Before"])
+  }
+
+  // SPEC §3.9 Change Sorter (P17): a refused read leaves the lists and says busy; the next read
+  // after the evaluation shows the sets again and clears the line.
+  func testBusyReadKeepsTheListsAndSaysBusy() {
+    boot()
+    let sorter = ChangeSorterWindow()
+    sorter.reload()
+    XCTAssertEqual(sorter.model.sets.map(\.name), ["Unnamed1"])
+    whileBusy {
+      sorter.reload()
+      XCTAssertTrue(sorter.model.readRefused)
+      XCTAssertEqual(sorter.model.sets.map(\.name), ["Unnamed1"])
+      XCTAssertEqual(sorter.errorText, "runtime is busy")
+    }
+    sorter.reload()
+    XCTAssertFalse(sorter.model.readRefused)
+    XCTAssertEqual(sorter.errorText, "")
+  }
+
+  // SPEC §3.9 Change Sorter (P17): Open Image… shows the sets the image was saved with.
+  func testOpenImageShowsTheSavedSets() {
+    let app = launchApp()
+    var err = AoSpan()
+    XCTAssertEqual(ao_changes_new("Work", nil, &err), Int32(AO_OK), spanMessage(err))
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("ao-p17-\(UUID().uuidString).aoimage")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertTrue(app.saveImage(to: url))
+    // Unnamed1 current and a third set, so the window shows what the load brings back.
+    let first = ChangeSorterModel()
+    first.refresh()
+    guard let unnamed = first.sets.first?.id else {
+      XCTFail("no first set")
+      return
+    }
+    XCTAssertEqual(ao_changes_set_current(unnamed), Int32(AO_OK))
+    XCTAssertEqual(ao_changes_new("Later", nil, &err), Int32(AO_OK), spanMessage(err))
+    XCTAssertTrue(sendToolsItem("Change Sorter"))
+    XCTAssertTrue(app.openImage(from: url))
+    XCTAssertEqual(app.changeSorter?.model.sets.map(\.name), ["Unnamed1", "Work"])
+    XCTAssertEqual(app.changeSorter?.model.currentName, "Work")
+  }
+
+  // SPEC §3.9 起動と同梱 (P17): an image without ChangeSet gets the tools model on Open Image….
+  func testOpenImageWithoutChangeSetFilesInTheToolsModel() {
+    // A bare boot (no tools model) writes an image without ChangeSet.
+    _ = NSApplication.shared
+    XCTAssertEqual(ao_runtime_boot(), Int32(AO_OK))
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("ao-p17-\(UUID().uuidString).aoimage")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertEqual(url.path.withCString { ao_image_save($0) }, Int32(AO_OK))
+    let app = launchApp()
+    XCTAssertTrue(app.openImage(from: url))
+    XCTAssertNotEqual("ChangeSet".withCString { ao_browser_class_id($0) }, 0)
+    XCTAssertTrue(sendToolsItem("Change Sorter"))
+    XCTAssertEqual(app.changeSorter?.model.sets.map(\.name), ["Unnamed1"])
+  }
+
+  // SPEC §3.9 起動と同梱 (P17): launch files the tools model in after the vendor.
+  func testLaunchFilesInTheToolsModel() {
+    _ = launchApp()
+    XCTAssertNotEqual("ChangeSet".withCString { ao_browser_class_id($0) }, 0)
+    XCTAssertEqual(ao_changes_count(), 1)
   }
 
   // SPEC §3.9 Change Sorter: while busy (§3.10) New…, Remove from Change Set, Move to and File Out…

@@ -154,6 +154,11 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
   // SPEC §3.9 Change Sorter: reads the runtime again and shows it.
   func reload() {
     model.refresh()
+    if model.readRefused {
+      errorField.stringValue = "runtime is busy"
+    } else if errorField.stringValue == "runtime is busy" {
+      errorField.stringValue = ""
+    }
     show()
   }
 

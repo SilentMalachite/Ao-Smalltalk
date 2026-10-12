@@ -36,15 +36,38 @@ func vendorDirectory(environment: [String: String], resources: URL) -> URL {
 /// ao_filein_load_order answers only AO_OK or AO_ERR, so the line names the directory and no reason.
 @MainActor
 func fileInVendor(at dir: URL, transcript: TranscriptWindow) {
+  fileInLoadOrder(at: dir, label: "vendor", transcript: transcript)
+}
+
+/// SPEC §3.9 起動と同梱 (P17): the tools-model directory is AO_TOOLS_MODEL_DIR when it is not
+/// empty, else `Tools-model` in the bundle's resources.
+func toolsModelDirectory(environment: [String: String], resources: URL) -> URL {
+  if let dir = environment["AO_TOOLS_MODEL_DIR"], !dir.isEmpty {
+    return URL(fileURLWithPath: dir, isDirectory: true)
+  }
+  return resources.appendingPathComponent("Tools-model", isDirectory: true)
+}
+
+/// SPEC §3.9 起動と同梱 (P17): files in the tools model (the Smalltalk ChangeSet) the same way,
+/// with the lines `tools model not found: …`, `tools model loaded: …`, `tools model file-in failed: …`.
+@MainActor
+func fileInToolsModel(at dir: URL, transcript: TranscriptWindow) {
+  fileInLoadOrder(at: dir, label: "tools model", transcript: transcript)
+}
+
+/// Files in `<dir>/LOAD_ORDER` and writes `<label> loaded: <dir>` (or `<label> not found: …`,
+/// `<label> file-in failed: …`) to the Transcript and to stderr after `ao: `.
+@MainActor
+func fileInLoadOrder(at dir: URL, label: String, transcript: TranscriptWindow) {
   let order = dir.appendingPathComponent("LOAD_ORDER")
   var isDirectory = ObjCBool(false)
   let line: String
   if !FileManager.default.fileExists(atPath: order.path, isDirectory: &isDirectory) || isDirectory.boolValue {
-    line = "vendor not found: \(dir.path)"
+    line = "\(label) not found: \(dir.path)"
   } else if order.path.withCString({ ao_filein_load_order($0) }) == Int32(AO_OK) {
-    line = "vendor loaded: \(dir.path)"
+    line = "\(label) loaded: \(dir.path)"
   } else {
-    line = "vendor file-in failed: \(dir.path)"
+    line = "\(label) file-in failed: \(dir.path)"
   }
   transcript.append(line + "\n")
   FileHandle.standardError.write(Data(("ao: " + line + "\n").utf8))
@@ -69,6 +92,8 @@ func fileInChangeFile(at url: URL, transcript: TranscriptWindow?) -> Int32 {
 @MainActor
 public final class AoApp: NSObject, NSApplicationDelegate {
   private var launch: LaunchSet?
+  // SPEC §3.9 起動と同梱 (P17): where the tools model is filed in from, at launch and on Open Image….
+  private var toolsModel = URL(fileURLWithPath: "/", isDirectory: true)
   private var browser: BrowserWindow?
   private(set) var changeSorter: ChangeSorterWindow?
   private static var retained: AoApp?
@@ -163,6 +188,8 @@ public final class AoApp: NSObject, NSApplicationDelegate {
       at: vendorDirectory(environment: ProcessInfo.processInfo.environment, resources: resources),
       transcript: started.transcript
     )
+    toolsModel = toolsModelDirectory(environment: ProcessInfo.processInfo.environment, resources: resources)
+    fileInToolsModel(at: toolsModel, transcript: started.transcript)
     app.activate()
   }
 
@@ -187,6 +214,10 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     guard opened.status == Int32(AO_OK) else {
       reportImageFailure("Could not open the image", url: url, reason: opened.reason)
       return false
+    }
+    // SPEC §3.9 起動と同梱 (P17): an image saved without the change set model gets it now.
+    if "ChangeSet".withCString({ ao_browser_class_id($0) }) == 0, let transcript = launch?.transcript {
+      fileInToolsModel(at: toolsModel, transcript: transcript)
     }
     browser?.noteImageLoaded()
     changeSorter?.noteImageLoaded()

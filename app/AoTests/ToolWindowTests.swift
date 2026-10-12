@@ -143,6 +143,16 @@ final class ToolWindowTests: XCTestCase {
     XCTAssertEqual(vendorDirectory(environment: ["AO_VENDOR_DIR": ""], resources: resources).path, bundled)
   }
 
+  func testToolsModelDirectoryHonoursTheEnvironment() {
+    let resources = URL(fileURLWithPath: "/tmp/ao-resources", isDirectory: true)
+    let bundled = resources.appendingPathComponent("Tools-model", isDirectory: true).path
+    XCTAssertEqual(
+      toolsModelDirectory(environment: ["AO_TOOLS_MODEL_DIR": "/tmp/ao-models"], resources: resources).path,
+      "/tmp/ao-models")
+    XCTAssertEqual(toolsModelDirectory(environment: [:], resources: resources).path, bundled)
+    XCTAssertEqual(toolsModelDirectory(environment: ["AO_TOOLS_MODEL_DIR": ""], resources: resources).path, bundled)
+  }
+
   func testVendorFileInWritesLoadedLineAndDefinesTimespan() {
     let launch = LaunchSet.make()
     let vendor = URL(fileURLWithPath: #filePath)

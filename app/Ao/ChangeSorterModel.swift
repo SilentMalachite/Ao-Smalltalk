@@ -63,6 +63,9 @@ final class ChangeSorterModel {
   private(set) var selectedSetID: Int64?
   private(set) var selectedClass: String?
   private(set) var selectedMethod: ChangeMethodRow?
+  // SPEC §3.9 Change Sorter (P17): the last refresh was refused (busy, or the model failed); the
+  // lists are as before it.
+  private(set) var readRefused = false
 
   var currentName: String? {
     sets.first { $0.id == currentID }?.name
@@ -75,6 +78,11 @@ final class ChangeSorterModel {
   // Reads everything again. A selected set the runtime no longer lists (after a boot or a load)
   // gives way to the current one; a class or method no longer in the set is deselected.
   func refresh() {
+    guard ao_changes_count() >= 0 else {
+      readRefused = true
+      return
+    }
+    readRefused = false
     sets = loadSets()
     currentID = ao_changes_current()
     if !sets.contains(where: { $0.id == selectedSetID }) {
