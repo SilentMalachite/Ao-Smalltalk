@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1791763594.161864,
-    "seen": 1791764851.2356522,
-    "ast_hash": "adf7010f4d2e315c6abd5ec377722564",
+    "mtime": 1791766266.2766523,
+    "seen": 1791769036.225557,
+    "ast_hash": "41eb315201b917813fc1778d28cd3dcf",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -1278,9 +1278,9 @@
     "semantic_hash": "04878e306812d50074525ded9209a8be"
   },
   "app/Ao/AoApp.swift": {
-    "mtime": 1791760755.6232405,
-    "seen": 1791764851.2354949,
-    "ast_hash": "d84e11c9b2e2927c62992d534c5e1fd1",
+    "mtime": 1791766192.4243731,
+    "seen": 1791769036.2254038,
+    "ast_hash": "4039acbc9b3f907ce1924eea5443fb1e",
     "semantic_hash": ""
   },
   "app/Ao/BrowserModel.swift": {
@@ -1338,15 +1338,15 @@
     "semantic_hash": ""
   },
   "runtime/src/Session.cpp": {
-    "mtime": 1791760494.2060494,
-    "seen": 1791764851.235577,
-    "ast_hash": "0fb2740d43bfbbf1fb38dba45e413a73",
+    "mtime": 1791766164.2453835,
+    "seen": 1791769036.225489,
+    "ast_hash": "2debeae5af4070d4a2859d2cc160f9f4",
     "semantic_hash": ""
   },
   "runtime/src/Session.hpp": {
-    "mtime": 1791759882.4153993,
-    "seen": 1791764851.235578,
-    "ast_hash": "1bc5cd3a448271eb18d45b9c77c21337",
+    "mtime": 1791766164.2455676,
+    "seen": 1791769036.225489,
+    "ast_hash": "411f52bbf0a15d8d18541393c3b5c6c4",
     "semantic_hash": ""
   },
   "runtime/tests/browser_abi_test.cpp": {
@@ -1620,9 +1620,9 @@
     "semantic_hash": "c7b1ad6c267d772b4d8ccf0048bb64e1"
   },
   "CHANGELOG.md": {
-    "mtime": 1791763626.611144,
-    "seen": 1791764851.235647,
-    "ast_hash": "cfc994f745c2879bd5161fc9b9825d8d",
+    "mtime": 1791766249.8554263,
+    "seen": 1791769036.2255518,
+    "ast_hash": "b1d610969abdfe9918549ef47a51886a",
     "semantic_hash": ""
   },
   "docs/phases/P10.md": {
@@ -1878,15 +1878,15 @@
     "semantic_hash": ""
   },
   "app/AoTests/ChangeSorterTests.swift": {
-    "mtime": 1791763419.8702974,
-    "seen": 1791764851.2355142,
-    "ast_hash": "d26d1245dd3a9920c2d7c3b8e4ae3220",
+    "mtime": 1791766192.4246435,
+    "seen": 1791769036.22542,
+    "ast_hash": "6e543058e0551f74f015914e37724215",
     "semantic_hash": ""
   },
   "runtime/src/ChangeSet.cpp": {
-    "mtime": 1791759820.3725593,
-    "seen": 1791764851.235557,
-    "ast_hash": "2251c76d687c3977a3428b97cbb41bb4",
+    "mtime": 1791766164.2450955,
+    "seen": 1791769036.225468,
+    "ast_hash": "0703aad269dbed93893bca8acf67f9f9",
     "semantic_hash": ""
   },
   "runtime/src/ChangeSet.hpp": {
@@ -1896,9 +1896,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/changes_abi_test.cpp": {
-    "mtime": 1791760484.5521467,
-    "seen": 1791764851.235601,
-    "ast_hash": "30b5c5baabc4acfe74390aed46bb764c",
+    "mtime": 1791767807.1084564,
+    "seen": 1791769036.225513,
+    "ast_hash": "9221a7eb1db9bbe205393268465d3a9e",
     "semantic_hash": ""
   },
   "docs/phases/P16.md": {
@@ -1920,9 +1920,9 @@
     "semantic_hash": ""
   },
   "docs/phases/P17.md": {
-    "mtime": 1791763637.269016,
-    "seen": 1791764851.2356758,
-    "ast_hash": "b2ba69072056b333b041a1512a3dbdb1",
+    "mtime": 1791766249.855556,
+    "seen": 1791769036.2255769,
+    "ast_hash": "27b485e77907e36b69576d782c5795b6",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-10-12-p17-smalltalk-change-sets.md": {
