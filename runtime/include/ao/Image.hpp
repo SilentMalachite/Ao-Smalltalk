@@ -28,6 +28,8 @@ struct Image {
                    const std::vector<ImageSource>* sources = nullptr);
   // False when the image is refused; *reason (when given) then says why (SPEC §3.11). On success
   // *sources (when given) is the sources section's pairs with the loaded methods (P18).
+  // The returned ImageSource::method values are not rooted: the caller must root them before
+  // anything allocates (a collection moves old-space objects).
   static bool load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
                    std::string* reason = nullptr, std::vector<ImageSource>* sources = nullptr);
   // SPEC §3.11: every check load makes before it adopts a heap, on the bytes of an image file.

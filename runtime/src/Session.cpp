@@ -543,21 +543,14 @@ namespace {
 // info, in the section's order. The methods stay pinned while their Strings are made, which may
 // collect. Out of memory stops there: the methods left have no entry (a placeholder) and the load
 // still succeeds.
-void restoreMethodSources(Session& s, const std::vector<ImageSource>& sources) {
-  if (sources.empty() || s.ctx == nullptr) {
+void restoreMethodSources(Session& s, const std::vector<ImageSource>& sources,
+                          const std::vector<Oop>& methods) {
+  // methods[i] is sources[i].method, already pinned by the caller (PinnedMethods), so it follows
+  // a collection; sources[i].method itself does not.
+  if (methods.size() != sources.size() || s.ctx == nullptr) {
     return;
   }
   CallContext& ctx = *s.ctx;
-  std::vector<Oop> methods;
-  try {
-    methods.reserve(sources.size());
-    for (const ImageSource& src : sources) {
-      methods.push_back(src.method);
-    }
-    ctx.roots.pinRange(methods.data(), methods.size());
-  } catch (const std::bad_alloc&) {
-    return;
-  }
   for (std::size_t i = 0; i < methods.size(); ++i) {
     const Oop text = Str::fromUtf8(ctx, sources[i].text);
     if (!text.isHeap()) {
@@ -567,8 +560,28 @@ void restoreMethodSources(Session& s, const std::vector<ImageSource>& sources) {
     // Does not collect: text stays valid until it is in a rooted slot.
     rememberMethodSource(methods[i], text, Oop{}, nullptr);
   }
-  ctx.roots.unpinRange(methods.data(), methods.size());
 }
+
+// Pins the loaded image's source methods in the new session's roots from right after Image::load
+// until the guard dies (every path), so nothing that allocates in between can move them.
+struct PinnedMethods {
+  Roots& roots;
+  std::vector<Oop> methods;
+  PinnedMethods(Roots& r, const std::vector<ImageSource>& sources) : roots(r) {
+    try {
+      methods.reserve(sources.size());
+      for (const ImageSource& src : sources) {
+        methods.push_back(src.method);
+      }
+      roots.pinRange(methods.data(), methods.size());
+    } catch (const std::bad_alloc&) {
+      methods.clear();  // nothing pinned: the sources are not restored
+    }
+  }
+  ~PinnedMethods() { roots.unpinRange(methods.data(), methods.size()); }
+  PinnedMethods(const PinnedMethods&) = delete;
+  PinnedMethods& operator=(const PinnedMethods&) = delete;
+};
 
 }  // namespace
 
@@ -590,6 +603,8 @@ int sessionImageLoad(const char* path, std::string* reason) {
   if (!Image::load(next->heap, next->roots, next->wk, path, reason, &sources)) {
     return fail("image load failed");
   }
+  // Image::load does not root the sources' methods: pin them before anything allocates.
+  PinnedMethods pinned(next->roots, sources);
   HostOopHook inspect = nullptr;
   if (g_session->ctx != nullptr) {
     inspect = g_session->ctx->inspectHook;
@@ -610,7 +625,7 @@ int sessionImageLoad(const char* path, std::string* reason) {
   // Dropping the current session abandons its processes (~Session).
   g_session = std::move(next);
   clearMethodSources();
-  restoreMethodSources(*g_session, sources);
+  restoreMethodSources(*g_session, sources, pinned.methods);
   // SPEC §3.13: the load replaces the snapshot with an empty one (a probe may have filled it).
   sessionDebugClear();
   return 0;
