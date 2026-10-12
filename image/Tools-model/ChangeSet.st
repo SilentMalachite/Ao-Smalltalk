@@ -1,7 +1,7 @@
 "ChangeSet — Ao のチェンジセット（SPEC §3.9 Change Sorter、§3.10 チェンジセット、P17）。モデルだけを持ち、窓は AppKit。Kernel のネイティブだけを使う。file-in は式のチャンクを実行しないので、初期化は遅延。"!
 
 Object subclass: #ClassChanges
-  instanceVariableNames: 'className definitionKind instanceSide classSide'
+  instanceVariableNames: 'className definitionKind instanceSide classSide sortedInstance sortedClass'
   classVariableNames: ''
   poolDictionaries: ''
   category: 'Tools-Changes'!
@@ -31,7 +31,26 @@ is: aString before: anotherString
 setClassName: aSymbol
 	className := aSymbol.
 	instanceSide := Dictionary new.
-	classSide := Dictionary new! !
+	classSide := Dictionary new!
+
+forgetOrder
+	"側が変わったので、並べた Array を捨てる。"
+	sortedInstance := nil.
+	sortedClass := nil!
+
+sortedSelectorsOf: aDictionary
+	"aDictionary のキーを、バイト順に並べた新しい Array。"
+	| out n j |
+	out := Array new: aDictionary size.
+	n := 0.
+	aDictionary keysDo: [:sel |
+		j := n.
+		[j > 0 and: [ClassChanges is: sel before: (out at: j)]] whileTrue: [
+			out at: j + 1 put: (out at: j).
+			j := j - 1].
+		out at: j + 1 put: sel.
+		n := n + 1].
+	^out! !
 
 !ClassChanges methodsFor: 'accessing'!
 className
@@ -51,33 +70,30 @@ kindOf: aSelector meta: meta
 	^(self sideFor: meta) at: aSelector asSymbol ifAbsent: [nil]!
 
 at: aSelector meta: meta put: aKind
-	(self sideFor: meta) at: aSelector asSymbol put: aKind!
+	(self sideFor: meta) at: aSelector asSymbol put: aKind.
+	self forgetOrder!
 
 forget: aSelector meta: meta
-	(self sideFor: meta) removeKey: aSelector asSymbol ifAbsent: [nil]!
+	(self sideFor: meta) removeKey: aSelector asSymbol ifAbsent: [nil].
+	self forgetOrder!
 
 clearMethods
 	instanceSide := Dictionary new.
-	classSide := Dictionary new!
+	classSide := Dictionary new.
+	self forgetOrder!
 
 isEmpty
 	"定義の種類もメソッドの項目も無い。"
 	^definitionKind isNil and: [instanceSide size = 0 and: [classSide size = 0]]!
 
 selectorsMeta: meta
-	"その側のセレクタを、バイト順に並べた Array。"
-	| side out n j |
-	side := self sideFor: meta.
-	out := Array new: side size.
-	n := 0.
-	side keysDo: [:sel |
-		j := n.
-		[j > 0 and: [ClassChanges is: sel before: (out at: j)]] whileTrue: [
-			out at: j + 1 put: (out at: j).
-			j := j - 1].
-		out at: j + 1 put: sel.
-		n := n + 1].
-	^out!
+	"その側のセレクタを、バイト順に並べた Array。側が変わるまで同じ Array を答える（Change Sorter は 1 行ごとに読む）。読むだけにして、書き換えない。"
+	| sorted |
+	sorted := meta ifTrue: [sortedClass] ifFalse: [sortedInstance].
+	sorted isNil ifFalse: [^sorted].
+	sorted := self sortedSelectorsOf: (self sideFor: meta).
+	meta ifTrue: [sortedClass := sorted] ifFalse: [sortedInstance := sorted].
+	^sorted!
 
 mergeInto: aClassChanges
 	"Move to（SPEC §3.10）: 移す種類が移し先を上書きし、移す側に無い定義の種類は移し先のまま。"

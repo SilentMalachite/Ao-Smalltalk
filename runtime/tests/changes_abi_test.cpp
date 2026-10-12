@@ -1,6 +1,8 @@
 #include "ao_abi.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -466,6 +468,39 @@ TEST_F(ChangesAbi, RemoveMethodFollowsTheKindRules) {
   EXPECT_EQ(std::vector<std::string>{"kept-"}, methodsOf(second, "P16Gone", 0));
   accept("P16Gone", 0, "kept\n  ^3");
   EXPECT_EQ(std::vector<std::string>{"kept~"}, methodsOf(second, "P16Gone", 0));
+}
+
+// SPEC §3.9 Change Sorter (P17 final review): the Change Sorter reads one row per call, so a
+// class with hundreds of method entries must still read back in byte order, and after a change to
+// a side (the model caches the sorted selectors per side and drops them on a change). No timing
+// is asserted; the 200 rows only have to read back quickly enough for a Debug build.
+TEST_F(ChangesAbi, ManyMethodRowsReadBackInByteOrderAfterChanges) {
+  const std::int64_t set = ao_changes_current();
+  defineClass("Counter", "Object");
+  // Under AO_GC_STRESS every allocation collects, so 200 rows would take minutes; 12 rows still
+  // exercise the cache and the order.
+  const int rows = std::getenv("AO_GC_STRESS") != nullptr ? 12 : 200;
+  EXPECT_EQ(std::to_string(rows),
+            printIt((std::to_string(rows) +
+                     " to: 1 by: -1 do: [:i | ChangeSet noteMethodChange: #Big selector: "
+                     "(ChangeSet text: 'sel' with: i printString) asSymbol "
+                     "meta: false existed: false]. " + std::to_string(rows)).c_str()));
+  std::vector<std::string> expected;
+  for (int i = 1; i <= rows; ++i) {
+    expected.push_back("sel" + std::to_string(i) + "+");
+  }
+  std::sort(expected.begin(), expected.end());
+  EXPECT_EQ(expected, methodsOf(set, "Big", 0));
+  EXPECT_EQ(expected, methodsOf(set, "Big", 0));
+  EXPECT_TRUE(methodsOf(set, "Big", 1).empty());
+  // A few entries are enough to see a change to a side reach the next read.
+  accept("Counter", 0, "zeta\n  ^1");
+  accept("Counter", 0, "alpha\n  ^1");
+  EXPECT_EQ((std::vector<std::string>{"alpha+", "zeta+"}), methodsOf(set, "Counter", 0));
+  accept("Counter", 0, "beta\n  ^1");
+  EXPECT_EQ((std::vector<std::string>{"alpha+", "beta+", "zeta+"}), methodsOf(set, "Counter", 0));
+  EXPECT_EQ("", removeMethod("Counter", 0, "alpha"));
+  EXPECT_EQ((std::vector<std::string>{"beta+", "zeta+"}), methodsOf(set, "Counter", 0));
 }
 
 // SPEC §3.9 種類の規則: a class added in the set goes with its entry; an older class becomes
@@ -1082,6 +1117,25 @@ TEST_F(ChangesAbi, ModelSendsNeitherHaltNorCapture) {
   EXPECT_EQ(0, ao_debug_halted_count());
   EXPECT_EQ(generation, ao_debug_generation());
   EXPECT_EQ("1", printIt("Counter new bump"));
+}
+
+// SPEC §3.10 チェンジセット (P17): a capture setting that a hook changes during a model send is
+// only recorded; the send's own failure is still not captured, and the end applies the setting.
+TEST_F(ChangesAbi, ModelSendFollowsTheCaptureSettingAtItsEnd) {
+  defineClass("Counter", "Object");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("ChangeSet", 1,
+                                    "noteMethodChange: c selector: s meta: m existed: e\n"
+                                    "\tTranscript show: 'x'.\n\t^self error: 'broken'",
+                                    &err))
+      << err.message;
+  ao_set_transcript_hook([](const char*, int, int, void*) { ao_set_debug_capture(1); }, nullptr);
+  const int generation = ao_debug_generation();
+  EXPECT_EQ(AO_OK, ao_accept_method("Counter", 0, "bump\n\t^1", &err)) << err.message;
+  EXPECT_EQ(generation, ao_debug_generation());
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(0u, printIt("nil foo").find("<"));
+  EXPECT_NE(generation, ao_debug_generation());
 }
 
 // SPEC §3.9 Change Sorter: the method entries are read in byte order.

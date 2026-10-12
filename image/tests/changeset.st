@@ -1,5 +1,5 @@
 "changeset — SPEC §3.9 種類の規則、§3.10 チェンジセット（P17）。ChangeSet を参照する唯一のテストファイルなので、始まりは遅延の初期化の直後。"
-| first work other entry sels out fo expect base sub |
+| first work other entry sels out fo expect base sub cached target |
 "遅延の初期化: 最初の参照で空の Unnamed1 が current になる"
 first := ChangeSet current.
 self assert: first name equals: 'Unnamed1'.
@@ -119,6 +119,52 @@ self assert: ((other changesFor: #Order) kindOf: #zeta meta: false) equals: #add
 work makeCurrent.
 self assert: ChangeSet current == work equals: true.
 self assert: ChangeSet allChangeSets size equals: 3.
+
+"並べた Array は側が変わるまで同じで、追加・削除・消去・Move to のあとで正しく取り直す"
+entry := ChangeSet current entryFor: #CacheT.
+entry at: #m meta: false put: #added.
+entry at: #a meta: false put: #added.
+cached := entry selectorsMeta: false.
+self assert: cached size equals: 2.
+self assert: (cached at: 1) equals: #a.
+self assert: (entry selectorsMeta: false) == cached equals: true.
+self assert: (entry selectorsMeta: true) size equals: 0.
+entry at: #c meta: false put: #changed.
+sels := entry selectorsMeta: false.
+self assert: sels size equals: 3.
+self assert: (sels at: 2) equals: #c.
+self assert: (sels at: 3) equals: #m.
+entry at: #a meta: false put: #changed.
+self assert: (entry selectorsMeta: false) size equals: 3.
+entry forget: #c meta: false.
+sels := entry selectorsMeta: false.
+self assert: sels size equals: 2.
+self assert: (sels at: 1) equals: #a.
+self assert: (sels at: 2) equals: #m.
+entry at: #z meta: true put: #added.
+entry at: #y meta: true put: #added.
+self assert: ((entry selectorsMeta: true) at: 1) equals: #y.
+self assert: (entry selectorsMeta: false) size equals: 2.
+entry at: #b meta: true put: #added.
+self assert: ((entry selectorsMeta: true) at: 1) equals: #b.
+self assert: (entry selectorsMeta: false) size equals: 2.
+target := ChangeSet current entryFor: #CacheTarget.
+target at: #q meta: false put: #added.
+self assert: (target selectorsMeta: false) size equals: 1.
+entry mergeInto: target.
+sels := target selectorsMeta: false.
+self assert: sels size equals: 3.
+self assert: (sels at: 1) equals: #a.
+self assert: (sels at: 2) equals: #m.
+self assert: (sels at: 3) equals: #q.
+self assert: (target selectorsMeta: true) size equals: 3.
+entry clearMethods.
+self assert: (entry selectorsMeta: false) size equals: 0.
+self assert: (entry selectorsMeta: true) size equals: 0.
+entry at: #only meta: false put: #added.
+self assert: ((entry selectorsMeta: false) at: 1) equals: #only.
+ChangeSet current forgetEntry: #CacheT.
+ChangeSet current forgetEntry: #CacheTarget.
 
 "File Out（SPEC §3.9 File Out の形式）。ao --test はセッションの外なのでソースは無く、メソッドは source not available の行になる"
 base := Object subclass: #P17Base instanceVariableNames: 'a' classVariableNames: '' poolDictionaries: '' category: 'P17-Test'.
