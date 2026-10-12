@@ -19,6 +19,7 @@ Phases P16 and P17 of SPEC §2.3 (version 1.6.0). The `.aoimage` format (version
 - `ao filein` and `ao image save` accept `--load-order` more than once, read in the given order. `ao --test <dir>` first files in the `Tools-model/LOAD_ORDER` next to `<dir>`.
 - Kernel: `Behavior>>sourceCodeAt:` and `Class>>definition` (native, the only two additions).
 - A live Debugger Accept whose change-set record ended the halted process is refused (`debugger accept refused: process is no longer halted`) instead of restarting a dead frame.
+- Method sources are saved in the image (phase P18, version 1.7.0). `.aoimage` is now version 4: a sources section after the records holds the source of every method accepted or filed in with File In…, and Open Image… brings it back to the Browser, `sourceCodeAt:`, the Change Sorter and File Out. Version 3 images still load, without sources; 1.6.0 and earlier refuse version 4 images (`unsupported image version 4`). The Debugger still shows no source positions or temp names for loaded methods until they are accepted again.
 
 The `ao` CLI keeps its commands: `ao filein` and the vendor file-in keep no sources and record nothing.
 

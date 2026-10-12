@@ -2143,13 +2143,13 @@ P17（§3.7、§3.9、§3.10、§3.11）は次をすべて満たす。上の項�
 
 P18（§3.9、§3.10、§3.11）は次をすべて満たす。上の項目は、下で変えたもの（イメージの版、戻ったセットのソース）を除いて変えない。
 
-- [ ] `.aoimage` の版は 4。ソース節があり、版 3 はソース無しで読める。版 1・2・5 は理由付きで拒む（`VersionThreeHasNoSourcesAndVersionFourNeedsASection`、`VersionThreeImageLoadsWithoutSources`、`RefusesVersionOneWithReason`）
-- [ ] Accept したメソッドのソースが保存とロードで戻り、`ao_browser_source` と `Behavior>>sourceCodeAt:` が答える。doIt のテキストは書かれない（`AcceptedSourceSurvivesSaveAndLoad`、`ClassDefinitionThenImageKeepsSourceText`）
-- [ ] 壊れたソース節はヒープを載せる前に `damaged image` で拒まれる（`RefusesSources*`、`RefusesRepeatedSourceMethod`、`RefusesNonZeroSourcePadding`）
-- [ ] ロードのあとの形の変更、再 Accept、削除、2 回の往復でソースが正しい（`ReshapeAfterLoadRecompilesFromRestoredSource`、`ReacceptAfterLoadSavesTheNewSource`、`RemovedMethodAfterLoadIsNotSaved`、`SourcesSurviveTwoRoundTrips`）
-- [ ] 戻ったセットの File Out と Change Sorter のソース枠にソースが出る（`SavedImageFilesOutTheRestoredSources`、`testOpenImageShowsTheRestoredMethodSource`）
-- [ ] Kernel を変えていない。Kernel 走査は緑
-- [ ] `PHASE` は `P18`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
+- [x] `.aoimage` の版は 4。ソース節があり、版 3 はソース無しで読める。版 1・2・5 は理由付きで拒む（`VersionThreeHasNoSourcesAndVersionFourNeedsASection`、`VersionThreeImageLoadsWithoutSources`、`RefusesVersionOneWithReason`）
+- [x] Accept したメソッドのソースが保存とロードで戻り、`ao_browser_source` と `Behavior>>sourceCodeAt:` が答える。doIt のテキストは書かれない（`AcceptedSourceSurvivesSaveAndLoad`、`ClassDefinitionThenImageKeepsSourceText`）
+- [x] 壊れたソース節はヒープを載せる前に `damaged image` で拒まれる（`RefusesSources*`、`RefusesRepeatedSourceMethod`、`RefusesNonZeroSourcePadding`）
+- [x] ロードのあとの形の変更、再 Accept、削除、2 回の往復でソースが正しい（`ReshapeAfterLoadRecompilesFromRestoredSource`、`ReacceptAfterLoadSavesTheNewSource`、`RemovedMethodAfterLoadIsNotSaved`、`SourcesSurviveTwoRoundTrips`）
+- [x] 戻ったセットの File Out と Change Sorter のソース枠にソースが出る（`SavedImageFilesOutTheRestoredSources`、`testOpenImageShowsTheRestoredMethodSource`）
+- [x] Kernel を変えていない。Kernel 走査は緑
+- [x] `PHASE` は `P18`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
 
 ---
 
