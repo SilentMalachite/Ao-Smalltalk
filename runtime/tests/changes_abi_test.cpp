@@ -1053,6 +1053,25 @@ TEST_F(ChangesAbi, SavedImageKeepsSetsCurrentAndIds) {
   std::filesystem::remove(path);
 }
 
+// P18 / SPEC §3.9: a set restored from a saved image files its methods out with their sources,
+// not `source not available` comments.
+TEST_F(ChangesAbi, SavedImageFilesOutTheRestoredSources) {
+  const std::int64_t set = ao_changes_current();
+  defineClass("P18Kept", "Object");
+  accept("P18Kept", 0, "kept\n  ^#kept");
+  const std::string path = tempPath("p18-fileout.aoimage");
+  ASSERT_EQ(AO_OK, ao_image_save(path.c_str()));
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_image_load(path.c_str(), &err)) << err.message;
+  const std::string body = afterHeader(fileOut(set, "p18-restored.st"));
+  EXPECT_NE(std::string::npos, body.find("!P18Kept methodsFor: ")) << body;
+  EXPECT_NE(std::string::npos, body.find("kept\n  ^#kept! !\n")) << body;
+  EXPECT_EQ(std::string::npos, body.find("source not available")) << body;
+  std::filesystem::remove(path);
+}
+
 // SPEC §3.10 チェンジセット (P17): with no ChangeSet class, Accept and removal answer as before and
 // record nothing, the reads answer no sets, and the writes say so.
 TEST_F(ChangesAbi, WithoutTheModelRecordsNothingAndWritesAreUnavailable) {

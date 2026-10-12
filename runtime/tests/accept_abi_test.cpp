@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -3144,4 +3146,102 @@ TEST(AcceptAbi, AcceptMethodIdOnNoBehaviorAnswersErrLikeAcceptMethod) {
   EXPECT_EQ(AO_ERR, ao_accept_method_id(id, 1, "b12x\n  ^1\n", &err));
   EXPECT_STREQ("", err.message);
   ao_runtime_shutdown();
+}
+
+namespace {
+
+// P18: saves the running session to path, boots again and loads it.
+void p18SaveAndReload(const char* path) {
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_image_load(path, &err)) << err.message;
+}
+
+void p18Define(const char* ivars) {
+  AoSpan err{};
+  const std::string def = std::string("Object subclass: #P18Re\n  instanceVariableNames: '") +
+                          ivars + "'\n  classVariableNames: ''\n  poolDictionaries: ''\n"
+                          "  category: 'P18'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+}
+
+std::string p18Source(const char* selector) {
+  char shown[256] = "";
+  const int rc = ao_browser_source(ao_browser_class_id("P18Re"), 0, selector, shown, 256);
+  return rc == AO_OK ? std::string(shown) : "rc " + std::to_string(rc);
+}
+
+std::string p18PrintIt(const char* expr) {
+  char out[64] = "";
+  AoSpan err{};
+  const int rc = ao_eval(expr, static_cast<int>(std::strlen(expr)), AO_EVAL_PRINTIT, out, 64, &err);
+  return rc == AO_OK ? std::string(out) : std::string("error: ") + err.message;
+}
+
+}  // namespace
+
+// P18 Review Focus 1: a class loaded from an image changes shape; its methods are compiled again
+// from the restored sources, keep working and keep their source.
+TEST(AcceptAbi, ReshapeAfterLoadRecompilesFromRestoredSource) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("x");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "seven\n  ^7", &err)) << err.message;
+  p18SaveAndReload("p18-reshape.aoimage");
+  p18Define("x y");
+  EXPECT_EQ("7", p18PrintIt("P18Re new seven"));
+  EXPECT_EQ("seven\n  ^7", p18Source("seven"));
+  ao_runtime_shutdown();
+  std::remove("p18-reshape.aoimage");
+}
+
+// P18 Review Focus 2: the restored entries are saved again by the next save.
+TEST(AcceptAbi, SourcesSurviveTwoRoundTrips) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "two\n  ^2", &err)) << err.message;
+  p18SaveAndReload("p18-twice.aoimage");
+  p18SaveAndReload("p18-twice.aoimage");
+  EXPECT_EQ("two\n  ^2", p18Source("two"));
+  ao_runtime_shutdown();
+  std::remove("p18-twice.aoimage");
+}
+
+// P18 Review Focus 3: a method accepted again after the load saves its new source only.
+TEST(AcceptAbi, ReacceptAfterLoadSavesTheNewSource) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "n\n  ^1", &err)) << err.message;
+  p18SaveAndReload("p18-reaccept.aoimage");
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "n\n  \"P18Newer\" ^2", &err)) << err.message;
+  p18SaveAndReload("p18-reaccept.aoimage");
+  EXPECT_EQ("n\n  \"P18Newer\" ^2", p18Source("n"));
+  EXPECT_EQ("2", p18PrintIt("P18Re new n"));
+  ao_runtime_shutdown();
+  std::ifstream in("p18-reaccept.aoimage", std::ios::binary);
+  const std::string bytes((std::istreambuf_iterator<char>(in)), {});
+  ASSERT_FALSE(bytes.empty());
+  EXPECT_EQ(std::string::npos, bytes.find("n\n  ^1"));
+  std::remove("p18-reaccept.aoimage");
+}
+
+// P18 Review Focus 4: a method removed after the load is not in the next save's sources.
+TEST(AcceptAbi, RemovedMethodAfterLoadIsNotSaved) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "gone\n  \"P18Gone\" ^0", &err)) << err.message;
+  p18SaveAndReload("p18-remove.aoimage");
+  ASSERT_EQ(AO_OK, ao_remove_method(ao_browser_class_id("P18Re"), 0, "gone", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_image_save("p18-remove.aoimage"));
+  ao_runtime_shutdown();
+  std::ifstream in("p18-remove.aoimage", std::ios::binary);
+  const std::string bytes((std::istreambuf_iterator<char>(in)), {});
+  ASSERT_FALSE(bytes.empty());
+  EXPECT_EQ(std::string::npos, bytes.find("P18Gone"));
+  std::remove("p18-remove.aoimage");
 }
