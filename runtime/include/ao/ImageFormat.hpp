@@ -11,8 +11,10 @@ namespace ao {
 struct ImageFormat {
   // SPEC §3.11: version 1 is the format before B4 (Symbol class names, Kernel instVarNames, the
   // global dictionary, classPools); version 2 the one before B9, whose Dictionaries and Sets pack
-  // their pairs from the front instead of hashing them. Both are refused, not repaired.
-  static constexpr std::uint16_t kImageVersion = 3;
+  // their pairs from the front instead of hashing them. Both are refused, not repaired. Version 3
+  // is the one before P18's sources section and still loads, with no sources.
+  static constexpr std::uint16_t kImageVersion = 4;
+  static constexpr std::uint16_t kImageVersionNoSources = 3;
   static constexpr std::uint16_t kImageEndianLittle = 1;
   static constexpr std::uint16_t kImagePointerBits = 64;
   static constexpr std::uint16_t kImageHeaderBytes = 48;
@@ -27,6 +29,8 @@ struct ImageFormat {
     std::uint32_t extraCount = 0;
     std::uint32_t globalCount = 0;
     std::uint16_t nextHash = 0;
+    // SPEC §3.11 (P18): the sources section's size; 0 in version 3.
+    std::uint64_t sourcesBytes = 0;
   };
 
   static bool encodeNonHeap(Oop o, std::uint64_t* bits);

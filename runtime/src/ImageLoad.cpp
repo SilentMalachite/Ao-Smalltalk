@@ -597,6 +597,68 @@ bool checkGlobals(Heap& heap, const WellKnown& wk, const std::vector<ImageRecord
   return true;
 }
 
+// One pair of the sources section (P18): the method's heap offset, and where its bytes are in the
+// file.
+struct ParsedSource {
+  std::uint64_t method = 0;
+  std::size_t at = 0;
+  std::uint32_t length = 0;
+};
+
+// SPEC §3.11 (P18): the sources section from cursor to the file's end. Each method is the offset
+// of an object in the heap whose class is the well-known CompiledMethod, at most once; each
+// length and its padding stay in the section, every pad is 0, and the last pair ends where the
+// file does. Version 3 has no section (cursor is the file's end).
+bool parseSources(const std::vector<std::byte>& file, std::size_t cursor, const std::byte* section,
+                  const std::unordered_set<std::uint64_t>& starts,
+                  const std::vector<ImageRecord>& wellKnown, std::vector<ParsedSource>* out,
+                  std::string* detail) {
+  if (cursor == file.size()) {
+    return true;
+  }
+  const ImageRecord* methodRec = findRecord(wellKnown, "CompiledMethod");
+  if (methodRec == nullptr) {
+    return fail(detail, "the sources section has no well-known CompiledMethod to check against");
+  }
+  std::uint32_t count = 0;
+  std::uint32_t pad = 0;
+  if (!readPod(file, &cursor, &count) || !readPod(file, &cursor, &pad) || pad != 0) {
+    return fail(detail, "the sources section does not start with its count");
+  }
+  std::unordered_set<std::uint64_t> seen;
+  for (std::uint32_t i = 0; i < count; ++i) {
+    const std::string which = "source " + std::to_string(i);
+    std::uint64_t method = 0;
+    std::uint32_t length = 0;
+    if (!readPod(file, &cursor, &method) || !readPod(file, &cursor, &length) ||
+        !readPod(file, &cursor, &pad) || pad != 0) {
+      return fail(detail, which + " has no method and length");
+    }
+    if (starts.find(method) == starts.end() ||
+        headerAt(section, method).klass.bits() != methodRec->bits) {
+      return fail(detail, which + " is not for a CompiledMethod in the heap");
+    }
+    if (!seen.insert(method).second) {
+      return fail(detail, which + " repeats a method");
+    }
+    const std::size_t padded = std::size_t{length} + (8u - length % 8u) % 8u;
+    if (cursor > file.size() || padded > file.size() - cursor) {
+      return fail(detail, which + " runs past the file");
+    }
+    for (std::size_t k = length; k < padded; ++k) {
+      if (file[cursor + k] != std::byte{0}) {
+        return fail(detail, which + " is padded with a byte that is not 0");
+      }
+    }
+    out->push_back(ParsedSource{method, cursor, length});
+    cursor += padded;
+  }
+  if (cursor != file.size()) {
+    return fail(detail, "the sources section does not end where the file does");
+  }
+  return true;
+}
+
 // What checkFile read out of an image file; section points into the file's bytes.
 struct Parsed {
   ImageFormat::ImageHeader header;
@@ -606,6 +668,7 @@ struct Parsed {
   std::vector<ImageRecord> globals;
   std::vector<std::uint64_t> offsets;
   std::unordered_set<std::uint64_t> starts;
+  std::vector<ParsedSource> sources;
 };
 
 // SPEC §3.11: what the 48-byte header and the file's size can tell, before the body is read.
@@ -630,10 +693,12 @@ bool headerOk(const ImageFormat::ImageHeader& header, std::uint64_t fileSize,
   const std::uint64_t records = std::uint64_t{header.wellKnownCount} + header.globalCount;
   const std::uint64_t beforeRecords =
       ImageFormat::kImageHeaderBytes + std::uint64_t{header.heapBytes};
-  if (fileSize < beforeRecords + records * kMinRecordBytes ||
-      fileSize > beforeRecords + records * kMaxRecordBytes) {
+  // SPEC §3.11 (P18): the sources section follows the records; readHeader bounds its size.
+  if (header.sourcesBytes > fileSize ||
+      fileSize - header.sourcesBytes < beforeRecords + records * kMinRecordBytes ||
+      fileSize - header.sourcesBytes > beforeRecords + records * kMaxRecordBytes) {
     return refuse("damaged image", "the file is " + std::to_string(fileSize) +
-                                       " bytes, which its header and records cannot make");
+                                       " bytes, which its header, records and sources cannot make");
   }
   return true;
 }
@@ -659,7 +724,8 @@ bool checkFile(const Heap& heap, const WellKnown& wk, const std::vector<std::byt
   p->section = file.data() + ImageFormat::kImageHeaderBytes;
   std::size_t cursor = ImageFormat::kImageHeaderBytes + p->heapBytes;
   if (!parseRecords(file, &cursor, p->header.wellKnownCount, &p->wellKnown) ||
-      !parseRecords(file, &cursor, p->header.globalCount, &p->globals) || cursor != file.size()) {
+      !parseRecords(file, &cursor, p->header.globalCount, &p->globals) ||
+      cursor != file.size() - p->header.sourcesBytes) {
     fail(detail, "the records after the heap do not parse");
     return damaged();
   }
@@ -674,6 +740,64 @@ bool checkFile(const Heap& heap, const WellKnown& wk, const std::vector<std::byt
       !ObjectRules(p->section, p->starts).check(p->offsets, p->wellKnown, wk, detail)) {
     return damaged();
   }
+  if (!parseSources(file, cursor, p->section, p->starts, p->wellKnown, &p->sources, detail)) {
+    return damaged();
+  }
+  return true;
+}
+
+// SPEC §3.11 (P18): the sources section's pairs, read from the file before its body is, so a
+// section that does not hold together is refused before the file's bytes are allocated. Checks the
+// count against the heap (each method is the start of a different object), each length and its
+// padding against the file's end, and that the last pair ends where the file does; parseSources
+// checks the rest on the body. Leaves `in` where the header ends. *reason is set on a refusal.
+bool sourcesFitFile(std::ifstream& in, std::uint64_t fileSize,
+                    const ImageFormat::ImageHeader& header, std::string* reason) {
+  auto refuse = [reason](const char* why) {
+    if (reason != nullptr) {
+      *reason = why;
+    }
+    return false;
+  };
+  if (header.sourcesBytes == 0) {
+    return true;
+  }
+  std::uint64_t at = fileSize - header.sourcesBytes;
+  in.seekg(static_cast<std::streamoff>(at));
+  std::uint32_t head[2]{};
+  if (!in || !readExactly(in, reinterpret_cast<std::byte*>(head), sizeof head)) {
+    return refuse("cannot read image file");
+  }
+  at += sizeof head;
+  if (head[1] != 0 || head[0] > header.heapBytes / 8) {
+    return refuse("damaged image");
+  }
+  for (std::uint32_t i = 0; i < head[0]; ++i) {
+    std::uint32_t pair[4]{};  // u64 method, u32 length, u32 0
+    if (fileSize - at < sizeof pair) {
+      return refuse("damaged image");
+    }
+    if (!readExactly(in, reinterpret_cast<std::byte*>(pair), sizeof pair)) {
+      return refuse("cannot read image file");
+    }
+    at += sizeof pair;
+    const std::uint64_t padded = std::uint64_t{pair[2]} + (8u - pair[2] % 8u) % 8u;
+    if (pair[3] != 0 || padded > fileSize - at) {
+      return refuse("damaged image");
+    }
+    at += padded;
+    in.seekg(static_cast<std::streamoff>(at));
+    if (!in) {
+      return refuse("cannot read image file");
+    }
+  }
+  if (at != fileSize) {
+    return refuse("damaged image");
+  }
+  in.seekg(static_cast<std::streamoff>(ImageFormat::kImageHeaderBytes));
+  if (!in) {
+    return refuse("cannot read image file");
+  }
   return true;
 }
 
@@ -686,7 +810,7 @@ bool Image::check(const Heap& heap, const WellKnown& wk, const std::vector<std::
 }
 
 bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
-                 std::string* reason) {
+                 std::string* reason, std::vector<ImageSource>* sources) {
   (void)roots;
   // SPEC §3.11: every refusal says why. Past the header, a file that does not hold together is a
   // damaged image.
@@ -702,7 +826,8 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   }
 
   // SPEC §3.11: the 48-byte header first. The body is read only when the header's heapBytes is
-  // within the old space limit and the file is as long as the header and the records can make it.
+  // within the old space limit, the file is as long as the header and the records can make it, and
+  // the sources section's pairs fit the file.
   std::ifstream in{std::string(path), std::ios::binary};
   if (!in) {
     return refuse("cannot read image file");
@@ -722,7 +847,8 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   }
   ImageFormat::ImageHeader header;
   if (!ImageFormat::readHeader(head, headBytes, &header, reason) ||
-      !headerOk(header, fileSize, heap.oldMaxBytes(), reason, nullptr)) {
+      !headerOk(header, fileSize, heap.oldMaxBytes(), reason, nullptr) ||
+      !sourcesFitFile(in, fileSize, header, reason)) {
     return false;
   }
   std::vector<std::byte> file(static_cast<std::size_t>(fileSize));
@@ -748,6 +874,16 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   }
   // SPEC §3.5: an old image may hide one of the eight SmallInteger natives.
   wk.checkSmallIntegerFastPath();
+  // SPEC §3.11 (P18): the pairs with the methods as loaded; the session puts them in its table.
+  if (sources != nullptr) {
+    auto* base = const_cast<std::byte*>(heap.oldBase());
+    sources->clear();
+    for (const ParsedSource& s : parsed.sources) {
+      sources->push_back(ImageSource{
+          fileOop(base, s.method),
+          std::string(reinterpret_cast<const char*>(file.data() + s.at), s.length)});
+    }
+  }
   return true;
 }
 

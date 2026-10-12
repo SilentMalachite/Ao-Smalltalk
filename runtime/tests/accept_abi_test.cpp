@@ -6,12 +6,16 @@
 #include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Heap.hpp"
+#include "ao/Image.hpp"
 #include "ao/MethodDictionary.hpp"
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -37,7 +41,7 @@ TEST(AcceptAbi, ObjectFooIsCallableAndKeepsSource) {
   ao_runtime_shutdown();
 }
 
-TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
+TEST(AcceptAbi, ClassDefinitionThenImageKeepsSourceText) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   AoSpan err{};
   const char* def =
@@ -68,13 +72,11 @@ TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
   char out[64];
   ASSERT_EQ(AO_OK, ao_eval("P9Foo new foo", 13, AO_EVAL_PRINTIT, out, 64, &err));
   EXPECT_STREQ("nil", out);
-  // SPEC §3.10: 読み込んだイメージのメソッドはソースが無い。AO_ERR_NOSOURCE とプレースホルダで、
-  // プレースホルダを Accept しても本体は変わらない（self を返す空メソッドにならない）。
+  // SPEC §3.10 (P18): 読み込んだイメージのメソッドは、保存したときのソースを持つ。
   char shown[256];
-  ASSERT_EQ(AO_ERR_NOSOURCE, ao_browser_source(ao_browser_class_id("P9Foo"), 0, "foo", shown, 256));
-  EXPECT_STREQ("\"P9Foo>>foo source not available\"", shown);
-  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("P9Foo", 0, shown, &err));
-  EXPECT_STRNE("", err.message);
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("P9Foo"), 0, "foo", shown, 256));
+  EXPECT_STREQ("foo\n  ^x\n", shown);
+  ASSERT_EQ(AO_OK, ao_accept_method("P9Foo", 0, shown, &err)) << err.message;
   ASSERT_EQ(AO_OK, ao_eval("P9Foo new foo", 13, AO_EVAL_PRINTIT, out, 64, &err));
   EXPECT_STREQ("nil", out);
   ao_runtime_shutdown();
@@ -3146,4 +3148,156 @@ TEST(AcceptAbi, AcceptMethodIdOnNoBehaviorAnswersErrLikeAcceptMethod) {
   EXPECT_EQ(AO_ERR, ao_accept_method_id(id, 1, "b12x\n  ^1\n", &err));
   EXPECT_STREQ("", err.message);
   ao_runtime_shutdown();
+}
+
+namespace {
+
+// P18: saves the running session to path, boots again and loads it.
+void p18SaveAndReload(const char* path) {
+  ASSERT_EQ(AO_OK, ao_image_save(path));
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_image_load(path, &err)) << err.message;
+}
+
+void p18Define(const char* ivars) {
+  AoSpan err{};
+  const std::string def = std::string("Object subclass: #P18Re\n  instanceVariableNames: '") +
+                          ivars + "'\n  classVariableNames: ''\n  poolDictionaries: ''\n"
+                          "  category: 'P18'\n";
+  ASSERT_EQ(AO_OK, ao_accept_class(def.c_str(), &err)) << err.message;
+}
+
+std::string p18Source(const char* selector) {
+  char shown[256] = "";
+  const int rc = ao_browser_source(ao_browser_class_id("P18Re"), 0, selector, shown, 256);
+  return rc == AO_OK ? std::string(shown) : "rc " + std::to_string(rc);
+}
+
+std::string p18PrintIt(const char* expr) {
+  char out[64] = "";
+  AoSpan err{};
+  const int rc = ao_eval(expr, static_cast<int>(std::strlen(expr)), AO_EVAL_PRINTIT, out, 64, &err);
+  return rc == AO_OK ? std::string(out) : std::string("error: ") + err.message;
+}
+
+}  // namespace
+
+// P18 Review Focus 1: a class loaded from an image changes shape; its methods are compiled again
+// from the restored sources, keep working and keep their source.
+// x moves from the first slot to the second: a method moved without compiling it again would still
+// read and write the first, which is y now.
+TEST(AcceptAbi, ReshapeAfterLoadRecompilesFromRestoredSource) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("x");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "x\n  ^x", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "x: v\n  x := v", &err)) << err.message;
+  p18SaveAndReload("p18-reshape.aoimage");
+  p18Define("y x");
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "y: v\n  y := v", &err)) << err.message;
+  EXPECT_EQ("3", p18PrintIt("P18Re new x: 3; y: 4; x"));
+  EXPECT_EQ("x: v\n  x := v", p18Source("x:"));
+  ao_runtime_shutdown();
+  std::remove("p18-reshape.aoimage");
+}
+
+// SPEC §3.10 (P18): out of memory while the sources go back stops there. The root table cannot
+// grow for the first entry, so neither method keeps one, and nothing escapes.
+TEST(AcceptAbi, RestoreStopsAtTheFirstEntryWithoutMemory) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "one\n  ^1", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "two\n  ^2", &err)) << err.message;
+  {
+    ao::Session& s = *ao::session();
+    std::vector<ao::Oop> methods{p10Method("P18Re", "one"), p10Method("P18Re", "two")};
+    s.roots.pinRange(methods.data(), methods.size());
+    const std::vector<ao::ImageSource> sources{ao::ImageSource{methods[0], "one\n  ^1"},
+                                               ao::ImageSource{methods[1], "two\n  ^2"}};
+    ao::clearMethodSources();
+    s.roots.failSlotGrowthForTesting(0);
+    EXPECT_NO_THROW(ao::restoreMethodSources(s, sources, methods));
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    std::string kept;
+    EXPECT_FALSE(ao::methodSource(methods[0], kept));
+    EXPECT_FALSE(ao::methodSource(methods[1], kept)) << kept;
+    s.roots.unpinRange(methods.data(), methods.size());
+  }
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10 (P18): a source as large as a large object roots its class while it is made; when
+// that cannot be registered, the restore stops without throwing (the load still succeeds).
+TEST(AcceptAbi, RestoreOfALargeSourceWithoutRootsDoesNotThrow) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "one\n  ^1", &err)) << err.message;
+  {
+    ao::Session& s = *ao::session();
+    std::vector<ao::Oop> methods{p10Method("P18Re", "one")};
+    s.roots.pinRange(methods.data(), methods.size());
+    const std::vector<ao::ImageSource> sources{
+        ao::ImageSource{methods[0], std::string(ao::kLargeObjectBytes, 'x')}};
+    ao::clearMethodSources();
+    s.roots.failSlotGrowthForTesting(0);
+    EXPECT_NO_THROW(ao::restoreMethodSources(s, sources, methods));
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    std::string kept;
+    EXPECT_FALSE(ao::methodSource(methods[0], kept));
+    s.roots.unpinRange(methods.data(), methods.size());
+  }
+  ao_runtime_shutdown();
+}
+
+// P18 Review Focus 2: the restored entries are saved again by the next save.
+TEST(AcceptAbi, SourcesSurviveTwoRoundTrips) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "two\n  ^2", &err)) << err.message;
+  p18SaveAndReload("p18-twice.aoimage");
+  p18SaveAndReload("p18-twice.aoimage");
+  EXPECT_EQ("two\n  ^2", p18Source("two"));
+  ao_runtime_shutdown();
+  std::remove("p18-twice.aoimage");
+}
+
+// P18 Review Focus 3: a method accepted again after the load saves its new source only.
+TEST(AcceptAbi, ReacceptAfterLoadSavesTheNewSource) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "n\n  ^1", &err)) << err.message;
+  p18SaveAndReload("p18-reaccept.aoimage");
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "n\n  \"P18Newer\" ^2", &err)) << err.message;
+  p18SaveAndReload("p18-reaccept.aoimage");
+  EXPECT_EQ("n\n  \"P18Newer\" ^2", p18Source("n"));
+  EXPECT_EQ("2", p18PrintIt("P18Re new n"));
+  ao_runtime_shutdown();
+  std::ifstream in("p18-reaccept.aoimage", std::ios::binary);
+  const std::string bytes((std::istreambuf_iterator<char>(in)), {});
+  ASSERT_FALSE(bytes.empty());
+  EXPECT_EQ(std::string::npos, bytes.find("n\n  ^1"));
+  std::remove("p18-reaccept.aoimage");
+}
+
+// P18 Review Focus 4: a method removed after the load is not in the next save's sources.
+TEST(AcceptAbi, RemovedMethodAfterLoadIsNotSaved) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "gone\n  \"P18Gone\" ^0", &err)) << err.message;
+  p18SaveAndReload("p18-remove.aoimage");
+  ASSERT_EQ(AO_OK, ao_remove_method(ao_browser_class_id("P18Re"), 0, "gone", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_image_save("p18-remove.aoimage"));
+  ao_runtime_shutdown();
+  std::ifstream in("p18-remove.aoimage", std::ios::binary);
+  const std::string bytes((std::istreambuf_iterator<char>(in)), {});
+  ASSERT_FALSE(bytes.empty());
+  EXPECT_EQ(std::string::npos, bytes.find("P18Gone"));
+  std::remove("p18-remove.aoimage");
 }

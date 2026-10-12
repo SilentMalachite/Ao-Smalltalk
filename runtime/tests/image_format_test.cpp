@@ -46,6 +46,7 @@ TEST(ImageFormat, HeaderRoundTripAndRejects) {
   h.extraCount = 0;
   h.globalCount = 57;
   h.nextHash = 1;
+  h.sourcesBytes = 8;
   std::vector<std::byte> buf(ao::ImageFormat::kImageHeaderBytes);
   ao::ImageFormat::writeHeader(buf.data(), h);
   EXPECT_EQ(std::byte{'A'}, buf[0]);
@@ -56,16 +57,17 @@ TEST(ImageFormat, HeaderRoundTripAndRejects) {
   ASSERT_TRUE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out));
   EXPECT_EQ(127u, out.wellKnownCount);
   EXPECT_EQ(1u, out.nextHash);
+  EXPECT_EQ(8u, out.sourcesBytes);
 
   buf[0] = std::byte{'X'};
   std::string reason;
   EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
   EXPECT_EQ("not an Ao image", reason);
   ao::ImageFormat::writeHeader(buf.data(), h);
-  buf[4] = std::byte{4};
+  buf[4] = std::byte{5};
   buf[5] = std::byte{0};
   EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
-  EXPECT_EQ("unsupported image version 4", reason);
+  EXPECT_EQ("unsupported image version 5", reason);
   ao::ImageFormat::writeHeader(buf.data(), h);
   buf[6] = std::byte{32};
   EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
@@ -93,7 +95,7 @@ TEST(ImageFormat, HeaderRoundTripAndRejects) {
 // ファイルが区別できなかった。版 1 はヘッダの段階で理由付きで拒む。B9 で Dictionary と Set が
 // ハッシュ表になり、形式の版は 3 になった。版 2 も同じく拒む。
 TEST(ImageFormat, VersionOneIsRefusedWithReason) {
-  EXPECT_EQ(3u, ao::ImageFormat::kImageVersion);
+  EXPECT_EQ(4u, ao::ImageFormat::kImageVersion);
   ao::ImageFormat::ImageHeader h;
   h.version = 1;
   h.pointerBits = ao::ImageFormat::kImagePointerBits;
@@ -111,4 +113,42 @@ TEST(ImageFormat, VersionOneIsRefusedWithReason) {
   ao::ImageFormat::writeHeader(buf.data(), h);
   EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
   EXPECT_EQ("unsupported image version 2", reason);
+}
+
+// P18 / SPEC §3.11: version 4 keeps the sources section's size in the header's last 8 bytes (8 or
+// more, a multiple of 8). Version 3 still reads, with no section; its last 8 bytes stay 0.
+TEST(ImageFormat, VersionThreeHasNoSourcesAndVersionFourNeedsASection) {
+  ao::ImageFormat::ImageHeader h;
+  h.pointerBits = ao::ImageFormat::kImagePointerBits;
+  h.endian = ao::ImageFormat::kImageEndianLittle;
+  h.heapBytes = 16;
+  h.wellKnownCount = 127;
+  h.globalCount = 57;
+  std::vector<std::byte> buf(ao::ImageFormat::kImageHeaderBytes);
+  ao::ImageFormat::ImageHeader out;
+  std::string reason;
+
+  h.version = ao::ImageFormat::kImageVersionNoSources;
+  h.sourcesBytes = 0;
+  ao::ImageFormat::writeHeader(buf.data(), h);
+  ASSERT_TRUE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason)) << reason;
+  EXPECT_EQ(3u, out.version);
+  EXPECT_EQ(0u, out.sourcesBytes);
+  h.sourcesBytes = 8;
+  ao::ImageFormat::writeHeader(buf.data(), h);
+  EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason));
+  EXPECT_EQ("damaged image", reason);
+
+  h.version = ao::ImageFormat::kImageVersion;
+  for (std::uint64_t bad : {std::uint64_t{0}, std::uint64_t{4}, std::uint64_t{12}}) {
+    h.sourcesBytes = bad;
+    ao::ImageFormat::writeHeader(buf.data(), h);
+    EXPECT_FALSE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason)) << bad;
+    EXPECT_EQ("damaged image", reason) << bad;
+  }
+  h.sourcesBytes = 24;
+  ao::ImageFormat::writeHeader(buf.data(), h);
+  ASSERT_TRUE(ao::ImageFormat::readHeader(buf.data(), buf.size(), &out, &reason)) << reason;
+  EXPECT_EQ(4u, out.version);
+  EXPECT_EQ(24u, out.sourcesBytes);
 }

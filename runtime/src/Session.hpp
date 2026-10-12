@@ -15,6 +15,8 @@
 
 namespace ao {
 
+struct ImageSource;
+
 // SPEC §3.8, §3.13: the pc→source spans and the temp names of one compiled body (a method or a
 // block), as the compiler made them. Spans are in the compiled text's coordinates.
 struct MethodDebugInfo {
@@ -244,6 +246,11 @@ bool debugSpanAt(Oop method, std::uint32_t pc, std::uint32_t& start, std::uint32
 // left out when withSnapshot is false.
 std::vector<const Oop*> methodSourceRootSlots(bool withSnapshot = true);
 void clearMethodSources();
+// SPEC §3.10 (P18): the loaded image's sources go back in s's table (the current session), each
+// without blocks or debug info, in the section's order. methods[i] is sources[i].method, pinned by
+// the caller. Out of memory stops there: the methods left have no entry. Never throws.
+void restoreMethodSources(Session& s, const std::vector<ImageSource>& sources,
+                          const std::vector<Oop>& methods);
 void ensureKernelNatives(Session& s);
 
 // SPEC §3.10 の文字列バッファ: text into buf with a NUL after it; AO_ERR_RANGE when cut (buf still

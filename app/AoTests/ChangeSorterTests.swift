@@ -352,6 +352,23 @@ final class ChangeSorterTests: XCTestCase {
     XCTAssertEqual(sorter.window.subtitle, "Before is current")
   }
 
+  // SPEC §3.9 Change Sorter (P18): after a load the restored set's method shows its source.
+  func testOpenImageShowsTheRestoredMethodSource() {
+    boot()
+    acceptClass("P18Shown")
+    acceptMethod("P18Shown", "shown\n  ^#shown")
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-p18-\(UUID().uuidString).aoimage")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertEqual(ao_image_save(url.path), Int32(AO_OK))
+    var err = AoSpan()
+    XCTAssertEqual(ao_image_load(url.path, &err), Int32(AO_OK), spanMessage(err))
+    let sorter = ChangeSorterWindow()
+    sorter.noteImageLoaded()
+    sorter.selectRows(set: 0, class: 0, method: 0)
+    XCTAssertEqual(sorter.sourceText, "shown\n  ^#shown")
+  }
+
   // SPEC §3.9 Change Sorter: the VoiceOver labels.
   func testPaneAccessibilityLabels() {
     boot()

@@ -518,9 +518,80 @@ int sessionImageSave(const char* path) {
   // SPEC §3.11: the halted processes (SPEC §3.13) are counted by the caller.
   const std::size_t halted =
       g_session->scheduler != nullptr ? g_session->scheduler->haltedCount() : 0;
-  return Image::save(g_session->heap, g_session->roots, g_session->wk, path, nullptr, halted) ? 0
-                                                                                               : 1;
+  // SPEC §3.10, §3.11 (P18): the table's sources go to the sources section; the doIt's do not.
+  // Nothing here or in Image::save collects, so the methods stay where they are.
+  std::vector<ImageSource> sources;
+  try {
+    sources.reserve(g_session->methodSources.size());
+    for (const auto& entry : g_session->methodSources) {
+      if (entry->text.isHeap() && (g_session->heap.flags(entry->text) & kFlagBytes) != 0) {
+        sources.push_back(ImageSource{entry->method, Str::toUtf8(g_session->heap, entry->text)});
+      }
+    }
+  } catch (const std::bad_alloc&) {
+    return 1;
+  }
+  return Image::save(g_session->heap, g_session->roots, g_session->wk, path, nullptr, halted,
+                     &sources)
+             ? 0
+             : 1;
 }
+
+// SPEC §3.10 (P18): the methods stay pinned while their Strings are made, which may collect. Out of
+// memory stops there: the methods left have no entry (a placeholder) and the load still succeeds.
+void restoreMethodSources(Session& s, const std::vector<ImageSource>& sources,
+                          const std::vector<Oop>& methods) {
+  // methods[i] is sources[i].method, already pinned by the caller (PinnedMethods), so it follows
+  // a collection; sources[i].method itself does not.
+  if (methods.size() != sources.size() || s.ctx == nullptr) {
+    return;
+  }
+  CallContext& ctx = *s.ctx;
+  // Making a String may need a root slot the table cannot grow for (std::bad_alloc): that is out
+  // of memory too, and the load has already replaced the session, so it must not escape.
+  try {
+    for (std::size_t i = 0; i < methods.size(); ++i) {
+      const Oop text = Str::fromUtf8(ctx, sources[i].text);
+      if (!text.isHeap()) {
+        s.heap.clearOutOfMemory();
+        break;
+      }
+      // Does not collect: text stays valid until it is in a rooted slot. Without the memory for
+      // the entry the method has none (rememberMethodSource does not throw): stop there as well.
+      const std::size_t before = s.methodSources.size();
+      rememberMethodSource(methods[i], text, Oop{}, nullptr);
+      if (s.methodSources.size() == before) {
+        break;
+      }
+    }
+  } catch (const std::bad_alloc&) {
+  }
+}
+
+namespace {
+
+// Pins the loaded image's source methods in the new session's roots from right after Image::load
+// until the guard dies (every path), so nothing that allocates in between can move them.
+struct PinnedMethods {
+  Roots& roots;
+  std::vector<Oop> methods;
+  PinnedMethods(Roots& r, const std::vector<ImageSource>& sources) : roots(r) {
+    try {
+      methods.reserve(sources.size());
+      for (const ImageSource& src : sources) {
+        methods.push_back(src.method);
+      }
+      roots.pinRange(methods.data(), methods.size());
+    } catch (const std::bad_alloc&) {
+      methods.clear();  // nothing pinned: the sources are not restored
+    }
+  }
+  ~PinnedMethods() { roots.unpinRange(methods.data(), methods.size()); }
+  PinnedMethods(const PinnedMethods&) = delete;
+  PinnedMethods& operator=(const PinnedMethods&) = delete;
+};
+
+}  // namespace
 
 int sessionImageLoad(const char* path, std::string* reason) {
   auto fail = [reason](const char* why) {
@@ -536,9 +607,12 @@ int sessionImageLoad(const char* path, std::string* reason) {
     return fail("image load failed");
   }
   auto next = std::make_unique<Session>(false);
-  if (!Image::load(next->heap, next->roots, next->wk, path, reason)) {
+  std::vector<ImageSource> sources;
+  if (!Image::load(next->heap, next->roots, next->wk, path, reason, &sources)) {
     return fail("image load failed");
   }
+  // Image::load does not root the sources' methods: pin them before anything allocates.
+  PinnedMethods pinned(next->roots, sources);
   HostOopHook inspect = nullptr;
   if (g_session->ctx != nullptr) {
     inspect = g_session->ctx->inspectHook;
@@ -559,6 +633,7 @@ int sessionImageLoad(const char* path, std::string* reason) {
   // Dropping the current session abandons its processes (~Session).
   g_session = std::move(next);
   clearMethodSources();
+  restoreMethodSources(*g_session, sources, pinned.methods);
   // SPEC §3.13: the load replaces the snapshot with an empty one (a probe may have filled it).
   sessionDebugClear();
   return 0;

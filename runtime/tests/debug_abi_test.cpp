@@ -1836,6 +1836,34 @@ TEST_F(LiveAccept, ProceedAfterAcceptAnswersNewMethodValue) {
   EXPECT_STREQ("42", out_);
 }
 
+// SPEC §3.10 ロード (P18): a method restored from an image has its own entry, so the Debugger
+// Accept works on it like on any installed method; the re-accepted source is then the entry.
+TEST_F(LiveAccept, AcceptWorksOnAMethodRestoredFromAnImage) {
+  defineClass("P18Dbg");
+  accept("P18Dbg", 0, "stop\n  self halt.\n  ^1");
+  const std::string path =
+      (std::filesystem::temp_directory_path() / "ao-debug-abi-p18accept.aoimage").string();
+  ASSERT_EQ(AO_OK, ao_image_save(path.c_str()));
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan lerr{};
+  ASSERT_EQ(AO_OK, ao_image_load(path.c_str(), &lerr)) << lerr.message;
+  std::remove(path.c_str());
+
+  ASSERT_EQ(AO_ERR_HALT, printIt("P18Dbg new stop"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("P18Dbg>>stop", label(1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, "stop\n  ^42")) << err_.message;
+  EXPECT_STREQ("accepted", err_.message);
+  ASSERT_EQ(AO_OK, proceed(pid)) << err_.message;
+  EXPECT_STREQ("42", out_);
+  const std::int64_t id = ao_browser_class_id("P18Dbg");
+  char buf[256] = "unset";
+  ASSERT_EQ(AO_OK, ao_browser_source(id, 0, "stop", buf, sizeof buf));
+  EXPECT_STREQ("stop\n  ^42", buf);
+}
+
 TEST_F(LiveAccept, AcceptKeepsReceiverAndArguments) {
   defineClass("DbgAccArgs", "k");
   accept("DbgAccArgs", 0, "setK: v\n  k := v");

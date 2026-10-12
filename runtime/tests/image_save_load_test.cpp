@@ -168,6 +168,33 @@ bool readHeapBytes(const std::filesystem::path& path, std::uint32_t* out) {
   return true;
 }
 
+// P18 / SPEC §3.11: where the sources section starts (the file's end less its size).
+std::size_t sourcesAt(const std::vector<char>& bytes) {
+  ao::ImageFormat::ImageHeader header;
+  if (!ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()), bytes.size(),
+                                   &header) ||
+      header.sourcesBytes > bytes.size()) {
+    return 0;
+  }
+  return bytes.size() - static_cast<std::size_t>(header.sourcesBytes);
+}
+
+// A version 4 image's bytes as version 3: no sources section, the header's last 8 bytes 0.
+std::vector<char> asVersionThree(std::vector<char> bytes) {
+  ao::ImageFormat::ImageHeader header;
+  EXPECT_TRUE(ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                          bytes.size(), &header));
+  bytes.resize(bytes.size() - static_cast<std::size_t>(header.sourcesBytes));
+  header.version = ao::ImageFormat::kImageVersionNoSources;
+  header.sourcesBytes = 0;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(bytes.data()), header);
+  return bytes;
+}
+
+void putU32(std::vector<char>& bytes, std::size_t at, std::uint32_t v) {
+  std::memcpy(bytes.data() + at, &v, sizeof v);
+}
+
 // OOP を書ける語だけを集める: heap 節の 8 バイト境界の語と、各レコードの値。
 // 任意の位置の 8 バイトを見ると、old の番地（mmap なので 0x7000000000 のように下位が 0）が
 // 隣り合う 2 語の境目に偶然現れる。
@@ -194,6 +221,18 @@ bool oopWords(const std::vector<char>& bytes, std::vector<std::uint64_t>* out) {
     if (cursor + 8 > bytes.size()) return false;
     out->push_back(word(cursor));
     cursor += 8;
+  }
+  if (cursor + header.sourcesBytes != bytes.size()) return false;
+  if (header.sourcesBytes == 0) return true;
+  std::uint32_t count = 0;
+  std::memcpy(&count, p + cursor, sizeof count);
+  cursor += 8;
+  for (std::uint32_t i = 0; i < count; ++i) {
+    if (cursor + 16 > bytes.size()) return false;
+    out->push_back(word(cursor));
+    std::uint32_t length = 0;
+    std::memcpy(&length, p + cursor + 8, sizeof length);
+    cursor += 16 + length + (8u - length % 8u) % 8u;
   }
   return cursor == bytes.size();
 }
@@ -859,7 +898,7 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
   std::vector<char> bytes = readAll(path);
   ASSERT_GT(bytes.size(), 6u);
-  EXPECT_EQ(3, bytes[4]);
+  EXPECT_EQ(4, bytes[4]);
   EXPECT_EQ(0, bytes[5]);
   {
     Loaded current;
@@ -913,13 +952,113 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ASSERT_TRUE(writeAll(path, bytes));
   EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str(), &err));
   EXPECT_STREQ("unsupported image version 2", err.message);
-  bytes[4] = 3;
+  bytes[4] = 4;
   ASSERT_TRUE(writeAll(path, bytes));
   EXPECT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err));
   EXPECT_STREQ("", err.message);
   ao_runtime_shutdown();
   std::filesystem::remove(path);
   std::filesystem::remove(garbage);
+}
+
+// P18 / SPEC §3.11: a version 3 image (no sources section) still loads; the loaded image has no
+// sources. Version 5 is refused at the header with its reason.
+TEST(ImageSaveLoad, VersionThreeImageLoadsWithoutSources) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-version-3.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  std::vector<char> bytes = readAll(path);
+  ASSERT_EQ(4, bytes[4]);
+  ASSERT_TRUE(writeAll(path, asVersionThree(bytes)));
+  {
+    Loaded old;
+    std::string reason;
+    std::vector<ao::ImageSource> sources{ao::ImageSource{ao::Oop::nil(), "stale"}};
+    ASSERT_TRUE(ao::Image::load(old.heap, old.roots, old.wk, path.string(), &reason, &sources))
+        << reason;
+    EXPECT_TRUE(sources.empty());
+  }
+  bytes[4] = 5;
+  ASSERT_TRUE(writeAll(path, bytes));
+  Loaded future;
+  std::string reason;
+  EXPECT_FALSE(ao::Image::load(future.heap, future.roots, future.wk, path.string(), &reason));
+  EXPECT_EQ("unsupported image version 5", reason);
+  EXPECT_EQ(0u, future.heap.oldUsed());
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a save writes an empty sources section (count 0) when it has no sources; a
+// count the section cannot hold, a non-zero pad after the count, and bytes after the last entry
+// are a damaged image, refused before the heap is adopted.
+TEST(ImageSaveLoad, RefusesSourcesSectionThatDoesNotParse) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-bad-sources.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> good = readAll(path);
+  const std::size_t at = sourcesAt(good);
+  ASSERT_EQ(good.size() - 8, at);
+  std::uint32_t count = 1;
+  std::memcpy(&count, good.data() + at, sizeof count);
+  EXPECT_EQ(0u, count);
+
+  auto refused = [&](const std::vector<char>& bytes, const char* what) {
+    SCOPED_TRACE(what);
+    ASSERT_TRUE(writeAll(path, bytes));
+    Loaded image;
+    std::string reason;
+    EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string(), &reason));
+    EXPECT_EQ("damaged image", reason);
+    EXPECT_EQ(0u, image.heap.oldUsed());
+  };
+  std::vector<char> bytes = good;
+  putU32(bytes, at, 1);
+  refused(bytes, "a count with no entry");
+  bytes = good;
+  putU32(bytes, at + 4, 7);
+  refused(bytes, "a non-zero pad after the count");
+  bytes = good;
+  bytes.resize(bytes.size() + 8, '\0');
+  ao::ImageFormat::ImageHeader header;
+  ASSERT_TRUE(ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                          bytes.size(), &header));
+  header.sourcesBytes += 8;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(bytes.data()), header);
+  refused(bytes, "bytes after the last entry");
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: the sources section's pairs are checked from the file before the body is read.
+// A header whose sourcesBytes and the file's size agree, over a section of count 0 followed by a
+// hole of 1 PiB (a sparse file), is a damaged image, refused without allocating the file's bytes.
+TEST(ImageSaveLoad, RefusesHugeSourcesSectionBeforeReadingTheBody) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-huge-sources.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  std::vector<char> bytes = readAll(path);
+  ao::ImageFormat::ImageHeader header;
+  ASSERT_TRUE(ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                          bytes.size(), &header));
+  ASSERT_EQ(8u, header.sourcesBytes);
+  const std::uint64_t huge = std::uint64_t{1} << 50;
+  header.sourcesBytes = huge;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(bytes.data()), header);
+  ASSERT_TRUE(writeAll(path, bytes));
+  std::error_code ec;
+  std::filesystem::resize_file(path, bytes.size() - 8 + huge, ec);
+  if (ec) {
+    std::filesystem::remove(path);
+    GTEST_SKIP() << "the file system cannot make a sparse file: " << ec.message();
+  }
+  Loaded image;
+  std::string reason;
+  bool loaded = true;
+  EXPECT_NO_THROW(loaded = ao::Image::load(image.heap, image.roots, image.wk, path.string(),
+                                           &reason));
+  EXPECT_FALSE(loaded);
+  EXPECT_EQ("damaged image", reason);
+  EXPECT_EQ(0u, image.heap.oldUsed());
+  std::filesystem::remove(path);
 }
 
 // B6 review (06 High #1) / SPEC §3.11: 失敗シナリオ。保存は保存先を切り詰めて直接書いていたので、書き込みが
@@ -1791,4 +1930,140 @@ TEST(ImageSave, SaveWithHaltedProcessIsRefused) {
   EXPECT_EQ("halted processes", why);
   EXPECT_EQ(before, std::filesystem::last_write_time(path));
   EXPECT_EQ(size, std::filesystem::file_size(path));
+}
+
+namespace {
+
+// P18: a session image with the accepted methods P18Src>>a ("a\n  ^1") and, when two,
+// P18Src>>b ("b\n  ^2"), in that order in the source table. The runtime is shut down after.
+std::filesystem::path saveWithSources(const char* file, bool two) {
+  const auto path = std::filesystem::path(testing::TempDir()) / file;
+  EXPECT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  EXPECT_EQ(AO_OK, ao_accept_class("Object subclass: #P18Src\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P18'\n",
+                                   &err))
+      << err.message;
+  EXPECT_EQ(AO_OK, ao_accept_method("P18Src", 0, "a\n  ^1", &err)) << err.message;
+  if (two) {
+    EXPECT_EQ(AO_OK, ao_accept_method("P18Src", 0, "b\n  ^2", &err)) << err.message;
+  }
+  EXPECT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ao_runtime_shutdown();
+  return path;
+}
+
+// Loads bytes from path with Image::load and expects the damaged-image refusal, nothing adopted.
+void expectDamaged(const std::filesystem::path& path, const std::vector<char>& bytes) {
+  ASSERT_TRUE(writeAll(path, bytes));
+  Loaded image;
+  std::string reason;
+  EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string(), &reason));
+  EXPECT_EQ("damaged image", reason);
+  EXPECT_EQ(0u, image.heap.oldUsed());
+}
+
+}  // namespace
+
+// P18 / SPEC §3.10, §3.11: an accepted method's source comes back after a save and a load, byte
+// for byte (multi-byte UTF-8 too), for ao_browser_source and sourceCodeAt:. The doIt's text is
+// not written.
+TEST(ImageSaveLoad, AcceptedSourceSurvivesSaveAndLoad) {
+  const auto path = std::filesystem::path(testing::TempDir()) / "p18-sources.aoimage";
+  const char* japanese = "greet\n  \"挨拶を返す\"\n  ^'こんにちは'";
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #P18Src\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P18'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Src", 0, "a\n  ^1", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Src", 1, japanese, &err)) << err.message;
+  char out[64];
+  ASSERT_EQ(AO_OK, ao_eval("\"P18DoItMarker\" 3 + 4", 21, AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ao_runtime_shutdown();
+  const std::vector<char> bytes = readAll(path);
+  const std::string text(bytes.begin(), bytes.end());
+  EXPECT_EQ(std::string::npos, text.find("P18DoItMarker"));
+  EXPECT_NE(std::string::npos, text.find("a\n  ^1"));
+
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  char shown[256];
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("P18Src"), 0, "a", shown, 256));
+  EXPECT_STREQ("a\n  ^1", shown);
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("P18Src"), 1, "greet", shown, 256));
+  EXPECT_STREQ(japanese, shown);
+  ASSERT_EQ(AO_OK, ao_eval("(P18Src sourceCodeAt: #a) size", 30, AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("6", out);
+  ao_runtime_shutdown();
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a source for an object that is not a CompiledMethod.
+TEST(ImageSaveLoad, RefusesSourceForAnObjectThatIsNoMethod) {
+  const auto path = saveWithSources("p18-not-method.aoimage", false);
+  ImageSurgery image(path);
+  const std::size_t at = sourcesAt(image.bytes);
+  image.setWord(at + 8, image.record("Smalltalk"));
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a source whose method offset is past the heap.
+TEST(ImageSaveLoad, RefusesSourceOutsideTheHeap) {
+  const auto path = saveWithSources("p18-outside.aoimage", false);
+  ImageSurgery image(path);
+  image.setWord(sourcesAt(image.bytes) + 8, image.header.heapBytes + 8);
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: the same method twice.
+TEST(ImageSaveLoad, RefusesRepeatedSourceMethod) {
+  const auto path = saveWithSources("p18-repeat.aoimage", true);
+  ImageSurgery image(path);
+  const std::size_t at = sourcesAt(image.bytes);
+  image.setWord(at + 32, image.word(at + 8));
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a length that runs past the file.
+TEST(ImageSaveLoad, RefusesSourceRunningPastTheFile) {
+  const auto path = saveWithSources("p18-past.aoimage", false);
+  ImageSurgery image(path);
+  putU32(image.bytes, sourcesAt(image.bytes) + 16, 0xFFFFu);
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: padding that is not 0 (after the length, and after the bytes).
+TEST(ImageSaveLoad, RefusesNonZeroSourcePadding) {
+  const auto path = saveWithSources("p18-pad.aoimage", false);
+  ImageSurgery image(path);
+  const std::size_t at = sourcesAt(image.bytes);
+  std::vector<char> bytes = image.bytes;
+  putU32(bytes, at + 20, 1);
+  expectDamaged(path, bytes);
+  bytes = image.bytes;
+  bytes[at + 24 + 6] = 'x';
+  expectDamaged(path, bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a sourcesBytes the file's size does not agree with.
+TEST(ImageSaveLoad, RefusesSourcesBytesThatDisagreeWithTheFile) {
+  const auto path = saveWithSources("p18-size.aoimage", false);
+  ImageSurgery image(path);
+  ao::ImageFormat::ImageHeader header = image.header;
+  header.sourcesBytes += 8;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(image.bytes.data()), header);
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
 }
