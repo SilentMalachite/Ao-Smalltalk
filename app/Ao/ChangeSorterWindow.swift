@@ -19,6 +19,8 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
   private let currentButton: NSButton
   private let fileOutButton: NSButton
   private var applying = false
+  // Image loads seen (noteImageLoaded). Set IDs start over in each image (P17).
+  private var loads = 0
 
   // Asked for the new set's name, with the suggested one; the callback gets nil for Cancel. Tests
   // replace it.
@@ -170,6 +172,7 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
 
   // SPEC §3.9 Change Sorter: a load started the sets over; the current set is selected.
   func noteImageLoaded() {
+    loads += 1
     model.select(setID: nil)
     errorField.stringValue = ""
     show()
@@ -224,8 +227,11 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
     guard let id = model.selectedSetID, let name = model.selectedSetName else {
       return
     }
+    // SPEC §3.9 File Out… (P17): after a load the ID names a set of another image, so nothing is
+    // written.
+    let loadsAsked = loads
     chooseFileOut(window, name + ".st") { [weak self] url in
-      guard let self, let url else {
+      guard let self, let url, self.loads == loadsAsked else {
         return
       }
       self.report(fileOutChangeSet(id, to: url))

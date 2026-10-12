@@ -299,6 +299,31 @@ final class ChangeSorterTests: XCTestCase {
     XCTAssertEqual(sorter.errorText, "cannot write file: \(url.path)")
   }
 
+  // SPEC §3.9 Change Sorter (P17): IDs start over in each image, so a File Out sheet answered after
+  // a load writes nothing (the ID would name another image's set).
+  func testFileOutAnsweredAfterImageLoadWritesNothing() {
+    boot()
+    let sorter = ChangeSorterWindow()
+    let image = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-p17-\(UUID().uuidString).aoimage")
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-p17-\(UUID().uuidString).st")
+    defer {
+      try? FileManager.default.removeItem(at: image)
+      try? FileManager.default.removeItem(at: url)
+    }
+    XCTAssertEqual(ao_image_save(image.path), Int32(AO_OK))
+    var pending: (@MainActor (URL?) -> Void)?
+    sorter.chooseFileOut = { _, _, answer in pending = answer }
+    sorter.fileOut()
+    var err = AoSpan()
+    XCTAssertEqual(ao_image_load(image.path, &err), Int32(AO_OK), spanMessage(err))
+    sorter.noteImageLoaded()
+    pending?(url)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    XCTAssertEqual(sorter.errorText, "")
+  }
+
   // Review Focus 3: an Accept made while the window is open shows when the window becomes key.
   func testBecomingKeyReadsTheSetsAgain() {
     boot()
@@ -439,6 +464,23 @@ final class ChangeSorterTests: XCTestCase {
     sorter.reload()
     XCTAssertFalse(sorter.model.readRefused)
     XCTAssertEqual(sorter.errorText, "")
+  }
+
+  // SPEC §3.9 Change Sorter (P17): a read refused after the count (here the model fails in
+  // classChanges) leaves the lists and the selection as they were, as a busy count does.
+  func testReadRefusedAfterTheCountKeepsTheListsAndSelection() {
+    boot()
+    acceptClass("P17Kept")
+    let sorter = ChangeSorterWindow()
+    sorter.selectRows(set: 0, class: 0)
+    XCTAssertEqual(sorter.classTitles, ["P17Kept +"])
+    XCTAssertEqual(sorter.model.selectedClass, "P17Kept")
+    acceptMethod("ChangeSet", "classChanges\n  ^self error: 'broken'")
+    sorter.reload()
+    XCTAssertTrue(sorter.model.readRefused)
+    XCTAssertEqual(sorter.classTitles, ["P17Kept +"])
+    XCTAssertEqual(sorter.model.selectedClass, "P17Kept")
+    XCTAssertEqual(sorter.errorText, "runtime is busy")
   }
 
   // SPEC §3.9 Change Sorter (P17): a row picked while the runtime is busy is not selected; the
