@@ -6,6 +6,8 @@
 #include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Heap.hpp"
+#include "ao/Image.hpp"
 #include "ao/MethodDictionary.hpp"
 
 #include <algorithm>
@@ -3199,6 +3201,56 @@ TEST(AcceptAbi, ReshapeAfterLoadRecompilesFromRestoredSource) {
   EXPECT_EQ("x: v\n  x := v", p18Source("x:"));
   ao_runtime_shutdown();
   std::remove("p18-reshape.aoimage");
+}
+
+// SPEC §3.10 (P18): out of memory while the sources go back stops there. The root table cannot
+// grow for the first entry, so neither method keeps one, and nothing escapes.
+TEST(AcceptAbi, RestoreStopsAtTheFirstEntryWithoutMemory) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "one\n  ^1", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "two\n  ^2", &err)) << err.message;
+  {
+    ao::Session& s = *ao::session();
+    std::vector<ao::Oop> methods{p10Method("P18Re", "one"), p10Method("P18Re", "two")};
+    s.roots.pinRange(methods.data(), methods.size());
+    const std::vector<ao::ImageSource> sources{ao::ImageSource{methods[0], "one\n  ^1"},
+                                               ao::ImageSource{methods[1], "two\n  ^2"}};
+    ao::clearMethodSources();
+    s.roots.failSlotGrowthForTesting(0);
+    EXPECT_NO_THROW(ao::restoreMethodSources(s, sources, methods));
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    std::string kept;
+    EXPECT_FALSE(ao::methodSource(methods[0], kept));
+    EXPECT_FALSE(ao::methodSource(methods[1], kept)) << kept;
+    s.roots.unpinRange(methods.data(), methods.size());
+  }
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10 (P18): a source as large as a large object roots its class while it is made; when
+// that cannot be registered, the restore stops without throwing (the load still succeeds).
+TEST(AcceptAbi, RestoreOfALargeSourceWithoutRootsDoesNotThrow) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  p18Define("");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "one\n  ^1", &err)) << err.message;
+  {
+    ao::Session& s = *ao::session();
+    std::vector<ao::Oop> methods{p10Method("P18Re", "one")};
+    s.roots.pinRange(methods.data(), methods.size());
+    const std::vector<ao::ImageSource> sources{
+        ao::ImageSource{methods[0], std::string(ao::kLargeObjectBytes, 'x')}};
+    ao::clearMethodSources();
+    s.roots.failSlotGrowthForTesting(0);
+    EXPECT_NO_THROW(ao::restoreMethodSources(s, sources, methods));
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    std::string kept;
+    EXPECT_FALSE(ao::methodSource(methods[0], kept));
+    s.roots.unpinRange(methods.data(), methods.size());
+  }
+  ao_runtime_shutdown();
 }
 
 // P18 Review Focus 2: the restored entries are saved again by the next save.

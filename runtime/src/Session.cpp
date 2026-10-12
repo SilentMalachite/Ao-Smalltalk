@@ -537,12 +537,8 @@ int sessionImageSave(const char* path) {
              : 1;
 }
 
-namespace {
-
-// SPEC §3.10 (P18): the loaded image's sources go back in the table, each without blocks or debug
-// info, in the section's order. The methods stay pinned while their Strings are made, which may
-// collect. Out of memory stops there: the methods left have no entry (a placeholder) and the load
-// still succeeds.
+// SPEC §3.10 (P18): the methods stay pinned while their Strings are made, which may collect. Out of
+// memory stops there: the methods left have no entry (a placeholder) and the load still succeeds.
 void restoreMethodSources(Session& s, const std::vector<ImageSource>& sources,
                           const std::vector<Oop>& methods) {
   // methods[i] is sources[i].method, already pinned by the caller (PinnedMethods), so it follows
@@ -551,16 +547,28 @@ void restoreMethodSources(Session& s, const std::vector<ImageSource>& sources,
     return;
   }
   CallContext& ctx = *s.ctx;
-  for (std::size_t i = 0; i < methods.size(); ++i) {
-    const Oop text = Str::fromUtf8(ctx, sources[i].text);
-    if (!text.isHeap()) {
-      s.heap.clearOutOfMemory();
-      break;
+  // Making a String may need a root slot the table cannot grow for (std::bad_alloc): that is out
+  // of memory too, and the load has already replaced the session, so it must not escape.
+  try {
+    for (std::size_t i = 0; i < methods.size(); ++i) {
+      const Oop text = Str::fromUtf8(ctx, sources[i].text);
+      if (!text.isHeap()) {
+        s.heap.clearOutOfMemory();
+        break;
+      }
+      // Does not collect: text stays valid until it is in a rooted slot. Without the memory for
+      // the entry the method has none (rememberMethodSource does not throw): stop there as well.
+      const std::size_t before = s.methodSources.size();
+      rememberMethodSource(methods[i], text, Oop{}, nullptr);
+      if (s.methodSources.size() == before) {
+        break;
+      }
     }
-    // Does not collect: text stays valid until it is in a rooted slot.
-    rememberMethodSource(methods[i], text, Oop{}, nullptr);
+  } catch (const std::bad_alloc&) {
   }
 }
+
+namespace {
 
 // Pins the loaded image's source methods in the new session's roots from right after Image::load
 // until the guard dies (every path), so nothing that allocates in between can move them.
