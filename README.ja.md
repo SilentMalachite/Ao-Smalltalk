@@ -15,7 +15,7 @@ English (canonical GitHub text): [README.md](README.md)
 
 ## 現状
 
-**Ao 1.4.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P15 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を（1.3.0）、P15 で Debugger の編集と Accept を足しました（1.4.0）。
+**Ao 1.7.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P18 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を（1.3.0）、P15 で Debugger の編集と Accept を（1.4.0）、P16–P18 でチェンジセット、Change Sorter、イメージへのメソッドソースの保存を足しました（1.7.0。1.5.0 と 1.6.0 はリリースしていません）。
 
 | 領域 | できること |
 |---|---|
@@ -25,9 +25,10 @@ English (canonical GitHub text): [README.md](README.md)
 | コンパイラ | Smalltalk-80 ソース → AST → `CompiledMethod`（バイトコード）。チャンク形式の file-in |
 | インタプリタ | ユーザーメソッド、外側の temp を共有するブロック、非局所リターン、`ensure:`、協調プロセス、`Semaphore`、`SharedQueue` |
 | クラスライブラリ | 非 Kernel クラスを、版を固定した Cuis-Smalltalk の抜粋（`image/vendor`）から file-in する |
-| イメージ | `.aoimage` の保存と読み込み。ネイティブメソッドはロード時にシンボル名で結び直す |
-| ツール | AppKit の Transcript、Workspace（Do it / Print it / Inspect it / Debug it）、Accept と削除ができる 5 ペインの System Browser |
+| イメージ | `.aoimage` の保存と読み込み（版 4。Accept したメソッドのソースを含む）。ネイティブメソッドはロード時にシンボル名で結び直す |
+| ツール | AppKit の Transcript、Workspace（Do it / Print it / Inspect it / Debug it）、Accept と削除ができる 5 ペインの System Browser、File In…、Change Sorter |
 | デバッガ | `halt` と失敗で評価を止め、Debugger 窓で Proceed、Abort、Step over、Step into、Step out を行う（P10、P11）。走っている評価も ⌘. でここに止める（P13）。選んだフレームを Restart でやり直す（P14）。ライブ Debugger のソース欄は編集して Accept でき、新しいメソッドでそのフレームを最初からやり直す（P15） |
+| チェンジセット | Accept と削除をチェンジセットに記録する（P16）。Change Sorter でセットを作り、項目を移す・忘れる、セットを `.st` に File Out する。チェンジセットは Smalltalk のクラス `ChangeSet` で、メソッドのソース（P18）とともにイメージに保存する（P17） |
 
 ## インストール
 
@@ -37,8 +38,8 @@ English (canonical GitHub text): [README.md](README.md)
 
 | ファイル | 中身 |
 |---|---|
-| `Ao-1.4.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
-| `ao-cli-1.4.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
+| `Ao-1.7.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
+| `ao-cli-1.7.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
 | `SHA256SUMS` | 上の 2 つのアーカイブの SHA-256 |
 
 ダウンロードを確かめます。
@@ -51,7 +52,7 @@ shasum -a 256 -c SHA256SUMS
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.4.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.7.0-macos-arm64/ao
 ```
 
 ## Ao.app の使い方
@@ -97,7 +98,11 @@ Object class class == Metaclass.
 
 Proceed や step で Print it が終わると、結果が Workspace に入ります。Debugger を閉じると評価を中止します。スタックあふれ、メモリ不足、デッドロックは止めずに中止します。そのときは Workspace に **Debug** ボタンが出て、中止が始まったときのスタックを開けます。評価が止まっている間は、イメージを保存できません。
 
-**File → Save Image…** は自分のクラスとメソッドを含む `.aoimage` を書きます。**File → Open Image…** で読み戻します。
+**File → Save Image…** は自分のクラス、メソッド、そのソース、チェンジセットを含む `.aoimage` を書きます。**File → Open Image…** で読み戻します。1.4.0 で保存したイメージもソース無しで読めます。1.7.0 で保存したイメージは 1.4.0 では開けません。
+
+### チェンジセット
+
+Accept と削除はすべて現在のチェンジセットに記録されます（`+` 追加、`~` 変更、`−` 削除）。**Tools → Change Sorter** はセット、そのクラスとメソッド、選んだ項目のソースを出します。**New…** でセットを作って現在のセットにし、**Make Current** で別のセットを選びます。項目を右クリックして **Remove from Change Set**（メソッドとクラスは残る）か **Move to** で別のセットに移します。**File Out…** は選んだセットをチャンク形式の `.st` に書き、削除はコメントになります。**File → File In…** で `.st` を読み戻すと、メソッドはソースを持ったまま現在のセットに記録され、結果が Transcript に出ます。
 
 **Tools** には **Use Fixed Pitch** と文字の大きさのコマンド（**Make Text Bigger** ⌘+、**Make Text Smaller** ⌘-、**Actual Size** ⌘0）もあります。大きさは Transcript、Workspace、Browser のソースペインで共通です。
 
@@ -106,7 +111,7 @@ Proceed や step で Print it が終わると、結果が Workspace に入りま
 ## `ao` CLI の使い方
 
 ```sh
-ao --version                               # 1.4.0
+ao --version                               # 1.7.0
 ao filein hello.st                         # チャンク形式のファイルを 1 つ file-in する
 ao filein --load-order vendor/LOAD_ORDER   # クラスライブラリを順に file-in する
 ao --test tests/                           # tests/ の *.st をすべてゴールデンテストとして実行する

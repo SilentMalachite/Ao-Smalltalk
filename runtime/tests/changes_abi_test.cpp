@@ -956,6 +956,36 @@ TEST_F(ChangesAbi, FiledOutSetFilesBackInAfterBoot) {
   std::filesystem::remove(path);
 }
 
+// SPEC §6 チェンジセット item 4: a filed-out set with a removal files back in after a new boot. The
+// definitions and sources come back and are recorded in the current set; the removal's comment
+// chunk is skipped, so it neither fails the File In nor records anything.
+TEST_F(ChangesAbi, FiledOutRemovalCommentIsSkippedWhenFiledBackIn) {
+  defineClass("P16Back", "Object", "count", "Trips");
+  accept("P16Back", 0, "reset\n  count := 0");
+  const std::int64_t set = newSet("Back");
+  defineClass("P16Back", "Object", "count", "Trips");
+  accept("P16Back", 0, "increment\n  count := (count ifNil: [0]) + 1.\n  ^count");
+  EXPECT_EQ("", removeMethod("P16Back", 0, "reset"));
+  const std::string path = tempPath("back.st");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_changes_file_out(set, path.c_str(), &err)) << err.message;
+  const std::string first = afterHeader(readFile(path));
+  const std::string removal = "\"Removed: P16Back>>reset\"!\n";
+  ASSERT_NE(std::string::npos, first.find(removal)) << first;
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  bootWithModel();
+  ASSERT_EQ(AO_OK, ao_filein_file(path.c_str(), &err)) << err.message;
+  EXPECT_EQ("increment\n  count := (count ifNil: [0]) + 1.\n  ^count",
+            sourceOf("P16Back", 0, "increment"));
+  const std::int64_t current = ao_changes_current();
+  EXPECT_EQ(std::vector<std::string>{"P16Back+"}, classesOf(current));
+  EXPECT_EQ(std::vector<std::string>{"increment+"}, methodsOf(current, "P16Back", 0));
+  std::string without = first;
+  without.erase(without.find(removal), removal.size());
+  EXPECT_EQ(without, afterHeader(fileOut(current, "back-again.st")));
+  std::filesystem::remove(path);
+}
+
 // SPEC §3.10 File In...: a Kernel class's methodsFor: chunk is not refused wholesale, so a File Out of
 // a set that extends Object files back in after a new boot, and the class chunk after it is read.
 TEST_F(ChangesAbi, FiledOutKernelExtensionFilesBackIn) {
