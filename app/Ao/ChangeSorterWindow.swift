@@ -154,12 +154,18 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
   // SPEC §3.9 Change Sorter: reads the runtime again and shows it.
   func reload() {
     model.refresh()
+    noteRead()
+    show()
+  }
+
+  // SPEC §3.9 Change Sorter (P17): a refused read says `runtime is busy`; the next read that is not
+  // refused clears that text (and only that text).
+  private func noteRead() {
     if model.readRefused {
       errorField.stringValue = "runtime is busy"
     } else if errorField.stringValue == "runtime is busy" {
       errorField.stringValue = ""
     }
-    show()
   }
 
   // SPEC §3.9 Change Sorter: a load started the sets over; the current set is selected.
@@ -191,6 +197,7 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
       className: className,
       method: method.flatMap { value(at: $0, in: model.methods) }
     )
+    noteRead()
     show()
   }
 
@@ -282,6 +289,7 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
         method: value(at: methodTable.selectedRow, in: model.methods)
       )
     }
+    noteRead()
     show()
   }
 

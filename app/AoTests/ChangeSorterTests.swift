@@ -441,6 +441,37 @@ final class ChangeSorterTests: XCTestCase {
     XCTAssertEqual(sorter.errorText, "")
   }
 
+  // SPEC §3.9 Change Sorter (P17): a row picked while the runtime is busy is not selected; the
+  // previous selection, the lists and the source stay, the error field says busy, and the next read
+  // shows the lists again and clears the line.
+  func testSelectionChangeWhileBusyKeepsThePreviousSelectionAndSaysBusy() {
+    boot()
+    acceptClass("P17Busy")
+    acceptMethod("P17Busy", "a\n  ^1")
+    var err = AoSpan()
+    XCTAssertEqual(ao_changes_new("Other", nil, &err), Int32(AO_OK), spanMessage(err))
+    let sorter = ChangeSorterWindow()
+    sorter.reload()
+    sorter.selectRows(set: 0, class: 0, method: 0)
+    let source = sorter.sourceText
+    XCTAssertEqual(sorter.methodTitles, ["a +"])
+    let selected = sorter.model.selectedSetID
+    whileBusy {
+      sorter.selectRows(set: 1)
+      XCTAssertEqual(sorter.model.selectedSetID, selected)
+      XCTAssertEqual(sorter.model.selectedClass, "P17Busy")
+      XCTAssertEqual(sorter.model.selectedMethod?.selector, "a")
+      XCTAssertEqual(sorter.classTitles, ["P17Busy +"])
+      XCTAssertEqual(sorter.methodTitles, ["a +"])
+      XCTAssertEqual(sorter.sourceText, source)
+      XCTAssertEqual(sorter.errorText, "runtime is busy")
+    }
+    sorter.reload()
+    XCTAssertEqual(sorter.errorText, "")
+    XCTAssertEqual(sorter.classTitles, ["P17Busy +"])
+    XCTAssertEqual(sorter.sourceText, source)
+  }
+
   // SPEC §3.9 Change Sorter (P17): Open Image… shows the sets the image was saved with.
   func testOpenImageShowsTheSavedSets() {
     let app = launchApp()

@@ -105,11 +105,17 @@ final class ChangeSorterModel {
     source = loadSource()
   }
 
+  // A selection the runtime cannot read for (readRefused) is not made: the previous selection stays
+  // with the lists and the source it matches.
   func select(setID: Int64?, className: String? = nil, method: ChangeMethodRow? = nil) {
+    let previous = (selectedSetID, selectedClass, selectedMethod)
     selectedSetID = setID
     selectedClass = className
     selectedMethod = className == nil ? nil : method
     refresh()
+    if readRefused {
+      (selectedSetID, selectedClass, selectedMethod) = previous
+    }
   }
 
   // SPEC §3.9 Change Sorter: the smallest Unnamed<n>, n from 1, that no set is named.
