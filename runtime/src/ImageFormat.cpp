@@ -95,6 +95,7 @@ void ImageFormat::writeHeader(std::byte* dst, const ImageHeader& h) {
   d.extraCount = h.extraCount;
   d.globalCount = h.globalCount;
   d.nextHash = h.nextHash;
+  d.reserved64 = h.sourcesBytes;
   std::memcpy(dst, &d, sizeof(d));
 }
 
@@ -115,14 +116,19 @@ bool ImageFormat::readHeader(const std::byte* src, std::size_t n, ImageHeader* o
     return refuse("not an Ao image");
   }
   // SPEC §3.11: an image of another version is refused before anything else is read from it.
-  if (d.version != kImageVersion) {
+  if (d.version != kImageVersion && d.version != kImageVersionNoSources) {
     return refuse("unsupported image version " + std::to_string(d.version));
   }
   if (d.pointerBits != kImagePointerBits || d.endian != kImageEndianLittle ||
       d.headerBytes != kImageHeaderBytes) {
     return refuse("unsupported image format");
   }
-  if (d.reserved16 != 0 || d.reserved32a != 0 || d.reserved32b != 0 || d.reserved64 != 0) {
+  if (d.reserved16 != 0 || d.reserved32a != 0 || d.reserved32b != 0) {
+    return refuse("damaged image");
+  }
+  // SPEC §3.11 (P18): version 4 keeps the sources section's size here; version 3 keeps 0.
+  if (d.version == kImageVersionNoSources ? d.reserved64 != 0
+                                          : d.reserved64 < 8 || (d.reserved64 % 8) != 0) {
     return refuse("damaged image");
   }
   if (d.heapBytes < 16 || (d.heapBytes % 8) != 0) {
@@ -136,6 +142,7 @@ bool ImageFormat::readHeader(const std::byte* src, std::size_t n, ImageHeader* o
   out->extraCount = d.extraCount;
   out->globalCount = d.globalCount;
   out->nextHash = d.nextHash;
+  out->sourcesBytes = d.reserved64;
   return true;
 }
 

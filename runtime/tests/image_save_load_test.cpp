@@ -168,6 +168,33 @@ bool readHeapBytes(const std::filesystem::path& path, std::uint32_t* out) {
   return true;
 }
 
+// P18 / SPEC §3.11: where the sources section starts (the file's end less its size).
+std::size_t sourcesAt(const std::vector<char>& bytes) {
+  ao::ImageFormat::ImageHeader header;
+  if (!ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()), bytes.size(),
+                                   &header) ||
+      header.sourcesBytes > bytes.size()) {
+    return 0;
+  }
+  return bytes.size() - static_cast<std::size_t>(header.sourcesBytes);
+}
+
+// A version 4 image's bytes as version 3: no sources section, the header's last 8 bytes 0.
+std::vector<char> asVersionThree(std::vector<char> bytes) {
+  ao::ImageFormat::ImageHeader header;
+  EXPECT_TRUE(ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                          bytes.size(), &header));
+  bytes.resize(bytes.size() - static_cast<std::size_t>(header.sourcesBytes));
+  header.version = ao::ImageFormat::kImageVersionNoSources;
+  header.sourcesBytes = 0;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(bytes.data()), header);
+  return bytes;
+}
+
+void putU32(std::vector<char>& bytes, std::size_t at, std::uint32_t v) {
+  std::memcpy(bytes.data() + at, &v, sizeof v);
+}
+
 // OOP を書ける語だけを集める: heap 節の 8 バイト境界の語と、各レコードの値。
 // 任意の位置の 8 バイトを見ると、old の番地（mmap なので 0x7000000000 のように下位が 0）が
 // 隣り合う 2 語の境目に偶然現れる。
@@ -194,6 +221,18 @@ bool oopWords(const std::vector<char>& bytes, std::vector<std::uint64_t>* out) {
     if (cursor + 8 > bytes.size()) return false;
     out->push_back(word(cursor));
     cursor += 8;
+  }
+  if (cursor + header.sourcesBytes != bytes.size()) return false;
+  if (header.sourcesBytes == 0) return true;
+  std::uint32_t count = 0;
+  std::memcpy(&count, p + cursor, sizeof count);
+  cursor += 8;
+  for (std::uint32_t i = 0; i < count; ++i) {
+    if (cursor + 16 > bytes.size()) return false;
+    out->push_back(word(cursor));
+    std::uint32_t length = 0;
+    std::memcpy(&length, p + cursor + 8, sizeof length);
+    cursor += 16 + length + (8u - length % 8u) % 8u;
   }
   return cursor == bytes.size();
 }
@@ -859,7 +898,7 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
   std::vector<char> bytes = readAll(path);
   ASSERT_GT(bytes.size(), 6u);
-  EXPECT_EQ(3, bytes[4]);
+  EXPECT_EQ(4, bytes[4]);
   EXPECT_EQ(0, bytes[5]);
   {
     Loaded current;
@@ -913,13 +952,80 @@ TEST(ImageSaveLoad, RefusesVersionOneWithReason) {
   ASSERT_TRUE(writeAll(path, bytes));
   EXPECT_EQ(AO_ERR, ao_image_load(path.string().c_str(), &err));
   EXPECT_STREQ("unsupported image version 2", err.message);
-  bytes[4] = 3;
+  bytes[4] = 4;
   ASSERT_TRUE(writeAll(path, bytes));
   EXPECT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err));
   EXPECT_STREQ("", err.message);
   ao_runtime_shutdown();
   std::filesystem::remove(path);
   std::filesystem::remove(garbage);
+}
+
+// P18 / SPEC §3.11: a version 3 image (no sources section) still loads; the loaded image has no
+// sources. Version 5 is refused at the header with its reason.
+TEST(ImageSaveLoad, VersionThreeImageLoadsWithoutSources) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-version-3.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  std::vector<char> bytes = readAll(path);
+  ASSERT_EQ(4, bytes[4]);
+  ASSERT_TRUE(writeAll(path, asVersionThree(bytes)));
+  {
+    Loaded old;
+    std::string reason;
+    std::vector<ao::ImageSource> sources{ao::ImageSource{ao::Oop::nil(), "stale"}};
+    ASSERT_TRUE(ao::Image::load(old.heap, old.roots, old.wk, path.string(), &reason, &sources))
+        << reason;
+    EXPECT_TRUE(sources.empty());
+  }
+  bytes[4] = 5;
+  ASSERT_TRUE(writeAll(path, bytes));
+  Loaded future;
+  std::string reason;
+  EXPECT_FALSE(ao::Image::load(future.heap, future.roots, future.wk, path.string(), &reason));
+  EXPECT_EQ("unsupported image version 5", reason);
+  EXPECT_EQ(0u, future.heap.oldUsed());
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a save writes an empty sources section (count 0) when it has no sources; a
+// count the section cannot hold, a non-zero pad after the count, and bytes after the last entry
+// are a damaged image, refused before the heap is adopted.
+TEST(ImageSaveLoad, RefusesSourcesSectionThatDoesNotParse) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-bad-sources.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> good = readAll(path);
+  const std::size_t at = sourcesAt(good);
+  ASSERT_EQ(good.size() - 8, at);
+  std::uint32_t count = 1;
+  std::memcpy(&count, good.data() + at, sizeof count);
+  EXPECT_EQ(0u, count);
+
+  auto refused = [&](const std::vector<char>& bytes, const char* what) {
+    SCOPED_TRACE(what);
+    ASSERT_TRUE(writeAll(path, bytes));
+    Loaded image;
+    std::string reason;
+    EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string(), &reason));
+    EXPECT_EQ("damaged image", reason);
+    EXPECT_EQ(0u, image.heap.oldUsed());
+  };
+  std::vector<char> bytes = good;
+  putU32(bytes, at, 1);
+  refused(bytes, "a count with no entry");
+  bytes = good;
+  putU32(bytes, at + 4, 7);
+  refused(bytes, "a non-zero pad after the count");
+  bytes = good;
+  bytes.resize(bytes.size() + 8, '\0');
+  ao::ImageFormat::ImageHeader header;
+  ASSERT_TRUE(ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                          bytes.size(), &header));
+  header.sourcesBytes += 8;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(bytes.data()), header);
+  refused(bytes, "bytes after the last entry");
+  std::filesystem::remove(path);
 }
 
 // B6 review (06 High #1) / SPEC §3.11: 失敗シナリオ。保存は保存先を切り詰めて直接書いていたので、書き込みが

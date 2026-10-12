@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace ao {
@@ -137,6 +138,41 @@ bool appendRecord(std::vector<std::byte>& dst, const Trace& tr, const NamedOop& 
     dst.insert(dst.end(), pad, std::byte{0});
   }
   appendRaw(dst, &bits, sizeof bits);
+  return true;
+}
+
+// SPEC §3.11 (P18): the sources section: u32 count, u32 0, then for each pair the method's heap
+// offset, the u32 length, a u32 0 and the bytes padded with 0 to 8. A pair whose method is not in
+// the dump has nothing to point at and is left out, as is a second pair for the same method.
+// False when a source is longer than a u32 can say.
+bool appendSources(std::vector<std::byte>& dst, const Trace& tr,
+                   const std::vector<ImageSource>* sources) {
+  const std::size_t start = dst.size();
+  const std::uint32_t zero = 0;
+  std::uint32_t count = 0;
+  appendRaw(dst, &count, sizeof count);
+  appendRaw(dst, &zero, sizeof zero);
+  if (sources != nullptr) {
+    std::unordered_set<std::uint64_t> written;
+    for (const ImageSource& src : *sources) {
+      std::uint64_t bits = 0;
+      if (!src.method.isHeap() || !encodeOop(tr, src.method, false, &bits) ||
+          !written.insert(bits).second) {
+        continue;
+      }
+      if (src.text.size() > UINT32_MAX) {
+        return false;
+      }
+      const auto length = static_cast<std::uint32_t>(src.text.size());
+      appendRaw(dst, &bits, sizeof bits);
+      appendRaw(dst, &length, sizeof length);
+      appendRaw(dst, &zero, sizeof zero);
+      appendRaw(dst, src.text.data(), src.text.size());
+      dst.resize(dst.size() + (8u - length % 8u) % 8u, std::byte{0});
+      ++count;
+    }
+  }
+  std::memcpy(dst.data() + start, &count, sizeof count);
   return true;
 }
 
@@ -372,7 +408,8 @@ bool writeFile(std::string_view path, const std::byte* data, std::size_t n, std:
 }  // namespace
 
 bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
-                 std::string* reason, std::size_t haltedProcesses) {
+                 std::string* reason, std::size_t haltedProcesses,
+                 const std::vector<ImageSource>* sources) {
   auto refuse = [reason](std::string why) {
     if (reason != nullptr) {
       *reason = std::move(why);
@@ -451,6 +488,11 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
     }
   }
 
+  std::vector<std::byte> sourcesSection;
+  if (!appendSources(sourcesSection, tr, sources)) {
+    return refuse("a method source is longer than 4 GiB");
+  }
+
   ImageFormat::ImageHeader header;
   header.version = ImageFormat::kImageVersion;
   header.pointerBits = ImageFormat::kImagePointerBits;
@@ -460,17 +502,19 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   header.extraCount = 0;
   header.globalCount = Globals::kSmalltalkCount;
   header.nextHash = heap.hashCursor();
+  header.sourcesBytes = sourcesSection.size();
 
   std::byte head[ImageFormat::kImageHeaderBytes];
   ImageFormat::writeHeader(head, header);
 
   std::vector<std::byte> file;
-  file.reserve(sizeof head + heapBuf.size() + tail.size());
+  file.reserve(sizeof head + heapBuf.size() + tail.size() + sourcesSection.size());
   appendRaw(file, head, sizeof head);
   appendRaw(file, heapBuf.data(), heapBuf.size());
   if (!tail.empty()) {
     appendRaw(file, tail.data(), tail.size());
   }
+  appendRaw(file, sourcesSection.data(), sourcesSection.size());
   // SPEC §3.11: a save that succeeds writes an image this runtime loads, so the bytes pass the
   // load's own checks before anything is written. The reason names the object and the rule.
   std::string refusal;
