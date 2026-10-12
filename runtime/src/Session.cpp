@@ -386,6 +386,18 @@ void setSessionDebugCapture(bool on) {
   }
 }
 
+void beginDebugFreeEntry(Session& s) {
+  s.ctx->debug = nullptr;
+  ++g_debugEntries;
+}
+
+void endDebugFreeEntry(Session& s) {
+  // The capture setting as the ABI last set it; a hook may have changed it meanwhile.
+  if (--g_debugEntries == 0) {
+    s.ctx->debug = g_debugCapture ? &s : nullptr;
+  }
+}
+
 void setSessionDebugMode(int mode) {
   if (mode == AO_DEBUG_POSTMORTEM || mode == AO_DEBUG_LIVE) {
     g_debugMode = mode;
@@ -2251,17 +2263,13 @@ class DebugEntry {
     s_.heap.clearOutOfMemory();
     clearUnwinding(ctx);
     refreshStackLimit(ctx);
-    ctx.debug = nullptr;
-    ++g_debugEntries;
+    beginDebugFreeEntry(s_);
   }
   ~DebugEntry() {
     CallContext& ctx = *s_.ctx;
     clearUnwinding(ctx);
     s_.heap.clearOutOfMemory();
-    // The capture setting as the ABI last set it; a hook may have changed it meanwhile.
-    if (--g_debugEntries == 0) {
-      ctx.debug = g_debugCapture ? &s_ : nullptr;
-    }
+    endDebugFreeEntry(s_);
   }
   DebugEntry(const DebugEntry&) = delete;
   DebugEntry& operator=(const DebugEntry&) = delete;

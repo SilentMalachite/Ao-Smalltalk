@@ -144,6 +144,12 @@ int sessionEvalResultCopy(char* buf, int bufLen);
 // SPEC §3.13: capture on or off (off by default). Kept across boot, load and shutdown, like the
 // transcript hook: it goes into the current session's ctx now and into every later session's.
 void setSessionDebugCapture(bool on);
+// SPEC §3.10: one outermost stretch of sends that must neither capture nor be disturbed by a
+// capture setting changed meanwhile (DebugEntry, the change-set model sends). Begin takes the
+// session's debug sink away and counts the entry; the last end puts it back as the capture
+// setting then says. Pairs nest.
+void beginDebugFreeEntry(Session& s);
+void endDebugFreeEntry(Session& s);
 // SPEC §3.10 ライブデバッガの操作: AO_DEBUG_POSTMORTEM or AO_DEBUG_LIVE (other values do nothing).
 // Kept across boot, load and shutdown; read by each ao_eval.
 void setSessionDebugMode(int mode);

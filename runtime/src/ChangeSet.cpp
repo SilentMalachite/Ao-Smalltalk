@@ -24,22 +24,23 @@ constexpr const char* kUnknown = "unknown change set";
 // SPEC §3.10 チェンジセット (P17): one outermost stretch of sends to the model on the session's
 // base context. It clears what an earlier entry left and takes the stack range again; while it
 // runs the base has no debug sink and may not halt, so a failure in the model neither replaces
-// the snapshot nor stops a process (as DebugEntry). The end reads and clears the abort. After the
+// the snapshot nor stops a process (as DebugEntry: the sink goes back as the capture setting then
+// says, not as it was at the start). The end reads and clears the abort. After the
 // first failed send the others answer the empty Oop without sending.
 class ModelSend {
  public:
-  explicit ModelSend(Session& s) : s_(s), ctx_(*s.ctx), debug_(ctx_.debug) {
+  explicit ModelSend(Session& s) : s_(s), ctx_(*s.ctx) {
     s_.heap.clearOutOfMemory();
     clearUnwinding(ctx_);
     refreshStackLimit(ctx_);
-    ctx_.debug = nullptr;
+    beginDebugFreeEntry(s_);
     ++ctx_.haltSuppressed;
   }
   ~ModelSend() {
     clearUnwinding(ctx_);
     s_.heap.clearOutOfMemory();
     --ctx_.haltSuppressed;
-    ctx_.debug = debug_;
+    endDebugFreeEntry(s_);
   }
   ModelSend(const ModelSend&) = delete;
   ModelSend& operator=(const ModelSend&) = delete;
@@ -82,7 +83,6 @@ class ModelSend {
   static constexpr std::size_t kMaxArgs = 4;
   Session& s_;
   CallContext& ctx_;
-  DebugSink* debug_;
   bool failed_ = false;
 };
 
