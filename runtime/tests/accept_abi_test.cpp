@@ -3184,15 +3184,19 @@ std::string p18PrintIt(const char* expr) {
 
 // P18 Review Focus 1: a class loaded from an image changes shape; its methods are compiled again
 // from the restored sources, keep working and keep their source.
+// x moves from the first slot to the second: a method moved without compiling it again would still
+// read and write the first, which is y now.
 TEST(AcceptAbi, ReshapeAfterLoadRecompilesFromRestoredSource) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   p18Define("x");
   AoSpan err{};
-  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "seven\n  ^7", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "x\n  ^x", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "x: v\n  x := v", &err)) << err.message;
   p18SaveAndReload("p18-reshape.aoimage");
-  p18Define("x y");
-  EXPECT_EQ("7", p18PrintIt("P18Re new seven"));
-  EXPECT_EQ("seven\n  ^7", p18Source("seven"));
+  p18Define("y x");
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Re", 0, "y: v\n  y := v", &err)) << err.message;
+  EXPECT_EQ("3", p18PrintIt("P18Re new x: 3; y: 4; x"));
+  EXPECT_EQ("x: v\n  x := v", p18Source("x:"));
   ao_runtime_shutdown();
   std::remove("p18-reshape.aoimage");
 }
