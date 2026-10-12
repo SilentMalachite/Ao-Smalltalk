@@ -59,7 +59,7 @@ Ao はどちらでもない。ホストは macOS / AppKit。実行のホット�
 - Windows / Linux
 - SwiftUI を主 UI にすること（AppKit が正。SwiftUI は補助のみ）
 
-デバッガは v1 のあとのフェーズで足す（§2.3、§3.13）。P10 は事後デバッガで、失敗の直前のスタックを見るだけである。ライブデバッガ（P11）は `halt` と失敗で評価を止め、Proceed / Abort / Step する。P13 はホストからの中断（⌘. / Interrupt。理由 `interrupted`）でも同じライブ停止にする。P14 は選んだフレームを先頭からやり直す（Restart）。P15 は、ライブ Debugger のソース枠でメソッドを直して Accept し、そのフレームを新しいメソッドで起動し直す。P16 は、Accept と削除をセッションのチェンジセットに記録し、Change Sorter で見て、File Out / File In… する。P17 は、そのチェンジセットを Smalltalk のクラス `ChangeSet` にし、イメージに保存する。
+デバッガは v1 のあとのフェーズで足す（§2.3、§3.13）。P10 は事後デバッガで、失敗の直前のスタックを見るだけである。ライブデバッガ（P11）は `halt` と失敗で評価を止め、Proceed / Abort / Step する。P13 はホストからの中断（⌘. / Interrupt。理由 `interrupted`）でも同じライブ停止にする。P14 は選んだフレームを先頭からやり直す（Restart）。P15 は、ライブ Debugger のソース枠でメソッドを直して Accept し、そのフレームを新しいメソッドで起動し直す。P16 は、Accept と削除をセッションのチェンジセットに記録し、Change Sorter で見て、File Out / File In… する。P17 は、そのチェンジセットを Smalltalk のクラス `ChangeSet` にし、イメージに保存する。 P18 は、Accept したメソッドのソースをイメージに保存する。
 
 ---
 
@@ -133,14 +133,15 @@ ao-smalltalk/
 | P15 | Debugger の編集 | ライブ Debugger のソース枠でメソッドを直して Accept し、そのフレームを新しいメソッドで起動し直す（§3.9、§3.10、§3.13） |
 | P16 | チェンジセット | Accept と削除をチェンジセットに記録し、Change Sorter で見る・作る・移す・File Out する。File In… で .st を読み込み、記録する（§3.9、§3.10） |
 | P17 | Smalltalk のチェンジセット | チェンジセットを `image/Tools-model/` の Smalltalk のクラス `ChangeSet` にし、イメージに保存する（§3.7、§3.9、§3.10、§3.11） |
+| P18 | メソッドソースの永続化 | ソース表のソースを `.aoimage`（版 4）のソース節に保存し、ロードで戻す（§3.9、§3.10、§3.11） |
 
-P9 完了が v1。P10、P11、P12、P13、P14、P15、P16、P17 は v1 のあとのフェーズである。
+P9 完了が v1。P10、P11、P12、P13、P14、P15、P16、P17、P18 は v1 のあとのフェーズである。
 
 ### 2.4 リリース
 
 版は Semantic Versioning に従う。v1 の版は `1.0.0`、タグは `v<版>`（例 `v1.0.0`）である。
 
-- v1 のあとのフェーズ（P10〜P12）は、`.aoimage` の形式、`ao` の CLI、Smalltalk の既存の振る舞いを変えずに機能を足すので、マイナー版を上げる。P12 までを含む版は `1.1.0` である。P13（評価の中断）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.2.0` に含める。P14（Restart）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.3.0` に含める。P15（Debugger の編集）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.4.0` に含める。P16（チェンジセット）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.5.0` に含める。P17（Smalltalk のチェンジセット）も、`.aoimage` の形式（版 3）を変えず、振る舞いを足すだけ（`ao filein` と `ao image save` の `--load-order` を繰り返せるようにするのも足すだけ）なので、その次のマイナー版 `1.6.0` に含める。C ABI（`bridge/ao_abi.h`）はリリースの添付物に含まず、同じ版のアプリとランタイムの間だけで使うので、その変更では版を分けない。
+- v1 のあとのフェーズ（P10〜P12）は、`.aoimage` の形式、`ao` の CLI、Smalltalk の既存の振る舞いを変えずに機能を足すので、マイナー版を上げる。P12 までを含む版は `1.1.0` である。P13（評価の中断）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.2.0` に含める。P14（Restart）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.3.0` に含める。P15（Debugger の編集）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.4.0` に含める。P16（チェンジセット）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.5.0` に含める。P17（Smalltalk のチェンジセット）も、`.aoimage` の形式（版 3）を変えず、振る舞いを足すだけ（`ao filein` と `ao image save` の `--load-order` を繰り返せるようにするのも足すだけ）なので、その次のマイナー版 `1.6.0` に含める。P18（メソッドソースの永続化）は `.aoimage` の版を 4 に上げるが、版 3 のイメージも読み、振る舞いを足すだけなので、その次のマイナー版 `1.7.0` に含める。版 4 のイメージは 1.6.0 以前のランタイムでは読めない（`unsupported image version 4`）。C ABI（`bridge/ao_abi.h`）はリリースの添付物に含まず、同じ版のアプリとランタイムの間だけで使うので、その変更では版を分けない。
 
 - 版の正本は `ao::version_string`（`ao --version` と `ao_version` の値）である。リリースの版には `-` 以降を付けない。`ao::compiler::version` も同じ値にする。
 - 版ごとの変更点を `CHANGELOG.md`（英語）に書く。
@@ -1031,7 +1032,7 @@ Debugger の編集（P15）:
   - 残る名前は、今の束縛（Association）と値をそのまま保つ。コンパイル済みのメソッドがその束縛を共有しているからである。
   - 新しい名前は、値 nil の新しい束縛で足す。コンパイル済みのメソッドはコンパイルし直さない。新しい名前をグローバルとして読んでいたメソッドは、Accept し直すまでグローバルを読む。
   - 消える名前の束縛を、生きているクラス（この節の冒頭の意味）のどれかのメソッドが持っていれば、何も変えずに `AO_ERR_COMPILE` を返す（category も変えない）。束縛を持ちうるのは、そのクラスとそのサブクラス（子孫すべて）、形の変更で残ったそれらの旧クラス（束縛を今のクラスと共有する。下）である。インスタンス側とクラス側のメソッド、ソースの無いメソッド、ブロックの中（入れ子の深さによらない）を数え、読みも代入も数える。束縛を持つメソッドは、classPool から外れた束縛を黙って読み書きし続けるからである。メッセージは `class variable change refused: <Class>>><selector> refers to removed class variable <var>` で、`<Class>` はメソッドのあるクラス（クラス側なら `<Class> class`）である。どのメソッドも持たなければ、消える名前を classPool から除く。
-- 形が変わるとき（superclass か instVarNames が違うとき）は、新しいクラスを作り、名前をそれに付け替える。旧クラスのメソッド（インスタンス側とクラス側のすべて）を、ソース表（§3.10「ソースはイメージに書かない」）のソースで新しいクラスに対してコンパイルし直して移す。移したメソッドのソースはソース表に入れる。
+- 形が変わるとき（superclass か instVarNames が違うとき）は、新しいクラスを作り、名前をそれに付け替える。旧クラスのメソッド（インスタンス側とクラス側のすべて）を、ソース表（§3.10「ソースはイメージのソース節に書く」）のソースで新しいクラスに対してコンパイルし直して移す。移したメソッドのソースはソース表に入れる。
 - 形が変わるとき、新しいクラスの classPool にある名前のうち、旧クラスの classPool にもある名前は、旧クラスの束縛（Association）をそのまま使う。値も、旧クラスのメソッド（既存インスタンスが使う）との共有も保つ。移したメソッドは、この束縛を指す。
 - 形が変わるとき、次のどれかに当たれば、何も変えずに `AO_ERR_COMPILE` を返す。名前は旧クラスを指したまま、旧クラスとそのメソッドもそのままである。`AoSpan.message` は空にせず、理由（当たったセレクタ、サブクラスがあること、または消えるインスタンス変数かクラス変数）を入れる。
   - ソース表にソースの無いメソッド（NativeMethod を含む）が 1 つでもある。
@@ -1062,7 +1063,7 @@ ID が未知（§3.10「クラス ID」。0 以下、発行していない、一
 - 対象の側のメソッド辞書にセレクタが無ければ `AO_ERR`、メッセージは `selector not found: <Class>>><selector>` である。継承したメソッドは消さない（上位クラスのメソッド辞書は変えない）。
 - 値が NativeMethod なら `AO_ERR`、メッセージは `native method removal refused: <Class>>><selector>` である。
 - 値が CompiledMethod なら、クラスによらず消す。Kernel クラスに Accept で足したメソッド（`Object>>foo`）も、vendor や file-in で入れたメソッドも、イメージから読んだメソッドも消せる。Kernel 走査（§6）は NativeMethod だけの辞書を確かめるので、この削除で結果は変わらない。
-- 消す手順は次のとおりである。メソッド辞書からエントリを除き（残ったエントリがどれも引けるままであるように）、キャッシュを無効化し（§3.3。そのセレクタ）、ソース表の項目をブロックごと外す（§3.10「ソースはイメージに書かない」）。
+- 消す手順は次のとおりである。メソッド辞書からエントリを除き（残ったエントリがどれも引けるままであるように）、キャッシュを無効化し（§3.3。そのセレクタ）、ソース表の項目をブロックごと外す（§3.10「ソースはイメージのソース節に書く」）。
 - 消したあとの送信は、キャッシュ済みの送信も含め、上位クラスのメソッドに当たるか、無ければ `doesNotUnderstand:` に入る。
 - 実行中のメソッド（止まったプロセス（§3.13）のフレームや、fork したプロセスが走らせている途中のもの）は、そのフレームでは消す前のメソッドのまま最後まで走る（再 Accept と同じ）。事後スナップショットに残ったフレームはプレースホルダになる（§3.10）。
 - プロトコルはメソッド辞書から導く（§3.10「プロトコルとカテゴリ」）。そのため、最後のメソッドを消したプロトコルは一覧から消える。
@@ -1155,7 +1156,7 @@ File Out の形式（チャンク形式。§3.8）:
 
 チャンクの間は空行 1 つ（コメントのチャンクの間は改行 1 つ）。文字列とコメントの中も含め、すべての `!` を `!!` にする。ただし定義の本文は、すでにカテゴリの `!` と `'` を重ねてあるので、そのまま書く。コメントのチャンクは式のチャンク（§3.8）なので、File In… と `ao filein` は評価せずに読み飛ばす。
 
-制限（P17）: イメージから戻したセットのメソッドにはソースが無い。ソース表は `.aoimage` に書かないからである（§3.10「ソースはイメージに書かない」）。Save Image… のあとに Open Image… すると、戻ったセットの File Out は、そのメソッドごとに `"<Class>>><selector> source not available"` のコメントのチャンクを書き（上の 4.）、ソース枠はプレースホルダを出す。種類と、クラスの定義（生きているクラスから作る）は戻る。ソースが戻るのは、Open Image… のあとに Accept か File In… をやり直したメソッドだけである。
+保存したイメージ（P18）: Save Image… のあとに Open Image… すると、戻ったセットのメソッドは、保存したときにソース表にあったソースを持つ（§3.10「ソースはイメージのソース節に書く」）。File Out はそのソースを書き、ソース枠もそれを出す。ソースの無かったメソッド（`ao_accept_class` の `methodsFor:` のチャンクで入れたものなど）は、今までどおり `"<Class>>><selector> source not available"` のコメントのチャンクになり（上の 4.）、ソース枠はプレースホルダを出す。種類と、クラスの定義（生きているクラスから作る）も戻る。
 
 ```smalltalk
 "Change Set: Unnamed2
@@ -1335,7 +1336,7 @@ int ao_filein_file(const char* path, AoSpan* err);
 
 `AoInspectFn` の `print_len` は、`print_utf8` のバイト数である。printString は NUL を含みうるので、フックは `print_len` で読む。`print_utf8` の末尾（`print_len` バイト目の次）にも NUL を置く。
 
-`ao_browser_source` は、ソース表（下の「ソースはイメージに書かない」）にソースがあるメソッドなら、そのソースを `buf` に書いて `AO_OK` を返す（入り切らなければ `AO_ERR_RANGE`）。ソース表にソースが無いメソッドなら `AO_ERR_NOSOURCE` を返し、`buf` にプレースホルダを書く。ソースが無いのは、NativeMethod、イメージを読み込んだあとのメソッド、vendor と file-in（`ao_accept_class` の `methodsFor:` のチャンクを含む）で入れたメソッドである。File In…（`ao_filein_file`。P16）で入れたメソッドはソースを持つ。プレースホルダは、コメント 1 つだけの 1 行である（改行を含まない）。
+`ao_browser_source` は、ソース表（下の「ソースはイメージのソース節に書く」）にソースがあるメソッドなら、そのソースを `buf` に書いて `AO_OK` を返す（入り切らなければ `AO_ERR_RANGE`）。ソース表にソースが無いメソッドなら `AO_ERR_NOSOURCE` を返し、`buf` にプレースホルダを書く。ソースが無いのは、NativeMethod、読み込んだイメージのソース節に組の無かったメソッド、vendor と file-in（`ao_accept_class` の `methodsFor:` のチャンクを含む）で入れたメソッドである。File In…（`ao_filein_file`。P16）で入れたメソッドはソースを持つ。プレースホルダは、コメント 1 つだけの 1 行である（改行を含まない）。
 
 ```
 "<クラス>>><セレクタ> source not available"      CompiledMethod
@@ -1372,7 +1373,7 @@ Browser の ABI は、クラスを名前でなくクラス ID で指す（P12 �
 - 送信が失敗したとき（DNU、`error:` などの abort）: 記録は捨てる。読み出しは busy と同じ答え（`*_count` は -1、`*_at` は `AO_ERR`、`ao_changes_current` は 0）。書き込みは `ao_changes_file_out` も含めて `change set failed`。
 - `ChangeSet` が無いとき（Smalltalk の `ChangeSet` がクラスでないときも）: 記録は何もしない。`ao_changes_count` は 0、`ao_changes_current` は 0、`*_at` は `AO_ERR`、`ao_changes_class_count` と `ao_changes_method_count` は -1、`ao_changes_set_current` は `AO_ERR`、書き込みは `change sets unavailable`。
 - File Out の日付（`YYYY-MM-DD`、ローカルの日付）と版（`ao_version`）は C++ が `fileOutStringDate:version:` に渡す。Smalltalk から日付を得る手段が無いためである。本文は P16 の書式（§3.9）とバイト単位で同じで、`ao_changes_file_out` は答えの String を C++ がファイルに書く。
-- 足したネイティブ（Kernel。§3.6）: `Behavior>>sourceCodeAt: aSelector` は、受け手自身のメソッド辞書のそのセレクタのメソッドの、ソース表（下の「ソースはイメージに書かない」）のソースを String で答える。メソッドが無い、NativeMethod、ソースが無い、セッションの外（`ao --test`、GoogleTest の Boot）では nil。`Class>>definition` は、`ao_browser_class_definition` と同じ本文の String を答える。
+- 足したネイティブ（Kernel。§3.6）: `Behavior>>sourceCodeAt: aSelector` は、受け手自身のメソッド辞書のそのセレクタのメソッドの、ソース表（下の「ソースはイメージのソース節に書く」）のソースを String で答える。メソッドが無い、NativeMethod、ソースが無い、セッションの外（`ao --test`、GoogleTest の Boot）では nil。`Class>>definition` は、`ao_browser_class_definition` と同じ本文の String を答える。
 - 読み（`ao_changes_count`、`ao_changes_at`、`ao_changes_current`、`ao_changes_class_count`、`ao_changes_class_at`、`ao_changes_method_count`、`ao_changes_method_at`）は最外の入口で、busy なら拒む（`*_count` は -1、`*_at` は `AO_ERR`、`ao_changes_current` は 0。P17）。件数を返す関数は、セッションが無い、未知のセット ID、`class_name` が NULL、`meta` が 0 と 1 以外のとき -1 を返す。`*_at` は文字列バッファの規則に従い、範囲外の index も `AO_ERR` である。出力（`set_id`、`kind`）は NULL でもよく（書かない）、`AO_ERR` では 0 を書く。`ao_changes_current` は現在のセットの ID、セッションが無ければ 0。
 - 並び: セットは作った順、クラスは初めて記録した順、メソッドはセレクタのバイト順。`ao_changes_class_at` の `kind` は定義の種類で、定義が変わっていなければ `AO_CHANGE_NONE`。セットにそのクラスの項目が無ければ `ao_changes_method_count` は 0。
 - 書き込み（`ao_changes_new`、`ao_changes_set_current`、`ao_changes_drop`、`ao_changes_move`、`ao_changes_file_out`）と `ao_filein_file` は最外の入口で、busy なら何もせずに `AO_ERR`（`err` があれば `runtime is busy`）を返す。`err` のある関数は、`AO_OK` で空文字、`AO_ERR` で理由（空にしない。`ao_filein_file` 以外は `start` と `end` は 0）を入れる。
@@ -1381,11 +1382,11 @@ Browser の ABI は、クラスを名前でなくクラス ID で指す（P12 �
 - `ao_changes_drop`: 項目を忘れる。`selector` が NULL ならクラスの項目をメソッドの項目ごと忘れる（`meta` は読まない）。メソッドの項目を忘れて、定義の種類もメソッドの項目も残らないクラスの項目は消える。メソッドとクラスそのものは変えない。理由は `unknown change set`、`not in change set: <Class>`、`not in change set: <Class>>><selector>`（クラス側は `<Class> class>><selector>`）。`class_name` が NULL、`selector` があるときの 0 と 1 以外の `meta`、セッションが無いときは `change set failed`。
 - `ao_changes_move`: 項目を種類ごと `to_id` のセットに移す。移し先に同じ項目があれば、移した種類で置き換える。移し先にクラスの項目が無ければ作る（定義の種類は無し）。クラスの項目を移すとき、移した項目に定義の種類が無ければ、移し先の定義の種類はそのまま。移し元の、空になったクラスの項目は消える。理由は `ao_changes_drop` のものと、`from_id` と `to_id` が同じなら `same change set`。どちらかが未知なら `unknown change set`。
 - `ao_changes_file_out`: §3.9 の形式で `path` に書く（あれば置き換える）。理由は `unknown change set`、`cannot write file: <path>`。`path` が NULL、セッションが無いときは `file out failed`。
-- `ao_filein_file`: 1 つのファイルを file-in する（§3.12 のチャンクの規則。`ao filein` と同じく、メソッドのエラーでは止まらず、ほかのエラーで止まる）。読んだメソッドは Accept と同じくソース表に項目を持つ（下の「ソースはイメージに書かない」）。クラス定義は `ao_accept_class` と同じ規則で入れる（既にあるクラスは保つか形を変え、メソッドを黙って捨てない。§3.9「クラス定義の Accept」）。読んだクラス定義とメソッドを現在のセットに記録する。File In… は Kernel クラスへの `methodsFor:` のチャンクを丸ごとは拒まない（§3.12 のこの点の例外）。メソッドごとに、Accept（`ao_accept_method`。§3.10）のネイティブ上書きの規則で判定する。対象側の辞書のそのセレクタの値が NativeMethod であるか、Kernel クラス（そのメタクラスも Kernel として数える）でそのクラスから引いたセレクタが NativeMethod に当たるなら、そのメソッド 1 つをメソッド単位のエラー `native selector overwrite refused: <selector>`（区間はそのメソッドのチャンクのバイト範囲）として拒み、ファイルは止めない。ほかのメソッドはソース付きで入れて記録する。これで、`Object>>foo` を含むセットの File Out が File In… で戻る。エラーが 1 件でもあれば `AO_ERR` で、`err` に最初のエラーの区間（ファイルのバイト位置）とメッセージを入れる。読めないパスは `cannot read: <path>`（区間 0-0）。`path` が NULL、セッションが無い、例外のときは `file-in failed`。エラーより前のチャンクの結果と記録は残る。
+- `ao_filein_file`: 1 つのファイルを file-in する（§3.12 のチャンクの規則。`ao filein` と同じく、メソッドのエラーでは止まらず、ほかのエラーで止まる）。読んだメソッドは Accept と同じくソース表に項目を持つ（下の「ソースはイメージのソース節に書く」）。クラス定義は `ao_accept_class` と同じ規則で入れる（既にあるクラスは保つか形を変え、メソッドを黙って捨てない。§3.9「クラス定義の Accept」）。読んだクラス定義とメソッドを現在のセットに記録する。File In… は Kernel クラスへの `methodsFor:` のチャンクを丸ごとは拒まない（§3.12 のこの点の例外）。メソッドごとに、Accept（`ao_accept_method`。§3.10）のネイティブ上書きの規則で判定する。対象側の辞書のそのセレクタの値が NativeMethod であるか、Kernel クラス（そのメタクラスも Kernel として数える）でそのクラスから引いたセレクタが NativeMethod に当たるなら、そのメソッド 1 つをメソッド単位のエラー `native selector overwrite refused: <selector>`（区間はそのメソッドのチャンクのバイト範囲）として拒み、ファイルは止めない。ほかのメソッドはソース付きで入れて記録する。これで、`Object>>foo` を含むセットの File Out が File In… で戻る。エラーが 1 件でもあれば `AO_ERR` で、`err` に最初のエラーの区間（ファイルのバイト位置）とメッセージを入れる。読めないパスは `cannot read: <path>`（区間 0-0）。`path` が NULL、セッションが無い、例外のときは `file-in failed`。エラーより前のチャンクの結果と記録は残る。
 
-#### ソースはイメージに書かない
+#### ソースはイメージのソース節に書く
 
-メソッドソースはセッションのルート表（`(Oop method, Oop string)` を `Roots` に登録したベクタ）だけが持つ。`.aoimage` には書かない。上書きした古い対はルートから外す。`ao_runtime_boot` と `ao_image_load` は表を空にする。
+メソッドソースはセッションのルート表（`(Oop method, Oop string)` を `Roots` に登録したベクタ）が持つ。ソースを String としてヒープに保存することはしない。`.aoimage` には、版 4 のソース節（§3.11）に、メソッドとソースのバイト列の組として書く（P18）。上書きした古い対はルートから外す。`ao_runtime_boot` は表を空にする。`ao_image_load` は表を空にしてから、ソース節の組から項目を作り直す。
 
 表の項目は、デバッガ（§3.13）のために次も持つ。
 
@@ -1395,9 +1396,11 @@ Browser の ABI は、クラスを名前でなくクラス ID で指す（P12 �
 
 規則は次のとおりである。
 
-- 項目を入れるのは、Accept（`ao_accept_method` と、`ao_accept_class` の形の変更で移したメソッド）と、File In…（`ao_filein_file`。P16）で読んだメソッドだけである。vendor、`ao filein`、`ao_filein_load_order` の file-in、`ao_accept_class` の `methodsFor:` のチャンク、ロードしたイメージのメソッドは項目を持たない（プレースホルダ）。
+- 項目を入れるのは、Accept（`ao_accept_method` と、`ao_accept_class` の形の変更で移したメソッド）と、File In…（`ao_filein_file`。P16）で読んだメソッドだけである。vendor、`ao filein`、`ao_filein_load_order` の file-in、`ao_accept_class` の `methodsFor:` のチャンクは項目を持たない（プレースホルダ）。ロードしたイメージのメソッドは、ソース節に組があればソースだけの項目（ブロックとデバッグ情報を持たない）を持ち、無ければ項目を持たない。
 - 項目のスロットのルート表への登録は、全部か無しかである。C++ のメモリが足りずに項目を入れられなければ、Accept したメソッドは入ったまま項目を持たない（プレースホルダ。doIt も同じ）。Accept は成功を返す。
 - 形の変更（§3.9）で移したメソッドは、コンパイルし直した結果から、新しく箱詰めしたブロック（同じ前順）とデバッグ情報を付け直す。メモリが足りなければ、ソースだけを移す（ブロックとデバッグ情報を持たない）。
+- 保存（P18。`ao_image_save`）: 表の項目のうち、メソッドが保存するヒープに入り、ソースが String のものを、表の順にソース節に書く。doIt の項目、どこからも届かないメソッドの項目、ブロック、デバッグ情報は書かない。並びを作る C++ のメモリが無ければ保存は失敗する（`AO_ERR`）。
+- ロード（P18。`ao_image_load`）: ソース節の組の順に、ソースの String を作ってソースだけの項目を入れる。作る途中でメモリが足りなくなったらそこで止め、残りのメソッドは項目を持たない（プレースホルダ）。ロードは成功を返す。戻した項目のメソッドは、Debugger ではソース位置と temp 名を出さず、Debugger の Accept もできない（Browser から Accept し直せば項目が作り直される）。
 - 再 Accept で置き換えた古いメソッドの項目は、そのブロックとともに消える。スナップショットに残った古いメソッドのフレームは、プレースホルダになる。
 - 削除（§3.9「削除」）で消したメソッドの項目と、消したクラスのメソッド（インスタンス側とクラス側）の項目も、そのブロックとともに消える。スナップショットのフレームは再 Accept と同じくプレースホルダになる。
 - セッションは、直前の `ao_eval` の doIt 1 件（メソッド、ブロック、テキスト、デバッグ情報）も持つ。`ao_eval` の入口で消し、コンパイルのあとに入れる。doIt はクラスに属さないので、Browser の読み出しには出ない。
@@ -1510,7 +1513,7 @@ int ao_debug_clear(void);
 - `ao_debug_frame_kind` は、0（メソッド）、1（ブロック）、2（ネイティブ。合成）のどれかを返す。範囲外は -1。
 - `ao_debug_frame_label` はラベル（§3.13）を書く。範囲外は `AO_ERR`。
 - `ao_debug_frame_pc` は、そのフレームのコンテキストの pc（実行中の命令の先頭）を返す。種類 2 と範囲外は -1。
-- `ao_debug_frame_source` は、そのフレームのメソッドがソース表（doIt を含む。上の「ソースはイメージに書かない」）にあれば、そのソースを `buf` に書いて `AO_OK` を返す（入り切らなければ `AO_ERR_RANGE`）。`highlight` の `start` と `end` は pc の区間（§3.8。doIt は前置分を引いた値）で、`message` は空である。ブロックのフレームはホームのメソッドのソースを書く。
+- `ao_debug_frame_source` は、そのフレームのメソッドがソース表（doIt を含む。上の「ソースはイメージのソース節に書く」）にあれば、そのソースを `buf` に書いて `AO_OK` を返す（入り切らなければ `AO_ERR_RANGE`）。`highlight` の `start` と `end` は pc の区間（§3.8。doIt は前置分を引いた値）で、`message` は空である。ブロックのフレームはホームのメソッドのソースを書く。
   - ソース表に無ければ、`ao_browser_source` と同じプレースホルダ（§3.10）を書いて `AO_ERR_NOSOURCE` を返す。`highlight` は 0-0 である。種類 2 も `AO_ERR_NOSOURCE` で、NativeMethod のプレースホルダ（`native <シンボル名>`）を書く。method の無い合成フレーム（DNU）のプレースホルダは `"<ラベル> source not available"` である。
   - `highlight` は NULL でよい。範囲外は `AO_ERR`。
 - `ao_debug_frame_temp_count` は、引数と temp の数（§3.8 の temp 名の数）を返す。種類 2 は進行中の送信の引数の数である。範囲外は -1。
@@ -1586,19 +1589,20 @@ int ao_request_interrupt(void);
 
 ### 3.11 イメージ形式 `.aoimage`
 
-- マジック `AOIM`、バージョン（3）、ポインタサイズ、エンディアン
+- マジック `AOIM`、バージョン（4。版 3 も読む）、ポインタサイズ、エンディアン、ソース節のバイト数（`sourcesBytes`。P18）
 - well-known 表
 - ヒープダンプ（直接ポインタはファイル内オフセットに再配置）
 - グローバル辞書（`Smalltalk` の中身としてヒープダンプに入る）
 - クラス変数（classPool の辞書と束縛。§3.6）もヒープダンプに入る。メソッドのリテラルと classPool は、ロードのあとも同じ束縛を指す
-- チェンジセット（P17。§3.10）は、クラス `ChangeSet` と `ClassChanges`、そのインスタンス、クラス変数（`AllChangeSets`、`Current`、`NextId`）として、ヒープダンプに入る。保存したイメージを開くと、セット、current、ID が戻る。形式は変えないので、版は 3 のままである。ただしメソッドのソース表は書かないので（§3.10「ソースはイメージに書かない」）、戻ったセットのメソッドにソースは無く、File Out はそのメソッドを `source not available` のコメントにする（§3.9 File Out の制限）
+- チェンジセット（P17。§3.10）は、クラス `ChangeSet` と `ClassChanges`、そのインスタンス、クラス変数（`AllChangeSets`、`Current`、`NextId`）として、ヒープダンプに入る。保存したイメージを開くと、セット、current、ID が戻る。メソッドのソースはソース節（P18）から戻る（§3.9 の「保存したイメージ」）
+- ソース節（P18。版 4）: レコードの直後に置く。`u32 count`、`u32 0`、続けて `count` 回、`u64 method`（ヒープ内オフセット。ポインタと同じ符号化）、`u32 length`、`u32 0`、ソースの UTF-8 の `length` バイト、0 で 8 バイト境界まで詰めたもの。ヘッダの最後の 8 バイト（版 3 の予約欄）が節のバイト数 `sourcesBytes` で、版 4 では 8 以上の 8 の倍数、版 3 では 0 である。書く項目は §3.10「ソースはイメージのソース節に書く」。CLI の `ao image save` はセッションを持たないので `count` 0 の節を書き、`ao image load` は節を検査して捨てる
 - 起動時に再配置し、NativeMethod の関数ポインタは **ロード時にシンボル名で結び直す**（ポインタをファイルに書かない）
 
 `NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。
 
 ネイティブのブロック（`makeNativeBlock` が作る thunk。`nextPutAll:` や `collect:` などのネイティブが、内部で `do:` に渡す BlockContext）も、NativeMethod を 1 つ持つ。その名前は、thunk の関数を Kernel のインストールで登録した名前（例: `ao_Stream_nextPutAll_each`、`ao_Collection_collect_fill`）である。thunk が捕捉する状態（ストリーム、数え上げ、結果の配列など）はすべてブロックのスロットにあり、関数はランタイムの静的な関数なので、ヒープに逃げた thunk（利用者の `do:` がブロックを保持した場合）は、ロードで名前から結び直せば保存したときと同じに動く。名前を登録していない関数の thunk（テストの関数など）の名前は `ao_NativeBlock_thunk` で、これは結び直せない。
 
-形式の版は 3 である。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。版 2 は、Dictionary と Set がハッシュ表（§3.6 Collections）になる前の形式で、`array` にキーと値（Set では要素）を先頭から詰めていた。版 3 の Dictionary と Set の `array` は、末尾に世代番号のスロットを持つ（§3.6。版 3 は世代番号を足す前に公開していないので、版は上げない）。新しいネイティブはその配置を引けない。ロードは版 1 と版 2 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1`、`unsupported image version 2` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 3 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
+形式の版は 4 である。版 4 は、版 3 のレコードの後ろにソース節を足した形式で、版 3 はソース節の無いイメージとして読む（ソース表は空になる）。保存は常に版 4 で書く。版 1 は、クラスの名前の Symbol、Kernel クラスの instVarNames、グローバル辞書、classPool（§3.6）より前の形式である。版 2 は、Dictionary と Set がハッシュ表（§3.6 Collections）になる前の形式で、`array` にキーと値（Set では要素）を先頭から詰めていた。版 3 の Dictionary と Set の `array` は、末尾に世代番号のスロットを持つ（§3.6。版 3 は世代番号を足す前に公開していないので、版は上げない）。新しいネイティブはその配置を引けない。ロードは版 1 と版 2 のイメージをヘッダを読んだ段階で拒否し、修復しない。理由は `unsupported image version 1`、`unsupported image version 2` である。ほかの版も同じく `unsupported image version <版>` で拒否する。ロードは、クラスの名前とインスタンス変数名を直さない。版 3 のイメージの Kernel クラスは、保存したときの名前と instVarNames を持つ。名前の無いスロットがあるのは、ユーザーがクラスの instVarNames を変えたとき（`OrderedCollection instVarAt: 8 put: nil` など。§3.6）だけである。
 
 ロードが拒否するときの理由は次のとおりである。`ao_image_load`（§3.10）と CLI の `ao image load` はこれを出す。
 
@@ -1606,10 +1610,10 @@ int ao_request_interrupt(void);
 |---|---|
 | ファイルが読めない | `cannot read image file` |
 | ヘッダより短い、マジックが `AOIM` でない | `not an Ao image` |
-| 版が 3 でない | `unsupported image version <版>` |
+| 版が 3 でも 4 でもない | `unsupported image version <版>` |
 | ポインタサイズ、エンディアン、ヘッダ長が違う | `unsupported image format` |
 | heapBytes が old の上限を超える | `image heap exceeds the old space limit` |
-| それ以外（予約欄、レコード、ヒープ、グローバルの照合などが合わない） | `damaged image` |
+| それ以外（予約欄、`sourcesBytes`、レコード、ヒープ、グローバルの照合、ソース節などが合わない） | `damaged image` |
 
 グローバル辞書（§3.6）は `Smalltalk` の中身で、ヒープダンプに入る。well-known 表の `Smalltalk` がそれを指す。ファイル末尾のグローバルのレコードには、照合のために 57 の名前（Kernel クラス名と `Processor`）の値を書く。ロードは、`Smalltalk` がグローバル辞書であり、57 の名前の値がレコードと一致し、`Smalltalk` の値が `Smalltalk` 自身であることを確かめる。`subclass:` と `Smalltalk at:put:` で足したグローバルは辞書にだけあり、レコードに書かない（extra のレコードは 0 件）。辞書より前に保存した旧イメージ（`Smalltalk` が 57 要素の表で、足したグローバルを extra のレコードに持つもの）は版 1 なので、ヘッダの段階で拒否する。版 3 で `Smalltalk` がグローバル辞書でないイメージと、extra のレコードを持つイメージは、壊れたイメージとして拒否する。
 
@@ -1640,7 +1644,7 @@ int ao_request_interrupt(void);
 
 #### ロードの検査
 
-ロードは、まずヘッダの 48 バイトだけを読んで確かめる。heapBytes が old の上限を超えるなら、本体を読まずに `image heap exceeds the old space limit` で拒否する。続いてファイルの大きさを確かめる。ファイルは、ヘッダ、heapBytes のヒープ、レコード 184 件（well-known 127、グローバル 57。1 件は 16〜268 バイト）からなるので、その範囲に無ければ本体を読まずに `damaged image` で拒否する。
+ロードは、まずヘッダの 48 バイトだけを読んで確かめる。heapBytes が old の上限を超えるなら、本体を読まずに `image heap exceeds the old space limit` で拒否する。続いてファイルの大きさを確かめる。ファイルは、ヘッダ、heapBytes のヒープ、レコード 184 件（well-known 127、グローバル 57。1 件は 16〜268 バイト）、sourcesBytes のソース節（版 4）からなるので、その範囲に無ければ本体を読まずに `damaged image` で拒否する。
 
 本体を読んだら、ヒープを old に載せる前に次を確かめる。保存も、書く前に同じ関数で確かめる。どれかが成り立たなければ、ロードは `damaged image` で拒否する。
 
@@ -1655,6 +1659,7 @@ int ao_request_interrupt(void);
 - well-known 表のクラスとメタクラスは Behavior のオブジェクトである。well-known 表のセレクタ（`value` など）は Symbol である。
 - MethodDictionary のインスタンスは 2 つ以上のスロットを持つポインタ形で、配列のスロットは nil かポインタ形のオブジェクトである。
 - CompiledMethod のインスタンスは `kCmSlotCount`（6）以上のスロットを持つポインタ形である。NativeMethod のインスタンスは `kNativeSlotCount`（6）以上のスロットを持つポインタ形で、名前がこのランタイムの登録名で解決できる。Symbol は同じバイト列のものが 2 つ無い。
+- ソース節（版 4）の各組の `method` は、ヒープ内のオブジェクトの先頭を指し、その klass は well-known の CompiledMethod である。同じ `method` は 2 回出ない。`length` とその詰め物は節からはみ出さず、詰め物（`count` の後ろと各 `length` の後ろの `u32` を含む）はすべて 0 である。`count` 件を読み終えた位置がファイルの末尾である。
 
 ### 3.12 クラスライブラリは取り込む。自作しない
 
@@ -1863,8 +1868,9 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 - `compiler_roundtrip_test`: ソース → バイトコード → 評価
 - `block_test`: 引数、返り値、外側 temps の共有、非局所リターン、`ensure:`
 - `image_save_load_test`: save 後に同一評価結果。保存の失敗（書き込み、容量、ロードの検査に反するヒープ）で旧イメージが残る。壊れたイメージ（flags、klass、クラスの形、format、巨大な heapBytes）を拒否する。保存先がリンク、読み取り専用、長い名前のとき
+- メソッドソースの永続化（§3.10、§3.11。P18）: `image_format_test` に版 4 と版 3 のヘッダ（`VersionThreeHasNoSourcesAndVersionFourNeedsASection`）。`image_save_load_test` に、版 3 のイメージがソース無しで読める（`VersionThreeImageLoadsWithoutSources`）、ソース節の壊れ方の拒否（`RefusesSourcesSectionThatDoesNotParse`、`RefusesSourceForAnObjectThatIsNoMethod`、`RefusesSourceOutsideTheHeap`、`RefusesRepeatedSourceMethod`、`RefusesSourceRunningPastTheFile`、`RefusesNonZeroSourcePadding`、`RefusesSourcesBytesThatDisagreeWithTheFile`）、Accept したソースと日本語のソースが戻り doIt のテキストは書かれない（`AcceptedSourceSurvivesSaveAndLoad`）。`accept_abi_test` の `ClassDefinitionThenImageKeepsSourceText`、`ReshapeAfterLoadRecompilesFromRestoredSource`、`SourcesSurviveTwoRoundTrips`、`ReacceptAfterLoadSavesTheNewSource`、`RemovedMethodAfterLoadIsNotSaved`。`changes_abi_test` の `SavedImageFilesOutTheRestoredSources`。`cli_test.sh` の `image_save` に版 4 のヘッダ
 - `session_abi_test`: 評価中のフックからの再入が `AO_ERR` になる（ベース以外のプロセスから呼ばれたフックでも。`ReentrantEvalFromHookRejected`）。transcript フックが boot の前後とロードをまたいで届く。評価の終わりの drain（`DoItDrainsTranscriptFork`、`PrintItBeforeDrain`、`[n := n + 1] fork. Processor yield. n` が `1`）、評価をまたいで残る待つプロセス（`WaiterSurvivesAcrossEvals`）、待つプロセスのある save と load でベースが `activeProcess` のまま（`SaveLoadWithWaitersKeepsBaseActive`）、shutdown でプロセスを回収し、ルートの数が元に戻る（`ShutdownReclaimsFibers`）。評価結果（§3.10）: `out` を超える Print it の全体と、副作用が 1 回であること（`EvalResultLengthGivesWholePrintStringPastOut`）、NUL を含む結果（`EvalResultCopyKeepsNulBytes`）、切り詰めと `AO_ERR` の規則（`EvalResultCopyCutsLikeOtherBuffers`）、Do it と失敗のあとの空文字（`EvalResultEmptyAfterDoItAndFailures`）、shutdown・boot・ロードとの関係（`EvalResultFollowsSessionLifetime`）、busy の間の読み出しと、拒まれた評価が結果に触れないこと（`EvalResultReadableWhileBusyAndRefusedEvalKeepsIt`）、`ao_accept_class` の送信から呼ばれたフックでも、前の評価の結果 `42` が読め、拒まれた評価のあとも残ること（`KeptEvalResultReadableFromAcceptHookAndRefusedEvalKeepsIt`）、inspect フックの `print_len`（`InspectHookGetsPrintLengthWithNul`）。デバッガ（§3.10、§3.13）: イメージの保存がスナップショットとブロックのスロットをたどらない（`ImageSaveDoesNotTraceSnapshotOrBlockSlots`）、doIt のデバッグ情報の座標が前置分を引いた値（`DoItDebugInfoDropsPrefix`）、次の評価がスナップショットを消す（`NextEvalClearsSnapshot`）
-- `accept_abi_test`（追加分。§3.10 の「ソースはイメージに書かない」）: Accept したメソッドとブロックの pc→ソース表がソース表に残る（`AcceptKeepsPcMapForMethodAndBlocks`）、再 Accept で古いメソッドとブロックの項目が消える（`ReacceptDropsOldMethodAndItsBlocks`）、形の変更でブロックを付け直す（`ReshapeKeepsBlockPcMaps`）、そのデバッグ情報をコンパイルし直した結果から作る（`ReshapeTakesDebugInfoFromRecompiledImage`）、メモリが足りなければ項目のルートを全部か無しかで入れ、Accept したメソッドは残る（`SourceEntryRootsAllOrNothing`）、形の変更の移動はソースだけを移す（`MoveSourceWithoutMemoryKeepsTextOnly`）
+- `accept_abi_test`（追加分。§3.10 の「ソースはイメージのソース節に書く」）: Accept したメソッドとブロックの pc→ソース表がソース表に残る（`AcceptKeepsPcMapForMethodAndBlocks`）、再 Accept で古いメソッドとブロックの項目が消える（`ReacceptDropsOldMethodAndItsBlocks`）、形の変更でブロックを付け直す（`ReshapeKeepsBlockPcMaps`）、そのデバッグ情報をコンパイルし直した結果から作る（`ReshapeTakesDebugInfoFromRecompiledImage`）、メモリが足りなければ項目のルートを全部か無しかで入れ、Accept したメソッドは残る（`SourceEntryRootsAllOrNothing`）、形の変更の移動はソースだけを移す（`MoveSourceWithoutMemoryKeepsTextOnly`）
 - `remove_abi_test`（P12。§3.9「削除」）: メソッドの削除のあと、キャッシュ済みの送信も `doesNotUnderstand:` に入るか上位クラスのメソッドに当たる（`RemovedMethodFallsBackEvenWhenCached`）、クラス側の削除（`RemoveClassSideMethod`）、Kernel クラスに Accept したメソッドを消せる（`RemoveAcceptedMethodOnKernelClass`）、NativeMethod と無いセレクタと継承したセレクタの拒否（`RemoveNativeMethodIsRefused`、`RemoveMissingOrInheritedSelectorIsRefused`）、ソース表の項目とブロックが消える（`RemoveMethodDropsSourceEntry`）、クラスの削除で名前が nil を読み、既存インスタンスが動き続ける（`RemovedClassNameReadsNilAndInstancesKeepWorking`）、消したあとのワークスペースの評価で名前が nil を読み、その名前への代入が通る（`RemovedClassNameBecomesWorkspaceVariable`）、固定のグローバル・Kernel クラスの別名・サブクラスのあるクラスの拒否（`RemoveFixedGlobalIsRefused`、`RemoveKernelAliasIsRefused`、`RemoveClassWithSubclassIsRefused`）、別名が残る（`RemoveClassKeepsAliases`）、消した名前の対を次の登録が使う（`RemovedGlobalSlotIsReused`）、busy の拒否（`RemoveWhileBusyIsRefused`）、拒否で何も変わらない（`RefusedRemoveChangesNothing`）、保存とロードのあとも消えたまま（`RemovalSurvivesSaveAndLoad`）、Kernel 走査が緑のまま（`KernelScanStaysGreenAfterRemovals`）。デバッガ（§3.13）: 止まったフレームのメソッドを消しても Proceed がそのメソッドから答える（`RemovedMethodKeepsRunningInHaltedProcess`）、消したメソッドのフレームには文の先頭が無く、Step into が次の文を飛ばして送信先に入り、Step over が呼び出し元で止まる（`SteppingARemovedMethodFindsNoStatementStart`）、スナップショットのフレームがラベルを保ったままプレースホルダを読む（`SnapshotFramesOfRemovedMethodsReadPlaceholders`）、止まったプロセスが消したクラスを GC から守り、temps と step と Proceed が動く（`RemovedClassSurvivesGcInHaltedProcess`）。クラス ID（P12 追補。§3.10「クラス ID」）: 別名だけが持つ旧クラスと同じ名前の新しいクラスの行が、それぞれ自分のクラスを読み、消し、Accept し、旧クラスの Remove Class… は `is not bound to this class` で拒む（`AliasedOldClassRowActsOnItsOwnClass`）、未知の ID の削除と Accept の拒否（`UnknownClassIdIsRefusedByRemoveAndAccept`）、ID の表だけが持つサブクラスがスーパークラスの削除を妨げない（`ClassIdTableDoesNotBlockSuperclassRemoval`）、busy の間の `ao_accept_method_id` の拒否と読み出し（`RemoveWhileBusyIsRefused`）。壊れたメソッド辞書（§3.3）: 送信が上位クラスか `doesNotUnderstand:` に進み、`compiledMethodAt:`・`includesSelector:`・`selectors`・Accept が範囲の外を読まない（`MalformedMethodDictionaryFallsBackOnSend`）
 - `browser_abi_test`（P12 追補。§3.10「クラス ID」）: 同じクラスは同じ ID で、別名があっても 1 行（`ClassIdIsStableAndOneRowPerClass`）、名前を外したクラスの ID は外れ、使い回さない（`ClassIdsAreDroppedWithTheirClassAndNeverReused`）、未知の ID をどの読み出しも拒む（`UnknownClassIdIsRefusedByEveryRead`）、shutdown と boot、イメージのロードで ID が未知になる（`ClassIdsDoNotSurviveBootOrImageLoad`）、同じ名前の 2 行を ID で読み分ける（`SameNamedClassesAreReadApartById`）、スーパークラスとサブクラスの ID（`SuperclassAndSubclassesAnswerIds`）。`accept_abi_test` に `ao_accept_method_id` の規則（`AcceptMethodIdFollowsAcceptMethodRules`）、ID のクラスが Behavior でなければ `ao_accept_method` と同じくコンパイルエラーでない `AO_ERR`（`AcceptMethodIdOnNoBehaviorAnswersErrLikeAcceptMethod`）と、ID の表だけが持つサブクラスが形の変更を妨げない（`ClassIdTableDoesNotKeepSubclassesAlive`）。`session_abi_test` にイメージの保存が ID の表をたどらない（`ImageSaveDoesNotTraceClassIdSlots`）。`method_dictionary_test` に壊れた辞書の `at` と `atPut`（`MalformedDictionaryAnswersNilAndTakesNothing`）
 - `debug_snapshot_test`: 捕捉（§3.13）。入れ子のメソッドの失敗で最内が先頭（`ErrorInNestedMethodCapturesInnermostFirst`）、ブロックのフレームの temps とホーム（`BlockFrameKeepsTempsAndHome`）、ネイティブの失敗の合成（`FailedNativeSendSynthesizesNativeFrameWithReceiverAndArgs`）、DNU の合成（`DoesNotUnderstandSynthesizesFrameWithoutMethod`）、stack overflow の上限と総数（`StackOverflowCapturesCappedFramesAndTotal`）、後始末の abort が最初の捕捉を保つ（`CleanupAbortKeepsFirstSnapshot`）、正常終了のあとの後始末の失敗（`CleanupFailureAfterNormalEndIsCaptured`）、`terminate` と abandon（`SelfTerminateDoesNotCapture`、`TerminateBaseCaptures`、`AbandonDoesNotCapture`）、ベースのデッドロック（`DeadlockOnBaseCaptures`）、ファイバの失敗は自分の連鎖（`FiberFailureCapturesOnItsOwnChain`）、nursery と old の GC をまたぐ（`SnapshotSurvivesNurseryAndOldCollections`）、`halt`（`HaltAbortsWithHaltReason`）
@@ -1914,6 +1920,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - Browser の削除（§3.9「削除」。P12）: Smalltalk メニューの 2 項目と有効・無効（`testRemoveMenuItemsFollowSelection`）、右クリックメニュー（`testContextMenusOfferRemove`）、確認で Remove を選ぶとメソッドが消えセレクタの選択が外れる（`testRemoveMethodAfterConfirmUpdatesLists`）、Cancel で何も変わらない（`testCancelRemoveChangesNothing`）、クラスの削除で一覧から消える（`testRemoveClassAfterConfirmUpdatesLists`）、拒否でエラー欄に理由が出て一覧が変わらない（`testRefusedRemoveShowsReason`）、Accept していない編集があれば破棄の確認が先（`testRemoveAsksToDiscardEditsFirst`）。クラス ID（P12 追補）: 別名だけが持つ旧クラスの行と新しい同名のクラスの行が、それぞれ自分のクラスを表示し、消し、Accept する（`AcceptTests.testAliasedOldClassRowActsOnItsOwnClass`）、イメージのロードのあと同じ名前のクラスを選び直し、削除が新しいセッションのクラスに効く（`AcceptTests.testImageLoadReselectsTheClassByName`）、行は 1 クラス 1 行で ID を持つ（`BrowserModelTests.testClassRowsCarryOneIdPerClass`）
 - Change Sorter（§3.9「Change Sorter（P16）」）: `ChangeSorterTests` に、モデル（`testNewSessionListsUnnamed1AsCurrentAndSelected`、`testAcceptedMethodShowsItsKindAndSource`、`testRemovedMethodAndRemovedClassShowRemoved`、`testNewSetIsCurrentAndNextFreeNameSkipsTakenNames`、`testMakeCurrentRemoveAndMoveUpdateTheLists`）、窓（`testWindowListsSetsWithTheCurrentMarkAndSubtitle`、`testSelectingAClassAndMethodShowsMarksAndSource`、`testNewButtonAsksForTheNextFreeNameAndSelectsTheNewCurrentSet`、`testMakeCurrentMovesTheMark`、`testEntryMenuOffersRemoveAndMoveToTheOtherSets`、`testRemoveFromMenuForgetsTheClassEntryButKeepsTheClass`、`testFileOutButtonWritesTheSelectedSet`、`testRefusedFileOutShowsTheReason`、`testBecomingKeyReadsTheSetsAgain`、`testImageLoadBringsBackTheSavedSetsInTheWindow`、`testPaneAccessibilityLabels`）、メニュー（`testToolsChangeSorterOpensOneWindow`、`testFileInWritesTheFiledInLineAndRecords`、`testFailedFileInWritesTheFailedLineAndTheFirstError`、`testFileOutChangeSetFailureShowsAnAlert`、`testOpenImageBringsBackTheSavedSetsInAnOpenChangeSorter`）、busy の拒否（`testWindowWritesWhileBusyShowRuntimeIsBusy`、`testMakeCurrentWhileBusyShowsMakeCurrentFailed`、`testFileOutChangeSetWhileBusyShowsTheReasonInTheAlert`、`testFileInWhileBusyWritesTheReasonToTheTranscript`）。`AcceptTests.testFileMenuImageCommandsAndShowHierarchy` に File In… と File Out Change Set…
 - Change Sorter（§3.9、§3.10。P17）: `ChangeSorterTests` の `boot()` は Tools-model を file-in し、`ChangeSorterTests` に、busy の読み出しは一覧を残してエラー欄に `runtime is busy` を出し、読み直しで消す（`testBusyReadKeepsTheListsAndSaysBusy`）、Open Image… で保存したセットと current が戻る（`testOpenImageShowsTheSavedSets`）、`ChangeSet` の無いイメージを開くとアプリが Tools-model を file-in して `Unnamed1` を出す（`testOpenImageWithoutChangeSetFilesInTheToolsModel`）、起動が Tools-model を file-in する（`testLaunchFilesInTheToolsModel`）、選択を変える読み出しが busy で拒まれると前の選択を残して `runtime is busy` を出す（`testSelectionChangeWhileBusyKeepsThePreviousSelectionAndSaysBusy`）、件数のあとの読み出しがモデルの失敗で拒まれても一覧と選択を残す（`testReadRefusedAfterTheCountKeepsTheListsAndSelection`）、ロードのあとに答えた File Out… のシートは何も書かない（`testFileOutAnsweredAfterImageLoadWritesNothing`）、保存したセットが窓に戻る（`testImageLoadBringsBackTheSavedSetsInTheWindow`、`testOpenImageBringsBackTheSavedSetsInAnOpenChangeSorter`）。`ToolWindowTests` に、Tools-model のディレクトリが `AO_TOOLS_MODEL_DIR`（空でないとき）かバンドルの `Tools-model`（`testToolsModelDirectoryHonoursTheEnvironment`）
+- メソッドソースの永続化（P18）: `ChangeSorterTests` に、Open Image… のあと戻ったセットのメソッドのソースがソース枠に出る（`testOpenImageShowsTheRestoredMethodSource`）
 - ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
 
 `scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。
@@ -2131,6 +2138,18 @@ P17（§3.7、§3.9、§3.10、§3.11）は次をすべて満たす。上の項�
 - [x] アプリは起動時と、`ChangeSet` の無いイメージを Open Image… したときに Tools-model を file-in し、`tools model loaded: <dir>` の行を出す。保存したセットのあるイメージを開くとそのセットが出る（`testLaunchFilesInTheToolsModel`、`testOpenImageWithoutChangeSetFilesInTheToolsModel`、`testOpenImageShowsTheSavedSets`）
 - [x] `ao filein` と `ao image save` は `--load-order` を繰り返せる。`ao --test` はテストの隣の Tools-model を先に読む。vendor の file-in と `ao filein` は記録しない
 - [x] `PHASE` は `P17`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
+
+### メソッドソースの永続化（P18）
+
+P18（§3.9、§3.10、§3.11）は次をすべて満たす。上の項目は、下で変えたもの（イメージの版、戻ったセットのソース）を除いて変えない。
+
+- [ ] `.aoimage` の版は 4。ソース節があり、版 3 はソース無しで読める。版 1・2・5 は理由付きで拒む（`VersionThreeHasNoSourcesAndVersionFourNeedsASection`、`VersionThreeImageLoadsWithoutSources`、`RefusesVersionOneWithReason`）
+- [ ] Accept したメソッドのソースが保存とロードで戻り、`ao_browser_source` と `Behavior>>sourceCodeAt:` が答える。doIt のテキストは書かれない（`AcceptedSourceSurvivesSaveAndLoad`、`ClassDefinitionThenImageKeepsSourceText`）
+- [ ] 壊れたソース節はヒープを載せる前に `damaged image` で拒まれる（`RefusesSources*`、`RefusesRepeatedSourceMethod`、`RefusesNonZeroSourcePadding`）
+- [ ] ロードのあとの形の変更、再 Accept、削除、2 回の往復でソースが正しい（`ReshapeAfterLoadRecompilesFromRestoredSource`、`ReacceptAfterLoadSavesTheNewSource`、`RemovedMethodAfterLoadIsNotSaved`、`SourcesSurviveTwoRoundTrips`）
+- [ ] 戻ったセットの File Out と Change Sorter のソース枠にソースが出る（`SavedImageFilesOutTheRestoredSources`、`testOpenImageShowsTheRestoredMethodSource`）
+- [ ] Kernel を変えていない。Kernel 走査は緑
+- [ ] `PHASE` は `P18`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
 
 ---
 
