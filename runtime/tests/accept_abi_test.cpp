@@ -37,7 +37,7 @@ TEST(AcceptAbi, ObjectFooIsCallableAndKeepsSource) {
   ao_runtime_shutdown();
 }
 
-TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
+TEST(AcceptAbi, ClassDefinitionThenImageKeepsSourceText) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   AoSpan err{};
   const char* def =
@@ -68,13 +68,11 @@ TEST(AcceptAbi, ClassDefinitionThenImageDropsSourceText) {
   char out[64];
   ASSERT_EQ(AO_OK, ao_eval("P9Foo new foo", 13, AO_EVAL_PRINTIT, out, 64, &err));
   EXPECT_STREQ("nil", out);
-  // SPEC §3.10: 読み込んだイメージのメソッドはソースが無い。AO_ERR_NOSOURCE とプレースホルダで、
-  // プレースホルダを Accept しても本体は変わらない（self を返す空メソッドにならない）。
+  // SPEC §3.10 (P18): 読み込んだイメージのメソッドは、保存したときのソースを持つ。
   char shown[256];
-  ASSERT_EQ(AO_ERR_NOSOURCE, ao_browser_source(ao_browser_class_id("P9Foo"), 0, "foo", shown, 256));
-  EXPECT_STREQ("\"P9Foo>>foo source not available\"", shown);
-  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("P9Foo", 0, shown, &err));
-  EXPECT_STRNE("", err.message);
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("P9Foo"), 0, "foo", shown, 256));
+  EXPECT_STREQ("foo\n  ^x\n", shown);
+  ASSERT_EQ(AO_OK, ao_accept_method("P9Foo", 0, shown, &err)) << err.message;
   ASSERT_EQ(AO_OK, ao_eval("P9Foo new foo", 13, AO_EVAL_PRINTIT, out, 64, &err));
   EXPECT_STREQ("nil", out);
   ao_runtime_shutdown();

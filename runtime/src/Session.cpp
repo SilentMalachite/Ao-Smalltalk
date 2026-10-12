@@ -518,9 +518,59 @@ int sessionImageSave(const char* path) {
   // SPEC §3.11: the halted processes (SPEC §3.13) are counted by the caller.
   const std::size_t halted =
       g_session->scheduler != nullptr ? g_session->scheduler->haltedCount() : 0;
-  return Image::save(g_session->heap, g_session->roots, g_session->wk, path, nullptr, halted) ? 0
-                                                                                               : 1;
+  // SPEC §3.10, §3.11 (P18): the table's sources go to the sources section; the doIt's do not.
+  // Nothing here or in Image::save collects, so the methods stay where they are.
+  std::vector<ImageSource> sources;
+  try {
+    sources.reserve(g_session->methodSources.size());
+    for (const auto& entry : g_session->methodSources) {
+      if (entry->text.isHeap() && (g_session->heap.flags(entry->text) & kFlagBytes) != 0) {
+        sources.push_back(ImageSource{entry->method, Str::toUtf8(g_session->heap, entry->text)});
+      }
+    }
+  } catch (const std::bad_alloc&) {
+    return 1;
+  }
+  return Image::save(g_session->heap, g_session->roots, g_session->wk, path, nullptr, halted,
+                     &sources)
+             ? 0
+             : 1;
 }
+
+namespace {
+
+// SPEC §3.10 (P18): the loaded image's sources go back in the table, each without blocks or debug
+// info, in the section's order. The methods stay pinned while their Strings are made, which may
+// collect. Out of memory stops there: the methods left have no entry (a placeholder) and the load
+// still succeeds.
+void restoreMethodSources(Session& s, const std::vector<ImageSource>& sources) {
+  if (sources.empty() || s.ctx == nullptr) {
+    return;
+  }
+  CallContext& ctx = *s.ctx;
+  std::vector<Oop> methods;
+  try {
+    methods.reserve(sources.size());
+    for (const ImageSource& src : sources) {
+      methods.push_back(src.method);
+    }
+    ctx.roots.pinRange(methods.data(), methods.size());
+  } catch (const std::bad_alloc&) {
+    return;
+  }
+  for (std::size_t i = 0; i < methods.size(); ++i) {
+    const Oop text = Str::fromUtf8(ctx, sources[i].text);
+    if (!text.isHeap()) {
+      s.heap.clearOutOfMemory();
+      break;
+    }
+    // Does not collect: text stays valid until it is in a rooted slot.
+    rememberMethodSource(methods[i], text, Oop{}, nullptr);
+  }
+  ctx.roots.unpinRange(methods.data(), methods.size());
+}
+
+}  // namespace
 
 int sessionImageLoad(const char* path, std::string* reason) {
   auto fail = [reason](const char* why) {
@@ -536,7 +586,8 @@ int sessionImageLoad(const char* path, std::string* reason) {
     return fail("image load failed");
   }
   auto next = std::make_unique<Session>(false);
-  if (!Image::load(next->heap, next->roots, next->wk, path, reason)) {
+  std::vector<ImageSource> sources;
+  if (!Image::load(next->heap, next->roots, next->wk, path, reason, &sources)) {
     return fail("image load failed");
   }
   HostOopHook inspect = nullptr;
@@ -559,6 +610,7 @@ int sessionImageLoad(const char* path, std::string* reason) {
   // Dropping the current session abandons its processes (~Session).
   g_session = std::move(next);
   clearMethodSources();
+  restoreMethodSources(*g_session, sources);
   // SPEC §3.13: the load replaces the snapshot with an empty one (a probe may have filled it).
   sessionDebugClear();
   return 0;

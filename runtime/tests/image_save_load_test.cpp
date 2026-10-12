@@ -1898,3 +1898,139 @@ TEST(ImageSave, SaveWithHaltedProcessIsRefused) {
   EXPECT_EQ(before, std::filesystem::last_write_time(path));
   EXPECT_EQ(size, std::filesystem::file_size(path));
 }
+
+namespace {
+
+// P18: a session image with the accepted methods P18Src>>a ("a\n  ^1") and, when two,
+// P18Src>>b ("b\n  ^2"), in that order in the source table. The runtime is shut down after.
+std::filesystem::path saveWithSources(const char* file, bool two) {
+  const auto path = std::filesystem::path(testing::TempDir()) / file;
+  EXPECT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  EXPECT_EQ(AO_OK, ao_accept_class("Object subclass: #P18Src\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P18'\n",
+                                   &err))
+      << err.message;
+  EXPECT_EQ(AO_OK, ao_accept_method("P18Src", 0, "a\n  ^1", &err)) << err.message;
+  if (two) {
+    EXPECT_EQ(AO_OK, ao_accept_method("P18Src", 0, "b\n  ^2", &err)) << err.message;
+  }
+  EXPECT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ao_runtime_shutdown();
+  return path;
+}
+
+// Loads bytes from path with Image::load and expects the damaged-image refusal, nothing adopted.
+void expectDamaged(const std::filesystem::path& path, const std::vector<char>& bytes) {
+  ASSERT_TRUE(writeAll(path, bytes));
+  Loaded image;
+  std::string reason;
+  EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string(), &reason));
+  EXPECT_EQ("damaged image", reason);
+  EXPECT_EQ(0u, image.heap.oldUsed());
+}
+
+}  // namespace
+
+// P18 / SPEC §3.10, §3.11: an accepted method's source comes back after a save and a load, byte
+// for byte (multi-byte UTF-8 too), for ao_browser_source and sourceCodeAt:. The doIt's text is
+// not written.
+TEST(ImageSaveLoad, AcceptedSourceSurvivesSaveAndLoad) {
+  const auto path = std::filesystem::path(testing::TempDir()) / "p18-sources.aoimage";
+  const char* japanese = "greet\n  \"挨拶を返す\"\n  ^'こんにちは'";
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #P18Src\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P18'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Src", 0, "a\n  ^1", &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("P18Src", 1, japanese, &err)) << err.message;
+  char out[64];
+  ASSERT_EQ(AO_OK, ao_eval("\"P18DoItMarker\" 3 + 4", 21, AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ao_runtime_shutdown();
+  const std::vector<char> bytes = readAll(path);
+  const std::string text(bytes.begin(), bytes.end());
+  EXPECT_EQ(std::string::npos, text.find("P18DoItMarker"));
+  EXPECT_NE(std::string::npos, text.find("a\n  ^1"));
+
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  char shown[256];
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("P18Src"), 0, "a", shown, 256));
+  EXPECT_STREQ("a\n  ^1", shown);
+  ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("P18Src"), 1, "greet", shown, 256));
+  EXPECT_STREQ(japanese, shown);
+  ASSERT_EQ(AO_OK, ao_eval("(P18Src sourceCodeAt: #a) size", 30, AO_EVAL_PRINTIT, out, 64, &err))
+      << err.message;
+  EXPECT_STREQ("6", out);
+  ao_runtime_shutdown();
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a source for an object that is not a CompiledMethod.
+TEST(ImageSaveLoad, RefusesSourceForAnObjectThatIsNoMethod) {
+  const auto path = saveWithSources("p18-not-method.aoimage", false);
+  ImageSurgery image(path);
+  const std::size_t at = sourcesAt(image.bytes);
+  image.setWord(at + 8, image.record("Smalltalk"));
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a source whose method offset is past the heap.
+TEST(ImageSaveLoad, RefusesSourceOutsideTheHeap) {
+  const auto path = saveWithSources("p18-outside.aoimage", false);
+  ImageSurgery image(path);
+  image.setWord(sourcesAt(image.bytes) + 8, image.header.heapBytes + 8);
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: the same method twice.
+TEST(ImageSaveLoad, RefusesRepeatedSourceMethod) {
+  const auto path = saveWithSources("p18-repeat.aoimage", true);
+  ImageSurgery image(path);
+  const std::size_t at = sourcesAt(image.bytes);
+  image.setWord(at + 32, image.word(at + 8));
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a length that runs past the file.
+TEST(ImageSaveLoad, RefusesSourceRunningPastTheFile) {
+  const auto path = saveWithSources("p18-past.aoimage", false);
+  ImageSurgery image(path);
+  putU32(image.bytes, sourcesAt(image.bytes) + 16, 0xFFFFu);
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: padding that is not 0 (after the length, and after the bytes).
+TEST(ImageSaveLoad, RefusesNonZeroSourcePadding) {
+  const auto path = saveWithSources("p18-pad.aoimage", false);
+  ImageSurgery image(path);
+  const std::size_t at = sourcesAt(image.bytes);
+  std::vector<char> bytes = image.bytes;
+  putU32(bytes, at + 20, 1);
+  expectDamaged(path, bytes);
+  bytes = image.bytes;
+  bytes[at + 24 + 6] = 'x';
+  expectDamaged(path, bytes);
+  std::filesystem::remove(path);
+}
+
+// P18 / SPEC §3.11: a sourcesBytes the file's size does not agree with.
+TEST(ImageSaveLoad, RefusesSourcesBytesThatDisagreeWithTheFile) {
+  const auto path = saveWithSources("p18-size.aoimage", false);
+  ImageSurgery image(path);
+  ao::ImageFormat::ImageHeader header = image.header;
+  header.sourcesBytes += 8;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(image.bytes.data()), header);
+  expectDamaged(path, image.bytes);
+  std::filesystem::remove(path);
+}
