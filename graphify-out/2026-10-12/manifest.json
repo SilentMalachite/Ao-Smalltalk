@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1791796982.1919012,
-    "seen": 1791796988.550335,
-    "ast_hash": "5444421a89fe6caf6f09764f39a00eed",
+    "mtime": 1791797772.4405665,
+    "seen": 1791798006.582942,
+    "ast_hash": "928cbffee227421e706746f56990d89c",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -1224,9 +1224,9 @@
     "semantic_hash": "be43e9a64da8bd0863941d7dbff3384d"
   },
   "runtime/include/ao/Image.hpp": {
-    "mtime": 1791793955.5055547,
-    "seen": 1791796988.550234,
-    "ast_hash": "1c442366740aafd40a226ab4ac3d83ff",
+    "mtime": 1791797829.6586068,
+    "seen": 1791798006.5828328,
+    "ast_hash": "138e27c3d35efc14a767a7e781678295",
     "semantic_hash": ""
   },
   "runtime/include/ao/ImageFormat.hpp": {
@@ -1338,9 +1338,9 @@
     "semantic_hash": ""
   },
   "runtime/src/Session.cpp": {
-    "mtime": 1791794107.9664361,
-    "seen": 1791796988.550268,
-    "ast_hash": "fbb362369c15c98deee880ec93cf3139",
+    "mtime": 1791797829.658422,
+    "seen": 1791798006.5828722,
+    "ast_hash": "2bc5ee978fe2046f357879d012707803",
     "semantic_hash": ""
   },
   "runtime/src/Session.hpp": {
@@ -1620,9 +1620,9 @@
     "semantic_hash": "c7b1ad6c267d772b4d8ccf0048bb64e1"
   },
   "CHANGELOG.md": {
-    "mtime": 1791795765.8208442,
-    "seen": 1791796988.5503302,
-    "ast_hash": "50ed8cb7ed595ef0066e5027c92c43a6",
+    "mtime": 1791797767.8342414,
+    "seen": 1791798006.582937,
+    "ast_hash": "52b8eca2ae51628055672e91f499699e",
     "semantic_hash": ""
   },
   "docs/phases/P10.md": {
@@ -1716,9 +1716,9 @@
     "semantic_hash": "919b15315a39bcd1ce7cf96121099546"
   },
   "runtime/tests/debug_abi_test.cpp": {
-    "mtime": 1791549243.2012527,
-    "seen": 1791736088.726902,
-    "ast_hash": "742f564e602c4f4f0be2474189583c33",
+    "mtime": 1791797803.616304,
+    "seen": 1791798006.5829031,
+    "ast_hash": "e319e59b6f4468e081c2e0db76af3432",
     "semantic_hash": ""
   },
   "app/Ao/DebuggerWindow.swift": {
@@ -1944,9 +1944,9 @@
     "semantic_hash": ""
   },
   "docs/superpowers/specs/2026-10-12-p18-method-source-persistence-design.md": {
-    "mtime": 1791790005.1559653,
-    "seen": 1791796988.550425,
-    "ast_hash": "4d9a77737c2c6500ae483be8b5ae366a",
+    "mtime": 1791797762.4886334,
+    "seen": 1791798006.5830321,
+    "ast_hash": "5d66fb9503b7ea8f0602d8826def504b",
     "semantic_hash": ""
   }
 }

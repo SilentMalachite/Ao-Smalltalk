@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1791797772.4405665,
-    "seen": 1791798006.582942,
-    "ast_hash": "928cbffee227421e706746f56990d89c",
+    "mtime": 1791811954.5850158,
+    "seen": 1791812096.660675,
+    "ast_hash": "9054b9bfc5d69b32a13068d46ba8dca7",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -1242,9 +1242,9 @@
     "semantic_hash": ""
   },
   "runtime/src/ImageLoad.cpp": {
-    "mtime": 1791793959.6969855,
-    "seen": 1791796988.5502589,
-    "ast_hash": "c1c1f06518a7e49c6fdae5428b56bfb8",
+    "mtime": 1791811954.5853572,
+    "seen": 1791812096.660596,
+    "ast_hash": "3d6f201d61f3865f5cf5a50f5a9f3aee",
     "semantic_hash": ""
   },
   "runtime/src/ImageSave.cpp": {
@@ -1266,9 +1266,9 @@
     "semantic_hash": "3fdf41fcc747667fbd5e2fb6ccd08c17"
   },
   "runtime/tests/image_save_load_test.cpp": {
-    "mtime": 1791794088.8414066,
-    "seen": 1791796988.550306,
-    "ast_hash": "87983318889841340499966e7c3a7b8e",
+    "mtime": 1791811954.5857549,
+    "seen": 1791812096.660645,
+    "ast_hash": "5d08fa5c812f0193b1ba58a1ee5cd88a",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-09-22-p7-aoimage.md": {
@@ -1338,15 +1338,15 @@
     "semantic_hash": ""
   },
   "runtime/src/Session.cpp": {
-    "mtime": 1791797829.658422,
-    "seen": 1791798006.5828722,
-    "ast_hash": "2bc5ee978fe2046f357879d012707803",
+    "mtime": 1791811954.535895,
+    "seen": 1791812096.660605,
+    "ast_hash": "e68ce78d21172993ad5635a4a6e546cf",
     "semantic_hash": ""
   },
   "runtime/src/Session.hpp": {
-    "mtime": 1791786862.512148,
-    "seen": 1791796988.550268,
-    "ast_hash": "411f52bbf0a15d8d18541393c3b5c6c4",
+    "mtime": 1791811954.5361552,
+    "seen": 1791812096.660606,
+    "ast_hash": "d565361addcb74682acb3e0adf0889b6",
     "semantic_hash": ""
   },
   "runtime/tests/browser_abi_test.cpp": {
@@ -1398,9 +1398,9 @@
     "semantic_hash": "aed824c14ce4f3e7967667bb3e6d9aa3"
   },
   "runtime/tests/accept_abi_test.cpp": {
-    "mtime": 1791795574.876687,
-    "seen": 1791796988.550288,
-    "ast_hash": "bf9e118e7f23066dbac286f364ae2158",
+    "mtime": 1791811954.5365775,
+    "seen": 1791812096.660626,
+    "ast_hash": "ec21368f23890cc011bbffd746fb8fd7",
     "semantic_hash": ""
   },
   "runtime/tests/print_string_test.cpp": {
