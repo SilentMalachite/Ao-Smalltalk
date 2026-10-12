@@ -2,26 +2,45 @@
 
 All notable changes to Ao are recorded here. Versions follow [Semantic Versioning](https://semver.org/) (SPEC §2.4).
 
-## [Unreleased]
+## [1.7.0] - 2026-10-13
 
-Phases P16, P17 and P18 of SPEC §2.3 (versions 1.6.0 and 1.7.0). The `.aoimage` format becomes version 4 with P18 (a sources section; version 3 images still load, and so do images saved by 1.4.0). An image without a `ChangeSet` gets the Tools-model filed in when the app opens it.
+Phases P16, P17 and P18 of SPEC §2.3, released together. Versions 1.5.0 (P16) and 1.6.0 (P17) were never released: the release after 1.4.0 is 1.7.0 (SPEC §2.4).
 
-### Added
+Accepts and removals are recorded in change sets, which the Change Sorter shows, edits and files out (SPEC §3.9, §3.10). Change sets are the Smalltalk class `ChangeSet` in `image/Tools-model/` and are saved in the image, together with the sources of the methods accepted or filed in during the session (SPEC §3.7, §3.11). The `.aoimage` format becomes version 4 (a sources section). Version 3 images, including those saved by 1.4.0, still load, without sources. 1.4.0 refuses version 4 images (`unsupported image version 4`).
 
-- Change sets (phase P16 of SPEC §2.3): Accepts and removals are recorded in the session's current change set. Tools → Change Sorter lists the sets, their classes and methods with their kinds (`+`, `~`, `−`), makes new sets, makes one current, forgets or moves entries, and files a set out as a chunk-format `.st` file (removals become comment chunks).
-- File → File In… loads a `.st` file into the session: the methods keep their sources, an existing class keeps its methods, and everything read is recorded in the current change set. The result goes to the Transcript.
-- C ABI: `ao_changes_*` and `ao_filein_file`.
+### Runtime
 
-### Changed
-
-- Smalltalk change sets (phase P17): change sets are now the Smalltalk class `ChangeSet` (with `ClassChanges`) in `image/Tools-model/`, so Save Image… keeps the sets, the current set and the set IDs, and Open Image… brings them back. Method sources are not part of the image, so the methods of a restored set have no source: File Out writes a `source not available` comment for each and the source pane shows the placeholder, until the method is accepted or filed in again. Tools → Change Sorter, the File Out text and the `ao_changes_*` answers are the same as in P16. The app files the Tools-model in at launch and after opening an image that has no `ChangeSet`, and writes a `tools model loaded: <dir>` line to the Transcript.
-- `ao_changes_*` reads (`*_count`, `*_at`, `ao_changes_current`) are refused while the runtime is busy, like the writes. The Change Sorter keeps its previous lists and shows `runtime is busy`, then reads again when the window becomes key.
-- `ao filein` and `ao image save` accept `--load-order` more than once, read in the given order. `ao --test <dir>` first files in the `Tools-model/LOAD_ORDER` next to `<dir>`.
+- Change sets: Accepts (Browser, class definitions and Debugger) and removals are recorded in the session's current change set, with the kinds `+` (added), `~` (changed) and `−` (removed). A File Out writes a set as a chunk-format `.st` file; removals become comment chunks, which File In skips.
+- Change sets are the Smalltalk classes `ChangeSet` and `ClassChanges` in `image/Tools-model/`. Save Image… keeps the sets, the current set and the set IDs, and Open Image… brings them back.
+- Method sources are saved in the image: a sources section after the records holds the source of every method accepted or filed in with File In…. After a load, the Browser, `sourceCodeAt:`, the Change Sorter and File Out show them again. A recorded method without a source (one from a `methodsFor:` chunk of a class definition Accept, or from a version 3 image) is filed out as a `source not available` comment.
+- C ABI: `ao_changes_*` (sets, classes, methods, new, make current, forget, move, File Out) and `ao_filein_file`. `ao_changes_*` reads and writes are refused while the runtime is busy (`runtime is busy`).
 - Kernel: `Behavior>>sourceCodeAt:` and `Class>>definition` (native, the only two additions).
 - A live Debugger Accept whose change-set record ended the halted process is refused (`debugger accept refused: process is no longer halted`) instead of restarting a dead frame.
-- Method sources are saved in the image (phase P18, version 1.7.0). `.aoimage` is now version 4: a sources section after the records holds the source of every method accepted or filed in with File In…, and Open Image… brings it back to the Browser, `sourceCodeAt:`, the Change Sorter and File Out. Version 3 images still load, without sources; 1.6.0 and earlier refuse version 4 images (`unsupported image version 4`). The Debugger shows no source positions or temp names for loaded methods, but Debugger Accept works on them, and the re-accepted method gets a full entry.
+- `ao filein` and `ao image save` accept `--load-order` more than once, read in the given order. `ao --test <dir>` first files in the `Tools-model/LOAD_ORDER` next to `<dir>`. `ao filein` and the vendor file-in keep no sources and record nothing.
 
-The `ao` CLI keeps its commands: `ao filein` and the vendor file-in keep no sources and record nothing.
+### Ao.app
+
+- Tools → Change Sorter lists the sets, their classes and methods with their kinds and the source of the selected entry. It makes new sets, makes one current, forgets entries (Remove from Change Set) or moves them to another set (Move to), and files a set out (File Out…, or File → File Out Change Set…).
+- File → File In… loads a `.st` file into the session: the methods keep their sources, an existing class keeps its other methods, and everything read is recorded in the current change set. The result goes to the Transcript (`filed in: <path>`, or `file-in failed: <path>` and the first error).
+- The app files the Tools-model in at launch and after opening an image that has no `ChangeSet`, and writes a `tools model loaded: <dir>` line to the Transcript.
+- While an evaluation runs, the Change Sorter keeps its previous lists and shows `runtime is busy`, then reads again when the window becomes key.
+
+### Project
+
+- Release assets: `Ao-1.7.0-macos-arm64.zip`, `ao-cli-1.7.0-macos-arm64.tar.gz`, and `SHA256SUMS`.
+
+### Known limitations
+
+- The Debugger shows no source positions or temp names for methods loaded from an image, so Step over and Step into do not stop at their statements. Debugger Accept works on them, and the re-accepted method gets full positions (SPEC §3.13).
+- No editing in the post-mortem Debugger or of the doIt, no selector change from the Debugger, and no class definitions from the Debugger. The live Debugger does not step into natives.
+- No Monticello-style packages or versioning: a change set is a list of changes, filed out as a `.st` file.
+- No JIT, FFI, networking, or catching of Smalltalk exception objects (SPEC §1.4, §5).
+- The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
+- The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
+
+### Install
+
+Requires an Apple Silicon Mac with macOS 14 or later. Download `Ao-1.7.0-macos-arm64.zip` (the app) and/or `ao-cli-1.7.0-macos-arm64.tar.gz` (the CLI), then check them with `shasum -a 256 -c SHA256SUMS`. The builds are not notarized: after the first launch attempt, choose **Open Anyway** in System Settings → Privacy & Security, or run `xattr -dr com.apple.quarantine Ao.app`. See the [README](https://github.com/SilentMalachite/Ao-Smalltalk/blob/v1.7.0/README.md) for usage.
 
 ## [1.4.0] - 2026-10-09
 

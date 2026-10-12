@@ -141,7 +141,7 @@ P9 完了が v1。P10、P11、P12、P13、P14、P15、P16、P17、P18 は v1 の
 
 版は Semantic Versioning に従う。v1 の版は `1.0.0`、タグは `v<版>`（例 `v1.0.0`）である。
 
-- v1 のあとのフェーズ（P10〜P12）は、`.aoimage` の形式、`ao` の CLI、Smalltalk の既存の振る舞いを変えずに機能を足すので、マイナー版を上げる。P12 までを含む版は `1.1.0` である。P13（評価の中断）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.2.0` に含める。P14（Restart）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.3.0` に含める。P15（Debugger の編集）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.4.0` に含める。P16（チェンジセット）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.5.0` に含める。P17（Smalltalk のチェンジセット）も、`.aoimage` の形式（版 3）を変えず、振る舞いを足すだけ（`ao filein` と `ao image save` の `--load-order` を繰り返せるようにするのも足すだけ）なので、その次のマイナー版 `1.6.0` に含める。P18（メソッドソースの永続化）は `.aoimage` の版を 4 に上げるが、版 3 のイメージも読み、振る舞いを足すだけなので、その次のマイナー版 `1.7.0` に含める。版 4 のイメージは 1.6.0 以前のランタイムでは読めない（`unsupported image version 4`）。C ABI（`bridge/ao_abi.h`）はリリースの添付物に含まず、同じ版のアプリとランタイムの間だけで使うので、その変更では版を分けない。
+- v1 のあとのフェーズ（P10〜P12）は、`.aoimage` の形式、`ao` の CLI、Smalltalk の既存の振る舞いを変えずに機能を足すので、マイナー版を上げる。P12 までを含む版は `1.1.0` である。P13（評価の中断）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.2.0` に含める。P14（Restart）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.3.0` に含める。P15（Debugger の編集）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.4.0` に含める。P16（チェンジセット）も同じく振る舞いを足すだけなので、その次のマイナー版 `1.5.0` に含める。P17（Smalltalk のチェンジセット）も、`.aoimage` の形式（版 3）を変えず、振る舞いを足すだけ（`ao filein` と `ao image save` の `--load-order` を繰り返せるようにするのも足すだけ）なので、その次のマイナー版 `1.6.0` に含める。P18（メソッドソースの永続化）は `.aoimage` の版を 4 に上げるが、版 3 のイメージも読み、振る舞いを足すだけなので、その次のマイナー版 `1.7.0` に含める。版 4 のイメージは 1.6.0 以前のランタイムでは読めない（`unsupported image version 4`）。1.5.0 と 1.6.0 は `main` の上の版にとどめ、タグもリリースも作らない。P16、P17、P18 は 1.7.0 の 1 つのリリースにまとめて出し、`CHANGELOG.md` も `[1.7.0]` の 1 項目に書く。リリースされた版では、1.4.0 の次が 1.7.0 である。C ABI（`bridge/ao_abi.h`）はリリースの添付物に含まず、同じ版のアプリとランタイムの間だけで使うので、その変更では版を分けない。
 
 - 版の正本は `ao::version_string`（`ao --version` と `ao_version` の値）である。リリースの版には `-` 以降を付けない。`ao::compiler::version` も同じ値にする。
 - 版ごとの変更点を `CHANGELOG.md`（英語）に書く。
@@ -1161,7 +1161,7 @@ File Out の形式（チャンク形式。§3.8）:
 ```smalltalk
 "Change Set: Unnamed2
 Date: 2026-10-11
-Ao 1.5.0"!
+Ao 1.7.0"!
 
 Object subclass: #Counter
   instanceVariableNames: 'count'
@@ -1198,7 +1198,7 @@ new
   - Release でビルドする。
   - `image/vendor` を `Contents/Resources/vendor` に写す。
   - `image/Tools-model` を `Contents/Resources/Tools-model` に写す（P17）。
-  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（v1 は `1.0.0`、P12 までは `1.1.0`、P13 までは `1.2.0`、P14 までは `1.3.0`、P15 までは `1.4.0`、P16 までは `1.5.0`、P17 までは `1.6.0`。§2.4）である。
+  - Info.plist に `CFBundleShortVersionString` と `CFBundleVersion` を入れる。値はどちらも、`ao --version` の `-` より前の部分（v1 は `1.0.0`、P12 までは `1.1.0`、P13 までは `1.2.0`、P14 までは `1.3.0`、P15 までは `1.4.0`、P16 までは `1.5.0`、P17 までは `1.6.0`（1.5.0 と 1.6.0 はリリースしていない）、P18 までは `1.7.0`。§2.4）である。
   - アドホック署名する。`codesign --verify --strict` が通る。
 
 ### 3.10 ブリッジ
@@ -2113,17 +2113,17 @@ P15（§3.9、§3.10、§3.13）は次をすべて満たす。上の項目は変
 
 P16（§3.9、§3.10）は次をすべて満たす。上の項目は変えない。
 
-- [ ] Browser で `Counter` を定義して `increment` を Accept すると、Tools → Change Sorter の `Unnamed1` に `Counter +` と `increment +` が出て、ソース枠に Accept したソースが出る
-- [ ] New… で作ったセットが現在のセットになり、以降の記録はそこに入る。既にあるメソッドの Accept は `~`、削除は `−` で、そのソース枠は `removed`
-- [ ] Remove from Change Set は項目を忘れ、メソッドもクラスも変えない。Move to は項目を種類ごと別のセットに移す
-- [ ] File Out… で書いた .st を、shutdown して boot し直したセッションで File In… すると、同じ定義とソースが戻って現在のセットに記録され、削除のコメントは読み飛ばされる
+- [x] Browser で `Counter` を定義して `increment` を Accept すると、Tools → Change Sorter の `Unnamed1` に `Counter +` と `increment +` が出て、ソース枠に Accept したソースが出る（`testAcceptedMethodShowsItsKindAndSource`）
+- [x] New… で作ったセットが現在のセットになり、以降の記録はそこに入る。既にあるメソッドの Accept は `~`、削除は `−` で、そのソース枠は `removed`（`NewSetBecomesCurrent`、`AcceptRecordsAddedThenChangedInANewSet`、`RemoveMethodFollowsTheKindRules`、`testNewSetIsCurrentAndNextFreeNameSkipsTakenNames`、`testRemovedMethodAndRemovedClassShowRemoved`）
+- [x] Remove from Change Set は項目を忘れ、メソッドもクラスも変えない。Move to は項目を種類ごと別のセットに移す（`DropForgetsTheEntryAndKeepsTheMethod`、`MoveMethodEntryKeepsItsKind`、`MoveClassEntryMergesIntoTheTarget`、`testMakeCurrentRemoveAndMoveUpdateTheLists`、`testRemoveFromMenuForgetsTheClassEntryButKeepsTheClass`）
+- [x] File Out… で書いた .st を、shutdown して boot し直したセッションで File In… すると、同じ定義とソースが戻って現在のセットに記録され、削除のコメントは読み飛ばされる（`FiledOutSetFilesBackInAfterBoot`、`FiledOutRemovalCommentIsSkippedWhenFiledBackIn`）
 - [x] 既にあるクラスを含む .st を File In… しても、そのクラスのほかのメソッドは消えない
 - [x] File In… の結果が Transcript に出る（`filed in: <path>`、または `file-in failed: <path>` と最初のエラー）
 - [x] boot で空の `Unnamed1` だけから始まる。Open Image… と Save Image… は P17 で変わる（下の「Smalltalk のチェンジセット（P17）」）。`.aoimage` の形式は変えない
 - [x] vendor の file-in と `ao filein` は変えない（ソースも記録も無い）
 - [x] 評価中の書き込みは `runtime is busy` で拒まれる
 - [x] Kernel 走査緑
-- [ ] `PHASE` は `P16`、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目
+- [x] `PHASE` は `P16`（以後 P17、P18 に進めた）、SPEC §6 の本小節がすべて `[x]`、CHANGELOG に項目（1.7.0 にまとめた。§2.4）
 
 ### Smalltalk のチェンジセット（P17）
 

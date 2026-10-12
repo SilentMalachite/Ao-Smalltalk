@@ -15,7 +15,7 @@ Product spec: [SPEC.md](SPEC.md) (Japanese; product authority). Agent process: [
 
 ## Status
 
-**Ao 1.4.0** is the current release. It completes phases P0–P15 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0); P14 adds Restart in the Debugger (1.3.0); P15 adds editing and Accept in the Debugger (1.4.0):
+**Ao 1.7.0** is the current release. It completes phases P0–P18 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0); P14 adds Restart in the Debugger (1.3.0); P15 adds editing and Accept in the Debugger (1.4.0); P16–P18 add change sets, the Change Sorter, and method sources saved in the image (1.7.0; 1.5.0 and 1.6.0 were not released):
 
 | Area | What Ao does |
 |---|---|
@@ -25,9 +25,10 @@ Product spec: [SPEC.md](SPEC.md) (Japanese; product authority). Agent process: [
 | Compiler | Smalltalk-80 source → AST → `CompiledMethod` bytecode. Chunk-format file-in |
 | Interpreter | User methods, blocks with shared temps, non-local return, `ensure:`, cooperative processes, `Semaphore`, `SharedQueue` |
 | Class library | Non-Kernel classes filed in from a pinned Cuis-Smalltalk excerpt (`image/vendor`) |
-| Images | `.aoimage` save and load. Native methods are re-bound by symbol name on load |
-| Tools | AppKit Transcript, Workspace (Do it / Print it / Inspect it / Debug it), and a five-pane System Browser with Accept and Remove |
+| Images | `.aoimage` save and load (version 4, with the sources of accepted methods). Native methods are re-bound by symbol name on load |
+| Tools | AppKit Transcript, Workspace (Do it / Print it / Inspect it / Debug it), a five-pane System Browser with Accept and Remove, File In…, and a Change Sorter |
 | Debugger | `halt` and failures stop the evaluation in a Debugger window with Proceed, Abort, Step over, Step into, and Step out (P10, P11). ⌘. stops a running evaluation there too (P13). Restart reruns a selected frame (P14). The live Debugger's source pane can be edited and Accepted, which restarts the frame with the new method (P15) |
+| Change sets | Accepts and removals are recorded in change sets (P16). The Change Sorter makes sets, moves and forgets entries, and files a set out as `.st`. Change sets are the Smalltalk class `ChangeSet` and are saved in the image (P17), with the method sources (P18) |
 
 ## Install
 
@@ -37,8 +38,8 @@ Download from the [Releases](https://github.com/SilentMalachite/Ao-Smalltalk/rel
 
 | File | Contents |
 |---|---|
-| `Ao-1.4.0-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
-| `ao-cli-1.4.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
+| `Ao-1.7.0-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
+| `ao-cli-1.7.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
 | `SHA256SUMS` | SHA-256 checksums of the two archives |
 
 Check the downloads:
@@ -51,7 +52,7 @@ The builds are ad-hoc signed, not notarized. macOS blocks them the first time. E
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.4.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.7.0-macos-arm64/ao
 ```
 
 ## Using Ao.app
@@ -97,7 +98,11 @@ When an evaluation calls `halt` or fails (an error, `doesNotUnderstand:`, a fail
 
 When Proceed or a step finishes a Print it, the result goes into the Workspace. Closing the Debugger aborts the evaluation. Stack overflow, out of memory, and a deadlock still abort without stopping; the Workspace then shows a **Debug** button that opens the stack as it was when the abort started. Save Image is refused while an evaluation is stopped.
 
-**File → Save Image…** writes a `.aoimage` with your classes and methods. **File → Open Image…** loads one back.
+**File → Save Image…** writes a `.aoimage` with your classes, methods, their sources, and your change sets. **File → Open Image…** loads one back. Images saved by 1.4.0 still load, without sources; 1.4.0 cannot open images saved by 1.7.0.
+
+### Change sets
+
+Every Accept and removal is recorded in the current change set (`+` added, `~` changed, `−` removed). **Tools → Change Sorter** lists the sets, their classes and methods, and the source of the selected entry. **New…** makes a set and makes it current; **Make Current** chooses another one. Right-click an entry to **Remove from Change Set** (the method and the class stay) or **Move to** another set. **File Out…** writes the selected set as a chunk-format `.st` file; removals become comments. **File → File In…** reads a `.st` file back: its methods keep their sources and are recorded in the current set, and the result goes to the Transcript.
 
 **Tools** also holds **Use Fixed Pitch** and the text size commands (**Make Text Bigger** ⌘+, **Make Text Smaller** ⌘-, **Actual Size** ⌘0), shared by the Transcript, the Workspace, and the Browser source pane.
 
@@ -106,7 +111,7 @@ Evaluation runs on the main thread. **Smalltalk → Interrupt** (⌘.) stops a l
 ## Using the `ao` CLI
 
 ```sh
-ao --version                               # 1.4.0
+ao --version                               # 1.7.0
 ao filein hello.st                         # file in one chunk-format file
 ao filein --load-order vendor/LOAD_ORDER   # file in the class library in order
 ao --test tests/                           # run every *.st in tests/ as a golden test
