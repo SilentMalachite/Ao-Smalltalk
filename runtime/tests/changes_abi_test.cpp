@@ -1,11 +1,12 @@
 #include "ao_abi.h"
 
-#include "../src/ChangeSet.hpp"
-
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -16,14 +17,22 @@
 
 namespace {
 
+// SPEC §3.10 チェンジセット (P17): a session with the Smalltalk model, as the app files it in.
+void bootWithModel() {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_filein_load_order(AO_SOURCE_DIR "/image/Tools-model/LOAD_ORDER"));
+}
+
 class ChangesAbi : public ::testing::Test {
  protected:
-  void SetUp() override { ASSERT_EQ(AO_OK, ao_runtime_boot()); }
-  // SPEC §3.10: the hook and the debug mode outlive the session; a test's must not reach the next.
+  void SetUp() override { bootWithModel(); }
+  // SPEC §3.10: the hook, the debug mode and the capture outlive the session; a test's must not
+  // reach the next.
   void TearDown() override {
     ao_runtime_shutdown();
     ao_set_transcript_hook(nullptr, nullptr);
     ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
+    ao_set_debug_capture(0);
   }
 };
 
@@ -348,70 +357,64 @@ TEST_F(ChangesAbi, RefusedReadsLeaveTheBufferEndingInNul) {
   EXPECT_EQ('\0', b[0]);
 }
 
-// SPEC §3.9 Change Sorter: boot and a successful image load start over with one empty Unnamed1
-// under a new ID; a failed load keeps the sets.
+// SPEC §3.9 Change Sorter: boot starts over with one empty Unnamed1 (the Tools-model filed in
+// again); a failed load keeps the sets. What a load brings back is SavedImageKeepsSetsCurrentAndIds.
 TEST_F(ChangesAbi, BootAndImageLoadStartOver) {
-  const std::int64_t first = ao_changes_current();
   newSet("Kept");
-  const std::string image = tempPath("start-over.aoimage");
-  ASSERT_EQ(AO_OK, ao_image_save(image.c_str()));
   AoSpan err{};
   ASSERT_EQ(AO_ERR, ao_image_load(tempPath("missing.aoimage").c_str(), &err));
   EXPECT_EQ(2, ao_changes_count());
-  ASSERT_EQ(AO_OK, ao_image_load(image.c_str(), &err)) << err.message;
-  std::vector<SetRow> all = sets();
-  ASSERT_EQ(1u, all.size());
-  EXPECT_EQ("Unnamed1", all[0].name);
-  EXPECT_NE(first, all[0].id);
-  EXPECT_EQ(all[0].id, ao_changes_current());
-  const std::int64_t loaded = all[0].id;
   ASSERT_EQ(AO_OK, ao_runtime_shutdown());
-  ASSERT_EQ(AO_OK, ao_runtime_boot());
-  all = sets();
+  bootWithModel();
+  const std::vector<SetRow> all = sets();
   ASSERT_EQ(1u, all.size());
   EXPECT_EQ("Unnamed1", all[0].name);
-  EXPECT_NE(loaded, all[0].id);
-  std::filesystem::remove(image);
+  EXPECT_EQ(all[0].id, ao_changes_current());
+  EXPECT_EQ(0, ao_changes_class_count(all[0].id));
 }
 
-// SPEC §3.10 再入: from a hook the writes do nothing and answer AO_ERR ("runtime is busy" with an
-// err); the reads still answer.
-TEST_F(ChangesAbi, NewAndMakeCurrentAreRefusedWhileBusy) {
+// SPEC §3.10 再入 (P17): from a hook the writes do nothing and answer AO_ERR ("runtime is busy"
+// with an err); the reads send to the model, so they are refused too.
+TEST_F(ChangesAbi, WritesAndReadsAreRefusedWhileBusy) {
   const std::int64_t first = ao_changes_current();
   const std::int64_t second = newSet("Second");
+  const std::int64_t current = ao_changes_current();
   int newRc = -9;
   std::string newMsg;
   int currentRc = -9;
-  int count = -9;
   whileBusy([&] {
     AoSpan err{};
     std::int64_t id = 0;
     newRc = ao_changes_new("Busy", &id, &err);
     newMsg = err.message;
     currentRc = ao_changes_set_current(first);
-    count = ao_changes_count();
+    EXPECT_EQ(-1, ao_changes_count());
+    EXPECT_EQ(0, ao_changes_current());
+    id = -1;
+    char name[32] = "x";
+    EXPECT_EQ(AO_ERR, ao_changes_at(0, &id, name, static_cast<int>(sizeof name)));
+    EXPECT_EQ(0, id);
+    EXPECT_STREQ("", name);
+    EXPECT_EQ(-1, ao_changes_class_count(current));
+    int kind = -9;
+    std::strcpy(name, "x");
+    EXPECT_EQ(AO_ERR,
+              ao_changes_class_at(current, 0, name, static_cast<int>(sizeof name), &kind));
+    EXPECT_EQ(AO_CHANGE_NONE, kind);
+    EXPECT_STREQ("", name);
+    EXPECT_EQ(-1, ao_changes_method_count(current, "Object", 0));
+    kind = -9;
+    std::strcpy(name, "x");
+    EXPECT_EQ(AO_ERR, ao_changes_method_at(current, "Object", 0, 0, name,
+                                           static_cast<int>(sizeof name), &kind));
+    EXPECT_EQ(AO_CHANGE_NONE, kind);
+    EXPECT_STREQ("", name);
   });
   EXPECT_EQ(AO_ERR, newRc);
   EXPECT_EQ("runtime is busy", newMsg);
   EXPECT_EQ(AO_ERR, currentRc);
-  EXPECT_EQ(2, count);
+  EXPECT_EQ(2, ao_changes_count());
   EXPECT_EQ(second, ao_changes_current());
-}
-
-// SPEC §3.9 種類の規則.
-TEST(ChangeKinds, AcceptAndRemovalRules) {
-  using ao::ChangeKind;
-  using ao::kindAfterAccept;
-  using ao::kindAfterRemoval;
-  EXPECT_EQ(ChangeKind::Added, kindAfterAccept(std::nullopt, false));
-  EXPECT_EQ(ChangeKind::Changed, kindAfterAccept(std::nullopt, true));
-  EXPECT_EQ(ChangeKind::Added, kindAfterAccept(ChangeKind::Added, true));
-  EXPECT_EQ(ChangeKind::Changed, kindAfterAccept(ChangeKind::Changed, true));
-  EXPECT_EQ(ChangeKind::Changed, kindAfterAccept(ChangeKind::Removed, false));
-  EXPECT_EQ(ChangeKind::Removed, kindAfterRemoval(std::nullopt));
-  EXPECT_EQ(std::nullopt, kindAfterRemoval(ChangeKind::Added));
-  EXPECT_EQ(ChangeKind::Removed, kindAfterRemoval(ChangeKind::Changed));
-  EXPECT_EQ(ChangeKind::Removed, kindAfterRemoval(ChangeKind::Removed));
 }
 
 // SPEC §3.9 記録: a new method is Added and stays Added when accepted again; in a new set the same
@@ -465,6 +468,39 @@ TEST_F(ChangesAbi, RemoveMethodFollowsTheKindRules) {
   EXPECT_EQ(std::vector<std::string>{"kept-"}, methodsOf(second, "P16Gone", 0));
   accept("P16Gone", 0, "kept\n  ^3");
   EXPECT_EQ(std::vector<std::string>{"kept~"}, methodsOf(second, "P16Gone", 0));
+}
+
+// SPEC §3.9 Change Sorter (P17 final review): the Change Sorter reads one row per call, so a
+// class with hundreds of method entries must still read back in byte order, and after a change to
+// a side (the model caches the sorted selectors per side and drops them on a change). No timing
+// is asserted; the 200 rows only have to read back quickly enough for a Debug build.
+TEST_F(ChangesAbi, ManyMethodRowsReadBackInByteOrderAfterChanges) {
+  const std::int64_t set = ao_changes_current();
+  defineClass("Counter", "Object");
+  // Under AO_GC_STRESS every allocation collects, so 200 rows would take minutes; 12 rows still
+  // exercise the cache and the order.
+  const int rows = std::getenv("AO_GC_STRESS") != nullptr ? 12 : 200;
+  EXPECT_EQ(std::to_string(rows),
+            printIt((std::to_string(rows) +
+                     " to: 1 by: -1 do: [:i | ChangeSet noteMethodChange: #Big selector: "
+                     "(ChangeSet text: 'sel' with: i printString) asSymbol "
+                     "meta: false existed: false]. " + std::to_string(rows)).c_str()));
+  std::vector<std::string> expected;
+  for (int i = 1; i <= rows; ++i) {
+    expected.push_back("sel" + std::to_string(i) + "+");
+  }
+  std::sort(expected.begin(), expected.end());
+  EXPECT_EQ(expected, methodsOf(set, "Big", 0));
+  EXPECT_EQ(expected, methodsOf(set, "Big", 0));
+  EXPECT_TRUE(methodsOf(set, "Big", 1).empty());
+  // A few entries are enough to see a change to a side reach the next read.
+  accept("Counter", 0, "zeta\n  ^1");
+  accept("Counter", 0, "alpha\n  ^1");
+  EXPECT_EQ((std::vector<std::string>{"alpha+", "zeta+"}), methodsOf(set, "Counter", 0));
+  accept("Counter", 0, "beta\n  ^1");
+  EXPECT_EQ((std::vector<std::string>{"alpha+", "beta+", "zeta+"}), methodsOf(set, "Counter", 0));
+  EXPECT_EQ("", removeMethod("Counter", 0, "alpha"));
+  EXPECT_EQ((std::vector<std::string>{"beta+", "zeta+"}), methodsOf(set, "Counter", 0));
 }
 
 // SPEC §3.9 種類の規則: a class added in the set goes with its entry; an older class becomes
@@ -912,7 +948,7 @@ TEST_F(ChangesAbi, FiledOutSetFilesBackInAfterBoot) {
   EXPECT_EQ(0u, text.find("\"Change Set: Fix \"\"1\"\"!!\nDate: ")) << text;
   const std::string first = afterHeader(text);
   ASSERT_EQ(AO_OK, ao_runtime_shutdown());
-  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  bootWithModel();
   ASSERT_EQ(AO_OK, ao_filein_file(path.c_str(), &err)) << err.message;
   EXPECT_EQ("shout\n  ^'Hi!'", sourceOf("P16Trip", 0, "shout"));
   EXPECT_EQ("2", printIt("P16Trip start increment"));
@@ -930,7 +966,7 @@ TEST_F(ChangesAbi, FiledOutKernelExtensionFilesBackIn) {
   AoSpan err{};
   ASSERT_EQ(AO_OK, ao_changes_file_out(ao_changes_current(), path.c_str(), &err)) << err.message;
   ASSERT_EQ(AO_OK, ao_runtime_shutdown());
-  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  bootWithModel();
   ASSERT_EQ(AO_OK, ao_filein_file(path.c_str(), &err)) << err.message;
   EXPECT_EQ("42", printIt("3 p16ext"));
   EXPECT_EQ("42", printIt("Object new p16ext"));
@@ -985,4 +1021,182 @@ TEST_F(ChangesAbi, FileInIsRefusedWhileBusy) {
   EXPECT_EQ("runtime is busy", msg);
   EXPECT_EQ(0, ao_browser_class_id("P16BusyIn"));
   std::filesystem::remove(path);
+}
+
+// SPEC §3.11 (P17): the sets are heap objects, so a saved image brings them back with the current
+// set and the IDs; a set made after the load takes an ID none of them has.
+TEST_F(ChangesAbi, SavedImageKeepsSetsCurrentAndIds) {
+  const std::int64_t first = ao_changes_current();
+  const std::int64_t work = newSet("Work");
+  defineClass("Counter", "Object");
+  const std::int64_t other = newSet("Other");
+  ASSERT_EQ(AO_OK, ao_changes_set_current(work));
+  const std::string path = tempPath("p17-sets.aoimage");
+  ASSERT_EQ(AO_OK, ao_image_save(path.c_str()));
+  ASSERT_EQ(AO_OK, ao_runtime_shutdown());
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_image_load(path.c_str(), &err)) << err.message;
+  ASSERT_EQ(3, ao_changes_count());
+  EXPECT_EQ(work, ao_changes_current());
+  std::int64_t ids[3] = {};
+  char name[32] = "";
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_EQ(AO_OK, ao_changes_at(i, &ids[i], name, static_cast<int>(sizeof name)));
+  }
+  EXPECT_EQ(first, ids[0]);
+  EXPECT_EQ(work, ids[1]);
+  EXPECT_EQ(other, ids[2]);
+  EXPECT_EQ(1, ao_changes_class_count(work));
+  const std::int64_t later = newSet("Later");
+  EXPECT_GT(later, other);
+  std::filesystem::remove(path);
+}
+
+// SPEC §3.10 チェンジセット (P17): with no ChangeSet class, Accept and removal answer as before and
+// record nothing, the reads answer no sets, and the writes say so.
+TEST_F(ChangesAbi, WithoutTheModelRecordsNothingAndWritesAreUnavailable) {
+  AoSpan err{};
+  const std::int64_t model = ao_browser_class_id("ChangeSet");
+  ASSERT_NE(0, model);
+  ASSERT_EQ(AO_OK, ao_remove_class(model, &err)) << err.message;
+  defineClass("Counter", "Object");
+  EXPECT_EQ(0, ao_changes_count());
+  EXPECT_EQ(0, ao_changes_current());
+  std::int64_t id = -1;
+  char name[32] = "x";
+  EXPECT_EQ(AO_ERR, ao_changes_at(0, &id, name, static_cast<int>(sizeof name)));
+  EXPECT_EQ(-1, ao_changes_class_count(1));
+  EXPECT_EQ(-1, ao_changes_method_count(1, "Counter", 0));
+  EXPECT_EQ(AO_ERR, ao_changes_set_current(1));
+  std::int64_t made = 0;
+  EXPECT_EQ(AO_ERR, ao_changes_new("Work", &made, &err));
+  EXPECT_STREQ("change sets unavailable", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_drop(1, "Counter", 0, nullptr, &err));
+  EXPECT_STREQ("change sets unavailable", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_move(1, 2, "Counter", 0, nullptr, &err));
+  EXPECT_STREQ("change sets unavailable", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_file_out(1, tempPath("p17-none.st").c_str(), &err));
+  EXPECT_STREQ("change sets unavailable", err.message);
+}
+
+// SPEC §3.10 チェンジセット (P17): a model whose methods fail (DNU, error:) drops the record and
+// leaves the Accept's and the removal's answers; the reads answer as while busy and the writes
+// say change set failed.
+TEST_F(ChangesAbi, BrokenModelLeavesAcceptAndRemovalAnswers) {
+  AoSpan err{};
+  const std::int64_t model = ao_browser_class_id("ChangeSet");
+  ASSERT_EQ(AO_OK, ao_remove_method(model, 1, "allChangeSets", &err)) << err.message;
+  defineClass("Counter", "Object");
+  ASSERT_EQ(AO_OK, ao_accept_method("Counter", 0, "bump\n\t^1", &err)) << err.message;
+  const std::int64_t counter = ao_browser_class_id("Counter");
+  ASSERT_EQ(AO_OK, ao_remove_method(counter, 0, "bump", &err)) << err.message;
+  EXPECT_EQ(-1, ao_changes_count());
+  EXPECT_EQ(0, ao_changes_current());
+  std::int64_t made = 0;
+  EXPECT_EQ(AO_ERR, ao_changes_new("Work", &made, &err));
+  EXPECT_STREQ("change set failed", err.message);
+  EXPECT_EQ(AO_ERR, ao_changes_file_out(1, tempPath("p17-broken.st").c_str(), &err));
+  EXPECT_STREQ("change set failed", err.message);
+}
+
+// SPEC §3.10 チェンジセット (P17): the model's failure in a record neither halts a live debugger
+// nor replaces the snapshot.
+TEST_F(ChangesAbi, ModelSendsNeitherHaltNorCapture) {
+  ao_set_debug_capture(1);
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("ChangeSet", 1,
+                                    "noteMethodChange: c selector: s meta: m existed: e\n"
+                                    "\t^self error: 'broken'",
+                                    &err))
+      << err.message;
+  const int generation = ao_debug_generation();
+  defineClass("Counter", "Object");
+  EXPECT_EQ(AO_OK, ao_accept_method("Counter", 0, "bump\n\t^1", &err)) << err.message;
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ(generation, ao_debug_generation());
+  EXPECT_EQ("1", printIt("Counter new bump"));
+}
+
+// SPEC §3.10 チェンジセット (P17): a capture setting that a hook changes during a model send is
+// only recorded; the send's own failure is still not captured, and the end applies the setting.
+TEST_F(ChangesAbi, ModelSendFollowsTheCaptureSettingAtItsEnd) {
+  defineClass("Counter", "Object");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("ChangeSet", 1,
+                                    "noteMethodChange: c selector: s meta: m existed: e\n"
+                                    "\tTranscript show: 'x'.\n\t^self error: 'broken'",
+                                    &err))
+      << err.message;
+  ao_set_transcript_hook([](const char*, int, int, void*) { ao_set_debug_capture(1); }, nullptr);
+  const int generation = ao_debug_generation();
+  EXPECT_EQ(AO_OK, ao_accept_method("Counter", 0, "bump\n\t^1", &err)) << err.message;
+  EXPECT_EQ(generation, ao_debug_generation());
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ(0u, printIt("nil foo").find("<"));
+  EXPECT_NE(generation, ao_debug_generation());
+}
+
+// SPEC §3.9 Change Sorter: the method entries are read in byte order.
+TEST_F(ChangesAbi, MethodReadsAreInByteOrder) {
+  defineClass("Counter", "Object");
+  AoSpan err{};
+  for (const char* source : {"zeta\n\t^1", "alpha\n\t^1", "Alpha\n\t^1", "al\n\t^1"}) {
+    ASSERT_EQ(AO_OK, ao_accept_method("Counter", 0, source, &err)) << err.message;
+  }
+  const std::int64_t set = ao_changes_current();
+  ASSERT_EQ(4, ao_changes_method_count(set, "Counter", 0));
+  const char* want[] = {"Alpha", "al", "alpha", "zeta"};
+  for (int i = 0; i < 4; ++i) {
+    char sel[32] = "";
+    int kind = AO_CHANGE_NONE;
+    ASSERT_EQ(AO_OK, ao_changes_method_at(set, "Counter", 0, i, sel, static_cast<int>(sizeof sel),
+                                          &kind));
+    EXPECT_STREQ(want[i], sel);
+    EXPECT_EQ(AO_CHANGE_ADDED, kind);
+  }
+}
+
+// SPEC §3.10 (P17): the workspace entries refuse with error: and the reason.
+TEST_F(ChangesAbi, WorkspaceNewNamedRefusesWithTheReason) {
+  EXPECT_EQ("<" + std::to_string(AO_ERR_EVAL) + ": change set name taken: Unnamed1>",
+            printIt("ChangeSet newNamed: 'Unnamed1'"));
+  EXPECT_EQ("'Work'", printIt("(ChangeSet newNamed: 'Work') name"));
+  EXPECT_EQ(2, ao_changes_count());
+}
+
+// SPEC §3.13 Accept (P17): the record after a Debugger Accept runs the model, which may terminate
+// the halted process. The Accept then does not restart a frame that is gone: AO_ERR with the
+// reason, the new method stays, and the runtime goes on.
+TEST_F(ChangesAbi, DebuggerAcceptRefusesWhenTheRecordTerminatesTheProcess) {
+  defineClass("P17Victim", "Object");
+  accept("P17Victim", 0,
+         "answer\n  Smalltalk at: #P17Halted put: Processor activeProcess.\n  self halt.\n  ^1");
+  accept("ChangeSet", 1,
+         "noteMethodChange: c selector: s meta: m existed: e\n"
+         "  | p |\n"
+         "  p := Smalltalk at: #P17Halted ifAbsent: [nil].\n"
+         "  p isNil ifFalse: [p terminate]");
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  const char* source = "P17Victim new answer";
+  char out[64];
+  AoSpan err{};
+  ASSERT_EQ(AO_ERR_HALT, ao_eval(source, static_cast<int>(std::strlen(source)), AO_EVAL_PRINTIT,
+                                 out, static_cast<int>(sizeof out), &err));
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_NE(0, pid);
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  const int frame = frameLabeled("P17Victim>>answer");
+  ASSERT_GE(frame, 0);
+  std::strcpy(out, "stale");
+  EXPECT_EQ(AO_ERR, ao_debug_accept(pid, frame, "answer\n  ^42", out,
+                                    static_cast<int>(sizeof out), &err));
+  EXPECT_STREQ("debugger accept refused: process is no longer halted", err.message);
+  EXPECT_EQ(0u, err.start);
+  EXPECT_EQ(0u, err.end);
+  EXPECT_STREQ("", out);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  EXPECT_EQ("42", printIt("P17Victim new answer"));
+  EXPECT_EQ("7", printIt("3 + 4"));
 }

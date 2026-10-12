@@ -19,6 +19,8 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
   private let currentButton: NSButton
   private let fileOutButton: NSButton
   private var applying = false
+  // Image loads seen (noteImageLoaded). Set IDs start over in each image (P17).
+  private var loads = 0
 
   // Asked for the new set's name, with the suggested one; the callback gets nil for Cancel. Tests
   // replace it.
@@ -154,11 +156,23 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
   // SPEC §3.9 Change Sorter: reads the runtime again and shows it.
   func reload() {
     model.refresh()
+    noteRead()
     show()
+  }
+
+  // SPEC §3.9 Change Sorter (P17): a refused read says `runtime is busy`; the next read that is not
+  // refused clears that text (and only that text).
+  private func noteRead() {
+    if model.readRefused {
+      errorField.stringValue = "runtime is busy"
+    } else if errorField.stringValue == "runtime is busy" {
+      errorField.stringValue = ""
+    }
   }
 
   // SPEC §3.9 Change Sorter: a load started the sets over; the current set is selected.
   func noteImageLoaded() {
+    loads += 1
     model.select(setID: nil)
     errorField.stringValue = ""
     show()
@@ -186,6 +200,7 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
       className: className,
       method: method.flatMap { value(at: $0, in: model.methods) }
     )
+    noteRead()
     show()
   }
 
@@ -212,8 +227,11 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
     guard let id = model.selectedSetID, let name = model.selectedSetName else {
       return
     }
+    // SPEC §3.9 File Out… (P17): after a load the ID names a set of another image, so nothing is
+    // written.
+    let loadsAsked = loads
     chooseFileOut(window, name + ".st") { [weak self] url in
-      guard let self, let url else {
+      guard let self, let url, self.loads == loadsAsked else {
         return
       }
       self.report(fileOutChangeSet(id, to: url))
@@ -277,6 +295,7 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
         method: value(at: methodTable.selectedRow, in: model.methods)
       )
     }
+    noteRead()
     show()
   }
 

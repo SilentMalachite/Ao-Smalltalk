@@ -38,9 +38,10 @@ if [ "$APP" -eq 0 ]; then
 fi
 
 # --app: package build/Ao.app, launch it with open and wait for the vendor
-# line on its stderr. An app opened with open inherits the shell's
-# environment, so --env AO_VENDOR_DIR= empties the variable; the app ignores
-# an empty one and loads the bundle's Contents/Resources/vendor.
+# line and the tools model line on its stderr. An app opened with open
+# inherits the shell's environment, so --env AO_VENDOR_DIR= (and
+# AO_TOOLS_MODEL_DIR=) empties the variable; the app ignores an empty one and
+# loads the bundle's Contents/Resources/vendor (and Tools-model).
 BUNDLE="$ROOT/build/Ao.app"
 EXE="$(cd "$ROOT" && pwd -P)/build/Ao.app/Contents/MacOS/Ao"
 # PIDs of the processes whose command line starts with the path $EXE
@@ -60,6 +61,8 @@ fi
 "$ROOT/scripts/package-app.sh"
 codesign --verify --strict "$BUNDLE"
 WANT="ao: vendor loaded: $(cd "$BUNDLE" && pwd -P)/Contents/Resources/vendor"
+# The tools model (P17) is filed in right after the vendor, from the bundle's Tools-model.
+WANT_TOOLS="ao: tools model loaded: $(cd "$BUNDLE" && pwd -P)/Contents/Resources/Tools-model"
 LOG="$(mktemp "${TMPDIR:-/tmp}/ao-app-stderr.XXXXXX")"
 PID=
 cleanup() {
@@ -76,7 +79,7 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-open -n -g --env AO_VENDOR_DIR= --stderr "$LOG" "$BUNDLE"
+open -n -g --env AO_VENDOR_DIR= --env AO_TOOLS_MODEL_DIR= --stderr "$LOG" "$BUNDLE"
 # Nothing ran from build/Ao.app before the packaging, so the one process that
 # runs it now is the one open started. With none, or more than one, stop none.
 i=0
@@ -93,19 +96,21 @@ while [ "$i" -lt 10 ]; do
   sleep 1
   i=$((i + 1))
 done
-i=0
-until grep -qxF "$WANT" "$LOG"; do
-  if [ "$i" -ge 30 ]; then
-    echo "app: FAILED: no line '$WANT' on stderr within 30 s" >&2
-    echo "app: stderr of $EXE was:" >&2
-    if [ -s "$LOG" ]; then
-      sed 's/^/  | /' "$LOG" >&2
-    else
-      echo "  (empty)" >&2
+for line in "$WANT" "$WANT_TOOLS"; do
+  i=0
+  until grep -qxF "$line" "$LOG"; do
+    if [ "$i" -ge 30 ]; then
+      echo "app: FAILED: no line '$line' on stderr within 30 s" >&2
+      echo "app: stderr of $EXE was:" >&2
+      if [ -s "$LOG" ]; then
+        sed 's/^/  | /' "$LOG" >&2
+      else
+        echo "  (empty)" >&2
+      fi
+      exit 1
     fi
-    exit 1
-  fi
-  sleep 1
-  i=$((i + 1))
+    sleep 1
+    i=$((i + 1))
+  done
+  echo "app: ok: $line"
 done
-echo "app: ok: $WANT"

@@ -44,18 +44,19 @@ typedef struct AoSpan {
    ao_image_load, ao_filein_load_order, ao_filein_file, ao_workspace_reset, ao_eval,
    ao_accept_method, ao_accept_method_id, ao_accept_class, ao_remove_method, ao_remove_class,
    ao_changes_new, ao_changes_set_current, ao_changes_drop, ao_changes_move, ao_changes_file_out,
-   ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
+   the ao_changes_* reads (ao_changes_count, ao_changes_at, ao_changes_current,
+   ao_changes_class_count, ao_changes_class_at, ao_changes_method_count, ao_changes_method_at;
+   P17: they send to the Smalltalk model), ao_debug_frame_receiver_print, ao_debug_frame_temp_print, ao_debug_inspect,
    ao_debug_clear, ao_debug_proceed, ao_debug_step_into, ao_debug_step_over, ao_debug_step_out,
    ao_debug_restart, ao_debug_accept
    or ao_debug_abort runs, or the interpreter does. Called then (from a transcript or inspect
-   hook, or a native), each of these twenty-nine does nothing and answers AO_ERR: ao_image_load,
+   hook, or a native), each of these thirty-six does nothing and answers AO_ERR (the reads: the
+   *_count -1, the *_at AO_ERR, ao_changes_current 0): ao_image_load,
    ao_filein_file, ao_remove_method, ao_remove_class, ao_changes_new, ao_changes_drop,
    ao_changes_move and ao_changes_file_out
    with the reason "runtime is busy", ao_eval with an empty out. The running evaluation goes on. The hook
    setters (ao_set_transcript_hook, ao_set_inspect_hook, ao_set_runloop_pump_hook),
    ao_request_interrupt, ao_version, the ao_browser_* reads (ao_browser_class_id too),
-   the ao_changes_* reads (ao_changes_count, ao_changes_at, ao_changes_current,
-   ao_changes_class_count, ao_changes_class_at, ao_changes_method_count, ao_changes_method_at),
    ao_eval_result_length, ao_eval_result_copy,
    ao_set_debug_capture, ao_set_debug_mode, the snapshot reads (ao_debug_generation to
    ao_debug_frame_temp_name) and the live reads (ao_debug_halted_pid to ao_debug_select,
@@ -278,7 +279,8 @@ int ao_accept_class(const char* source, AoSpan* err);
    "selector not found: <Class>>><selector>" (unknown or inherited), "native method removal
    refused: <Class>>><selector>", "runtime is busy", or "remove failed" (no session, a NULL
    selector, meta other than 0 or 1). <name> is the class's own name slot ("an unnamed class"
-   when it has none), <Class> that with " class" when meta. Nothing changes on AO_ERR. Allocates nothing on the heap. */
+   when it has none), <Class> that with " class" when meta. Nothing changes on AO_ERR. Allocates nothing on the heap before the change; the record in
+   the current change set comes last and may collect. */
 int ao_remove_method(int64_t class_id, int meta, const char* selector, AoSpan* err);
 
 /* SPEC §3.9 削除. AO_OK: the binding of the class's own name is out of Smalltalk (an alias stays;
@@ -287,14 +289,20 @@ int ao_remove_method(int64_t class_id, int meta, const char* selector, AoSpan* e
    class id", "not a class: <name>", "class removal refused: <name> is a fixed global" / "is a
    kernel class" (by identity) / "is not bound to this class" (its own name binds something else)
    / "has subclass <Sub>" / "has an unnamed subclass", "runtime is busy", or "remove failed" (no
-   session). Nothing changes on AO_ERR. Allocates nothing on the heap. */
+   session). Nothing changes on AO_ERR. Allocates nothing on the heap before the change; the record in
+   the current change set comes last and may collect. */
 int ao_remove_class(int64_t class_id, AoSpan* err);
 
-/* SPEC §3.9 Change Sorter, §3.10 チェンジセット (P16). Change sets are session memory: boot and
-   ao_image_load start over with one empty set, Unnamed1, which is current; ao_image_save does not
-   write them. A set ID is never used again in the process. The reads may be called while busy;
-   the writes (ao_changes_new, ao_changes_set_current, ao_changes_drop, ao_changes_move,
-   ao_changes_file_out) and ao_filein_file are outermost entries. The *_count functions answer -1
+/* SPEC §3.9 Change Sorter, §3.10 チェンジセット (P16, P17). Change sets are objects of the
+   Smalltalk class ChangeSet (image/Tools-model) on the heap: boot starts with one empty set,
+   Unnamed1, which is current; ao_image_save writes them and ao_image_load brings back the sets,
+   the current set and the IDs. A set ID is never used again in the image. The reads and the
+   writes (ao_changes_new, ao_changes_set_current, ao_changes_drop, ao_changes_move,
+   ao_changes_file_out) and ao_filein_file are outermost entries; while busy the reads are refused
+   (the *_count -1, the *_at AO_ERR, ao_changes_current 0), and so they are when a send to the
+   model fails. Without a ChangeSet class the counts answer 0 (ao_changes_count) or -1, the *_at
+   AO_ERR, ao_changes_current 0, and the writes "change sets unavailable"; a failed send makes a
+   write "change set failed". The *_count functions answer -1
    with no session, an unknown set ID, a NULL class_name or meta other than 0 or 1. The *_at
    functions follow the buffer rule; their outputs (set_id, kind) may be NULL and get 0 on
    AO_ERR. An err gets an empty message on AO_OK and the reason on AO_ERR. */

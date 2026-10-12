@@ -124,6 +124,9 @@ TEST(KernelScan, RequiredSelectorsAreNativeMethods) {
       {b.wk.sharedQueueClass, "next"},
       {b.wk.sharedQueueMetaclass, "new"},
       {b.wk.blockContextClass, "fork"},
+      // Source access for File Out (SPEC §3.10, P17).
+      {b.wk.behaviorClass, "sourceCodeAt:"},
+      {b.wk.classClass, "definition"},
   };
   for (const auto& r : reqs) {
     auto sel = ao::Symbol::intern(b.wk, r.sel);

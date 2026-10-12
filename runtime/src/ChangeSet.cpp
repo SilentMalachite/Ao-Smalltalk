@@ -1,143 +1,168 @@
 #include "ChangeSet.hpp"
 
 #include "Session.hpp"
+#include "ao/Context.hpp"
+#include "ao/HandleScope.hpp"
+#include "ao/Interpreter.hpp"
 #include "ao/Runtime.hpp"
+#include "ao/Send.hpp"
 
-#include <algorithm>
+#include <cstdint>
 #include <ctime>
 #include <fstream>
-#include <iterator>
+#include <initializer_list>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 
 namespace ao {
 namespace {
 
-// SPEC §3.10 チェンジセット: never used again in this OS process, not even by a later session (as
-// nextClassId in Session.cpp).
-std::int64_t nextChangeSetId() {
-  static std::int64_t next = 1;
-  return next++;
-}
+constexpr const char* kFailed = "change set failed";
+constexpr const char* kUnavailable = "change sets unavailable";
+constexpr const char* kUnknown = "unknown change set";
 
-ChangeSet* findSet(Session& s, std::int64_t id) {
-  for (ChangeSet& set : s.changes.sets) {
-    if (set.id == id) {
-      return &set;
-    }
+// SPEC §3.10 チェンジセット (P17): one outermost stretch of sends to the model on the session's
+// base context. It clears what an earlier entry left and takes the stack range again; while it
+// runs the base has no debug sink and may not halt, so a failure in the model neither replaces
+// the snapshot nor stops a process (as DebugEntry: the sink goes back as the capture setting then
+// says, not as it was at the start). The end reads and clears the abort. After the
+// first failed send the others answer the empty Oop without sending.
+class ModelSend {
+ public:
+  explicit ModelSend(Session& s) : s_(s), ctx_(*s.ctx) {
+    s_.heap.clearOutOfMemory();
+    clearUnwinding(ctx_);
+    refreshStackLimit(ctx_);
+    beginDebugFreeEntry(s_);
+    ++ctx_.haltSuppressed;
   }
-  return nullptr;
-}
-
-ClassChange* findClass(ChangeSet& set, std::string_view name) {
-  for (ClassChange& entry : set.classes) {
-    if (entry.name == name) {
-      return &entry;
-    }
+  ~ModelSend() {
+    clearUnwinding(ctx_);
+    s_.heap.clearOutOfMemory();
+    --ctx_.haltSuppressed;
+    endDebugFreeEntry(s_);
   }
-  return nullptr;
-}
+  ModelSend(const ModelSend&) = delete;
+  ModelSend& operator=(const ModelSend&) = delete;
 
-std::map<std::string, ChangeKind>& sideOf(ClassChange& entry, bool meta) {
-  return meta ? entry.classSide : entry.instanceSide;
-}
+  // receiver and each arg are rooted slots (or immediates), read after the selector is interned
+  // (which may collect). The answer, unrooted, or the empty Oop when the send aborted or ran out
+  // of memory.
+  Oop send(const Oop& receiver, std::string_view selector,
+           std::initializer_list<const Oop*> args = {}) {
+    if (failed_) {
+      return Oop{};
+    }
+    const Oop sel = s_.wk.intern(selector);
+    if (!sel.isHeap() || args.size() > kMaxArgs) {
+      failed_ = true;
+      return Oop{};
+    }
+    Oop argv[kMaxArgs];
+    std::uint32_t n = 0;
+    for (const Oop* a : args) {
+      argv[n++] = *a;
+    }
+    const Oop answer = ao::send(ctx_, receiver, sel, argv, n, nullptr);
+    if (answer.isEmpty() || unwinding(ctx_) || s_.heap.outOfMemory()) {
+      failed_ = true;
+      clearUnwinding(ctx_);
+      return Oop{};
+    }
+    return answer;
+  }
+  // A String of text (may collect), unrooted; the empty Oop and failed() when it cannot be made.
+  Oop string(std::string_view text) {
+    const Oop str = failed_ ? Oop{} : Str::fromUtf8(ctx_, text);
+    failed_ = failed_ || !str.isHeap();
+    return str;
+  }
+  bool failed() const { return failed_; }
 
-// False for what the method reads refuse (no session, an unknown set, a NULL name, meta other
-// than 0 or 1). True with *side null when the set has no entry for the class.
-bool methodSide(std::int64_t setId, const char* className, int meta,
-                const std::map<std::string, ChangeKind>** side) {
-  *side = nullptr;
+ private:
+  static constexpr std::size_t kMaxArgs = 4;
+  Session& s_;
+  CallContext& ctx_;
+  bool failed_ = false;
+};
+
+// SPEC §3.10 (P17): the ChangeSet class Smalltalk binds; the empty Oop when there is none.
+// Allocates nothing.
+Oop modelClass(Session& s) { return boundClassNamed(s, "ChangeSet"); }
+
+// The session for an ABI body: null without a session or its base context.
+Session* changesSession() {
   Session* s = session();
-  if (s == nullptr || className == nullptr || (meta != 0 && meta != 1)) {
+  return s == nullptr || s->ctx == nullptr ? nullptr : s;
+}
+
+Oop boolean(bool b) { return b ? Oop::true_() : Oop::false_(); }
+
+// v's bytes into *out when it is a byte object (a String or a Symbol).
+bool bytesText(Session& s, Oop v, std::string* out) {
+  if (!v.isHeap() || (s.heap.flags(v) & kFlagBytes) == 0) {
     return false;
   }
-  ChangeSet* set = findSet(*s, setId);
-  if (set == nullptr) {
-    return false;
-  }
-  if (ClassChange* entry = findClass(*set, className)) {
-    *side = &sideOf(*entry, meta == 1);
-  }
+  *out = Str::toUtf8(s.heap, v);
   return true;
 }
 
-// SPEC §3.9 記録: the current set of the session whose heap ctx runs on; null otherwise.
-ChangeSet* recordingSet(CallContext& ctx, const std::string& className) {
-  Session* s = session();
+// The ABI's AO_CHANGE_* for the model's kind (#added, #changed, #removed, nil). Allocates nothing.
+int kindCode(Session& s, Oop kind) {
+  if (kind.isHeap()) {
+    if (kind == s.wk.findSymbol("added")) {
+      return AO_CHANGE_ADDED;
+    }
+    if (kind == s.wk.findSymbol("changed")) {
+      return AO_CHANGE_CHANGED;
+    }
+    if (kind == s.wk.findSymbol("removed")) {
+      return AO_CHANGE_REMOVED;
+    }
+  }
+  return AO_CHANGE_NONE;
+}
+
+// A count the model answered, or -1 when it failed or is no SmallInteger.
+int countOf(const ModelSend& m, Oop n) {
+  if (m.failed() || !n.isSmallInteger() || n.smallIntegerValue() < 0 ||
+      n.smallIntegerValue() > INT32_MAX) {
+    return -1;
+  }
+  return static_cast<int>(n.smallIntegerValue());
+}
+
+// The set with setId into set.slot (nil when the model has none: an ID no SmallInteger can be
+// is no set's). False when the send failed.
+bool setWithId(ModelSend& m, const Oop& cls, std::int64_t setId, Root& set) {
+  if (setId <= 0 || setId > kSmiMax) {
+    set.slot = Oop::nil();
+    return true;
+  }
+  const Oop id = Oop::fromSmallInteger(setId);
+  set.slot = m.send(cls, "withId:", {&id});
+  return !m.failed();
+}
+
+// The element at the 0-based index of the rooted collection into out.slot, after checking index
+// against its size. False when out of range or a send failed.
+bool elementAt(ModelSend& m, const Oop& collection, int index, Root& out) {
+  const int n = countOf(m, m.send(collection, "size"));
+  if (n < 0 || index < 0 || index >= n) {
+    return false;
+  }
+  const Oop at = Oop::fromSmallInteger(index + 1);
+  out.slot = m.send(collection, "at:", {&at});
+  return !m.failed();
+}
+
+// SPEC §3.9 記録: the session whose heap ctx runs on, when className is not empty; null otherwise.
+Session* recordingSession(CallContext& ctx, const std::string& className) {
+  Session* s = changesSession();
   if (s == nullptr || &ctx.heap != &s->heap || className.empty()) {
     return nullptr;
   }
-  return findSet(*s, s->changes.current);
-}
-
-// A class entry with neither a definition kind nor a method entry goes.
-void dropIfEmpty(ChangeSet& set, std::string_view className) {
-  std::erase_if(set.classes, [&](const ClassChange& c) {
-    return c.name == className && !c.definition && c.instanceSide.empty() && c.classSide.empty();
-  });
-}
-
-std::optional<ChangeKind> kindOf(const std::map<std::string, ChangeKind>& side,
-                                 const std::string& selector) {
-  const auto found = side.find(selector);
-  return found == side.end() ? std::nullopt : std::optional<ChangeKind>(found->second);
-}
-
-// "<Class>>><selector>", "<Class> class>><selector>" on the class side (SPEC §3.9 削除).
-std::string entryName(std::string_view className, bool meta, std::string_view selector) {
-  std::string out(className);
-  if (meta) {
-    out += " class";
-  }
-  out += ">>";
-  out += selector;
-  return out;
-}
-
-// Puts entry in set: over the entry of the same name, or at the end.
-void putClass(ChangeSet& set, ClassChange&& entry) {
-  if (ClassChange* found = findClass(set, entry.name)) {
-    *found = std::move(entry);
-    return;
-  }
-  set.classes.push_back(std::move(entry));
-}
-
-// The target's entry for className as a copy to merge into; a new one without a definition when
-// the target has none.
-ClassChange targetCopy(ChangeSet& to, const char* className) {
-  if (ClassChange* found = findClass(to, className)) {
-    return *found;
-  }
-  return ClassChange{className, std::nullopt, {}, {}};
-}
-
-// SPEC §3.8 チャンク形式: every `!` doubled, in strings and comments too, then the closing `!`.
-std::string chunk(std::string_view text) {
-  std::string out;
-  out.reserve(text.size() + 1);
-  for (const char c : text) {
-    if (c == '!') {
-      out.push_back('!');
-    }
-    out.push_back(c);
-  }
-  out.push_back('!');
-  return out;
-}
-
-// A comment chunk: text in double quotes (a `"` in it doubled), as a chunk.
-std::string commentChunk(std::string_view text) {
-  std::string body = "\"";
-  for (const char c : text) {
-    if (c == '"') {
-      body.push_back('"');
-    }
-    body.push_back(c);
-  }
-  body.push_back('"');
-  return chunk(body);
+  return s;
 }
 
 // The local date, YYYY-MM-DD.
@@ -150,405 +175,457 @@ std::string today() {
                                                                   : std::string(buf);
 }
 
-// SPEC §3.9 File Out: names, each after the superclasses it has among them, otherwise in order.
-std::vector<std::string> superclassOrder(Session& s, const std::vector<std::string>& names) {
-  const std::unordered_set<std::string> wanted(names.begin(), names.end());
-  std::unordered_set<std::string> placed;
-  std::vector<std::string> out;
-  for (const std::string& name : names) {
-    // The chain from name up to the first class out of the set or already placed.
-    std::vector<std::string> chain;
-    std::string at = name;
-    while (wanted.count(at) != 0 && placed.count(at) == 0 &&
-           std::find(chain.begin(), chain.end(), at) == chain.end()) {
-      chain.push_back(at);
-      const Oop cls = boundClassNamed(s, at);
-      at = cls.isEmpty() ? std::string() : superclassNameOf(s, cls);
-    }
-    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-      placed.insert(*it);
-      out.push_back(*it);
-    }
+// For the method reads: className's entry in the set into entry.slot and the selectors of its
+// meta side, in byte order, into selectors.slot (both nil when the set has no entry for the
+// class). False for what the reads refuse (an unknown set, a failed send).
+bool methodSelectors(Session& s, ModelSend& m, const Oop& cls, std::int64_t setId,
+                     const char* className, int meta, Root& entry, Root& selectors) {
+  Root set(s.roots, Oop::nil());
+  if (!setWithId(m, cls, setId, set) || set.slot.isNil()) {
+    return false;
   }
-  return out;
+  Root name(s.roots, m.string(className));
+  entry.slot = m.send(set.slot, "changesFor:", {&name.slot});
+  if (m.failed()) {
+    return false;
+  }
+  if (entry.slot.isNil()) {
+    selectors.slot = Oop::nil();
+    return true;
+  }
+  const Oop side = boolean(meta == 1);
+  selectors.slot = m.send(entry.slot, "selectorsMeta:", {&side});
+  return !m.failed();
 }
 
-// SPEC §3.9 File Out の形式.
-std::string fileOutText(Session& s, const ChangeSet& set) {
-  char version[32] = "";
-  version_string(version, static_cast<int>(sizeof version));
-  std::string out = commentChunk("Change Set: " + set.name + "\nDate: " + today() + "\nAo " +
-                                 version);
-  out += "\n\n";
-  // What has no source, as comment chunks after the removals: the methods first, then the classes
-  // (SPEC §3.9 File Out item 4).
-  std::vector<std::string> lostSources;
-  std::vector<std::string> lostDefinitions;
-  std::vector<std::string> defined;
-  for (const ClassChange& c : set.classes) {
-    if (c.definition && *c.definition != ChangeKind::Removed) {
-      defined.push_back(c.name);
-    }
+// A write's reason the model answered: AO_OK for nil, AO_ERR with its text otherwise (kFailed
+// when it is no String).
+int reasonOrOk(Session& s, Oop answer, std::string* reason) {
+  if (answer.isNil()) {
+    return AO_OK;
   }
-  for (const std::string& name : superclassOrder(s, defined)) {
-    const Oop cls = boundClassNamed(s, name);
-    if (cls.isEmpty()) {
-      lostDefinitions.push_back(name + " definition not available");
-      continue;
-    }
-    // Chunk-safe already: written as it is.
-    out += classDefinitionText(s, cls) + "!\n\n";
+  if (!bytesText(s, answer, reason) || reason->empty()) {
+    *reason = kFailed;
   }
-  for (const ClassChange& c : set.classes) {
-    const Oop cls = boundClassNamed(s, c.name);
-    for (const bool meta : {false, true}) {
-      std::vector<std::string> sources;
-      for (const auto& [selector, kind] : meta ? c.classSide : c.instanceSide) {
-        if (kind == ChangeKind::Removed) {
-          continue;
-        }
-        std::string text;
-        if (!cls.isEmpty() && liveMethodSource(s, cls, meta, selector, text)) {
-          sources.push_back(std::move(text));
-        } else {
-          lostSources.push_back(entryName(c.name, meta, selector) + " source not available");
-        }
-      }
-      if (sources.empty()) {
-        continue;
-      }
-      out += "!" + c.name + (meta ? " class" : "") + " methodsFor: 'user'!\n";
-      for (std::size_t i = 0; i < sources.size(); ++i) {
-        out += chunk(sources[i]);
-        out += i + 1 < sources.size() ? "\n\n" : " !\n\n";
-      }
-    }
-  }
-  for (const ClassChange& c : set.classes) {
-    for (const bool meta : {false, true}) {
-      for (const auto& [selector, kind] : meta ? c.classSide : c.instanceSide) {
-        if (kind == ChangeKind::Removed) {
-          out += commentChunk("Removed: " + entryName(c.name, meta, selector)) + "\n";
-        }
-      }
-    }
-  }
-  for (const ClassChange& c : set.classes) {
-    if (c.definition == ChangeKind::Removed) {
-      out += commentChunk("Removed class: " + c.name) + "\n";
-    }
-  }
-  for (const std::vector<std::string>* lost : {&lostSources, &lostDefinitions}) {
-    for (const std::string& text : *lost) {
-      out += commentChunk(text) + "\n";
-    }
-  }
-  return out;
+  return AO_ERR;
 }
 
 }  // namespace
 
-std::optional<ChangeKind> kindAfterAccept(std::optional<ChangeKind> was, bool replaced) {
-  if (!was) {
-    return replaced ? ChangeKind::Changed : ChangeKind::Added;
-  }
-  return *was == ChangeKind::Added ? ChangeKind::Added : ChangeKind::Changed;
-}
-
-std::optional<ChangeKind> kindAfterRemoval(std::optional<ChangeKind> was) {
-  if (was == ChangeKind::Added) {
-    return std::nullopt;
-  }
-  return ChangeKind::Removed;
-}
-
 void noteMethodChange(CallContext& ctx, const std::string& className, bool meta,
                       std::string_view selector, bool replaced) noexcept {
   try {
-    ChangeSet* set = recordingSet(ctx, className);
-    if (set == nullptr) {
+    Session* s = recordingSession(ctx, className);
+    if (s == nullptr) {
       return;
     }
-    std::string key(selector);
-    if (ClassChange* entry = findClass(*set, className)) {
-      auto& side = sideOf(*entry, meta);
-      const ChangeKind kind = *kindAfterAccept(kindOf(side, key), replaced);
-      side.insert_or_assign(std::move(key), kind);
+    Root cls(s->roots, modelClass(*s));
+    if (!cls.slot.isHeap()) {
       return;
     }
-    ClassChange made{className, std::nullopt, {}, {}};
-    sideOf(made, meta).emplace(std::move(key), *kindAfterAccept(std::nullopt, replaced));
-    set->classes.push_back(std::move(made));
+    ModelSend m(*s);
+    Root name(s->roots, m.string(className));
+    Root sel(s->roots, m.string(selector));
+    const Oop side = boolean(meta);
+    const Oop existed = boolean(replaced);
+    m.send(cls.slot, "noteMethodChange:selector:meta:existed:",
+           {&name.slot, &sel.slot, &side, &existed});
   } catch (...) {
-    // SPEC §3.9 記録: without the memory the record is not made; the Accept stands.
+    // SPEC §3.9 記録: without the memory for it the record is not made; the Accept stands.
   }
 }
 
 void noteMethodRemoval(CallContext& ctx, const std::string& className, bool meta,
                        std::string_view selector) noexcept {
   try {
-    ChangeSet* set = recordingSet(ctx, className);
-    if (set == nullptr) {
+    Session* s = recordingSession(ctx, className);
+    if (s == nullptr) {
       return;
     }
-    std::string key(selector);
-    ClassChange* entry = findClass(*set, className);
-    if (entry == nullptr) {
-      ClassChange made{className, std::nullopt, {}, {}};
-      sideOf(made, meta).emplace(std::move(key), ChangeKind::Removed);
-      set->classes.push_back(std::move(made));
+    Root cls(s->roots, modelClass(*s));
+    if (!cls.slot.isHeap()) {
       return;
     }
-    auto& side = sideOf(*entry, meta);
-    if (const std::optional<ChangeKind> now = kindAfterRemoval(kindOf(side, key))) {
-      side.insert_or_assign(std::move(key), *now);
-      return;
-    }
-    // Added in this set: the entry goes, and an emptied class entry with it.
-    side.erase(key);
-    dropIfEmpty(*set, className);
+    ModelSend m(*s);
+    Root name(s->roots, m.string(className));
+    Root sel(s->roots, m.string(selector));
+    const Oop side = boolean(meta);
+    m.send(cls.slot, "noteMethodRemoval:selector:meta:", {&name.slot, &sel.slot, &side});
   } catch (...) {
   }
 }
 
 void noteClassChange(CallContext& ctx, const std::string& className, bool existed) noexcept {
   try {
-    ChangeSet* set = recordingSet(ctx, className);
-    if (set == nullptr) {
+    Session* s = recordingSession(ctx, className);
+    if (s == nullptr) {
       return;
     }
-    if (ClassChange* entry = findClass(*set, className)) {
-      entry->definition = kindAfterAccept(entry->definition, existed);
+    Root cls(s->roots, modelClass(*s));
+    if (!cls.slot.isHeap()) {
       return;
     }
-    set->classes.push_back(ClassChange{className, kindAfterAccept(std::nullopt, existed), {}, {}});
+    ModelSend m(*s);
+    Root name(s->roots, m.string(className));
+    const Oop was = boolean(existed);
+    m.send(cls.slot, "noteClassChange:existed:", {&name.slot, &was});
   } catch (...) {
   }
 }
 
 void noteClassRemoval(CallContext& ctx, const std::string& className) noexcept {
   try {
-    ChangeSet* set = recordingSet(ctx, className);
-    if (set == nullptr) {
+    Session* s = recordingSession(ctx, className);
+    if (s == nullptr) {
       return;
     }
-    ClassChange* entry = findClass(*set, className);
-    if (entry == nullptr) {
-      set->classes.push_back(ClassChange{className, ChangeKind::Removed, {}, {}});
+    Root cls(s->roots, modelClass(*s));
+    if (!cls.slot.isHeap()) {
       return;
     }
-    // SPEC §3.9 種類の規則: a class added in this set goes with its methods; another is Removed and
-    // its method entries go.
-    if (entry->definition == ChangeKind::Added) {
-      std::erase_if(set->classes, [&](const ClassChange& c) { return c.name == className; });
-      return;
-    }
-    entry->definition = ChangeKind::Removed;
-    entry->instanceSide.clear();
-    entry->classSide.clear();
+    ModelSend m(*s);
+    Root name(s->roots, m.string(className));
+    m.send(cls.slot, "noteClassRemoval:", {&name.slot});
   } catch (...) {
   }
 }
 
-ChangeSets::ChangeSets() {
-  sets.push_back(ChangeSet{nextChangeSetId(), "Unnamed1", {}});
-  current = sets.front().id;
-}
-
 int sessionChangesCount() {
-  Session* s = session();
-  return s == nullptr ? -1 : static_cast<int>(s->changes.sets.size());
+  Session* s = changesSession();
+  if (s == nullptr) {
+    return -1;
+  }
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    return 0;
+  }
+  ModelSend m(*s);
+  Root all(s->roots, m.send(cls.slot, "allChangeSets"));
+  return countOf(m, m.send(all.slot, "size"));
 }
 
 int sessionChangesAt(int index, std::int64_t* setId, char* name, int nameLen) {
-  Session* s = session();
-  if (s == nullptr || index < 0 || static_cast<std::size_t>(index) >= s->changes.sets.size() ||
-      name == nullptr || nameLen < 1) {
+  Session* s = changesSession();
+  if (s == nullptr || index < 0 || name == nullptr || nameLen < 1) {
     return AO_ERR;
   }
-  const ChangeSet& set = s->changes.sets[static_cast<std::size_t>(index)];
-  if (setId != nullptr) {
-    *setId = set.id;
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    return AO_ERR;
   }
-  return writeBuf(set.name, name, nameLen);
+  ModelSend m(*s);
+  Root all(s->roots, m.send(cls.slot, "allChangeSets"));
+  Root set(s->roots, Oop::nil());
+  if (!elementAt(m, all.slot, index, set)) {
+    return AO_ERR;
+  }
+  Root text(s->roots, m.send(set.slot, "name"));
+  const Oop id = m.send(set.slot, "id");
+  std::string utf8;
+  if (m.failed() || !id.isSmallInteger() || !bytesText(*s, text.slot, &utf8)) {
+    return AO_ERR;
+  }
+  if (setId != nullptr) {
+    *setId = id.smallIntegerValue();
+  }
+  return writeBuf(utf8, name, nameLen);
 }
 
 std::int64_t sessionChangesCurrent() {
-  Session* s = session();
-  return s == nullptr ? 0 : s->changes.current;
+  Session* s = changesSession();
+  if (s == nullptr) {
+    return 0;
+  }
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    return 0;
+  }
+  ModelSend m(*s);
+  Root set(s->roots, m.send(cls.slot, "current"));
+  const Oop id = m.send(set.slot, "id");
+  return m.failed() || !id.isSmallInteger() ? 0 : id.smallIntegerValue();
 }
 
 int sessionChangesNew(const char* name, std::int64_t* setId, std::string* reason) {
-  Session* s = session();
+  Session* s = changesSession();
   if (s == nullptr) {
     return AO_ERR;
   }
-  if (name == nullptr || *name == '\0') {
-    *reason = "change set name empty";
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    *reason = kUnavailable;
     return AO_ERR;
   }
-  for (const ChangeSet& set : s->changes.sets) {
-    if (set.name == name) {
-      *reason = "change set name taken: " + set.name;
-      return AO_ERR;
-    }
+  ModelSend m(*s);
+  Root text(s->roots, m.string(name == nullptr ? "" : name));
+  Root refusal(s->roots, m.send(cls.slot, "reasonToCreate:", {&text.slot}));
+  if (m.failed()) {
+    *reason = kFailed;
+    return AO_ERR;
   }
-  s->changes.sets.push_back(ChangeSet{nextChangeSetId(), name, {}});
+  if (reasonOrOk(*s, refusal.slot, reason) != AO_OK) {
+    return AO_ERR;
+  }
   // SPEC §3.9 Change Sorter: a new set is current at once.
-  s->changes.current = s->changes.sets.back().id;
+  Root set(s->roots, m.send(cls.slot, "newNamed:", {&text.slot}));
+  const Oop id = m.send(set.slot, "id");
+  if (m.failed() || !id.isSmallInteger()) {
+    *reason = kFailed;
+    return AO_ERR;
+  }
   if (setId != nullptr) {
-    *setId = s->changes.current;
+    *setId = id.smallIntegerValue();
   }
   return AO_OK;
 }
 
 int sessionChangesSetCurrent(std::int64_t setId) {
-  Session* s = session();
-  if (s == nullptr || findSet(*s, setId) == nullptr) {
+  Session* s = changesSession();
+  if (s == nullptr) {
     return AO_ERR;
   }
-  s->changes.current = setId;
-  return AO_OK;
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    return AO_ERR;
+  }
+  ModelSend m(*s);
+  Root set(s->roots, Oop::nil());
+  if (!setWithId(m, cls.slot, setId, set) || set.slot.isNil()) {
+    return AO_ERR;
+  }
+  m.send(set.slot, "makeCurrent");
+  return m.failed() ? AO_ERR : AO_OK;
 }
 
 int sessionChangesClassCount(std::int64_t setId) {
-  Session* s = session();
-  ChangeSet* set = s == nullptr ? nullptr : findSet(*s, setId);
-  return set == nullptr ? -1 : static_cast<int>(set->classes.size());
+  Session* s = changesSession();
+  if (s == nullptr) {
+    return -1;
+  }
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    return -1;
+  }
+  ModelSend m(*s);
+  Root set(s->roots, Oop::nil());
+  if (!setWithId(m, cls.slot, setId, set) || set.slot.isNil()) {
+    return -1;
+  }
+  Root classes(s->roots, m.send(set.slot, "classChanges"));
+  return countOf(m, m.send(classes.slot, "size"));
 }
 
 int sessionChangesClassAt(std::int64_t setId, int index, char* name, int nameLen, int* kind) {
-  Session* s = session();
-  ChangeSet* set = s == nullptr ? nullptr : findSet(*s, setId);
-  if (set == nullptr || index < 0 || static_cast<std::size_t>(index) >= set->classes.size() ||
-      name == nullptr || nameLen < 1) {
+  Session* s = changesSession();
+  if (s == nullptr || index < 0 || name == nullptr || nameLen < 1) {
     return AO_ERR;
   }
-  const ClassChange& entry = set->classes[static_cast<std::size_t>(index)];
-  if (kind != nullptr) {
-    *kind = entry.definition ? static_cast<int>(*entry.definition) : AO_CHANGE_NONE;
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    return AO_ERR;
   }
-  return writeBuf(entry.name, name, nameLen);
+  ModelSend m(*s);
+  Root set(s->roots, Oop::nil());
+  if (!setWithId(m, cls.slot, setId, set) || set.slot.isNil()) {
+    return AO_ERR;
+  }
+  Root classes(s->roots, m.send(set.slot, "classChanges"));
+  Root entry(s->roots, Oop::nil());
+  if (!elementAt(m, classes.slot, index, entry)) {
+    return AO_ERR;
+  }
+  Root text(s->roots, m.send(entry.slot, "className"));
+  const Oop definition = m.send(entry.slot, "definitionKind");
+  std::string utf8;
+  if (m.failed() || !bytesText(*s, text.slot, &utf8)) {
+    return AO_ERR;
+  }
+  // Nothing allocates after the definition kind is answered.
+  if (kind != nullptr) {
+    *kind = kindCode(*s, definition);
+  }
+  return writeBuf(utf8, name, nameLen);
 }
 
 int sessionChangesMethodCount(std::int64_t setId, const char* className, int meta) {
-  const std::map<std::string, ChangeKind>* side = nullptr;
-  if (!methodSide(setId, className, meta, &side)) {
+  Session* s = changesSession();
+  if (s == nullptr || className == nullptr || (meta != 0 && meta != 1)) {
     return -1;
   }
-  return side == nullptr ? 0 : static_cast<int>(side->size());
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    return -1;
+  }
+  ModelSend m(*s);
+  Root entry(s->roots, Oop::nil());
+  Root selectors(s->roots, Oop::nil());
+  if (!methodSelectors(*s, m, cls.slot, setId, className, meta, entry, selectors)) {
+    return -1;
+  }
+  if (selectors.slot.isNil()) {
+    return 0;
+  }
+  return countOf(m, m.send(selectors.slot, "size"));
 }
 
 int sessionChangesMethodAt(std::int64_t setId, const char* className, int meta, int index,
                            char* selector, int len, int* kind) {
-  const std::map<std::string, ChangeKind>* side = nullptr;
-  if (!methodSide(setId, className, meta, &side) || side == nullptr || index < 0 ||
-      static_cast<std::size_t>(index) >= side->size() || selector == nullptr || len < 1) {
+  Session* s = changesSession();
+  if (s == nullptr || className == nullptr || (meta != 0 && meta != 1) || index < 0 ||
+      selector == nullptr || len < 1) {
     return AO_ERR;
   }
-  const auto it = std::next(side->begin(), index);
-  if (kind != nullptr) {
-    *kind = static_cast<int>(it->second);
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    return AO_ERR;
   }
-  return writeBuf(it->first, selector, len);
+  ModelSend m(*s);
+  Root entry(s->roots, Oop::nil());
+  Root selectors(s->roots, Oop::nil());
+  if (!methodSelectors(*s, m, cls.slot, setId, className, meta, entry, selectors) ||
+      selectors.slot.isNil()) {
+    return AO_ERR;
+  }
+  Root sel(s->roots, Oop::nil());
+  if (!elementAt(m, selectors.slot, index, sel)) {
+    return AO_ERR;
+  }
+  const Oop side = boolean(meta == 1);
+  const Oop entryKind = m.send(entry.slot, "kindOf:meta:", {&sel.slot, &side});
+  std::string utf8;
+  if (m.failed() || !bytesText(*s, sel.slot, &utf8)) {
+    return AO_ERR;
+  }
+  if (kind != nullptr) {
+    *kind = kindCode(*s, entryKind);
+  }
+  return writeBuf(utf8, selector, len);
 }
 
 int sessionChangesDrop(std::int64_t setId, const char* className, int meta, const char* selector,
                        std::string* reason) {
-  Session* s = session();
+  Session* s = changesSession();
   if (s == nullptr || className == nullptr || (selector != nullptr && meta != 0 && meta != 1)) {
     return AO_ERR;
   }
-  ChangeSet* set = findSet(*s, setId);
-  if (set == nullptr) {
-    *reason = "unknown change set";
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    *reason = kUnavailable;
     return AO_ERR;
   }
-  ClassChange* entry = findClass(*set, className);
+  ModelSend m(*s);
+  Root set(s->roots, Oop::nil());
+  if (!setWithId(m, cls.slot, setId, set)) {
+    *reason = kFailed;
+    return AO_ERR;
+  }
+  if (set.slot.isNil()) {
+    *reason = kUnknown;
+    return AO_ERR;
+  }
+  Root name(s->roots, m.string(className));
   if (selector == nullptr) {
-    if (entry == nullptr) {
-      *reason = std::string("not in change set: ") + className;
+    Root refusal(s->roots, m.send(set.slot, "reasonToRemoveClass:", {&name.slot}));
+    if (!m.failed() && reasonOrOk(*s, refusal.slot, reason) != AO_OK) {
       return AO_ERR;
     }
-    std::erase_if(set->classes, [&](const ClassChange& c) { return c.name == className; });
-    return AO_OK;
+    m.send(set.slot, "removeClass:", {&name.slot});
+  } else {
+    Root sel(s->roots, m.string(selector));
+    const Oop side = boolean(meta == 1);
+    Root refusal(s->roots, m.send(set.slot, "reasonToRemoveSelector:class:meta:",
+                                  {&sel.slot, &name.slot, &side}));
+    if (!m.failed() && reasonOrOk(*s, refusal.slot, reason) != AO_OK) {
+      return AO_ERR;
+    }
+    m.send(set.slot, "removeSelector:class:meta:", {&sel.slot, &name.slot, &side});
   }
-  if (entry == nullptr || sideOf(*entry, meta == 1).erase(selector) == 0) {
-    *reason = "not in change set: " + entryName(className, meta == 1, selector);
+  if (m.failed()) {
+    *reason = kFailed;
     return AO_ERR;
   }
-  dropIfEmpty(*set, className);
   return AO_OK;
 }
 
 int sessionChangesMove(std::int64_t fromId, std::int64_t toId, const char* className, int meta,
                        const char* selector, std::string* reason) {
-  Session* s = session();
+  Session* s = changesSession();
   if (s == nullptr || className == nullptr || (selector != nullptr && meta != 0 && meta != 1)) {
     return AO_ERR;
   }
-  ChangeSet* from = findSet(*s, fromId);
-  ChangeSet* to = findSet(*s, toId);
-  if (from == nullptr || to == nullptr) {
-    *reason = "unknown change set";
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    *reason = kUnavailable;
     return AO_ERR;
   }
-  if (from == to) {
-    *reason = "same change set";
+  ModelSend m(*s);
+  Root from(s->roots, Oop::nil());
+  Root to(s->roots, Oop::nil());
+  if (!setWithId(m, cls.slot, fromId, from) || !setWithId(m, cls.slot, toId, to)) {
+    *reason = kFailed;
     return AO_ERR;
   }
-  ClassChange* entry = findClass(*from, className);
+  if (from.slot.isNil() || to.slot.isNil()) {
+    *reason = kUnknown;
+    return AO_ERR;
+  }
+  Root name(s->roots, m.string(className));
   if (selector == nullptr) {
-    if (entry == nullptr) {
-      *reason = std::string("not in change set: ") + className;
+    Root refusal(s->roots, m.send(from.slot, "reasonToMoveClass:to:", {&name.slot, &to.slot}));
+    if (!m.failed() && reasonOrOk(*s, refusal.slot, reason) != AO_OK) {
       return AO_ERR;
     }
-    // SPEC §3.10 チェンジセット: the moved kinds replace the target's; a definition kind the moved
-    // entry lacks stays as the target has it.
-    ClassChange merged = targetCopy(*to, className);
-    if (entry->definition) {
-      merged.definition = entry->definition;
+    m.send(from.slot, "moveClass:to:", {&name.slot, &to.slot});
+  } else {
+    Root sel(s->roots, m.string(selector));
+    const Oop side = boolean(meta == 1);
+    Root refusal(s->roots, m.send(from.slot, "reasonToMoveSelector:class:meta:to:",
+                                  {&sel.slot, &name.slot, &side, &to.slot}));
+    if (!m.failed() && reasonOrOk(*s, refusal.slot, reason) != AO_OK) {
+      return AO_ERR;
     }
-    for (const auto& [sel, kind] : entry->instanceSide) {
-      merged.instanceSide.insert_or_assign(sel, kind);
-    }
-    for (const auto& [sel, kind] : entry->classSide) {
-      merged.classSide.insert_or_assign(sel, kind);
-    }
-    putClass(*to, std::move(merged));
-    std::erase_if(from->classes, [&](const ClassChange& c) { return c.name == className; });
-    return AO_OK;
+    m.send(from.slot, "moveSelector:class:meta:to:", {&sel.slot, &name.slot, &side, &to.slot});
   }
-  if (entry == nullptr) {
-    *reason = "not in change set: " + entryName(className, meta == 1, selector);
+  if (m.failed()) {
+    *reason = kFailed;
     return AO_ERR;
   }
-  auto& side = sideOf(*entry, meta == 1);
-  const auto found = side.find(selector);
-  if (found == side.end()) {
-    *reason = "not in change set: " + entryName(className, meta == 1, selector);
-    return AO_ERR;
-  }
-  ClassChange merged = targetCopy(*to, className);
-  sideOf(merged, meta == 1).insert_or_assign(found->first, found->second);
-  // to is another vector, so entry, side and found stay valid.
-  putClass(*to, std::move(merged));
-  side.erase(found);
-  dropIfEmpty(*from, className);
   return AO_OK;
 }
 
 int sessionChangesFileOut(std::int64_t setId, const char* path, std::string* reason) {
-  Session* s = session();
+  Session* s = changesSession();
   if (s == nullptr || path == nullptr) {
     return AO_ERR;
   }
-  ChangeSet* set = findSet(*s, setId);
-  if (set == nullptr) {
-    *reason = "unknown change set";
+  Root cls(s->roots, modelClass(*s));
+  if (!cls.slot.isHeap()) {
+    *reason = kUnavailable;
     return AO_ERR;
   }
-  const std::string text = fileOutText(*s, *set);
+  std::string text;
+  {
+    ModelSend m(*s);
+    Root set(s->roots, Oop::nil());
+    if (!setWithId(m, cls.slot, setId, set)) {
+      *reason = kFailed;
+      return AO_ERR;
+    }
+    if (set.slot.isNil()) {
+      *reason = kUnknown;
+      return AO_ERR;
+    }
+    char version[32] = "";
+    version_string(version, static_cast<int>(sizeof version));
+    // SPEC §3.10 (P17): Smalltalk has no date of its own, so C++ passes the date and the version.
+    Root date(s->roots, m.string(today()));
+    Root ao(s->roots, m.string(version));
+    const Oop answer = m.send(set.slot, "fileOutStringDate:version:", {&date.slot, &ao.slot});
+    if (m.failed() || !bytesText(*s, answer, &text)) {
+      *reason = kFailed;
+      return AO_ERR;
+    }
+  }
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   out.write(text.data(), static_cast<std::streamsize>(text.size()));
   out.close();

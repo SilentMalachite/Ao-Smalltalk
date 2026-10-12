@@ -386,6 +386,18 @@ void setSessionDebugCapture(bool on) {
   }
 }
 
+void beginDebugFreeEntry(Session& s) {
+  s.ctx->debug = nullptr;
+  ++g_debugEntries;
+}
+
+void endDebugFreeEntry(Session& s) {
+  // The capture setting as the ABI last set it; a hook may have changed it meanwhile.
+  if (--g_debugEntries == 0) {
+    s.ctx->debug = g_debugCapture ? &s : nullptr;
+  }
+}
+
 void setSessionDebugMode(int mode) {
   if (mode == AO_DEBUG_POSTMORTEM || mode == AO_DEBUG_LIVE) {
     g_debugMode = mode;
@@ -1382,6 +1394,29 @@ const Frame* acceptTarget(Session& s, const CallContext& fiber, const LiveFrames
   return f;
 }
 
+// SPEC §3.13 Accept (P17): after the install and its record, process id is still halted on the
+// same fiber, target is still on its chain (compared by address before it is read), and its
+// receiver and arguments are still the pinned ones in slots[1..]. Allocates nothing.
+bool stillHalted(Session& s, std::uint64_t id, const CallContext* fiber, const Frame* target,
+                 const std::vector<Oop>& slots) {
+  if (s.scheduler == nullptr || s.scheduler->haltedContext(id, nullptr) != fiber) {
+    return false;
+  }
+  const Frame* f = fiber->topFrame;
+  while (f != nullptr && f != target) {
+    f = f->prev;
+  }
+  if (f == nullptr || f->receiver != slots[1]) {
+    return false;
+  }
+  for (std::size_t i = 2; i < slots.size(); ++i) {
+    if (f->temps == nullptr || f->temps->slots[i - 2] != slots[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // SPEC §3.10 ライブデバッガの操作: Proceed, Step and Restart resume the halted process id as an
 // outermost entry like ao_eval: the result and the snapshot go first, and what an earlier entry
 // left is not blamed on it.
@@ -1521,6 +1556,13 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
     }
     blankOut(out, outLen);
     return AO_ERR_COMPILE;
+  }
+  // SPEC §3.13 Accept (P17): the record in the current change set ran Smalltalk on the base, which
+  // may have terminated the process; target is read only once it is on the halted chain again.
+  if (!stillHalted(*s, id, fiber, target, slots)) {
+    spanMessage(err, "debugger accept refused: process is no longer halted");
+    blankOut(out, outLen);
+    return AO_ERR;
   }
   return resumeHalted(*s, id, StepMode::None, target, slots.data(), slots.size(), out, outLen, err,
                       inspect, inspectUser);
@@ -1894,23 +1936,23 @@ int browserSource(std::int64_t classId, int meta, const char* selector, char* bu
   return AO_ERR;
 }
 
-std::string classDefinitionText(Session& s, Oop cls) {
+std::string classDefinitionText(Heap& heap, const WellKnown& wk, Oop cls) {
   std::string text;
-  if (!pointerSlots(s.heap, cls, kClassSlotSuperclass + 1)) {
+  if (!pointerSlots(heap, cls, kClassSlotSuperclass + 1)) {
     text = "nil";
   } else {
-    const Oop sup = s.heap.slotAt(cls, kClassSlotSuperclass);
-    text = sup.isHeap() ? classNameOf(s.heap, sup) : std::string("nil");
+    const Oop sup = heap.slotAt(cls, kClassSlotSuperclass);
+    text = sup.isHeap() ? classNameOf(heap, sup) : std::string("nil");
   }
   text += " subclass: #";
-  text += classNameOf(s.heap, cls);
+  text += classNameOf(heap, cls);
   text += "\n  instanceVariableNames: '";
-  text += instVarList(s.heap, cls);
+  text += instVarList(heap, cls);
   text += "'\n  classVariableNames: '";
-  text += classVarList(s.heap, s.wk, cls);
+  text += classVarList(heap, wk, cls);
   text += "'\n  poolDictionaries: ''\n  category: '";
   // SPEC §3.10: a string literal in a chunk, so accepting the text again keeps the category.
-  for (const char c : definitionCategory(s.heap, cls)) {
+  for (const char c : definitionCategory(heap, cls)) {
     if (c == '\'' || c == '!') {
       text.push_back(c);
     }
@@ -1918,6 +1960,10 @@ std::string classDefinitionText(Session& s, Oop cls) {
   }
   text += "'";
   return text;
+}
+
+std::string classDefinitionText(Session& s, Oop cls) {
+  return classDefinitionText(s.heap, s.wk, cls);
 }
 
 Oop boundClassNamed(Session& s, const std::string& name) {
@@ -1929,28 +1975,6 @@ Oop boundClassNamed(Session& s, const std::string& name) {
     return Oop{};
   }
   return cls;
-}
-
-std::string superclassNameOf(Session& s, Oop cls) {
-  if (!pointerSlots(s.heap, cls, kClassSlotSuperclass + 1)) {
-    return {};
-  }
-  const Oop sup = s.heap.slotAt(cls, kClassSlotSuperclass);
-  return sup.isHeap() ? classNameOf(s.heap, sup) : std::string();
-}
-
-bool liveMethodSource(Session& s, Oop cls, bool meta, const std::string& selector,
-                      std::string& text) {
-  const Oop side = sideOf(s, cls, meta ? 1 : 0);
-  const Oop sel = s.wk.findSymbol(selector);
-  if (!pointerSlots(s.heap, side, kClassSlotMethodDict + 1) || !sel.isHeap()) {
-    return false;
-  }
-  const Oop method = MethodDictionary::at(s.heap, s.heap.slotAt(side, kClassSlotMethodDict), sel);
-  if (!method.isHeap() || s.heap.klass(method) == s.wk.nativeMethodClass) {
-    return false;
-  }
-  return methodSource(method, text);
 }
 
 int browserClassDefinition(std::int64_t classId, char* buf, int len) {
@@ -2239,17 +2263,13 @@ class DebugEntry {
     s_.heap.clearOutOfMemory();
     clearUnwinding(ctx);
     refreshStackLimit(ctx);
-    ctx.debug = nullptr;
-    ++g_debugEntries;
+    beginDebugFreeEntry(s_);
   }
   ~DebugEntry() {
     CallContext& ctx = *s_.ctx;
     clearUnwinding(ctx);
     s_.heap.clearOutOfMemory();
-    // The capture setting as the ABI last set it; a hook may have changed it meanwhile.
-    if (--g_debugEntries == 0) {
-      ctx.debug = g_debugCapture ? &s_ : nullptr;
-    }
+    endDebugFreeEntry(s_);
   }
   DebugEntry(const DebugEntry&) = delete;
   DebugEntry& operator=(const DebugEntry&) = delete;

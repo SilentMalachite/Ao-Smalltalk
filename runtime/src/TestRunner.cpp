@@ -189,6 +189,21 @@ int runSmalltalkTests(CallContext& ctx, std::string_view path) {
     std::fprintf(stderr, "ao --test: %s: no .st files\n", dir.string().c_str());
     return 1;
   }
+  // SPEC §4.4 (P17): the tests may use the tool models (image/Tools-model, beside the tests'
+  // directory). Filed in as the app files them in (Plain); a failure fails the run.
+  // <dir>/../Tools-model/LOAD_ORDER, normalised (so "image/tests/" and "." both work).
+  const fs::path models = (dir / ".." / "Tools-model" / "LOAD_ORDER").lexically_normal();
+  if (fs::exists(models, ec)) {
+    std::vector<FileInError> errors;
+    if (!fileInLoadOrder(ctx, models, errors) || !errors.empty()) {
+      for (const FileInError& e : errors) {
+        std::fprintf(stderr, "ao --test: %s:%u-%u: %s\n", e.file.c_str(), e.error.span.start,
+                     e.error.span.end, e.error.message.c_str());
+      }
+      std::fprintf(stderr, "ao --test: tools model file-in failed: %s\n", models.string().c_str());
+      return 1;
+    }
+  }
   std::string reason;
   Root cls(ctx.roots, makeAoTest(ctx, &reason));
   if (!cls.slot.isHeap() ||

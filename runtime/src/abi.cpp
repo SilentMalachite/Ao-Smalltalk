@@ -37,7 +37,8 @@ bool runtimeBusy() {
 }
 
 // Marks the ABI entries that run Smalltalk, call a hook or replace the session: boot, shutdown,
-// save, load, filein, workspace reset, eval, accept, remove. SPEC §3.10: the runtime is busy while one of
+// save, load, filein, workspace reset, eval, accept, remove, the change sets (P17: the reads too,
+// as they send to the model). SPEC §3.10: the runtime is busy while one of
 // them runs (a host hook calls back) or runtimeBusy says so; then entered() is false and the call
 // answers AO_ERR without touching the session. The taking is one compare_exchange (0 to 1), so of
 // two threads that enter at once only one gets in; the one that got in gives the entry back when
@@ -722,9 +723,13 @@ int changesWrite(AoSpan* err, std::string_view failed, Body&& body) {
 
 }  // namespace
 
-// SPEC §3.10 チェンジセット: the reads take no AbiEntry and answer while busy, like the
-// ao_browser_* reads.
+// SPEC §3.10 チェンジセット (P17): the reads send to the model, so they are outermost entries too
+// and refuse while busy (the counts -1, the *_at AO_ERR, ao_changes_current 0).
 extern "C" int ao_changes_count(void) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return -1;
+  }
   return guarded(-1, [] { return ao::sessionChangesCount(); });
 }
 
@@ -735,13 +740,30 @@ extern "C" int ao_changes_at(int index, int64_t* set_id, char* name, int name_le
     *set_id = 0;
   }
   blankBuf(name, name_len);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [&] { return ao::sessionChangesAt(index, set_id, name, name_len); });
 }
 
-// Reads one field; it cannot throw.
-extern "C" int64_t ao_changes_current(void) { return ao::sessionChangesCurrent(); }
+extern "C" int64_t ao_changes_current(void) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return 0;
+  }
+  try {
+    return ao::sessionChangesCurrent();
+  } catch (...) {
+    return 0;
+  }
+}
 
 extern "C" int ao_changes_class_count(int64_t set_id) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return -1;
+  }
   return guarded(-1, [&] { return ao::sessionChangesClassCount(set_id); });
 }
 
@@ -751,12 +773,20 @@ extern "C" int ao_changes_class_at(int64_t set_id, int index, char* name, int na
     *kind = AO_CHANGE_NONE;
   }
   blankBuf(name, name_len);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [&] {
     return ao::sessionChangesClassAt(set_id, index, name, name_len, kind);
   });
 }
 
 extern "C" int ao_changes_method_count(int64_t set_id, const char* class_name, int meta) {
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return -1;
+  }
   return guarded(-1, [&] { return ao::sessionChangesMethodCount(set_id, class_name, meta); });
 }
 
@@ -766,6 +796,10 @@ extern "C" int ao_changes_method_at(int64_t set_id, const char* class_name, int 
     *kind = AO_CHANGE_NONE;
   }
   blankBuf(selector, len);
+  const AbiEntry entry;
+  if (!entry.entered()) {
+    return AO_ERR;
+  }
   return guarded(AO_ERR, [&] {
     return ao::sessionChangesMethodAt(set_id, class_name, meta, index, selector, len, kind);
   });
