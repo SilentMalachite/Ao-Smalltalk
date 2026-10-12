@@ -746,6 +746,61 @@ bool checkFile(const Heap& heap, const WellKnown& wk, const std::vector<std::byt
   return true;
 }
 
+// SPEC §3.11 (P18): the sources section's pairs, read from the file before its body is, so a
+// section that does not hold together is refused before the file's bytes are allocated. Checks the
+// count against the heap (each method is the start of a different object), each length and its
+// padding against the file's end, and that the last pair ends where the file does; parseSources
+// checks the rest on the body. Leaves `in` where the header ends. *reason is set on a refusal.
+bool sourcesFitFile(std::ifstream& in, std::uint64_t fileSize,
+                    const ImageFormat::ImageHeader& header, std::string* reason) {
+  auto refuse = [reason](const char* why) {
+    if (reason != nullptr) {
+      *reason = why;
+    }
+    return false;
+  };
+  if (header.sourcesBytes == 0) {
+    return true;
+  }
+  std::uint64_t at = fileSize - header.sourcesBytes;
+  in.seekg(static_cast<std::streamoff>(at));
+  std::uint32_t head[2]{};
+  if (!in || !readExactly(in, reinterpret_cast<std::byte*>(head), sizeof head)) {
+    return refuse("cannot read image file");
+  }
+  at += sizeof head;
+  if (head[1] != 0 || head[0] > header.heapBytes / 8) {
+    return refuse("damaged image");
+  }
+  for (std::uint32_t i = 0; i < head[0]; ++i) {
+    std::uint32_t pair[4]{};  // u64 method, u32 length, u32 0
+    if (fileSize - at < sizeof pair) {
+      return refuse("damaged image");
+    }
+    if (!readExactly(in, reinterpret_cast<std::byte*>(pair), sizeof pair)) {
+      return refuse("cannot read image file");
+    }
+    at += sizeof pair;
+    const std::uint64_t padded = std::uint64_t{pair[2]} + (8u - pair[2] % 8u) % 8u;
+    if (pair[3] != 0 || padded > fileSize - at) {
+      return refuse("damaged image");
+    }
+    at += padded;
+    in.seekg(static_cast<std::streamoff>(at));
+    if (!in) {
+      return refuse("cannot read image file");
+    }
+  }
+  if (at != fileSize) {
+    return refuse("damaged image");
+  }
+  in.seekg(static_cast<std::streamoff>(ImageFormat::kImageHeaderBytes));
+  if (!in) {
+    return refuse("cannot read image file");
+  }
+  return true;
+}
+
 }  // namespace
 
 bool Image::check(const Heap& heap, const WellKnown& wk, const std::vector<std::byte>& file,
@@ -771,7 +826,8 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   }
 
   // SPEC §3.11: the 48-byte header first. The body is read only when the header's heapBytes is
-  // within the old space limit and the file is as long as the header and the records can make it.
+  // within the old space limit, the file is as long as the header and the records can make it, and
+  // the sources section's pairs fit the file.
   std::ifstream in{std::string(path), std::ios::binary};
   if (!in) {
     return refuse("cannot read image file");
@@ -791,7 +847,8 @@ bool Image::load(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   }
   ImageFormat::ImageHeader header;
   if (!ImageFormat::readHeader(head, headBytes, &header, reason) ||
-      !headerOk(header, fileSize, heap.oldMaxBytes(), reason, nullptr)) {
+      !headerOk(header, fileSize, heap.oldMaxBytes(), reason, nullptr) ||
+      !sourcesFitFile(in, fileSize, header, reason)) {
     return false;
   }
   std::vector<std::byte> file(static_cast<std::size_t>(fileSize));

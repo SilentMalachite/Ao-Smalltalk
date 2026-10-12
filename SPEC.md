@@ -1644,7 +1644,7 @@ int ao_request_interrupt(void);
 
 #### ロードの検査
 
-ロードは、まずヘッダの 48 バイトだけを読んで確かめる。heapBytes が old の上限を超えるなら、本体を読まずに `image heap exceeds the old space limit` で拒否する。続いてファイルの大きさを確かめる。ファイルは、ヘッダ、heapBytes のヒープ、レコード 184 件（well-known 127、グローバル 57。1 件は 16〜268 バイト）、sourcesBytes のソース節（版 4）からなるので、その範囲に無ければ本体を読まずに `damaged image` で拒否する。
+ロードは、まずヘッダの 48 バイトだけを読んで確かめる。heapBytes が old の上限を超えるなら、本体を読まずに `image heap exceeds the old space limit` で拒否する。続いてファイルの大きさを確かめる。ファイルは、ヘッダ、heapBytes のヒープ、レコード 184 件（well-known 127、グローバル 57。1 件は 16〜268 バイト）、sourcesBytes のソース節（版 4）からなるので、その範囲に無ければ本体を読まずに `damaged image` で拒否する。版 4 では、続けてソース節の組の並び（`count` と、各組の `length` と詰め物の `u32` が節からはみ出さず、`count` 件を読み終えた位置がファイルの末尾であること）を、ファイルから読んで確かめる。`count` はヒープのバイト数の 8 分の 1 を超えない（各組の `method` は別々のオブジェクトの先頭である）。合わなければ本体を読まずに `damaged image` で拒否する。
 
 本体を読んだら、ヒープを old に載せる前に次を確かめる。保存も、書く前に同じ関数で確かめる。どれかが成り立たなければ、ロードは `damaged image` で拒否する。
 

@@ -1028,6 +1028,39 @@ TEST(ImageSaveLoad, RefusesSourcesSectionThatDoesNotParse) {
   std::filesystem::remove(path);
 }
 
+// P18 / SPEC §3.11: the sources section's pairs are checked from the file before the body is read.
+// A header whose sourcesBytes and the file's size agree, over a section of count 0 followed by a
+// hole of 1 PiB (a sparse file), is a damaged image, refused without allocating the file's bytes.
+TEST(ImageSaveLoad, RefusesHugeSourcesSectionBeforeReadingTheBody) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-huge-sources.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  std::vector<char> bytes = readAll(path);
+  ao::ImageFormat::ImageHeader header;
+  ASSERT_TRUE(ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                          bytes.size(), &header));
+  ASSERT_EQ(8u, header.sourcesBytes);
+  const std::uint64_t huge = std::uint64_t{1} << 50;
+  header.sourcesBytes = huge;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(bytes.data()), header);
+  ASSERT_TRUE(writeAll(path, bytes));
+  std::error_code ec;
+  std::filesystem::resize_file(path, bytes.size() - 8 + huge, ec);
+  if (ec) {
+    std::filesystem::remove(path);
+    GTEST_SKIP() << "the file system cannot make a sparse file: " << ec.message();
+  }
+  Loaded image;
+  std::string reason;
+  bool loaded = true;
+  EXPECT_NO_THROW(loaded = ao::Image::load(image.heap, image.roots, image.wk, path.string(),
+                                           &reason));
+  EXPECT_FALSE(loaded);
+  EXPECT_EQ("damaged image", reason);
+  EXPECT_EQ(0u, image.heap.oldUsed());
+  std::filesystem::remove(path);
+}
+
 // B6 review (06 High #1) / SPEC §3.11: 失敗シナリオ。保存は保存先を切り詰めて直接書いていたので、書き込みが
 // 途中で失敗する（ファイルサイズの上限、ディスクフル）と、正常だった旧イメージが縮んでロードできなくなった。
 // 保存は一時ファイルに書いてから置き換えるので、失敗しても旧イメージはそのまま残り、一時ファイルも残らない。
