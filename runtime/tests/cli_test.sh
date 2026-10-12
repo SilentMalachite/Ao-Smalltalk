@@ -158,6 +158,9 @@ case "$CASE" in
     stderr_is ''
     [ -s two.aoimage ] || fail "image not written for two load orders"
     run 0 "$AO" image load two.aoimage
+    # SPEC §3.11 (P18): ao image save writes version 4 with an empty sources section.
+    [ "$(od -An -tu2 -j4 -N2 two.aoimage | tr -d ' ')" = 4 ] || fail "image version is not 4"
+    [ "$(od -An -tu8 -j40 -N8 two.aoimage | tr -d ' ')" = 8 ] || fail "sources section is not 8 bytes"
     run 1 "$AO" image save --load-order first/LOAD_ORDER --load-order plain/LOAD_ORDER three.aoimage
     stderr_is "plain/$BAD_LINE"
     [ ! -e three.aoimage ] || fail "image written after a failed second file-in"
