@@ -83,7 +83,7 @@ count 回:
 - `ao_browser_source` と `Behavior>>sourceCodeAt:` は、ロードしたイメージのメソッドでも、保存したときにソースがあればそれを答える。
 - Change Sorter のソース枠と File Out にソースが戻る（P17 の制限が消える）。
 - 形の変更（§3.9）は、ロードしたメソッドもソース表のソースでコンパイルし直して移せる。
-- 変わらないもの: ロードしたメソッドの Debugger（ソース位置、temp 名、Debugger の Accept）は今までどおり使えない。Browser から Accept し直せば、項目が作り直されて使える。vendor と `ao filein` で入れたメソッドは、もともとソースを持たない。
+- 変わらないもの: ロードしたメソッドの Debugger はソース位置と temp 名を出さない。Debugger の Accept はできる（自分の項目を持つ、インストール済みのメソッドと同じ。P15）。Accept し直したメソッドは完全な項目を持つ。vendor と `ao filein` で入れたメソッドは、もともとソースを持たない。
 
 ## テスト
 
