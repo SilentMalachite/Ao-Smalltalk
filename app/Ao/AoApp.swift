@@ -91,7 +91,7 @@ func fileInChangeFile(at url: URL, transcript: TranscriptWindow?) -> Int32 {
 
 @MainActor
 public final class AoApp: NSObject, NSApplicationDelegate {
-  private var launch: LaunchSet?
+  private(set) var launch: LaunchSet?
   // SPEC §3.9 起動と同梱 (P17): where the tools model is filed in from, at launch and on Open Image….
   private var toolsModel = URL(fileURLWithPath: "/", isDirectory: true)
   private var browser: BrowserWindow?

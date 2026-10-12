@@ -504,8 +504,13 @@ final class ChangeSorterTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: url) }
     XCTAssertEqual(url.path.withCString { ao_image_save($0) }, Int32(AO_OK))
     let app = launchApp()
+    let before = app.launch?.transcript.text ?? ""
     XCTAssertTrue(app.openImage(from: url))
     XCTAssertNotEqual("ChangeSet".withCString { ao_browser_class_id($0) }, 0)
+    // The Transcript gets the same line launch writes.
+    let after = app.launch?.transcript.text ?? ""
+    XCTAssertTrue(after.hasPrefix(before))
+    XCTAssertEqual(String(after.dropFirst(before.count)), "tools model loaded: \(Self.toolsModelURL.path)\n")
     XCTAssertTrue(sendToolsItem("Change Sorter"))
     XCTAssertEqual(app.changeSorter?.model.sets.map(\.name), ["Unnamed1"])
   }
