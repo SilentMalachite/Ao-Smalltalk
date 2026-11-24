@@ -1289,6 +1289,41 @@ TEST_F(LiveDebug, InterruptOnBackwardJumpShowsTargetPc) {
   ao_set_transcript_hook(nullptr, nullptr);
 }
 
+// SPEC §3.13 Step: a Step from an interrupted stop runs the stopped instruction, then stops at the
+// next boundary, not again at the stopped pc. It skips one check only: in [true] whileTrue the
+// loop top is the only statement start, so Step over comes round to it and stops there.
+TEST_F(LiveStep, InterruptThenStepOverAdvances) {
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  const StepFn steps[] = {ao_debug_step_over, ao_debug_step_into};
+  for (const StepFn fn : steps) {
+    g_interruptPumps = 0;
+    ASSERT_EQ(AO_ERR_HALT, doIt("| n | n := 0. [n < 100000] whileTrue: [n := n + 1]"));
+    EXPECT_STREQ("interrupted", err_.message);
+    const std::int64_t pid = ao_debug_halted_pid();
+    ASSERT_EQ(AO_OK, ao_debug_select(pid));
+    const int stopped = ao_debug_frame_pc(0);
+    g_interruptPumps = 100;  // do not re-request
+    ASSERT_EQ(AO_ERR_HALT, step(fn, pid)) << err_.message;
+    EXPECT_STREQ("step", err_.message);
+    EXPECT_NE(stopped, ao_debug_frame_pc(0));
+    EXPECT_EQ("n := n + 1", at());
+    EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  }
+  g_interruptPumps = 0;
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  g_interruptPumps = 100;  // do not re-request
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  const int loopTop = ao_debug_frame_pc(0);
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid)) << err_.message;
+  EXPECT_STREQ("step", err_.message);
+  EXPECT_EQ(loopTop, ao_debug_frame_pc(0));
+  EXPECT_EQ("true", at());
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
 TEST_F(LiveDebug, InterruptIgnoredWhenNotLive) {
   ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
   ao_set_runloop_pump_hook(interruptOncePump, nullptr);

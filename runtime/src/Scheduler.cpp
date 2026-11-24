@@ -630,6 +630,9 @@ Scheduler::EvalEnd Scheduler::step(std::uint64_t pid, StepMode mode) {
   CallContext& c = *r->ctx;
   c.stepMode = mode;
   c.stepDepth = c.topFrame != nullptr ? c.topFrame->depth : 0;
+  // SPEC §3.13 Step: an interrupted stop is at a checkpoint, before the loop top checks the same
+  // instruction. No send in flight tells it from a halt whose message is "interrupted".
+  c.stepSkipOnce = !r->haltSynthesizes && r->haltReason == "interrupted";
   return proceed(pid);
 }
 

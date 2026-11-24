@@ -641,7 +641,9 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     mirror(ctx, *frame, stack.depth());
     // SPEC §3.13: the one branch the live debugger's step adds to the loop.
     if (ctx.stepMode != StepMode::None) [[unlikely]] {
-      if (!stepCheck(ctx, *frame)) {
+      if (ctx.stepSkipOnce) {
+        ctx.stepSkipOnce = false;  // a Step from interrupted runs the stopped instruction first
+      } else if (!stepCheck(ctx, *frame)) {
         if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
           continue;
         }
