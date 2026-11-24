@@ -549,13 +549,6 @@ std::vector<Oop> liveClasses(CallContext& ctx) {
   return classes;
 }
 
-// SPEC §3.9: whether a live class, named or not, has cls as its superclass. Does not collect.
-bool hasSubclass(CallContext& ctx, Oop cls) {
-  const std::vector<Oop> live = liveClasses(ctx);
-  return std::any_of(live.begin(), live.end(),
-                     [&](Oop each) { return superclassOf(ctx.heap, each) == cls; });
-}
-
 // SPEC §3.9 削除: `Name>>selector` or `Name class>>selector`, Name being the class's name slot (or
 // "an unnamed class").
 std::string removedMethodName(std::string_view className, bool meta, std::string_view selector) {
@@ -586,8 +579,8 @@ bool isBehavior(CallContext& ctx, Oop obj) {
          chainIncludes(ctx.heap, ctx.heap.klass(obj), ctx.wk.behaviorClass);
 }
 
-// SPEC §3.9 削除: what the live subclasses of cls (every descendant, not only the direct ones
-// hasSubclass looks at) say for the refusal.
+// SPEC §3.9 (削除 and the shape change): what the live subclasses of cls (every descendant, not
+// only the direct ones) say for the refusal.
 struct SubclassProbe {
   bool any = false;
   // The smallest name, bytewise, among the subclasses whose name slot is a string; "" when none is.
@@ -1009,7 +1002,7 @@ Oop copyMethodDictionary(CallContext& ctx, Oop dict) {
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
-  if (hasSubclass(ctx, old.slot)) {
+  if (probeSubclasses(ctx, old.slot).any) {
     addError(errors, {action.span, refused + action.className + " has subclasses"});
     return false;
   }
@@ -1092,6 +1085,15 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
       !isClassShaped(ctx.heap, ctx.heap.klass(fresh.slot)) || fresh.slot == old.slot) {
     rebindClassName(ctx, action.className, old.slot);
     addError(errors, {action.span, "subclass failed: " + action.className});
+    return false;
+  }
+  // SPEC §3.9: the moves would put CompiledMethods over a Kernel class's natives. Refused before
+  // the class the send answered changes at all.
+  if (isKernelClass(ctx.wk, fresh.slot)) {
+    const std::string answered = ownClassName(ctx, fresh.slot);
+    rebindClassName(ctx, action.className, old.slot);
+    addError(errors,
+             {action.span, refused + action.className + " answered kernel class " + answered});
     return false;
   }
   // SPEC §3.9: the methods move in the shape and with the class variables the send answered,

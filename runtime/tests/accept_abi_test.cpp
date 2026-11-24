@@ -933,6 +933,36 @@ TEST(AcceptAbi, ShapeChangeRefusesClassWithSubclasses) {
   ao_runtime_shutdown();
 }
 
+// review-agy Low サブクラス判定 / SPEC §3.9「クラス定義の再 Accept」冒頭: サブクラスは子孫すべてで
+// ある。AoLF←AoLC←AoLG で AoLC のメタクラスの thisClass を外すと、AoLC は生きているクラスに数えられず、
+// 直下の子だけを見る判定は AoLF にサブクラスが無いとしていた。孫の AoLG が残るので形の変更を拒む。
+TEST(AcceptAbi, ShapeChangeRefusedWhenOnlyAGrandchildRemains) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "AoLF", "a", "Low-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("AoLF", "AoLC", "", "Low-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("AoLC", "AoLG", "", "Low-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldF := AoLF. AoLC class instVarAt: 5 put: nil")) << err.message;
+  EXPECT_STREQ("nil", out);
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("Object", "AoLF", "a b", "Low-Test").c_str(), &e));
+  EXPECT_STREQ("shape change refused: AoLF has subclasses", e.message);
+  ASSERT_EQ(AO_OK, printIt("oldF == AoLF")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("AoLG superclass superclass == AoLF")) << err.message;
+  EXPECT_STREQ("true", out);
+  ao_runtime_shutdown();
+}
+
 // B5 review M1 / SPEC §3.9: 形を変える subclass:… の送信が失敗したら（superclass のクラス側で
 // 上書きしたメソッドが super を送って名前を新しいクラスに付け替えたあと、nil を答える、または
 // 中断する）、AO_ERR_COMPILE で、名前は旧クラスに戻る。旧クラスのメソッドとソースもそのまま。
@@ -2024,6 +2054,35 @@ TEST(AcceptAbi, RefusedShapeChangeLeavesTheAnsweredClassUntouched) {
       {"B4AtVictim count", "7"},
       {"(B4AtVictim classPool at: #Count) == oldVictimBinding", "true"},
       {"B4AtTarget count: 100. B4AtVictim count", "7"},
+  });
+  ao_runtime_shutdown();
+}
+
+// review-agy M1 / SPEC §3.9: 失敗シナリオ。superclass のクラス側の上書きが名前を Kernel クラス
+// （Object）に付け替えてそれを答えると、形の変更は printString を Object のメソッド辞書へ移し、
+// Object のネイティブを CompiledMethod で置き換えていた。答えたクラスが Kernel クラスなら、名前を
+// 旧クラスに戻し、何も変えずに拒む。
+TEST(AcceptAbi, ShapeChangeRefusesAnsweredKernelClass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "AoM1Sup", "", "").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("AoM1Sup", "AoM1Foo", "a", "").c_str(), &err))
+      << err.message;
+  acceptMethods("AoM1Foo", 0, {"printString\n  ^'m1'\n"});
+  acceptMethods("AoM1Sup", 1,
+                {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+                 "category: k\n  Smalltalk at: n put: Object.\n  ^Object\n"});
+  expectPrints({{"oldFoo := AoM1Foo. AoM1Foo new printString", "'m1'"}});
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("AoM1Sup", "AoM1Foo", "a b", "").c_str(), &e));
+  EXPECT_STREQ("shape change refused: AoM1Foo answered kernel class Object", e.message);
+  expectPrints({
+      {"(Object compiledMethodAt: #printString) class == NativeMethod", "true"},
+      {"(Smalltalk at: #AoM1Foo) == oldFoo", "true"},
+      {"AoM1Foo new printString", "'m1'"},
   });
   ao_runtime_shutdown();
 }
