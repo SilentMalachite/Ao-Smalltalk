@@ -326,6 +326,31 @@ final class ChangeSorterTests: XCTestCase {
     XCTAssertEqual(sorter.errorText, "")
   }
 
+  // SPEC §3.9 Change Sorter: Open Image… empties the error field, so the reason of an operation on
+  // the replaced image goes; a read refused after the load still says busy.
+  func testImageLoadClearsAnErrorOfTheReplacedImage() {
+    boot()
+    let sorter = ChangeSorterWindow()
+    let image = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-r2-\(UUID().uuidString).aoimage")
+    defer { try? FileManager.default.removeItem(at: image) }
+    XCTAssertEqual(ao_image_save(image.path), Int32(AO_OK))
+    let url = URL(fileURLWithPath: "/nonexistent-ao-p16-dir/x.st")
+    sorter.chooseFileOut = { _, _, answer in answer(url) }
+    sorter.fileOut()
+    XCTAssertEqual(sorter.errorText, "cannot write file: \(url.path)")
+    var err = AoSpan()
+    XCTAssertEqual(ao_image_load(image.path, &err), Int32(AO_OK), spanMessage(err))
+    sorter.noteImageLoaded()
+    XCTAssertEqual(sorter.errorText, "")
+    sorter.fileOut()
+    XCTAssertEqual(sorter.errorText, "cannot write file: \(url.path)")
+    whileBusy {
+      sorter.noteImageLoaded()
+      XCTAssertEqual(sorter.errorText, "runtime is busy")
+    }
+  }
+
   // Review Focus 3: an Accept made while the window is open shows when the window becomes key.
   func testBecomingKeyReadsTheSetsAgain() {
     boot()
