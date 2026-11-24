@@ -877,6 +877,39 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(printIt("B12Img"), "nil")
   }
 
+  // SPEC §3.9 削除: a removal question answered after Open Image… was asked about a class of the
+  // image that was replaced, so Remove removes nothing, not the loaded class of the row's name.
+  func testDeleteSheetAnsweredAfterImageLoadDoesNothing() {
+    XCTAssertEqual(acceptClass("R2Del", category: "R2-Del"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var pending: (@MainActor (Bool) -> Void)?
+    browser.confirmRemove = { _, _, decide in pending = decide }
+    selectCategory("R2-Del", in: browser)
+    selectClass("R2Del", in: browser)
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("r2-del-\(UUID().uuidString).aoimage").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    XCTAssertEqual(path.withCString { ao_image_save($0) }, Int32(AO_OK))
+    browser.removeClass()
+    XCTAssertNotNil(pending)
+    var err = AoSpan()
+    let loaded = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    pending?(true)
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("R2Del new printString"), "'R2Del'")
+    XCTAssertTrue(browser.model.classes.contains("R2Del"))
+    XCTAssertEqual(browser.model.selectedClass, "R2Del")
+    // The question is over: the next Remove Class… asks again.
+    pending = nil
+    browser.removeClass()
+    XCTAssertNotNil(pending)
+  }
+
   // SPEC §3.9 System Browser: a click on a row whose class left the list since it was drawn (a
   // shape change) selects the class now bound to that row's name, not the first row.
   func testClickOnReshapedRowSelectsTheClassOfItsName() {

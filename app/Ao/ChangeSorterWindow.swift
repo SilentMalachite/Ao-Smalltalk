@@ -174,7 +174,7 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
   func noteImageLoaded() {
     loads += 1
     model.select(setID: nil)
-    errorField.stringValue = ""
+    noteRead()
     show()
   }
 
