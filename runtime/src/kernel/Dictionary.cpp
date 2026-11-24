@@ -791,8 +791,11 @@ Oop ao_OrderedCollection_new(CallContext& ctx, const Oop& receiver, const Oop*,
   Root cls(ctx.roots, receiver);
   Oop obj = send(ctx, cls.slot, ctx.wk.selBasicNew, nullptr, 0, nullptr);
   Root oc(ctx.roots, obj);
-  // basicNew の上書きが別の形のもの（Array new: 1、String）を答えたら、スロットに触らずに答える。
-  if (!hasSlots(ctx.heap, oc.slot, kOcLast)) {
+  // SPEC §3.6 OrderedCollection: basicNew の上書きが OrderedCollection のインスタンスでないもの
+  // （Array new: 1、String、Object、Array new: 3）を答えたら、スロットに触らずに答える。
+  // hasSlots を先に見る（klass はヒープのオブジェクトにしか読めない）。
+  if (!hasSlots(ctx.heap, oc.slot, kOcLast) ||
+      !chainIncludes(ctx.heap, ctx.heap.klass(oc.slot), ctx.wk.orderedCollectionClass)) {
     return oc.slot;
   }
   Oop arr = allocateRetry(ctx, ctx.wk.arrayClass, kDefaultCap, 0);
