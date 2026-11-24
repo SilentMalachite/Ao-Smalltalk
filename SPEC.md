@@ -1074,7 +1074,7 @@ ID が未知（§3.10「クラス ID」。0 以下、発行していない、一
 
 クラスの削除（`ao_remove_class`）:
 
-- ID のクラスがクラスでなければ（メタクラスの `thisClass` を `instVarAt:put:` で書き換えたときなど）、何もせずに `AO_ERR` を返す。メッセージは `not a class: <name>` である。
+- メタクラスがクラスを指し返さなくなったクラス（メタクラスの `thisClass` を `instVarAt:put:` で書き換えたときなど）は、クラスでないので、クラス一覧（§3.10）から消え、その ID は外れて未知になる。`ao_browser_class_id` は 0 を答え、前に発行した ID には上の `unknown class id` を返す。それでも ID のクラスがクラスでなければ、何もせずに `AO_ERR` を返し、メッセージは `not a class: <name>` である。これは防御のための答えで、一覧を作ってから ID を引く ABI からは届かない。
 - `<name>` が固定のグローバル（§3.6「グローバル辞書」。Kernel クラスと vendor のスタブ）なら `AO_ERR`、メッセージは `class removal refused: <name> is a fixed global` である。
 - ID のクラスが Kernel クラス（§3.10 の `ao_accept_method` と同じく同一性で判定する。名前スロットを書き換えても当たる）なら `AO_ERR`、メッセージは `class removal refused: <name> is a kernel class` である。
 - クラス自身の名前（名前スロットの文字列）で `Smalltalk` を引いた先がこのクラスそのものでなければ（名前を外したあと別名だけが持つ旧クラス、名前スロットが文字列でないか空のクラスなど）、`AO_ERR`、メッセージは `class removal refused: <name> is not bound to this class` である（名前の無いクラスなら `class removal refused: an unnamed class is not bound to this class`）。外すのはクラス自身の名前の束縛だけで、別名は外さない。その名前が別のクラスを指していれば、外すとそのクラスを消すことになるからである。
@@ -1336,7 +1336,7 @@ int ao_filein_file(const char* path, AoSpan* err);
 
 `ao_accept_method_id` は、ID のクラスに対する `ao_accept_method` である。規則、返り値、メッセージは `ao_accept_method` と同じで、Kernel クラスかどうかも `ao_accept_method` と同じく、ID のクラスそのものと対象の側（`meta` が 1 ならそのクラスのメタクラス）の 2 つで決める（下の `ao_accept_method` の段落）。ID が未知なら何もせずに `AO_ERR` を返し、メッセージは `unknown class id` である。Browser の Accept はこちらを使う。`ao_accept_method` は名前で引く（テストと、名前から始める呼び出し元のため）。
 
-`meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。クラス一覧は、`Smalltalk` の値のうちクラスであるものを 1 クラス 1 行で並べる（別名で何度束縛されていても 1 行）。行の名前はクラスの名前スロット、並びは名前のバイト列の昇順で、同じ名前なら ID の小さい順である。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`、`AO_EVAL_DEBUGIT = 4`（ライブモードだけ。§3.13。ライブモードでなければ何も評価せずに `AO_ERR`）。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
+`meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。クラス一覧は、`Smalltalk` の値のうちクラスであるものを 1 クラス 1 行で並べる（別名で何度束縛されていても 1 行）。クラスであるとは、クラスの枠をすべて持ち、そのメタクラスもクラスの枠をすべて持つ Metaclass のインスタンスで、メタクラスの `thisClass` がそのクラスを指し返すことである（`Foo class instVarAt: 5 put: nil` のあとの Foo は一覧に出ない）。行の名前はクラスの名前スロット、並びは名前のバイト列の昇順で、同じ名前なら ID の小さい順である。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`、`AO_EVAL_DEBUGIT = 4`（ライブモードだけ。§3.13。ライブモードでなければ何も評価せずに `AO_ERR`）。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
 
 `AoInspectFn` の `print_len` は、`print_utf8` のバイト数である。printString は NUL を含みうるので、フックは `print_len` で読む。`print_utf8` の末尾（`print_len` バイト目の次）にも NUL を置く。
 
@@ -1363,7 +1363,7 @@ int ao_filein_file(const char* path, AoSpan* err);
 Browser の ABI は、クラスを名前でなくクラス ID で指す（P12 追補）。名前は同じクラスを指し続けるとは限らないからである。`Foo` を定義して `Smalltalk at: #Alias put: Foo` とし、`Foo` を消してから新しい `Foo` を定義すると、一覧には `Foo` の行が 2 つあり（旧クラスは別名から届く）、名前ではどちらの行かが決まらない。
 
 - ID は正の 64 ビット整数で、0 は「クラスなし」である。セッションは ID の表（ID → クラス）を 1 つ持ち、Browser の ABI がクラスを渡すとき（`ao_browser_class_at`、`ao_browser_superclass`、`ao_browser_subclass_at`、`ao_browser_class_id`）に ID を付ける。同じクラスは、一覧に載っているあいだは同じ ID である（束縛が外れて一覧から落ち、また束縛されたクラスには新しい ID が付く）。ID は OS のプロセスの中で使い回さない（後のセッションでも。プロセスの pid と同じ）。
-- 表に入るのはクラス一覧に出るクラスだけである。一覧を作るたびに（ID を取るどの関数も一覧を作る）、一覧に無くなったクラス（どの名前にも束縛されていないクラス）の項目を表から外す。
+- 表に入るのはクラス一覧に出るクラスだけである。一覧を作るたびに（ID を取るどの関数も一覧を作る）、一覧に無くなったクラス（どの名前にも束縛されていないクラスと、メタクラスの `thisClass` を書き換えてクラスでなくなったもの）の項目を表から外す。
 - 外した ID、発行していない ID、0 以下の ID は未知である。未知の ID には、件数を返す関数は -1、ほかの関数は `AO_ERR` を返す（`ao_accept_method_id`、`ao_remove_method`、`ao_remove_class` のメッセージは `unknown class id`）。消えたクラスの ID が、あとで別のクラスを指すことは無い。
 - 新しいセッション（`ao_runtime_boot`、`ao_image_load`）は空の表で始まり、前のセッションの ID はそこでは未知である。Browser はロードのあと一覧を読み直し、選択は §3.9「System Browser」の規則で名前から選び直す。
 - 表のクラスの枠はルートで、GC が更新する。イメージの保存と、生きているクラスの判定（§3.9「クラス定義の再 Accept」）は、そこからたどらない。表だけが持つクラス（名前を外して一覧から消える前のクラス）は、イメージに書かず、そのスーパークラスの削除や形の変更を妨げない。
@@ -1896,6 +1896,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
   - `accept_abi_test` に、メタクラスの別名の `meta` 1 と `class` を付けたチャンクが Kernel のネイティブを隠せない（`AcceptAbi.MetaclassAliasCannotHideKernelNative`）、メタクラスの別名から Kernel の側のメソッドを消せない（`AcceptAbi.RemoveThroughMetaclassAliasLeavesKernelIntact`）、形の変更で上書きが Kernel クラスを答えたら拒む（`AcceptAbi.ShapeChangeRefusesAnsweredKernelClass`）、メタクラスを答えたら拒む（`AcceptAbi.ShapeChangeRefusesAnsweredMetaclass`）、孫だけが残るクラスの形の変更を拒む（`AcceptAbi.ShapeChangeRefusedWhenOnlyAGrandchildRemains`）
   - `changes_abi_test` に、File In…（`ao_filein_file`）でも Behavior でないグローバルへの `methodsFor:` がチャンク単位の `missing class: <name>` になり、メタクラスの別名の `class` を付けたチャンクではネイティブを隠すメソッドがメソッド単位の `native selector overwrite refused: <selector>` になる（`ChangesAbi.FileInRefusesMethodsForOnNonClassAndMetaclassAlias`）
   - `method_dictionary_test` に、クラスでないもの（String）への `installMethod` が空の OOP を答え、それを変えない（`MethodDictionary.InstallMethodOnStringAnswersEmptyAndLeavesItIntact`）
+  - `remove_abi_test` に、メタクラスの `thisClass` を書き換えたクラスが束縛されたままクラス一覧から消え、`ao_browser_class_id` が 0 で、前に発行した ID に `ao_remove_class` と `ao_accept_method_id` が `unknown class id` を返す（`RemoveAbi.RewrittenThisClassDropsTheClassAndItsId`）
   - `hashed_collection_test` に、`basicNew` の上書きが答えた OrderedCollection のインスタンスでないもの（別の形のオブジェクト、`Object`、3 つのスロットの Array）を `new` がスロットに触らずに答える（`HashedCollection.NewAnswersForeignBasicNewUntouched`）
   - `behavior_test` に、instSize が上限を超える `subclass:` の中断（`Behavior.SubclassBeyondInstSizeLimitAborts`）、バイト列でない instanceVariableNames の失敗（`Behavior.SubclassWithNonStringInstanceVariableNamesFails`）、format をバイト列にしたメタクラスが作ったバイト列のオブジェクトへの `basicNew` の失敗（`Behavior.BasicNewOnByteObjectWithMetaclassClassFails`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
