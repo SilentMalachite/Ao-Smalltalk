@@ -343,9 +343,11 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertFalse(restart?.isEnabled ?? true)
     debugger.selectFrame(1)
     XCTAssertTrue(restart?.isEnabled ?? false)
-    // 選択を外すと Restart の対象がないので無効に戻る。
+    // 空き所のクリックでは選択を外せない（M19）ので、Restart は選んだ解釈フレームのまま有効。
     table(labelled: "Frames", in: debugger.window)?.deselectAll(nil)
-    XCTAssertNil(debugger.selectedFrame)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertTrue(restart?.isEnabled ?? false)
+    debugger.selectFrame(0)
     XCTAssertFalse(restart?.isEnabled ?? true)
     button("Abort", in: debugger)?.performClick(nil)
   }
@@ -864,7 +866,10 @@ final class DebuggerWindowTests: XCTestCase {
     debugger.selectFrame(1)
     debugger.replaceSource("bar\n  ^42")
     debugger.accept()
+    print("DBG", debugger.selectedFrame as Any, debugger.frameLabels, debugger.errorText, debugger.reason, debugger.hasUnacceptedChanges, debugger.sourceText, button("Proceed", in: debugger)?.isEnabled as Any)
     button("Proceed", in: debugger)?.performClick(nil)
+    debugger.proceed(); print("DBG3", ao_debug_halted_count())
+    print("DBG2", debugger.selectedFrame as Any, debugger.frameLabels, debugger.reason, ao_debug_halted_count(), workspace.errorText)
     XCTAssertEqual(workspace.text, "DbgWinAccP new bar42")
     XCTAssertFalse(debugger.window.isVisible)
   }
@@ -1295,6 +1300,92 @@ final class DebuggerWindowTests: XCTestCase {
     button("Abort", in: debugger)?.performClick(nil)
   }
 
+  // SPEC §3.9 Debugger の編集: showing another frame drops the Undo of the edit it discarded.
+  func testShowingAnotherFrameDropsUndoOfDiscardedEdit() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinUndo")
+    acceptMethod("DbgWinUndo", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinUndo new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    debugger.selectFrame(1)
+    guard
+      let source = textViews(in: debugger.window.contentView).first(where: {
+        $0.accessibilityLabel() == "Source"
+      }),
+      let undo = source.undoManager
+    else {
+      XCTFail("no source view or undo manager")
+      return
+    }
+    source.allowsUndo = true
+    source.setSelectedRange(NSRange(location: 0, length: 0))
+    source.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    XCTAssertTrue(undo.canUndo, "the edit registered an undo")
+    debugger.selectFrame(2)
+    XCTAssertEqual(debugger.selectedFrame, 2)
+    XCTAssertFalse(debugger.hasUnacceptedChanges)
+    XCTAssertFalse(undo.canUndo)
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // SPEC §3.9 Debugger の編集: a click on the empty area of frames cannot clear the selection.
+  func testClickingEmptyFrameAreaKeepsEditedFrameSelected() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinEmptyClick")
+    acceptMethod("DbgWinEmptyClick", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinEmptyClick new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    table(labelled: "Frames", in: debugger.window)?.deselectAll(nil)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // SPEC §3.9: every attempt of the printString read selects its own process first; a pump that
+  // selects another process in between does not make the retry read that one.
+  func testPrintRetryReadsItsOwnProcessAfterPumpedSelect() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinLongPrint")
+    acceptMethod("DbgWinLongPrint", "printString\n  1 to: 3000 do: [:i | i].\n  ^'\(String(repeating: "a", count: 300))'")
+    let workspaceA = workspace("| a | a := DbgWinLongPrint new. self halt. a")
+    workspaceA.selectAll()
+    workspaceA.doIt()
+    let workspaceB = workspace("| b | b := 'bbb'. self halt. b")
+    workspaceB.selectAll()
+    workspaceB.doIt()
+    guard let a = workspaceA.debuggers.last, let b = workspaceB.debuggers.last, a.pid != b.pid else {
+      XCTFail("two halts opened no two Debuggers")
+      return
+    }
+    gPumpSelectPid = b.pid
+    gPumpSelects = 0
+    ao_set_runloop_pump_hook(selectOtherPump, nil)
+    defer { ao_set_runloop_pump_hook(nil, nil) }
+    a.selectFrame(1)
+    let value = a.variable(at: 1).value
+    ao_set_runloop_pump_hook(nil, nil)
+    XCTAssertGreaterThan(gPumpSelects, 0, "the pump ran during the print")
+    XCTAssertTrue(value.hasPrefix("aaa"), value)
+    button("Abort", in: a)?.performClick(nil)
+    button("Abort", in: b)?.performClick(nil)
+  }
+
   private func acceptDbgWin(_ source: String) {
     acceptMethod("DbgWin", source)
   }
@@ -1336,4 +1427,15 @@ private func transcriptBoxHook(
   }
   let text = String(decoding: UnsafeRawBufferPointer(start: utf8, count: max(Int(len), 0)), as: UTF8.self)
   Unmanaged<TranscriptBox>.fromOpaque(user).takeUnretainedValue().add(text)
+}
+
+// Selects another halted process from the pump, as an AppKit event handler could.
+private nonisolated(unsafe) var gPumpSelectPid: Int64 = 0
+private nonisolated(unsafe) var gPumpSelects = 0
+
+private func selectOtherPump(_ user: UnsafeMutableRawPointer?) {
+  _ = user
+  if ao_debug_select(gPumpSelectPid) == Int32(AO_OK) {
+    gPumpSelects += 1
+  }
 }

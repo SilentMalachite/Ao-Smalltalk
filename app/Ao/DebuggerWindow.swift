@@ -288,6 +288,8 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
     configureTable(frameTable, columns: [("frame", "Frame")], header: false)
     configureTable(variableTable, columns: [("name", "Name"), ("class", "Class"), ("value", "Value")], header: true)
+    // SPEC §3.9: a click on the empty area of frames keeps the selected frame (and its edit).
+    frameTable.allowsEmptySelection = false
     frameTable.setAccessibilityLabel("Frames")
     variableTable.setAccessibilityLabel("Variables")
     sourceView.setAccessibilityLabel("Source")
@@ -407,7 +409,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       guard discard else {
         return
       }
-      self.sourceView.string = self.shownSource
+      self.showSource(self.shownSource)
       run()
     }
   }
@@ -585,10 +587,11 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     frames = readDebugFrames()
     window.title = "Debugger: " + reason
     values = [:]
+    // Before the table reloads: with no empty selection it re-selects a row, and an edit the
+    // halt replaced (Accept) must not make that selection ask to discard it.
+    showSource("")
     frameTable.reloadData()
     if frames.isEmpty {
-      sourceView.string = ""
-      shownSource = ""
       variableTable.reloadData()
     } else {
       moveSelection(to: 0)
@@ -753,13 +756,19 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
   // MARK: - private
 
+  // The pane and what it is compared with change together; the Undo of the text it replaces goes.
+  private func showSource(_ text: String) {
+    sourceView.string = text
+    shownSource = text
+    sourceView.undoManager?.removeAllActions()
+  }
+
   // SPEC §3.9: the source goes in whole; the pc's span is selected and shown, not for a placeholder.
   private func showFrame(_ index: Int) {
     let frame = frames[index]
     values = [:]
     errorLine.stringValue = ""
-    sourceView.string = frame.source
-    shownSource = frame.source
+    showSource(frame.source)
     sourceView.isEditable = canAcceptEdit
     applyFont()
     let length = (frame.source as NSString).length
@@ -783,6 +792,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   private func printValue(frame: Int32, temp: Int32) -> (className: String, value: String)? {
     var capacity = 256
     while capacity <= debugTextLimit {
+      // A pump inside the previous attempt may have selected another process (SPEC §3.9).
+      guard ao_debug_select(pid) == Int32(AO_OK) else {
+        return nil
+      }
       var classBuffer = [CChar](repeating: 0, count: capacity)
       var printBuffer = [CChar](repeating: 0, count: capacity)
       let rc = classBuffer.withUnsafeMutableBufferPointer { classPointer -> Int32 in
