@@ -925,6 +925,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 起動時に 1 枚開く。閉じてもオブジェクトは生き、再表示できる。
 - 出力は差分で足し、全文を置き換えない。末尾へのスクロールは、評価のあとで 1 回だけ行う。
 - 文字はシステムの文字色（`NSColor.textColor`）で描き、ダークモードでも読めるようにする。等幅の設定を切り替えても色は変わらない。
+- transcript フック（§3.10）は、最後にフックを入れたウィンドウに届く。フックを外せるのはそのウィンドウだけで、ほかのウィンドウが入れたフックは外さない。起動時のウィンドウの組を手放しても、フックは外さない。フックを入れたウィンドウが無くなったら、残ったフックには何も出ない。
 
 #### Workspace
 
@@ -1098,7 +1099,7 @@ Browser での操作:
 
 - クラス一覧の右クリックメニューに Remove Class…、セレクタ一覧の右クリックメニューに Remove Method… を置く。Smalltalk メニューにも同じ 2 項目を置く（キー無し）。メニュー項目は、Browser がキーウィンドウで、Remove Class… はクラスを、Remove Method… はセレクタを選んでいるときだけ有効にする。階層表示でも同じである。
 - 右クリックのメニューは、右クリックした行（その行のクラス ID）を対象にする（行の外で右クリックしたら、項目は無効）。メニューの項目を選んだ時点で、Accept していない編集があれば破棄の確認を出し、破棄するならその行を選んでから確認のシートを出す（選択の変更と同じ）。破棄しないなら、選択も変えず、削除にも進まない。すでに選んでいる行なら、選択の変更が無いので破棄の確認は出ない。
-- 実行の前に確認のシートを出す。メッセージは `Remove Foo>>bar?`（クラス側は `Remove Foo class>>bar?`）か `Remove class Foo?`（`Foo` は行の名前）、補足は `This cannot be undone.` で、ボタンは Remove（破壊的な操作の印を付ける）と Cancel である。Cancel では何も変えない。
+- 実行の前に確認のシートを出す。メッセージは `Remove Foo>>bar?`（クラス側は `Remove Foo class>>bar?`）か `Remove class Foo?`（`Foo` は行の名前）、補足は `This cannot be undone.` で、ボタンは Remove（破壊的な操作の印を付ける）と Cancel である。Cancel では何も変えない。削除を選んでから確認のシート（その前の破棄の確認を含む）に答えるまでの間に Open Image… が成功したら、Remove を選んでも何も消さない（削除を選んだときのクラスは、ロードで置き換えたイメージのものである。行の名前で新しいイメージの同じ名前のクラスを消さない。File Out… と同じ）。
 - Smalltalk メニューからの削除は、選んでいる行を対象にする。ソース枠に Accept していない編集があれば、確認のシートの前に破棄の確認を出す（選択の変更と同じ）。破棄しないなら削除に進まない。
 - 成功したら一覧を読み直す。メソッドなら、カテゴリ、クラス、側の選択を保ち、プロトコルはまだ一覧にあれば保ち、セレクタの選択を外す（ソース枠は、セレクタを選んでいないときと同じ表示）。クラスなら、カテゴリがまだ一覧にあれば保ち、クラスの選択を外す。
 - 拒否されたら、一覧も選択もソース枠も変えずに、エラー欄にメッセージを出す。
@@ -1938,6 +1939,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - Debugger の窓と道具の窓（§3.9、§3.10。review-agy R2）:
   - `DebuggerWindowTests` に、printString の中で閉じようとしたライブ Debugger は閉じず、止まったプロセスも残る（`testClosingLiveDebuggerDuringItsPrintStringKeepsIt`）、別の Debugger の Abort の `ensure:` の中で閉じようとしたライブ Debugger は閉じない（`testClosingLiveDebuggerDuringAnotherAbortKeepsIt`）、自分の Abort の `ensure:` の中の Abort と閉じる操作はその Abort を待ち、窓はそのあと 1 度だけ閉じる（`testClosingLiveDebuggerDuringItsOwnAbortWaitsForIt`）、Inspect it の drain の中で呼んだ Proceed は断られ、Inspector は 1 枚で結果を示す（`testProceedDuringInspectItDrainKeepsInspectorResult`）、別のフレームを表示すると捨てた編集の Undo が消える（`testShowingAnotherFrameDropsUndoOfDiscardedEdit`）、frames の空いた所をクリックしても編集したフレームの選択が残る（`testClickingEmptyFrameAreaKeepsEditedFrameSelected`）、printString の読み直しは、pump で別のプロセスが選ばれても自分のプロセスを読む（`testPrintRetryReadsItsOwnProcessAfterPumpedSelect`）
   - `AcceptTests` に、イメージのロードのあとに答えた Browser の削除確認シートは何もしない（`testDeleteSheetAnsweredAfterImageLoadDoesNothing`）
+  - `ToolWindowTests` に、起動時のウィンドウの組を手放しても、あとから別の Transcript のウィンドウが入れたフックは外れず、フックを入れていないウィンドウはそれを外せない（`testDroppedLaunchSetKeepsAnotherWindowsTranscriptHook`）
 - ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
 
 `scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。
