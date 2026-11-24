@@ -195,7 +195,7 @@ void defineFooAndMetaclassAliasA() {
 // Kernel class. Metaclass gets neither method.
 TEST(AcceptAbi, MetaclassAliasCannotHideKernelNative) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  defineFooAndMetaclassAliasA();
+  ASSERT_NO_FATAL_FAILURE(defineFooAndMetaclassAliasA());
   AoSpan err{};
   EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("A", 1, "printString ^'x'", &err));
   EXPECT_EQ(std::string("native selector overwrite refused: printString"),
@@ -231,7 +231,7 @@ TEST(AcceptAbi, MetaclassAliasCannotHideKernelNative) {
 // its native either way.
 TEST(AcceptAbi, RemoveThroughMetaclassAliasLeavesKernelIntact) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
-  defineFooAndMetaclassAliasA();
+  ASSERT_NO_FATAL_FAILURE(defineFooAndMetaclassAliasA());
   AoSpan err{};
   const int64_t id = ao_browser_class_id("A");
   EXPECT_EQ(0, id);

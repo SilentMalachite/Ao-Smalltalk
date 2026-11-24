@@ -1333,7 +1333,7 @@ int ao_filein_file(const char* path, AoSpan* err);
 
 `class_id` は下の「クラス ID」である。`ao_browser_class_id` は、`Smalltalk` で `name` を引いた先のクラスの ID を返す（クラス一覧にあるクラスだけ）。クラスでない、束縛が無い、`name` が NULL、セッションが無い、C++ のメモリが足りないときは 0 を返す。`ao_browser_class_at`、`ao_browser_superclass`、`ao_browser_subclass_at` の ID の出力（`class_id`、`superclass_id`、`subclass_id`）は NULL でもよい（書かない）。失敗したときは 0 を書く。`ao_browser_superclass` は、今までどおりスーパークラスの名前（メタクラスのスーパークラスは、そのインスタンスのクラスの名前。nil なら空文字）を `buf` に書き、そのクラスの ID を書く。nil か、一覧に無いクラスなら ID は 0 である。`ao_browser_subclass_count` と `ao_browser_subclass_at` は、スーパークラスの枠がそのクラスそのものである一覧のクラスを、クラス一覧の順に答える（名前でなく同一性で比べる）。
 
-`ao_accept_method_id` は、ID のクラスに対する `ao_accept_method` である。規則、返り値、メッセージは `ao_accept_method` と同じで、Kernel クラスかどうかは ID のクラスそのもので決める（クラス側でも同じ）。ID が未知なら何もせずに `AO_ERR` を返し、メッセージは `unknown class id` である。Browser の Accept はこちらを使う。`ao_accept_method` は名前で引く（テストと、名前から始める呼び出し元のため）。
+`ao_accept_method_id` は、ID のクラスに対する `ao_accept_method` である。規則、返り値、メッセージは `ao_accept_method` と同じで、Kernel クラスかどうかも `ao_accept_method` と同じく、ID のクラスそのものと対象の側（`meta` が 1 ならそのクラスのメタクラス）の 2 つで決める（下の `ao_accept_method` の段落）。ID が未知なら何もせずに `AO_ERR` を返し、メッセージは `unknown class id` である。Browser の Accept はこちらを使う。`ao_accept_method` は名前で引く（テストと、名前から始める呼び出し元のため）。
 
 `meta` は 0 がインスタンス側、1 がクラス側（そのクラスの `klass`）。クラス一覧にメタクラスは出さない。クラス一覧は、`Smalltalk` の値のうちクラスであるものを 1 クラス 1 行で並べる（別名で何度束縛されていても 1 行）。行の名前はクラスの名前スロット、並びは名前のバイト列の昇順で、同じ名前なら ID の小さい順である。`mode` は `AO_EVAL_DOIT = 1`、`AO_EVAL_PRINTIT = 2`、`AO_EVAL_INSPECTIT = 3`、`AO_EVAL_DEBUGIT = 4`（ライブモードだけ。§3.13。ライブモードでなければ何も評価せずに `AO_ERR`）。フックの `user` は Swift が保持するオブジェクトのポインタである。ランタイムはそれを OOP として辿らない。フックは評価を呼び直さない。
 
@@ -1893,6 +1893,8 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 - Kernel の保護とクラス定義（§3.6、§3.9、§3.10、§3.12。review-agy R1）:
   - `chunk_filein_test` に、Behavior でないグローバルへの `methodsFor:` がチャンク単位の `missing class: <name>` になる（`ChunkFileIn.ChunkLevelErrorsCarryTheChunkSpan` の `Smalltalk methodsFor: 'x'` と `Processor class methodsFor: 'x'` の行）、String を入れたグローバルへの `methodsFor:` が Object を壊さない（`ChunkFileIn.MethodsForNonClassGlobalLeavesObjectIntact`）
   - `accept_abi_test` に、メタクラスの別名の `meta` 1 と `class` を付けたチャンクが Kernel のネイティブを隠せない（`AcceptAbi.MetaclassAliasCannotHideKernelNative`）、メタクラスの別名から Kernel の側のメソッドを消せない（`AcceptAbi.RemoveThroughMetaclassAliasLeavesKernelIntact`）、形の変更で上書きが Kernel クラスを答えたら拒む（`AcceptAbi.ShapeChangeRefusesAnsweredKernelClass`）、メタクラスを答えたら拒む（`AcceptAbi.ShapeChangeRefusesAnsweredMetaclass`）、孫だけが残るクラスの形の変更を拒む（`AcceptAbi.ShapeChangeRefusedWhenOnlyAGrandchildRemains`）
+  - `changes_abi_test` に、File In…（`ao_filein_file`）でも Behavior でないグローバルへの `methodsFor:` がチャンク単位の `missing class: <name>` になり、メタクラスの別名の `class` を付けたチャンクではネイティブを隠すメソッドがメソッド単位の `native selector overwrite refused: <selector>` になる（`ChangesAbi.FileInRefusesMethodsForOnNonClassAndMetaclassAlias`）
+  - `method_dictionary_test` に、クラスでないもの（String）への `installMethod` が空の OOP を答え、それを変えない（`MethodDictionary.InstallMethodOnStringAnswersEmptyAndLeavesItIntact`）
   - `hashed_collection_test` に、`basicNew` の上書きが答えた別の形のオブジェクトを `new` がスロットに触らずに答える（`HashedCollection.NewAnswersForeignBasicNewUntouched`）
   - `behavior_test` に、instSize が上限を超える `subclass:` の中断（`Behavior.SubclassBeyondInstSizeLimitAborts`）、バイト列でない instanceVariableNames の失敗（`Behavior.SubclassWithNonStringInstanceVariableNamesFails`）、format をバイト列にしたメタクラスが作ったバイト列のオブジェクトへの `basicNew` の失敗（`Behavior.BasicNewOnByteObjectWithMetaclassClassFails`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する

@@ -279,3 +279,15 @@ TEST(MethodDictionary, MalformedDictionaryAnswersNilAndTakesNothing) {
   ASSERT_TRUE(dict.isHeap());
   EXPECT_EQ(heap.slotAt(dict, ao::kDictSlotArray), ao::MethodDictionary::pairArray(heap, dict));
 }
+
+// review-agy C1 / SPEC §3.3: installMethod reads a method dictionary slot only on a class. On a
+// String it answers the empty Oop and leaves the String's bytes as they were.
+TEST(MethodDictionary, InstallMethodOnStringAnswersEmptyAndLeavesItIntact) {
+  Boot b;
+  const auto cr = ao::compiler::compileMethod("c1Probe\n  ^1");
+  ASSERT_TRUE(cr.ok);
+  ao::Root text(b.roots, ao::Str::fromUtf8(b.ctx, "abc"));
+  EXPECT_TRUE(ao::installMethod(b.ctx, text.slot, cr.image).isEmpty());
+  EXPECT_EQ("abc", ao::Str::toUtf8(b.heap, text.slot));
+  EXPECT_EQ(b.wk.stringClass, b.heap.klass(text.slot));
+}
