@@ -1073,10 +1073,10 @@ final class AcceptTests: XCTestCase {
     browser.replaceSource("b12y\n  ^2\n")
     browser.accept()
     var discardAsked = 0
-    var discard = false
+    let discard = AnswerBox()
     browser.confirmDiscard = { _, decide in
       discardAsked += 1
-      decide(discard)
+      decide(discard.value)
     }
     var removeAsked: [String] = []
     browser.confirmRemove = { _, message, decide in
@@ -1093,7 +1093,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(browser.hasUnacceptedChanges)
     XCTAssertEqual(printIt("Object new b12y"), "2")
 
-    discard = true
+    discard.value = true
     browser.removeMethod()
     XCTAssertEqual(discardAsked, 2)
     XCTAssertEqual(removeAsked, ["Remove Object>>b12y?"])
@@ -1102,7 +1102,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(browser.model.selectors, ["b12x"])
     // The class command asks the same way.
     browser.replaceSource("b12z\n  ^3\n")
-    discard = false
+    discard.value = false
     browser.removeClass()
     XCTAssertEqual(discardAsked, 3)
     XCTAssertEqual(removeAsked.count, 1)
@@ -1267,11 +1267,11 @@ final class AcceptTests: XCTestCase {
       discardAsked += 1
       decide(true)
     }
-    var remove = false
+    let remove = AnswerBox()
     var asked: [String] = []
     browser.confirmRemove = { _, message, decide in
       asked.append(message)
-      decide(remove)
+      decide(remove.value)
     }
     guard let row = browser.model.selectors.firstIndex(of: "b12q") else {
       XCTFail("missing b12q")
@@ -1288,7 +1288,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(browser.model.selectedSelector, "b12q")
     XCTAssertEqual(printIt("Object new b12q"), "2")
 
-    remove = true
+    remove.value = true
     browser.removeMethod(atRow: row)
     XCTAssertEqual(discardAsked, 0)
     XCTAssertEqual(asked, ["Remove Object>>b12q?", "Remove Object>>b12q?"])
@@ -1306,13 +1306,13 @@ final class AcceptTests: XCTestCase {
       XCTFail("missing Object")
       return
     }
-    remove = false
+    remove.value = false
     browser.removeClass(atRow: objectRow)
     XCTAssertEqual(discardAsked, 0)
     XCTAssertEqual(asked.last, "Remove class Object?")
     XCTAssertEqual(browser.sourceText, classEdit)
     XCTAssertTrue(browser.hasUnacceptedChanges)
-    remove = true
+    remove.value = true
     browser.removeClass(atRow: objectRow)
     XCTAssertEqual(discardAsked, 0)
     XCTAssertEqual(asked.count, 4)
@@ -1710,4 +1710,9 @@ final class AcceptTests: XCTestCase {
     }
     return found
   }
+}
+
+// An answer a test changes after a confirm closure has captured it (Swift 6: no captured `var`).
+private final class AnswerBox {
+  var value = false
 }

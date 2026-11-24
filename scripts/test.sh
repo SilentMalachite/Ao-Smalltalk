@@ -74,6 +74,10 @@ cleanup() {
       sleep 1
       j=$((j + 1))
     done
+    # Still running after 5 s: SIGTERM was ignored, so force it.
+    if kill -0 "$PID" 2>/dev/null; then
+      kill -9 "$PID" 2>/dev/null || true
+    fi
   fi
   rm -f "$LOG"
 }
@@ -96,8 +100,9 @@ while [ "$i" -lt 10 ]; do
   sleep 1
   i=$((i + 1))
 done
+# One 30 s deadline (SPEC §3.9) covers both lines together.
+i=0
 for line in "$WANT" "$WANT_TOOLS"; do
-  i=0
   until grep -qxF "$line" "$LOG"; do
     if [ "$i" -ge 30 ]; then
       echo "app: FAILED: no line '$line' on stderr within 30 s" >&2

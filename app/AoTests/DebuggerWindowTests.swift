@@ -1043,10 +1043,10 @@ final class DebuggerWindowTests: XCTestCase {
       return
     }
     var asked = 0
-    var answer = false
+    let answer = AnswerBox()
     debugger.confirmDiscard = { _, decide in
       asked += 1
-      decide(answer)
+      decide(answer.value)
     }
     debugger.selectFrame(1)
     XCTAssertEqual(asked, 0)
@@ -1067,7 +1067,7 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertTrue(debugger.window.isVisible)
     XCTAssertEqual(ao_debug_halted_count(), 1)
     // Discard: the frame changes and the edit is gone.
-    answer = true
+    answer.value = true
     debugger.selectFrame(2)
     XCTAssertEqual(asked, 4)
     XCTAssertEqual(debugger.selectedFrame, 2)
@@ -1092,10 +1092,10 @@ final class DebuggerWindowTests: XCTestCase {
       return
     }
     var asked = 0
-    var answer = false
+    let answer = AnswerBox()
     debugger.confirmDiscard = { _, decide in
       asked += 1
-      decide(answer)
+      decide(answer.value)
     }
     debugger.selectFrame(1)
     debugger.replaceSource("bar\n  ^2")
@@ -1117,7 +1117,7 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertTrue(debugger.window.isVisible)
     XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
     // Discard: the window closes.
-    answer = true
+    answer.value = true
     debugger.window.performClose(nil)
     XCTAssertEqual(asked, 3)
     XCTAssertFalse(debugger.window.isVisible)
@@ -1403,6 +1403,11 @@ private func interruptOncePump(_ user: UnsafeMutableRawPointer?) {
     gInterruptPumps = 1
     _ = ao_request_interrupt()
   }
+}
+
+// An answer a test changes after a confirm closure has captured it (Swift 6: no captured `var`).
+private final class AnswerBox {
+  var value = false
 }
 
 // A transcript hook for the live Debugger tests: `user` is a TranscriptBox.

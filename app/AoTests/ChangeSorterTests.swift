@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class ChangeSorterTests: XCTestCase {
   // SPEC §3.9 起動と同梱 (P17): <repo>/image/Tools-model, three directories above app/AoTests/<file>.
-  private static let toolsModelURL = URL(fileURLWithPath: #filePath)
+  nonisolated private static let toolsModelURL = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()
     .deletingLastPathComponent()
     .deletingLastPathComponent()
