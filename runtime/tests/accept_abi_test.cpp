@@ -2,6 +2,7 @@
 
 #include "../src/Session.hpp"
 #include "ao/Bootstrap.hpp"
+#include "ao/Compile.hpp"
 #include "ao/CompiledMethod.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
@@ -164,6 +165,88 @@ TEST(AcceptAbi, AcceptRefusesKernelClassThroughAlias) {
   EXPECT_EQ(AO_OK, ao_accept_method("B3Alias", 0, "<= x\n  ^false\n", &err)) << err.message;
   ASSERT_EQ(AO_OK, run("B3Aliased new <= 1", AO_EVAL_PRINTIT)) << err.message;
   EXPECT_STREQ("false", out);
+  ao_runtime_shutdown();
+}
+
+namespace {
+
+// review-agy C1: Foo, a class that is not Kernel, and A bound to its metaclass (A class is Metaclass).
+void defineFooAndMetaclassAliasA() {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #Foo\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'C1-Test'\n",
+                                   &err))
+      << err.message;
+  const char* alias = "Smalltalk at: #A put: Foo class";
+  char out[64];
+  ASSERT_EQ(AO_OK, ao_eval(alias, static_cast<int>(std::strlen(alias)), AO_EVAL_DOIT, out, 64,
+                           &err))
+      << err.message;
+}
+
+}  // namespace
+
+// review-agy C1 / SPEC §3.10, §3.12: the side a method goes to decides Kernel-ness as well as the
+// class the name binds. A binds Foo class, which is not Kernel, but A class is Metaclass: Accept on
+// that side refuses a selector that hides a native, and `!A class methodsFor:` is refused as a
+// Kernel class. Metaclass gets neither method.
+TEST(AcceptAbi, MetaclassAliasCannotHideKernelNative) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_NO_FATAL_FAILURE(defineFooAndMetaclassAliasA());
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("A", 1, "printString ^'x'", &err));
+  EXPECT_EQ(std::string("native selector overwrite refused: printString"),
+            std::string(err.message));
+  AoSpan chunkErr{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class("!A class methodsFor: 'x'!\nc1Probe\n  ^1! !\n", &chunkErr));
+  EXPECT_EQ(std::string("refusing to redefine kernel class: A"), std::string(chunkErr.message));
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  struct Case {
+    const char* src;
+    const char* answer;
+  };
+  const Case cases[] = {
+      {"Metaclass includesSelector: #printString", "false"},
+      {"Metaclass includesSelector: #c1Probe", "false"},
+      {"Foo class printString", "'Metaclass'"},  // Object>>printString: the class's name
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.src);
+    ASSERT_EQ(AO_OK, printIt(c.src)) << err.message;
+    EXPECT_STREQ(c.answer, out);
+  }
+  ao_runtime_shutdown();
+}
+
+// review-agy Review Focus 2 / SPEC §3.9 削除, §3.10 クラス ID: A binds a metaclass, which lists no
+// class row, so ao_remove_method has no ID that reaches Metaclass through A. Removing through A's
+// class side itself (removeMethodOf on Foo class, meta) refuses Metaclass's native. Metaclass keeps
+// its native either way.
+TEST(AcceptAbi, RemoveThroughMetaclassAliasLeavesKernelIntact) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_NO_FATAL_FAILURE(defineFooAndMetaclassAliasA());
+  AoSpan err{};
+  const int64_t id = ao_browser_class_id("A");
+  EXPECT_EQ(0, id);
+  EXPECT_EQ(AO_ERR, ao_remove_method(id, 1, "name", &err));
+  EXPECT_STREQ("unknown class id", err.message);
+  ao::Session& s = *ao::session();
+  std::string reason;
+  EXPECT_FALSE(ao::removeMethodOf(*s.ctx, s.wk.named("A"), true, "name", &reason));
+  EXPECT_EQ(0u, reason.rfind("native method removal refused: ", 0)) << reason;
+  char out[64];
+  const char* native = "(Metaclass compiledMethodAt: #name) class == NativeMethod";
+  ASSERT_EQ(AO_OK, ao_eval(native, static_cast<int>(std::strlen(native)), AO_EVAL_PRINTIT, out,
+                           64, &err))
+      << err.message;
+  EXPECT_STREQ("true", out);
   ao_runtime_shutdown();
 }
 
@@ -847,6 +930,36 @@ TEST(AcceptAbi, ShapeChangeRefusesClassWithSubclasses) {
   ASSERT_EQ(AO_OK, printIt("B5Sub superclass == B5Base")) << err.message;
   EXPECT_STREQ("true", out);
   EXPECT_NE(b5ClassDefinition("B5Sub").find("instanceVariableNames: 'c'"), std::string::npos);
+  ao_runtime_shutdown();
+}
+
+// review-agy Low サブクラス判定 / SPEC §3.9「クラス定義の再 Accept」冒頭: サブクラスは子孫すべてで
+// ある。AoLF←AoLC←AoLG で AoLC のメタクラスの thisClass を外すと、AoLC は生きているクラスに数えられず、
+// 直下の子だけを見る判定は AoLF にサブクラスが無いとしていた。孫の AoLG が残るので形の変更を拒む。
+TEST(AcceptAbi, ShapeChangeRefusedWhenOnlyAGrandchildRemains) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "AoLF", "a", "Low-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("AoLF", "AoLC", "", "Low-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("AoLC", "AoLG", "", "Low-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, printIt("oldF := AoLF. AoLC class instVarAt: 5 put: nil")) << err.message;
+  EXPECT_STREQ("nil", out);
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b5Definition("Object", "AoLF", "a b", "Low-Test").c_str(), &e));
+  EXPECT_STREQ("shape change refused: AoLF has subclasses", e.message);
+  ASSERT_EQ(AO_OK, printIt("oldF == AoLF")) << err.message;
+  EXPECT_STREQ("true", out);
+  ASSERT_EQ(AO_OK, printIt("AoLG superclass superclass == AoLF")) << err.message;
+  EXPECT_STREQ("true", out);
   ao_runtime_shutdown();
 }
 
@@ -1941,6 +2054,63 @@ TEST(AcceptAbi, RefusedShapeChangeLeavesTheAnsweredClassUntouched) {
       {"B4AtVictim count", "7"},
       {"(B4AtVictim classPool at: #Count) == oldVictimBinding", "true"},
       {"B4AtTarget count: 100. B4AtVictim count", "7"},
+  });
+  ao_runtime_shutdown();
+}
+
+// review-agy M1 / SPEC §3.9: 失敗シナリオ。superclass のクラス側の上書きが名前を Kernel クラス
+// （Object）に付け替えてそれを答えると、形の変更は printString を Object のメソッド辞書へ移し、
+// Object のネイティブを CompiledMethod で置き換えていた。答えたクラスが Kernel クラスなら、名前を
+// 旧クラスに戻し、何も変えずに拒む。
+TEST(AcceptAbi, ShapeChangeRefusesAnsweredKernelClass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "AoM1Sup", "", "").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("AoM1Sup", "AoM1Foo", "a", "").c_str(), &err))
+      << err.message;
+  acceptMethods("AoM1Foo", 0, {"printString\n  ^'m1'\n"});
+  acceptMethods("AoM1Sup", 1,
+                {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+                 "category: k\n  Smalltalk at: n put: Object.\n  ^Object\n"});
+  expectPrints({{"oldFoo := AoM1Foo. AoM1Foo new printString", "'m1'"}});
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("AoM1Sup", "AoM1Foo", "a b", "").c_str(), &e));
+  EXPECT_STREQ("shape change refused: AoM1Foo answered kernel class Object", e.message);
+  expectPrints({
+      {"(Object compiledMethodAt: #printString) class == NativeMethod", "true"},
+      {"(Smalltalk at: #AoM1Foo) == oldFoo", "true"},
+      {"AoM1Foo new printString", "'m1'"},
+  });
+  ao_runtime_shutdown();
+}
+
+// review-agy M1 / SPEC §3.9: 失敗シナリオ。上書きがメタクラス（AoM1MSup class）を答えると、答えた
+// ものは Kernel ではないが、そのクラス側は Metaclass なので、クラス側の name が Metaclass のネイティブを
+// 置き換えていた。メタクラスはクラスではないので、送信の失敗として名前を旧クラスに戻して拒む。
+TEST(AcceptAbi, ShapeChangeRefusesAnsweredMetaclass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "AoM1MSup", "", "").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("AoM1MSup", "AoM1MFoo", "a", "").c_str(), &err))
+      << err.message;
+  acceptMethods("AoM1MFoo", 1, {"name\n  ^'m1'\n"});
+  acceptMethods("AoM1MSup", 1,
+                {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+                 "category: k\n  Smalltalk at: n put: self class.\n  ^self class\n"});
+  expectPrints({{"oldFoo := AoM1MFoo. AoM1MFoo name", "'m1'"}});
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("AoM1MSup", "AoM1MFoo", "a b", "").c_str(), &e));
+  EXPECT_STREQ("subclass failed: AoM1MFoo", e.message);
+  expectPrints({
+      {"(Metaclass compiledMethodAt: #name) class == NativeMethod", "true"},
+      {"(Smalltalk at: #AoM1MFoo) == oldFoo", "true"},
+      {"AoM1MFoo name", "'m1'"},
   });
   ao_runtime_shutdown();
 }

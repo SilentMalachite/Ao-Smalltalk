@@ -318,7 +318,8 @@ Oop fromUtf8(CallContext& ctx, std::string_view utf8) {
 }
 
 std::string toUtf8(Heap& heap, Oop str) {
-  if (!str.isHeap()) {
+  // A pointer object's bytes are its slots, not text: empty, as for a value that is not on the heap.
+  if (!str.isHeap() || (heap.flags(str) & kFlagBytes) == 0) {
     return {};
   }
   const ObjectHeader* h = heap.header(str);

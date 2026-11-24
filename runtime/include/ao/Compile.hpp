@@ -22,7 +22,8 @@ bool isBehaviorObject(CallContext& ctx, Oop obj);
 bool acceptMethodSource(CallContext& ctx, std::string_view className, bool meta,
                         std::string_view source, compiler::CompileError* error);
 // SPEC §3.10 ao_accept_method_id: acceptMethodSource for the class cls (a class or metaclass;
-// Kernel-ness is cls itself). "missing class: <name>" when cls is no Behavior.
+// Kernel-ness is cls itself or the side the method goes to). "missing class: <name>" when cls is no
+// Behavior.
 bool acceptMethodInto(CallContext& ctx, Oop cls, bool meta, std::string_view source,
                       compiler::CompileError* error);
 // SPEC §3.13 Accept (P15): acceptMethodInto with the same rules and messages, for a source whose

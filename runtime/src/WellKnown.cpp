@@ -113,19 +113,17 @@ constexpr ImageSelector kImageSelectors[] = {
     {"==", &WellKnown::selIdentityEquals},
 };
 
+// obj is a class: class-shaped, and the thisClass of its metaclass, which is a class-shaped
+// instance of Metaclass. The same test as isClassObject and liveClasses in Compile.cpp: a byte
+// object or another instance of a metaclass is no class.
 bool isClassObject(const WellKnown& wk, Oop obj) {
-  if (!obj.isHeap()) {
-    return false;
-  }
   Heap& heap = wk.heap();
-  const Oop meta = heap.klass(obj);
-  if (!meta.isHeap()) {
+  if (!isClassShaped(heap, obj)) {
     return false;
   }
-  if (heap.klass(meta) == wk.metaclassClass) {
-    return true;
-  }
-  return heap.size(meta) > kClassSlotThisClass && heap.slotAt(meta, kClassSlotThisClass) == obj;
+  const Oop meta = heap.klass(obj);
+  return isClassShaped(heap, meta) && heap.klass(meta) == wk.metaclassClass &&
+         heap.slotAt(meta, kClassSlotThisClass) == obj;
 }
 
 }  // namespace

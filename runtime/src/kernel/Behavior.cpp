@@ -22,7 +22,9 @@ namespace ao {
 namespace {
 
 Oop classFormat(CallContext& ctx, Oop cls) {
-  if (!cls.isHeap()) {
+  // SPEC §3.6: only a class-shaped receiver has a format. A byte object whose class is a metaclass
+  // (instVarAt:put: on the metaclass's format) inherits these natives but has no slots to read.
+  if (!isClassShaped(ctx.heap, cls)) {
     return Oop{};
   }
   return ctx.heap.slotAt(cls, kClassSlotFormat);
@@ -84,6 +86,9 @@ Oop ao_Behavior_basicNew_(CallContext& ctx, const Oop& receiver, const Oop* args
     return Oop{};
   }
   const Oop fmt = classFormat(ctx, receiver);
+  if (fmt.isEmpty()) {
+    return Oop{};
+  }
   const auto inst = Format::instSize(fmt);
   if (!Format::isIndexable(fmt)) {
     return allocateRetry(ctx, receiver, static_cast<std::uint32_t>(inst), 0);
@@ -105,6 +110,9 @@ Oop ao_Behavior_basicNew_(CallContext& ctx, const Oop& receiver, const Oop* args
 Oop ao_Behavior_basicNew(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   const Oop fmt = classFormat(ctx, receiver);
+  if (fmt.isEmpty()) {
+    return Oop{};
+  }
   if (Format::isIndexable(fmt)) {
     Oop zero = Oop::fromSmallInteger(0);
     return NativeMethod::invoke(ctx, ao_Behavior_basicNew_, receiver, &zero, 1);
@@ -272,12 +280,22 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   // format は SmallInteger（即値）なので、GC をまたいでも変わらない。
   const Oop superFmt = classFormat(ctx, receiver);
   const auto superInst = Format::instSize(superFmt);
+  // SPEC §3.6: instanceVariableNames is a byte object (a String, a Symbol; a ByteArray passes too).
+  // A pointer object's slots are no names.
+  if (!args[1].isHeap() || (ctx.heap.flags(args[1]) & kFlagBytes) == 0) {
+    return Oop{};
+  }
   const std::string ivarSpec = Str::toUtf8(ctx.heap, args[1]);
   std::vector<std::string_view> ivars;
   splitNames(ivarSpec, ivars);
   // SPEC §3.6: a bytes object has no named slots, so a variable on a bytes class could hold nothing.
   if (Format::isBytes(superFmt) && !ivars.empty()) {
     return abortEvaluation(ctx, "bytes class cannot have instance variables");
+  }
+  // SPEC §3.6: instSize, the inherited slots included, is the format's 16-bit field and would wrap
+  // past it. Checked before the duplicate scan, which is quadratic in the names.
+  if (superInst + static_cast<std::int64_t>(ivars.size()) > Format::kInstSizeMask) {
+    return abortEvaluation(ctx, "too many instance variables");
   }
   // SPEC §3.6: a name the superclass chain has, or one given twice, would leave the later slot out
   // of reach, since the compiler resolves a name to the slot nearest the front. A slot without a

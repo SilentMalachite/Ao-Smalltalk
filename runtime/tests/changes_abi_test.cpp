@@ -1032,6 +1032,39 @@ TEST_F(ChangesAbi, FileInRefusesNativeOverwriteOnKernelClassWithoutStopping) {
   std::filesystem::remove(path);
 }
 
+// review-agy C1 / SPEC §3.10, §3.12: File In... refuses a methodsFor: chunk on a global that is no
+// Behavior as the chunk-level "missing class:", which stops the file and leaves Object alone. On a
+// metaclass alias (A binds Foo class) `A class` is Metaclass, so a selector that finds a native is
+// the method-level "native selector overwrite refused:" and Metaclass keeps the native.
+TEST_F(ChangesAbi, FileInRefusesMethodsForOnNonClassAndMetaclassAlias) {
+  const std::string global = writeTemp("non-class.st",
+                                       "!Smalltalk methodsFor: 'x'!\n"
+                                       "c1Global\n  ^1! !\n\n"
+                                       "Object subclass: #C1AfterGlobal\n"
+                                       "  instanceVariableNames: ''\n"
+                                       "  classVariableNames: ''\n"
+                                       "  poolDictionaries: ''\n"
+                                       "  category: 'C1-In'!\n");
+  AoSpan err{};
+  ASSERT_EQ(AO_ERR, ao_filein_file(global.c_str(), &err));
+  EXPECT_STREQ("missing class: Smalltalk", err.message);
+  EXPECT_EQ(0, ao_browser_class_id("C1AfterGlobal"));
+  EXPECT_EQ("true", printIt("Object superclass isNil"));
+  EXPECT_EQ("true", printIt("(Object compiledMethodAt: #printString) class == NativeMethod"));
+
+  ASSERT_EQ(AO_OK, defineClass("Foo", "Object"));
+  ASSERT_EQ("'Metaclass'", printIt("(Smalltalk at: #A put: Foo class) printString"));
+  const std::string alias = writeTemp("metaclass-alias.st",
+                                      "!A class methodsFor: 'x'!\n"
+                                      "printString\n  ^'x'! !\n");
+  ASSERT_EQ(AO_ERR, ao_filein_file(alias.c_str(), &err));
+  EXPECT_STREQ("native selector overwrite refused: printString", err.message);
+  EXPECT_EQ("false", printIt("Metaclass includesSelector: #printString"));
+  EXPECT_EQ("'Metaclass'", printIt("Foo class printString"));
+  std::filesystem::remove(global);
+  std::filesystem::remove(alias);
+}
+
 // SPEC §3.10 再入: from a hook File In applies nothing and says "runtime is busy".
 TEST_F(ChangesAbi, FileInIsRefusedWhileBusy) {
   const std::string path = writeTemp("busy-in.st",

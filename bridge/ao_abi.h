@@ -266,8 +266,8 @@ int ao_debug_accept(int64_t pid, int frame_index, const char* source, char* out,
    AO_ERR_COMPILE for a compile error or a refused native overwrite. */
 int ao_accept_method(const char* class_name, int meta, const char* source, AoSpan* err);
 /* SPEC §3.10 クラス ID. ao_accept_method for the class class_id names (the Browser's Accept):
-   the same rules, answers and messages, Kernel-ness by that class itself. An unknown class ID is
-   AO_ERR with "unknown class id". */
+   the same rules, answers and messages; Kernel-ness, as there, by that class itself or the side the
+   method goes to (meta 1: its class). An unknown class ID is AO_ERR with "unknown class id". */
 int ao_accept_method_id(int64_t class_id, int meta, const char* source, AoSpan* err);
 /* Takes class definition messages and chunk-format class definitions and methodsFor: chunks
    only. Any other chunk: AO_ERR_COMPILE "not a class definition", and nothing is applied. */

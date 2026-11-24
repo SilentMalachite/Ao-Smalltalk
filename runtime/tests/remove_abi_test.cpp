@@ -1057,3 +1057,25 @@ TEST_F(RemoveAbi, ClassIdTableDoesNotBlockSuperclassRemoval) {
   EXPECT_TRUE(tableHolds(kid));
   EXPECT_EQ("nil", printIt("B12TabPar"));
 }
+
+// SPEC §3.9 削除, §3.10 クラス ID (review-agy R1): a class whose metaclass no longer points back at
+// it (thisClass rewritten) is no class, so it leaves the class list while still bound, and its ID
+// becomes unknown. ao_remove_class with the ID issued before is the first call that lists the
+// classes after the rewrite, so it is the call that prunes the ID and answers unknown class id.
+TEST_F(RemoveAbi, RewrittenThisClassDropsTheClassAndItsId) {
+  ASSERT_EQ(AO_OK, defineClass("B12Back", "Object", "B12-Test"));
+  const std::int64_t id = idOf("B12Back");
+  ASSERT_GT(id, 0);
+  EXPECT_EQ("nil", printIt("B12Back class instVarAt: 5 put: nil"));
+  ASSERT_TRUE(tableHolds(id));
+  int rc = -9;
+  EXPECT_EQ("unknown class id", tryRemoveClassId(id, &rc));
+  EXPECT_EQ(AO_ERR, rc);
+  EXPECT_FALSE(tableHolds(id));
+  EXPECT_EQ(0, idOf("B12Back"));
+  EXPECT_FALSE(browserLists("B12Back"));
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR, ao_accept_method_id(id, 0, "b12back\n  ^1\n", &err));
+  EXPECT_STREQ("unknown class id", err.message);
+  EXPECT_EQ("true", printIt("B12Back class thisClass isNil"));
+}

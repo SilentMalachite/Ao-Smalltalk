@@ -1342,6 +1342,34 @@ TEST_F(HashedCollection, DamagedOrderedCollectionFails) {
                             "(s = 6) & (oc size = 33)"));
 }
 
+// review-agy M15: OrderedCollection class>>new は、basicNew の答えがヒープのオブジェクトなら
+// array・firstIndex・lastIndex の 3 つのスロットに書いた。クラス側の basicNew を上書きして
+// `Array new: 1` や String を答えると、Debug は slotAt の assert、Release は範囲外の書き込みになった。
+// 3 つ以上のスロットを持つものなら書き込めてしまい、`^Object` は Object の superclass・methodDict・
+// format を、`^Array new: 3` はその中身を書き換えた。答えが OrderedCollection（サブクラスを含む）の
+// インスタンスで 3 つのスロットを持つときだけ初期化し、それ以外はスロットに触らずにそのまま答える。
+// Object の行は、壊れるとそのあとの評価が読めないので最後に置く。
+TEST_F(HashedCollection, NewAnswersForeignBasicNewUntouched) {
+  acceptClass("OrderedCollection", "M15ArrayOc", "");
+  acceptMethod("M15ArrayOc", "basicNew\n  ^Array new: 1", 1);
+  acceptClass("OrderedCollection", "M15StringOc", "");
+  acceptMethod("M15StringOc", "basicNew\n  ^'ab'", 1);
+  EXPECT_EQ("true", printIt("| a | a := M15ArrayOc new. "
+                            "(a class == Array) & (a size = 1) & ((a at: 1) == nil)"));
+  EXPECT_EQ("true", printIt("| s | s := M15StringOc new. "
+                            "(s class == String) & (s size = 2) & (s = 'ab')"));
+  acceptClass("OrderedCollection", "M15Array3Oc", "");
+  acceptMethod("M15Array3Oc",
+               "basicNew\n  | a |\n  a := Array new: 3.\n  a at: 1 put: 7.\n  ^a", 1);
+  EXPECT_EQ("true", printIt("| a | a := M15Array3Oc new. (a class == Array) & (a size = 3) & "
+                            "((a at: 1) = 7) & ((a at: 2) == nil) & ((a at: 3) == nil)"));
+  acceptClass("OrderedCollection", "M15ObjectOc", "");
+  acceptMethod("M15ObjectOc", "basicNew\n  ^Object", 1);
+  EXPECT_EQ("true", printIt("M15ObjectOc new == Object"));
+  EXPECT_EQ("true", printIt("Object superclass isNil"));
+  EXPECT_EQ("true", printIt("(Object compiledMethodAt: #printString) class == NativeMethod"));
+}
+
 namespace {
 
 // GC を走らせずに nursery を使い切る（残りは 16 B 未満）。

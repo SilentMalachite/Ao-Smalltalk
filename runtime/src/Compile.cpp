@@ -241,10 +241,12 @@ bool isKernelClass(const WellKnown& wk, Oop cls) {
 
 // SPEC §3.10: whether installing sel on tgt (the side of cls the method goes to; old is what tgt's
 // own dictionary holds for sel, or nil) would hide a native: old is one, or, in a Kernel class
-// (cls itself, named or by ID, so an alias is one too), the lookup from tgt hits one. Neither
-// intern nor lookup GCs, so the raw Oops the caller passes stay valid.
+// (cls itself, named or by ID, so an alias is one too; or tgt, so `A class` counts as Metaclass
+// when A binds Foo class), the lookup from tgt hits one. Neither intern nor lookup GCs, so the
+// raw Oops the caller passes stay valid.
 bool hidesNative(CallContext& ctx, Oop cls, Oop tgt, Oop sel, Oop old) {
-  const Oop found = sel.isHeap() && isKernelClass(ctx.wk, cls) ? lookup(ctx.heap, tgt, sel) : old;
+  const bool kernel = isKernelClass(ctx.wk, cls) || isKernelClass(ctx.wk, tgt);
+  const Oop found = sel.isHeap() && kernel ? lookup(ctx.heap, tgt, sel) : old;
   return found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass;
 }
 
@@ -335,18 +337,16 @@ enum class ChunkMode { FileIn, Accept, Recorded };
 
 // Defined below; applyMethodsFor records under the class's own name.
 std::string ownClassName(CallContext& ctx, Oop cls);
+// Defined below; applyMethodsFor refuses a name that binds no Behavior.
+bool isBehavior(CallContext& ctx, Oop obj);
 
 bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                      std::vector<FileInError>& errors, ChunkMode mode) {
   Root cls(ctx.roots, ctx.wk.named(action.className));
-  if (!cls.slot.isHeap()) {
+  // SPEC §3.10 / §3.12: a name that binds no Behavior (Smalltalk, Processor, a String) is no
+  // class, in every mode; nothing below reads its slots.
+  if (!cls.slot.isHeap() || !isBehavior(ctx, cls.slot)) {
     addError(errors, {action.span, "missing class: " + action.className});
-    return false;
-  }
-  // SPEC §3.10 / §3.12: File In... (Recorded) does not refuse a Kernel class's chunk wholesale; each
-  // method is judged below by Accept's native overwrite rule. The other modes refuse it.
-  if (mode != ChunkMode::Recorded &&
-      refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action, errors)) {
     return false;
   }
   const Oop target = action.meta ? ctx.heap.klass(cls.slot) : cls.slot;
@@ -355,6 +355,14 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
     return false;
   }
   Root tgt(ctx.roots, target);
+  // SPEC §3.10 / §3.12: File In... (Recorded) does not refuse a Kernel class's chunk wholesale; each
+  // method is judged below by Accept's native overwrite rule. The other modes refuse it. The side
+  // the methods go to counts too: `A class` is Metaclass when A binds Foo class.
+  if (mode != ChunkMode::Recorded &&
+      refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot) || isKernelClass(ctx.wk, tgt.slot),
+                                action, errors)) {
+    return false;
+  }
   compiler::CompileEnv env;
   fillInstVars(ctx, tgt.slot, env);
   fillClassVars(ctx, tgt.slot, env);
@@ -541,13 +549,6 @@ std::vector<Oop> liveClasses(CallContext& ctx) {
   return classes;
 }
 
-// SPEC §3.9: whether a live class, named or not, has cls as its superclass. Does not collect.
-bool hasSubclass(CallContext& ctx, Oop cls) {
-  const std::vector<Oop> live = liveClasses(ctx);
-  return std::any_of(live.begin(), live.end(),
-                     [&](Oop each) { return superclassOf(ctx.heap, each) == cls; });
-}
-
 // SPEC §3.9 削除: `Name>>selector` or `Name class>>selector`, Name being the class's name slot (or
 // "an unnamed class").
 std::string removedMethodName(std::string_view className, bool meta, std::string_view selector) {
@@ -578,8 +579,8 @@ bool isBehavior(CallContext& ctx, Oop obj) {
          chainIncludes(ctx.heap, ctx.heap.klass(obj), ctx.wk.behaviorClass);
 }
 
-// SPEC §3.9 削除: what the live subclasses of cls (every descendant, not only the direct ones
-// hasSubclass looks at) say for the refusal.
+// SPEC §3.9 (削除 and the shape change): what the live subclasses of cls (every descendant, not
+// only the direct ones) say for the refusal.
 struct SubclassProbe {
   bool any = false;
   // The smallest name, bytewise, among the subclasses whose name slot is a string; "" when none is.
@@ -1001,7 +1002,7 @@ Oop copyMethodDictionary(CallContext& ctx, Oop dict) {
 bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& instVars,
                   const compiler::ChunkAction& action, std::vector<FileInError>& errors) {
   const std::string refused = "shape change refused: ";
-  if (hasSubclass(ctx, old.slot)) {
+  if (probeSubclasses(ctx, old.slot).any) {
     addError(errors, {action.span, refused + action.className + " has subclasses"});
     return false;
   }
@@ -1080,10 +1081,19 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     return false;
   }
   Root fresh(ctx.roots, ctx.wk.named(action.className));
-  if (!isClassShaped(ctx.heap, fresh.slot) ||
-      !isClassShaped(ctx.heap, ctx.heap.klass(fresh.slot)) || fresh.slot == old.slot) {
+  // A metaclass is no class here (SPEC §3.9): its class side would be Metaclass.
+  if (!isClassObject(ctx, fresh.slot) || fresh.slot == old.slot) {
     rebindClassName(ctx, action.className, old.slot);
     addError(errors, {action.span, "subclass failed: " + action.className});
+    return false;
+  }
+  // SPEC §3.9: the moves would put CompiledMethods over a Kernel class's natives. Refused before
+  // the class the send answered changes at all.
+  if (isKernelClass(ctx.wk, fresh.slot)) {
+    const std::string answered = ownClassName(ctx, fresh.slot);
+    rebindClassName(ctx, action.className, old.slot);
+    addError(errors,
+             {action.span, refused + action.className + " answered kernel class " + answered});
     return false;
   }
   // SPEC §3.9: the methods move in the shape and with the class variables the send answered,
@@ -1347,6 +1357,10 @@ Oop boxMethodImage(CallContext& ctx, const compiler::MethodImage& image, Oop met
 }
 
 Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image) {
+  // SPEC §3.3: only a class has a method dictionary slot to read; box nothing for anything else.
+  if (!isClassShaped(ctx.heap, cls)) {
+    return Oop{};
+  }
   Root c(ctx.roots, cls);
   Root cm(ctx.roots, boxMethodImage(ctx, image, c.slot));
   if (!cm.slot.isHeap() || !c.slot.isHeap()) {

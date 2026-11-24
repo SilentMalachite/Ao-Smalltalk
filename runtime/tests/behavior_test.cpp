@@ -194,3 +194,99 @@ TEST(Behavior, EachClassAndGlobalsSeeExtraNamed) {
       &seen);
   EXPECT_TRUE(seen.found);
 }
+
+// SPEC §3.6: instSize, inherited slots included, is the 16-bit field of the format. The 3 slots
+// of OrderedCollection and 65534 more make 65537, which would wrap: no class. The first name is
+// the inherited `array`, a duplicate, so the expected reason proves the size check comes before
+// the duplicate scan (and a scan that ran first would stop at that first name).
+TEST(Behavior, SubclassBeyondInstSizeLimitAborts) {
+  Boot b;
+  ASSERT_EQ(ao::Oop::fromSmallInteger(3), send0(b, b.wk.orderedCollectionClass, "instSize"));
+  std::string names = "array";
+  for (int i = 0; i < 65533; ++i) {
+    names += " v" + std::to_string(i);
+  }
+  ao::RootedArray args(b.roots, 5);
+  args[1] = ao::Str::fromUtf8(b.ctx, names);
+  ASSERT_TRUE(args[1].isHeap());
+  args[0] = b.wk.intern("WideOrderedCollection");
+  args[2] = b.wk.intern("");
+  args[3] = b.wk.intern("");
+  args[4] = b.wk.intern("");
+  const ao::Oop sel = b.wk.intern(
+      "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:");
+  const ao::Oop r = ao::send(b.ctx, b.wk.orderedCollectionClass, sel, args.ptr(), 5, nullptr);
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("too many instance variables", takeAbortReason(b));
+  EXPECT_TRUE(b.wk.named("WideOrderedCollection").isNil());
+}
+
+// SPEC §3.6: instanceVariableNames is a byte object (a String, a Symbol; a ByteArray passes too).
+// The slots of an Array are not names: the send fails and no class is made.
+TEST(Behavior, SubclassWithNonStringInstanceVariableNamesFails) {
+  Boot b;
+  auto img = ao::compiler::compileMethod(
+      "doIt\n  | names |\n  names := Array new: 1.\n  names at: 1 put: Object.\n"
+      "  ^Object subclass: #NonStringNames instanceVariableNames: names classVariableNames: ''\n"
+      "    poolDictionaries: '' category: ''");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  const ao::Oop r =
+      ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("failed: #subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:",
+            takeAbortReason(b));
+  EXPECT_TRUE(b.wk.named("NonStringNames").isNil());
+
+  // The helpers that read text answer empty for a pointer object, as for a non-heap value.
+  ao::Root array(b.roots, send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(1)));
+  ASSERT_TRUE(array.slot.isHeap());
+  b.heap.slotAtPut(array.slot, 0, b.wk.objectClass);
+  EXPECT_EQ("", ao::Str::toUtf8(b.heap, array.slot));
+  EXPECT_EQ("", ao::Symbol::bytes(b.heap, array.slot));
+}
+
+// SPEC §3.6 (H8): instVarAt:put: can make a metaclass's format bytes, and basicNew: on it then
+// makes a byte object whose class is a metaclass. Behavior's natives read the format only of a
+// class-shaped receiver, so basicNew, basicNew: and new on that object fail instead of reading
+// its bytes as a format. eachClass does not visit it as a class.
+TEST(Behavior, BasicNewOnByteObjectWithMetaclassClassFails) {
+  Boot b;
+  ASSERT_TRUE(makeSubclass(b, "AoP8").isHeap());
+  auto run = [&](const std::string& body) {
+    auto img = ao::compiler::compileMethod("doIt\n" + body);
+    EXPECT_TRUE(img.ok) << img.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+    const ao::Oop r =
+        ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+    return r.isEmpty() ? takeAbortReason(b) : std::string("<answered>");
+  };
+  EXPECT_EQ("failed: #basicNew", run("  AoP8 class instVarAt: 3 put: 196608.\n"
+                                     "  ^(AoP8 class basicNew: 16) basicNew"));
+  ASSERT_EQ("<answered>", run("  ^Smalltalk at: #AoP8Bytes put: (AoP8 class basicNew: 16)"));
+  EXPECT_EQ("failed: #basicNew", run("  ^AoP8Bytes basicNew"));
+  EXPECT_EQ("failed: #basicNew:", run("  ^AoP8Bytes basicNew: 3"));
+  EXPECT_EQ("failed: #new", run("  ^AoP8Bytes new"));
+
+  // Nothing below collects, so the Oops read here stay put.
+  const ao::Oop cls = b.wk.named("AoP8");
+  const ao::Oop bytes = ao::Globals::at(b.wk, "AoP8Bytes");
+  ASSERT_TRUE(bytes.isHeap());
+  ASSERT_NE(0, b.heap.flags(bytes) & ao::kFlagBytes);
+  ASSERT_EQ(b.heap.klass(cls), b.heap.klass(bytes));
+  struct Seen {
+    ao::Oop cls;
+    ao::Oop bytes;
+    bool sawClass = false;
+    bool sawBytes = false;
+  } seen{cls, bytes};
+  b.wk.eachClass(
+      [](void* p, ao::Oop each) {
+        auto* s = static_cast<Seen*>(p);
+        s->sawClass = s->sawClass || each == s->cls;
+        s->sawBytes = s->sawBytes || each == s->bytes;
+      },
+      &seen);
+  EXPECT_TRUE(seen.sawClass);
+  EXPECT_FALSE(seen.sawBytes);
+}
