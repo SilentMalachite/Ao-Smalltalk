@@ -3,7 +3,8 @@ import CAo
 
 private let aoTranscriptFixedPitchKey = "AoTranscriptFixedPitch"
 
-// C function pointer: no captures. `user` is the TranscriptWindow.
+// C function pointer: no captures. `user` is the TranscriptWindow that set the hook; it is not
+// dereferenced, since that window may be gone (SPEC §3.9 Transcript).
 private func aoTranscriptHook(
   _ utf8: UnsafePointer<CChar>?,
   _ len: Int32,
@@ -23,10 +24,9 @@ private func aoTranscriptHook(
   }
   let bits = UInt(bitPattern: user)
   MainActor.assumeIsolated {
-    guard let token = UnsafeMutableRawPointer(bitPattern: bits) else {
+    guard let window = TranscriptWindow.hookWindow(at: bits) else {
       return
     }
-    let window = Unmanaged<TranscriptWindow>.fromOpaque(token).takeUnretainedValue()
     window.receiveHook(clear: clear, chunk: chunk)
   }
 }
@@ -147,6 +147,9 @@ func makeToolTextWindow(title: String, frame: NSRect, editable: Bool) -> (window
 
 @MainActor
 final class TranscriptWindow {
+  // SPEC §3.9 Transcript: the window that set the transcript hook last (the ABI has a setter
+  // only). Weak, so a hook left after the window is gone shows nothing.
+  private static weak var hookOwner: TranscriptWindow?
   private let window: NSWindow
   private let textView: NSTextView
   // Set by applyFont; every appended chunk carries them.
@@ -201,7 +204,26 @@ final class TranscriptWindow {
   }
 
   func installHook() {
+    Self.hookOwner = self
     ao_set_transcript_hook(aoTranscriptHook, Unmanaged.passUnretained(self).toOpaque())
+  }
+
+  // SPEC §3.9 Transcript: takes the hook out only when this window set it last.
+  func removeHook() {
+    guard Self.hookOwner === self else {
+      return
+    }
+    Self.hookOwner = nil
+    ao_set_transcript_hook(nil, nil)
+  }
+
+  // The window the hook reaches: the one that set it last, while it lives and `user` is its
+  // pointer.
+  fileprivate static func hookWindow(at user: UInt) -> TranscriptWindow? {
+    guard let owner = hookOwner else {
+      return nil
+    }
+    return UInt(bitPattern: Unmanaged.passUnretained(owner).toOpaque()) == user ? owner : nil
   }
 
   fileprivate func receiveHook(clear: Bool, chunk: String) {

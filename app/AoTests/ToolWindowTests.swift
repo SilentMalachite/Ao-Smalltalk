@@ -11,8 +11,8 @@ final class ToolWindowTests: XCTestCase {
     MainActor.assumeIsolated {
       Self.closeVisibleWindows()
       Self.dropMainMenu()
+      Self.tearDownLaunches()
     }
-    ao_set_transcript_hook(nil, nil)
     ao_set_inspect_hook(nil, nil)
     ao_set_runloop_pump_hook(nil, nil)
     ao_runtime_shutdown()
@@ -33,9 +33,9 @@ final class ToolWindowTests: XCTestCase {
     }
   }
 
-  // A menu built by AoApp holds the AoApp in its closures, and the AoApp its LaunchSet, whose
-  // deinit removes the transcript hook. Windows listed in the Window menu keep the menu alive
-  // after mainMenu = nil, so its items go too; then the AoApp goes now, not in a later test.
+  // A menu built by AoApp holds the AoApp in its closures, and the AoApp its LaunchSet. Windows
+  // listed in the Window menu keep the menu alive after mainMenu = nil, so its items go too; then
+  // the AoApp goes now, not in a later test.
   private static func dropMainMenu() {
     let menu = NSApplication.shared.mainMenu
     NSApplication.shared.mainMenu = nil
@@ -43,8 +43,35 @@ final class ToolWindowTests: XCTestCase {
     menu?.removeAllItems()
   }
 
-  func testTranscriptAppendsAndSurvivesClose() {
+  // SPEC §3.9 Transcript: the launch sets the test made, directly or through AoApp. Dropping a set
+  // takes nothing back, so tearDown calls each set's tearDown (the hook only while it holds it).
+  private static var launches: [LaunchSet] = []
+
+  private func makeLaunch() -> LaunchSet {
     let launch = LaunchSet.make()
+    Self.launches.append(launch)
+    return launch
+  }
+
+  private func launchApp() {
+    let app = AoApp()
+    app.applicationWillFinishLaunching(
+      Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApplication.shared)
+    )
+    if let launch = app.launch {
+      Self.launches.append(launch)
+    }
+  }
+
+  private static func tearDownLaunches() {
+    for launch in launches {
+      launch.tearDown()
+    }
+    launches = []
+  }
+
+  func testTranscriptAppendsAndSurvivesClose() {
+    let launch = makeLaunch()
     XCTAssertEqual(launch.transcript.title, "Transcript")
     XCTAssertEqual(launch.workspace.title, "Workspace")
     launch.transcript.append("hello")
@@ -58,18 +85,60 @@ final class ToolWindowTests: XCTestCase {
   // SPEC §3.4: a Do it drains the forked processes before it returns. The fork's Transcript show:
   // calls the hook on that process's own stack (same main thread), and it reaches the window.
   func testForkedTranscriptShowReachesTranscriptWindow() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     launch.workspace.replaceText("[Transcript show: 'from a fork'] fork")
     launch.workspace.selectAll()
     launch.workspace.doIt()
     XCTAssertTrue(launch.transcript.text.contains("from a fork"))
   }
 
+  // SPEC §3.9 Transcript: the transcript hook reaches the window that set it last. Neither the
+  // launch set's tearDown nor dropping the set takes it out; that window's own removeHook does.
+  func testDroppedLaunchSetKeepsAnotherWindowsTranscriptHook() {
+    var launch: LaunchSet? = LaunchSet.make()
+    let other = TranscriptWindow()
+    other.installHook()
+    launch?.tearDown()
+    launch = nil
+    XCTAssertEqual(doIt("Transcript show: 'kept'"), Int32(AO_OK))
+    XCTAssertEqual(other.text, "kept")
+    // A hook left after its window is gone shows nothing.
+    var gone: TranscriptWindow? = TranscriptWindow()
+    gone?.installHook()
+    weak let freed = gone
+    gone = nil
+    XCTAssertNil(freed)
+    XCTAssertEqual(doIt("Transcript show: 'x'"), Int32(AO_OK))
+    XCTAssertEqual(other.text, "kept")
+    // The window that set the hook last takes it out.
+    other.installHook()
+    other.removeHook()
+    XCTAssertEqual(doIt("Transcript show: 'gone'"), Int32(AO_OK))
+    XCTAssertEqual(other.text, "kept")
+  }
+
+  // SPEC §3.9 Transcript: dropping a launch set writes no C global, so the live debug mode and the
+  // pump it set stay; its tearDown takes them back.
+  func testDroppedLaunchSetKeepsItsSettingsUntilTearDown() {
+    let loop = "| n | n := 0. [n < 20000] whileTrue: [n := n + 1]. n"
+    _ = LaunchSet.make()
+    XCTAssertEqual(doIt("self halt"), Int32(AO_ERR_HALT))
+    postMarkerEvent()
+    XCTAssertEqual(doIt(loop), Int32(AO_OK))
+    XCTAssertFalse(takeMarkerEvent(), "the dropped set's pump took no event")
+    let kept = LaunchSet.make()
+    kept.tearDown()
+    XCTAssertEqual(doIt("self halt"), Int32(AO_ERR_EVAL))
+    postMarkerEvent()
+    XCTAssertEqual(doIt(loop), Int32(AO_OK))
+    XCTAssertTrue(takeMarkerEvent(), "the torn-down set's pump still took an event")
+  }
+
   // SPEC §3.9: the Transcript appends each chunk and scrolls to the end once after the eval.
   // 20000 lines are 40000 hook calls; they finish within 10 s, under ASan too. Fixed pitch makes
   // the font of an appended chunk differ from the text system's default.
   func testTwentyThousandTranscriptLinesFinishWithinTenSecondsAndShowTheEnd() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     launch.transcript.useFixedPitch = true
     launch.workspace.replaceText("1 to: 20000 do: [:i | Transcript show: i printString; cr]")
     launch.workspace.selectAll()
@@ -106,7 +175,7 @@ final class ToolWindowTests: XCTestCase {
   // SPEC §3.9: Transcript text is drawn in the system text color, so it stays readable in Dark
   // Mode. Each appended chunk carries it with the current font, also after toggling fixed pitch.
   func testTranscriptTextUsesSystemTextColorAfterAppendAndFixedPitchToggle() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     let windows = NSApplication.shared.windows.filter { $0.title == "Transcript" && $0.isVisible }
     guard let view = (windows.first?.contentView as? NSScrollView)?.documentView as? NSTextView else {
       XCTFail("missing Transcript text view")
@@ -154,7 +223,7 @@ final class ToolWindowTests: XCTestCase {
   }
 
   func testVendorFileInWritesLoadedLineAndDefinesTimespan() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     let vendor = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()
       .deletingLastPathComponent()
@@ -170,7 +239,7 @@ final class ToolWindowTests: XCTestCase {
   }
 
   func testMissingVendorWritesNotFoundLine() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     let empty = FileManager.default.temporaryDirectory
       .appendingPathComponent("ao-vendor-\(UUID().uuidString)", isDirectory: true)
     XCTAssertNoThrow(try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true))
@@ -290,10 +359,7 @@ final class ToolWindowTests: XCTestCase {
   // The launch path's own menu: Tools → Browser opens the System Browser. tearDown drops the
   // main menu, whose closures hold the AoApp and so its LaunchSet.
   func testToolsBrowserMenuItemOpensSystemBrowser() {
-    let app = AoApp()
-    app.applicationWillFinishLaunching(
-      Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApplication.shared)
-    )
+    launchApp()
     guard let item = NSApplication.shared.mainMenu?.item(withTitle: "Tools")?.submenu?.item(withTitle: "Browser"),
           let action = item.action else {
       XCTFail("missing Tools → Browser")
@@ -355,10 +421,7 @@ final class ToolWindowTests: XCTestCase {
   // Transcript, the Workspace and the Browser's source pane at once. Text added later, windows
   // opened later and the fixed pitch toggle use the same offset; Actual Size removes it.
   func testTextSizeMenuItemsResizeTranscriptWorkspaceAndBrowserSource() {
-    let app = AoApp()
-    app.applicationWillFinishLaunching(
-      Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApplication.shared)
-    )
+    launchApp()
     guard let tools = NSApplication.shared.mainMenu?.item(withTitle: "Tools")?.submenu else {
       XCTFail("missing Tools menu")
       return
@@ -456,7 +519,7 @@ final class ToolWindowTests: XCTestCase {
   // nothing is next to it to copy the font from (Print it into an empty Workspace) and where the
   // undo stack keeps it at the old size (undo of a deletion done before the resize).
   func testPrintItIntoEmptyWorkspaceAndUndoAfterResizeUseCurrentSize() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     let browser = BrowserWindow()
     selectFirstClassDefinition(in: browser)
     guard let variable = NSFont.userFont(ofSize: 0)?.pointSize,

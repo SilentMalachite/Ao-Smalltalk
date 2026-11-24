@@ -45,6 +45,7 @@ struct ChangeMethodRow: Equatable {
 }
 
 // SPEC §3.9 File Out: writes the set to url; on AO_ERR the message is the reason.
+@MainActor
 func fileOutChangeSet(_ setID: Int64, to url: URL) -> (status: Int32, message: String) {
   var err = AoSpan()
   let status = url.path.withCString { ao_changes_file_out(setID, $0, &err) }

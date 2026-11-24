@@ -30,6 +30,8 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   private var shownSource = ""
   // A discard question is waiting for its answer.
   private var confirming = false
+  // Image loads seen (noteImageLoaded). A row's class from before a load is of another image.
+  private var loads = 0
 
   // Asked before a selection change would replace an unaccepted edit. The callback gets true to
   // discard the edit and change the selection, false to keep both. Tests replace it.
@@ -419,11 +421,13 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     guard !confirming else {
       return
     }
+    // SPEC §3.9 削除: after a load the row's class is of another image, so nothing is removed.
+    let loadsAsked = loads
     let question = {
       self.confirming = true
       self.confirmRemove(self.window, message) { yes in
         self.confirming = false
-        if yes {
+        if yes, self.loads == loadsAsked {
           remove()
         }
       }
@@ -435,6 +439,11 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       return
     }
     let ask = {
+      // A load while the discard question was up ends the command, as Cancel does: the row and
+      // `select` are of the replaced image.
+      guard self.loads == loadsAsked else {
+        return
+      }
       select?()
       self.publish()
       question()
@@ -536,6 +545,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   // SPEC §3.9 System Browser: the load started new IDs; publish lets the model find the selected
   // class again by its name.
   func noteImageLoaded() {
+    loads += 1
     showingHierarchy = false
     hierarchy = []
     publish()

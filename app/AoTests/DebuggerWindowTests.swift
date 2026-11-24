@@ -343,9 +343,11 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertFalse(restart?.isEnabled ?? true)
     debugger.selectFrame(1)
     XCTAssertTrue(restart?.isEnabled ?? false)
-    // 選択を外すと Restart の対象がないので無効に戻る。
+    // 空き所のクリックでは選択を外せない（M19）ので、Restart は選んだ解釈フレームのまま有効。
     table(labelled: "Frames", in: debugger.window)?.deselectAll(nil)
-    XCTAssertNil(debugger.selectedFrame)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertTrue(restart?.isEnabled ?? false)
+    debugger.selectFrame(0)
     XCTAssertFalse(restart?.isEnabled ?? true)
     button("Abort", in: debugger)?.performClick(nil)
   }
@@ -509,6 +511,157 @@ final class DebuggerWindowTests: XCTestCase {
     debugger.window.performClose(nil)
     XCTAssertFalse(debugger.window.isVisible)
     XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: a close the pump delivers while the variables pane reads a printString (the
+  // runtime is busy) keeps the window and the halted process; a later close aborts it.
+  func testClosingLiveDebuggerDuringItsPrintStringKeepsIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinSlow")
+    acceptMethod("DbgWinSlow", "printString\n  Transcript show: 'p'.\n  ^'slow'")
+    acceptMethod("DbgWinSlow", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinSlow new bar")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    // The pump would dispatch a click on the close button; the transcript runs inside the print.
+    var seen: [String] = []
+    let box = Unmanaged.passRetained(TranscriptBox {
+      seen.append($0)
+      debugger.window.performClose(nil)
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    let row = debugger.variable(at: 0)
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(seen, ["p"])
+    XCTAssertEqual(row.value, "slow")
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    debugger.window.performClose(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: a close the pump delivers while another Debugger's Abort runs its ensure: block
+  // (the runtime is busy) keeps the window and its halted process.
+  func testClosingLiveDebuggerDuringAnotherAbortKeepsIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let first = workspace("[self halt] ensure: [Transcript show: 'a']")
+    first.selectAll()
+    first.doIt()
+    let second = workspace("self halt")
+    second.selectAll()
+    second.doIt()
+    guard let debuggerA = first.debuggers.last, let debuggerB = second.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertEqual(ao_debug_halted_count(), 2)
+    var seen: [String] = []
+    let box = Unmanaged.passRetained(TranscriptBox {
+      seen.append($0)
+      debuggerB.window.performClose(nil)
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    button("Abort", in: debuggerA)?.performClick(nil)
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(seen, ["a"])
+    XCTAssertFalse(debuggerA.window.isVisible)
+    XCTAssertTrue(debuggerB.window.isVisible)
+    XCTAssertEqual(second.debuggers.count, 1)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    debuggerB.window.performClose(nil)
+    XCTAssertFalse(debuggerB.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: an Abort click and a close the pump delivers from this window's own Abort (its
+  // ensure: block) wait for that abort, which then closes the window once.
+  func testClosingLiveDebuggerDuringItsOwnAbortWaitsForIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let workspace = workspace("[self halt] ensure: [Transcript show: 'a']")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var visibleInHook: [Bool] = []
+    let box = Unmanaged.passRetained(TranscriptBox { _ in
+      debugger.abort()
+      debugger.window.performClose(nil)
+      visibleInHook.append(debugger.window.isVisible)
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    button("Abort", in: debugger)?.performClick(nil)
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(visibleInHook, [true])
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertTrue(workspace.debuggers.isEmpty)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: a close the pump delivers from the ensure: block of the abort that this window's own
+  // close runs waits for that abort; the window stays during it and closes afterwards.
+  func testClosingLiveDebuggerDuringItsOwnCloseAbortWaitsForIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let workspace = workspace("[self halt] ensure: [Transcript show: 'a']")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var visibleInHook: [Bool] = []
+    let box = Unmanaged.passRetained(TranscriptBox { _ in
+      debugger.window.performClose(nil)
+      visibleInHook.append(debugger.window.isVisible)
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    debugger.window.performClose(nil)
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(visibleInHook, [true])
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertTrue(workspace.debuggers.isEmpty)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: a Proceed the pump delivers in an Inspect it's drain (the runtime is busy) is
+  // refused; the Inspect it's Inspector still shows its answer, in one window.
+  func testProceedDuringInspectItDrainKeepsInspectorResult() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let workspace = workspace("self halt. 4")
+    workspace.selectAll()
+    workspace.inspectIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    // The pump would dispatch a click on Proceed; the forked process shows 'x' in the drain.
+    var seen: [String] = []
+    let box = Unmanaged.passRetained(TranscriptBox {
+      seen.append($0)
+      debugger.proceed()
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    workspace.replaceText("[Transcript show: 'x'] fork. 3")
+    workspace.selectAll()
+    workspace.inspectIt()
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(seen, ["x"])
+    XCTAssertEqual(workspace.inspectorCount, 1)
+    XCTAssertEqual(workspace.inspectorText, "SmallInteger\n3")
+    XCTAssertEqual(ao_debug_halted_count(), 1)
   }
 
   // SPEC §3.9: text shortened during a Print it (the pump dispatched an edit): the result goes at
@@ -916,10 +1069,10 @@ final class DebuggerWindowTests: XCTestCase {
       return
     }
     var asked = 0
-    var answer = false
+    let answer = AnswerBox()
     debugger.confirmDiscard = { _, decide in
       asked += 1
-      decide(answer)
+      decide(answer.value)
     }
     debugger.selectFrame(1)
     XCTAssertEqual(asked, 0)
@@ -940,7 +1093,7 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertTrue(debugger.window.isVisible)
     XCTAssertEqual(ao_debug_halted_count(), 1)
     // Discard: the frame changes and the edit is gone.
-    answer = true
+    answer.value = true
     debugger.selectFrame(2)
     XCTAssertEqual(asked, 4)
     XCTAssertEqual(debugger.selectedFrame, 2)
@@ -965,10 +1118,10 @@ final class DebuggerWindowTests: XCTestCase {
       return
     }
     var asked = 0
-    var answer = false
+    let answer = AnswerBox()
     debugger.confirmDiscard = { _, decide in
       asked += 1
-      decide(answer)
+      decide(answer.value)
     }
     debugger.selectFrame(1)
     debugger.replaceSource("bar\n  ^2")
@@ -990,7 +1143,7 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertTrue(debugger.window.isVisible)
     XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
     // Discard: the window closes.
-    answer = true
+    answer.value = true
     debugger.window.performClose(nil)
     XCTAssertEqual(asked, 3)
     XCTAssertFalse(debugger.window.isVisible)
@@ -1170,6 +1323,91 @@ final class DebuggerWindowTests: XCTestCase {
     button("Abort", in: debugger)?.performClick(nil)
   }
 
+  // SPEC §3.9 Debugger の編集: showing another frame drops the Undo of the edit it discarded.
+  func testShowingAnotherFrameDropsUndoOfDiscardedEdit() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinUndo")
+    acceptMethod("DbgWinUndo", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinUndo new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    debugger.selectFrame(1)
+    guard
+      let source = textViews(in: debugger.window.contentView).first(where: {
+        $0.accessibilityLabel() == "Source"
+      }),
+      let undo = source.undoManager
+    else {
+      XCTFail("no source view or undo manager")
+      return
+    }
+    source.setSelectedRange(NSRange(location: 0, length: 0))
+    source.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    XCTAssertTrue(undo.canUndo, "the edit registered an undo")
+    debugger.selectFrame(2)
+    XCTAssertEqual(debugger.selectedFrame, 2)
+    XCTAssertFalse(debugger.hasUnacceptedChanges)
+    XCTAssertFalse(undo.canUndo)
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // SPEC §3.9 Debugger の編集: a click on the empty area of frames cannot clear the selection.
+  func testClickingEmptyFrameAreaKeepsEditedFrameSelected() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinEmptyClick")
+    acceptMethod("DbgWinEmptyClick", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinEmptyClick new bar")
+    workspace.selectAll()
+    workspace.printIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    table(labelled: "Frames", in: debugger.window)?.deselectAll(nil)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    XCTAssertTrue(debugger.hasUnacceptedChanges)
+    debugger.confirmDiscard = { _, decide in decide(true) }
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // SPEC §3.9: every attempt of the printString read selects its own process first; a pump that
+  // selects another process in between does not make the retry read that one.
+  func testPrintRetryReadsItsOwnProcessAfterPumpedSelect() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinLongPrint")
+    acceptMethod("DbgWinLongPrint", "printString\n  1 to: 3000 do: [:i | i].\n  ^'\(String(repeating: "a", count: 300))'")
+    let workspaceA = workspace("| a | a := DbgWinLongPrint new. self halt. a")
+    workspaceA.selectAll()
+    workspaceA.doIt()
+    let workspaceB = workspace("| b | b := 'bbb'. self halt. b")
+    workspaceB.selectAll()
+    workspaceB.doIt()
+    guard let a = workspaceA.debuggers.last, let b = workspaceB.debuggers.last, a.pid != b.pid else {
+      XCTFail("two halts opened no two Debuggers")
+      return
+    }
+    gPumpSelectPid = b.pid
+    gPumpSelects = 0
+    ao_set_runloop_pump_hook(selectOtherPump, nil)
+    defer { ao_set_runloop_pump_hook(nil, nil) }
+    a.selectFrame(1)
+    let value = a.variable(at: 1).value
+    ao_set_runloop_pump_hook(nil, nil)
+    XCTAssertGreaterThan(gPumpSelects, 0, "the pump ran during the print")
+    XCTAssertTrue(value.hasPrefix("aaa"), value)
+    button("Abort", in: a)?.performClick(nil)
+    button("Abort", in: b)?.performClick(nil)
+  }
+
   private func acceptDbgWin(_ source: String) {
     acceptMethod("DbgWin", source)
   }
@@ -1192,6 +1430,11 @@ private func interruptOncePump(_ user: UnsafeMutableRawPointer?) {
   }
 }
 
+// An answer a test changes after a confirm closure has captured it (Swift 6: no captured `var`).
+private final class AnswerBox {
+  var value = false
+}
+
 // A transcript hook for the live Debugger tests: `user` is a TranscriptBox.
 private final class TranscriptBox {
   let add: (String) -> Void
@@ -1211,4 +1454,15 @@ private func transcriptBoxHook(
   }
   let text = String(decoding: UnsafeRawBufferPointer(start: utf8, count: max(Int(len), 0)), as: UTF8.self)
   Unmanaged<TranscriptBox>.fromOpaque(user).takeUnretainedValue().add(text)
+}
+
+// Selects another halted process from the pump, as an AppKit event handler could.
+private nonisolated(unsafe) var gPumpSelectPid: Int64 = 0
+private nonisolated(unsafe) var gPumpSelects = 0
+
+private func selectOtherPump(_ user: UnsafeMutableRawPointer?) {
+  _ = user
+  if ao_debug_select(gPumpSelectPid) == Int32(AO_OK) {
+    gPumpSelects += 1
+  }
 }

@@ -877,6 +877,78 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(printIt("B12Img"), "nil")
   }
 
+  // SPEC §3.9 削除: a removal question answered after Open Image… was asked about a class of the
+  // image that was replaced, so Remove removes nothing, not the loaded class of the row's name.
+  func testDeleteSheetAnsweredAfterImageLoadDoesNothing() {
+    XCTAssertEqual(acceptClass("R2Del", category: "R2-Del"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var pending: (@MainActor (Bool) -> Void)?
+    browser.confirmRemove = { _, _, decide in pending = decide }
+    selectCategory("R2-Del", in: browser)
+    selectClass("R2Del", in: browser)
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("r2-del-\(UUID().uuidString).aoimage").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    XCTAssertEqual(path.withCString { ao_image_save($0) }, Int32(AO_OK))
+    browser.removeClass()
+    XCTAssertNotNil(pending)
+    var err = AoSpan()
+    let loaded = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    pending?(true)
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("R2Del new printString"), "'R2Del'")
+    XCTAssertTrue(browser.model.classes.contains("R2Del"))
+    XCTAssertEqual(browser.model.selectedClass, "R2Del")
+    // The question is over: the next Remove Class… asks again.
+    pending = nil
+    browser.removeClass()
+    XCTAssertNotNil(pending)
+  }
+
+  // SPEC §3.9 削除: the discard question before a removal, answered Discard after Open Image…,
+  // ends the command as Cancel does: no removal question, nothing removed, and the class the load
+  // reselected by name stays selected.
+  func testDiscardBeforeDeleteAnsweredAfterImageLoadDoesNothing() {
+    XCTAssertEqual(acceptClass("R2Dis", category: "R2-Dis"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var discard: (@MainActor (Bool) -> Void)?
+    browser.confirmDiscard = { _, decide in discard = decide }
+    var removeAsked: [String] = []
+    browser.confirmRemove = { _, message, _ in removeAsked.append(message) }
+    selectCategory("R2-Dis", in: browser)
+    selectClass("R2Dis", in: browser)
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("r2-dis-\(UUID().uuidString).aoimage").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    XCTAssertEqual(path.withCString { ao_image_save($0) }, Int32(AO_OK))
+    browser.replaceSource("r2dis\n  ^1\n")
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    browser.removeClass()
+    XCTAssertNotNil(discard)
+    var err = AoSpan()
+    let loaded = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    discard?(true)
+    XCTAssertEqual(removeAsked, [])
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("R2Dis new printString"), "'R2Dis'")
+    XCTAssertTrue(browser.model.classes.contains("R2Dis"))
+    XCTAssertEqual(browser.model.selectedClass, "R2Dis")
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "R2Dis"))
+    // The command is over: the next Remove Class… asks about the reselected class.
+    browser.removeClass()
+    XCTAssertEqual(removeAsked, ["Remove class R2Dis?"])
+  }
+
   // SPEC §3.9 System Browser: a click on a row whose class left the list since it was drawn (a
   // shape change) selects the class now bound to that row's name, not the first row.
   func testClickOnReshapedRowSelectsTheClassOfItsName() {
@@ -1040,10 +1112,10 @@ final class AcceptTests: XCTestCase {
     browser.replaceSource("b12y\n  ^2\n")
     browser.accept()
     var discardAsked = 0
-    var discard = false
+    let discard = AnswerBox()
     browser.confirmDiscard = { _, decide in
       discardAsked += 1
-      decide(discard)
+      decide(discard.value)
     }
     var removeAsked: [String] = []
     browser.confirmRemove = { _, message, decide in
@@ -1060,7 +1132,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertTrue(browser.hasUnacceptedChanges)
     XCTAssertEqual(printIt("Object new b12y"), "2")
 
-    discard = true
+    discard.value = true
     browser.removeMethod()
     XCTAssertEqual(discardAsked, 2)
     XCTAssertEqual(removeAsked, ["Remove Object>>b12y?"])
@@ -1069,7 +1141,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(browser.model.selectors, ["b12x"])
     // The class command asks the same way.
     browser.replaceSource("b12z\n  ^3\n")
-    discard = false
+    discard.value = false
     browser.removeClass()
     XCTAssertEqual(discardAsked, 3)
     XCTAssertEqual(removeAsked.count, 1)
@@ -1234,11 +1306,11 @@ final class AcceptTests: XCTestCase {
       discardAsked += 1
       decide(true)
     }
-    var remove = false
+    let remove = AnswerBox()
     var asked: [String] = []
     browser.confirmRemove = { _, message, decide in
       asked.append(message)
-      decide(remove)
+      decide(remove.value)
     }
     guard let row = browser.model.selectors.firstIndex(of: "b12q") else {
       XCTFail("missing b12q")
@@ -1255,7 +1327,7 @@ final class AcceptTests: XCTestCase {
     XCTAssertEqual(browser.model.selectedSelector, "b12q")
     XCTAssertEqual(printIt("Object new b12q"), "2")
 
-    remove = true
+    remove.value = true
     browser.removeMethod(atRow: row)
     XCTAssertEqual(discardAsked, 0)
     XCTAssertEqual(asked, ["Remove Object>>b12q?", "Remove Object>>b12q?"])
@@ -1273,13 +1345,13 @@ final class AcceptTests: XCTestCase {
       XCTFail("missing Object")
       return
     }
-    remove = false
+    remove.value = false
     browser.removeClass(atRow: objectRow)
     XCTAssertEqual(discardAsked, 0)
     XCTAssertEqual(asked.last, "Remove class Object?")
     XCTAssertEqual(browser.sourceText, classEdit)
     XCTAssertTrue(browser.hasUnacceptedChanges)
-    remove = true
+    remove.value = true
     browser.removeClass(atRow: objectRow)
     XCTAssertEqual(discardAsked, 0)
     XCTAssertEqual(asked.count, 4)
@@ -1400,7 +1472,7 @@ final class AcceptTests: XCTestCase {
     let transcript = TranscriptWindow()
     transcript.installHook()
     // SPEC §3.10: the hook outlives the session; it must not reach the next test's session.
-    defer { ao_set_transcript_hook(nil, nil) }
+    defer { transcript.removeHook() }
     let url = FileManager.default.temporaryDirectory
       .appendingPathComponent("ao-accept-\(UUID().uuidString).aoimage")
     defer { try? FileManager.default.removeItem(at: url) }
@@ -1677,4 +1749,9 @@ final class AcceptTests: XCTestCase {
     }
     return found
   }
+}
+
+// An answer a test changes after a confirm closure has captured it (Swift 6: no captured `var`).
+private final class AnswerBox {
+  var value = false
 }

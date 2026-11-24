@@ -174,7 +174,9 @@ final class ChangeSorterWindow: NSObject, NSTableViewDataSource, NSTableViewDele
   func noteImageLoaded() {
     loads += 1
     model.select(setID: nil)
+    // An error of the replaced image goes; a refused read still says busy.
     errorField.stringValue = ""
+    noteRead()
     show()
   }
 

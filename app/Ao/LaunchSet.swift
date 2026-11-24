@@ -16,7 +16,7 @@ final class LaunchSet {
     // SPEC §3.10: the transcript hook reaches this session and every later one (boot, load).
     _ = ao_runtime_boot()
     // SPEC §3.9: the app captures failing stacks for the Debugger. The setting outlives boot and
-    // load, so it is set once here and taken back in deinit, like the transcript hook.
+    // load, so it is set once here and taken back in tearDown.
     ao_set_debug_capture(1)
     // SPEC §3.9, §3.13: evaluations halt for the live Debugger instead of unwinding.
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
@@ -28,8 +28,11 @@ final class LaunchSet {
     return LaunchSet(transcript: transcript, workspace: workspace)
   }
 
-  deinit {
-    ao_set_transcript_hook(nil, nil)
+  // SPEC §3.9 Transcript: takes back what make set: the transcript hook (only while this set's
+  // Transcript still holds it), the pump, the debug capture and the debug mode. Nothing in deinit
+  // does: a nonisolated deinit cannot tell whether this set still holds them.
+  func tearDown() {
+    transcript.removeHook()
     RunLoopPump.remove()
     ao_set_debug_capture(0)
     ao_set_debug_mode(Int32(AO_DEBUG_POSTMORTEM))

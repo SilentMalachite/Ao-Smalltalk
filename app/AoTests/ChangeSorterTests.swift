@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class ChangeSorterTests: XCTestCase {
   // SPEC §3.9 起動と同梱 (P17): <repo>/image/Tools-model, three directories above app/AoTests/<file>.
-  private static let toolsModelURL = URL(fileURLWithPath: #filePath)
+  nonisolated private static let toolsModelURL = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()
     .deletingLastPathComponent()
     .deletingLastPathComponent()
@@ -20,8 +20,10 @@ final class ChangeSorterTests: XCTestCase {
   override func tearDown() {
     unsetenv("AO_TOOLS_MODEL_DIR")
     // tearDown is nonisolated; XCTest calls it on the main thread.
-    MainActor.assumeIsolated { Self.closeVisibleWindows() }
-    ao_set_transcript_hook(nil, nil)
+    MainActor.assumeIsolated {
+      Self.closeVisibleWindows()
+      Self.tearDownLaunches()
+    }
     ao_runtime_shutdown()
     super.tearDown()
   }
@@ -324,6 +326,31 @@ final class ChangeSorterTests: XCTestCase {
     XCTAssertEqual(sorter.errorText, "")
   }
 
+  // SPEC §3.9 Change Sorter: Open Image… empties the error field, so the reason of an operation on
+  // the replaced image goes; a read refused after the load still says busy.
+  func testImageLoadClearsAnErrorOfTheReplacedImage() {
+    boot()
+    let sorter = ChangeSorterWindow()
+    let image = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ao-r2-\(UUID().uuidString).aoimage")
+    defer { try? FileManager.default.removeItem(at: image) }
+    XCTAssertEqual(ao_image_save(image.path), Int32(AO_OK))
+    let url = URL(fileURLWithPath: "/nonexistent-ao-p16-dir/x.st")
+    sorter.chooseFileOut = { _, _, answer in answer(url) }
+    sorter.fileOut()
+    XCTAssertEqual(sorter.errorText, "cannot write file: \(url.path)")
+    var err = AoSpan()
+    XCTAssertEqual(ao_image_load(image.path, &err), Int32(AO_OK), spanMessage(err))
+    sorter.noteImageLoaded()
+    XCTAssertEqual(sorter.errorText, "")
+    sorter.fileOut()
+    XCTAssertEqual(sorter.errorText, "cannot write file: \(url.path)")
+    whileBusy {
+      sorter.noteImageLoaded()
+      XCTAssertEqual(sorter.errorText, "runtime is busy")
+    }
+  }
+
   // Review Focus 3: an Accept made while the window is open shows when the window becomes key.
   func testBecomingKeyReadsTheSetsAgain() {
     boot()
@@ -381,7 +408,27 @@ final class ChangeSorterTests: XCTestCase {
     app.applicationWillFinishLaunching(
       Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApplication.shared)
     )
+    if let launch = app.launch {
+      Self.launches.append(launch)
+    }
     return app
+  }
+
+  // SPEC §3.9 Transcript: the launch sets the test made, directly or through AoApp. Dropping a set
+  // takes nothing back, so tearDown calls each set's tearDown (the hook only while it holds it).
+  private static var launches: [LaunchSet] = []
+
+  private func makeLaunch() -> LaunchSet {
+    let launch = LaunchSet.make()
+    Self.launches.append(launch)
+    return launch
+  }
+
+  private static func tearDownLaunches() {
+    for launch in launches {
+      launch.tearDown()
+    }
+    launches = []
   }
 
   private func sendToolsItem(_ title: String) -> Bool {
@@ -410,7 +457,7 @@ final class ChangeSorterTests: XCTestCase {
 
   // SPEC §3.9 File In…: `filed in: <path>`, and the definitions and methods are recorded.
   func testFileInWritesTheFiledInLineAndRecords() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     // The records go to the Smalltalk ChangeSet (P17), so the tools model comes first.
     fileInToolsModel(at: Self.toolsModelURL, transcript: launch.transcript)
     let toolsLine = "tools model loaded: \(Self.toolsModelURL.path)\n"
@@ -427,7 +474,7 @@ final class ChangeSorterTests: XCTestCase {
 
   // SPEC §3.9 File In…: `file-in failed: <path>` and the first error in the `ao filein` form.
   func testFailedFileInWritesTheFailedLineAndTheFirstError() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     let header = "P16Acount methodsFor: 'user'"
     let url = temporaryFile("!\(header)!\nx\n  ^1! !\n")
     defer { try? FileManager.default.removeItem(at: url) }
@@ -651,7 +698,7 @@ final class ChangeSorterTests: XCTestCase {
   // SPEC §3.9 File In…: while busy nothing is filed in; the Transcript gets `runtime is busy` in the
   // failed form.
   func testFileInWhileBusyWritesTheReasonToTheTranscript() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     let url = temporaryFile(
       "Object subclass: #P16BusyIn\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
         + "  poolDictionaries: ''\n  category: 'P16-In'!\n")

@@ -925,6 +925,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 起動時に 1 枚開く。閉じてもオブジェクトは生き、再表示できる。
 - 出力は差分で足し、全文を置き換えない。末尾へのスクロールは、評価のあとで 1 回だけ行う。
 - 文字はシステムの文字色（`NSColor.textColor`）で描き、ダークモードでも読めるようにする。等幅の設定を切り替えても色は変わらない。
+- transcript フック（§3.10）は、最後にフックを入れたウィンドウに届く。フックを外せるのはそのウィンドウだけで、ほかのウィンドウが入れたフックは外さない。フックを入れたウィンドウが無くなったら、残ったフックには何も出ない。起動時のウィンドウの組（Transcript と Workspace）が起動のときに入れたもの（transcript フック、RunLoop の pump のフック、捕捉の設定、ライブデバッガのモード）は、組の明示の後片付け（メインスレッドで呼ぶ）だけが戻す。transcript フックは、組の Transcript がまだ持っているときだけ外す。組を手放しても（deinit）、C のグローバルには何も書かない。
 
 #### Workspace
 
@@ -1000,8 +1001,10 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 止まったプロセスを pid（§3.10）で識別する。同じ pid の窓は 1 枚で、開いていれば前面に戻す。読みの前に毎回 `ao_debug_select(pid)` で対象を選ぶ（事後 Debugger は 0 を選ぶ）。タイトルは `Debugger: <理由>` である。
 - frames の上にボタン列を置く: Proceed、Abort、Restart、Step over、Step into、Step out（VoiceOver ラベルは同じ名前）。`ao_debug_can_proceed` が 0 なら（`NonBoolean receiver`、`cannot return`）、Proceed と 3 つの Step を無効にする。Restart は `ao_debug_can_restart(pid, 選んだフレームの index)` が 0 なら無効にする（合成ネイティブ / DNU、範囲外、事後 Debugger）。Proceed 不能でも、解釈フレームが選ばれていれば Restart は有効である。
 - ボタンは対応する `ao_debug_*`（§3.10）を呼ぶ。Restart は選んだフレームの index を渡す。答えが `AO_ERR_HALT` なら（また止まった。step を含む）、理由、フレーム、ソース、temp 名を読み直し、最内のフレームを選ぶ。`AO_OK` か `AO_ERR_EVAL` なら、窓を閉じて結果を評価を始めた Workspace に渡す（上の Workspace）。Abort は窓を閉じる。
-- ボタン以外で窓を閉じたら（プロセスがまだ止まっていれば）、`ao_debug_abort` を呼ぶ。評価の実行中（pump が窓の閉じる操作を配送したとき。§3.10）は `ao_debug_abort` が busy で断られるので、窓を閉じない（Abort ボタンと同じ）。
+- ボタン以外で窓を閉じようとしたら（プロセスがまだ止まっていれば）、窓は閉じる前に `ao_debug_abort` を呼ぶ。断られて、まだ止まっているなら（`ao_debug_select(pid)` が `AO_OK`）、窓を閉じない。ランタイムが busy の間（ABI 呼び出しの中で pump が窓の閉じる操作を配送したとき。§3.10）は `ao_debug_abort` が busy で断られるので、窓を閉じない（Abort ボタンと同じ）。
 - 値の print と inspect は、`ao_debug_select(pid)` が `AO_OK` のときだけ行う（止まっている間）。そうでなければ値は `-` にし、ボタンを無効にする。
+- 評価の実行中（Workspace の Do it / Print it / Inspect it、Proceed、Step の間）に pump が配った Proceed（Step、Restart、Accept も同じ）と変数のダブルクリックは、ABI を呼んで busy で断られるだけにする。inspect のフック（§3.10）は入れず、Inspect it の答えを受ける側の準備もしない。だから外側の Inspect it は自分の答えを受け取る。
+- 既知の制限: 評価でない ABI 呼び出しでランタイムが busy の間（Debugger 自身の `ao_debug_inspect` の中など）に pump が配った、変数のダブルクリックと、Inspect it から開いた Debugger の Proceed（Step、Restart、Accept も同じ）は、busy で断られても inspect のフック（§3.10）を入れて外すので、その途中の Inspector が開かないことがある。データは失われない。
 - ライブ Debugger を開いたまま、別の Do it ができる。
 - Save Image が失敗し、止まったプロセスがあれば（`ao_debug_halted_count() > 0`）、警告文に `halted processes` を足す。
 
@@ -1013,6 +1016,7 @@ Debugger の編集（P15）:
 - 答えが `AO_ERR_COMPILE` か `AO_ERR` なら、error 行に `AoSpan.message` を出し、区間があれば（`start` < `end`）UTF-16 に換算して source 枠で選ぶ。テキスト、フレーム、選択は変えない。プロセスは止まったままである。
 - 答えが `AO_ERR_HALT` なら（Accept が通った。ふつうは理由 `accepted`。§3.13）、ほかのボタンと同じく読み直し、最内のフレーム（新しいメソッドの活性化）を選ぶ。error 行を空にし、編集を捨てる。`AO_OK` か `AO_ERR_EVAL` なら、ほかのボタンと同じく窓を閉じて結果を Workspace に渡す。
 - Accept していない編集があるときに、別のフレームを選ぶ、Proceed / Abort / Restart / Step のどれかを押す、窓を閉じる、のどれかをすると、先に破棄の確認を出す（Browser の選択の変更と同じ）。破棄しないなら、選択も変えず、操作もしない。
+- source 枠のテキストを差し替えたら（別のフレームの表示、読み直し、編集の破棄）、Undo の履歴を消す。差し替える前のテキストに記録した Undo が、新しいテキストに効かないようにするためである。frames の一覧は、選んだフレームを常に 1 つ持つ。空いた所をクリックしても選択は外れず、編集したフレームの選択も編集も残る。
 - error 行に VoiceOver ラベルを付ける。error 行の文字の大きさは、ほかのエラー表示と同じくシステムの大きさである（下の「文字の大きさ」）。
 
 #### 文字の大きさ
@@ -1098,7 +1102,7 @@ Browser での操作:
 
 - クラス一覧の右クリックメニューに Remove Class…、セレクタ一覧の右クリックメニューに Remove Method… を置く。Smalltalk メニューにも同じ 2 項目を置く（キー無し）。メニュー項目は、Browser がキーウィンドウで、Remove Class… はクラスを、Remove Method… はセレクタを選んでいるときだけ有効にする。階層表示でも同じである。
 - 右クリックのメニューは、右クリックした行（その行のクラス ID）を対象にする（行の外で右クリックしたら、項目は無効）。メニューの項目を選んだ時点で、Accept していない編集があれば破棄の確認を出し、破棄するならその行を選んでから確認のシートを出す（選択の変更と同じ）。破棄しないなら、選択も変えず、削除にも進まない。すでに選んでいる行なら、選択の変更が無いので破棄の確認は出ない。
-- 実行の前に確認のシートを出す。メッセージは `Remove Foo>>bar?`（クラス側は `Remove Foo class>>bar?`）か `Remove class Foo?`（`Foo` は行の名前）、補足は `This cannot be undone.` で、ボタンは Remove（破壊的な操作の印を付ける）と Cancel である。Cancel では何も変えない。
+- 実行の前に確認のシートを出す。メッセージは `Remove Foo>>bar?`（クラス側は `Remove Foo class>>bar?`）か `Remove class Foo?`（`Foo` は行の名前）、補足は `This cannot be undone.` で、ボタンは Remove（破壊的な操作の印を付ける）と Cancel である。Cancel では何も変えない。削除を選んでから確認のシート（その前の破棄の確認を含む）に答えるまでの間に Open Image… が成功したら、Remove を選んでも何も消さない（削除を選んだときのクラスは、ロードで置き換えたイメージのものである。行の名前で新しいイメージの同じ名前のクラスを消さない。File Out… と同じ）。破棄の確認に答える前に成功したら、破棄を選んでも行を選ばず、削除の確認も出さない（Cancel と同じ）。
 - Smalltalk メニューからの削除は、選んでいる行を対象にする。ソース枠に Accept していない編集があれば、確認のシートの前に破棄の確認を出す（選択の変更と同じ）。破棄しないなら削除に進まない。
 - 成功したら一覧を読み直す。メソッドなら、カテゴリ、クラス、側の選択を保ち、プロトコルはまだ一覧にあれば保ち、セレクタの選択を外す（ソース枠は、セレクタを選んでいないときと同じ表示）。クラスなら、カテゴリがまだ一覧にあれば保ち、クラスの選択を外す。
 - 拒否されたら、一覧も選択もソース枠も変えずに、エラー欄にメッセージを出す。
@@ -1138,7 +1142,7 @@ Accept と削除をチェンジセットに記録し、Change Sorter で見る�
 - Classes と Methods の一覧の右クリックメニュー: Remove from Change Set、区切り、Move to（サブメニューに、選んだセット以外のセットの名前）。右クリックした行を対象にする。行の外なら項目は無効。ほかのセットが無ければ Move to は無効。
   - Remove from Change Set は項目を忘れるだけで、メソッドもクラスも変えない。クラスの行なら、メソッドの項目ごと忘れる。確認は出さない。
   - Move to は、項目を種類ごと移し先のセットに移す（§3.10「チェンジセット」の `ao_changes_move`）。
-- 成功した操作はエラー欄を空にする。
+- 成功した操作はエラー欄を空にする。Open Image… が成功したときも、エラー欄を空にしてから読み直す（置き換えたイメージでの操作の理由を残さない）。その読み出しが busy で拒まれたら `runtime is busy` を出す。
 - VoiceOver ラベルは `Change sets`、`Classes`、`Methods`、`Source`、`Error`。
 - 文字の大きさ（Tools → Make Text Bigger ほか）はソース枠にも効く。
 
@@ -1149,7 +1153,7 @@ File メニュー:
 
 評価中（busy。§3.10）は、書き込み（New…、Make Current、Remove from Change Set、Move to、File Out…、File Out Change Set…、File In…）は何もせずに拒まれる。理由 `runtime is busy` を、Change Sorter のエラー欄、アラート、Transcript の行に出す。ただし Make Current は `ao_changes_set_current` が理由を返さないので、busy のときもエラー欄には `Make Current failed` を出す。
 
-読み出しも busy では拒まれる（P17。§3.10）。`ao_changes_count` が -1 を返したら、またはそのあとの読み出し（`*_count` の -1、`*_at` の `AO_ERR`、セットがあるのに `ao_changes_current` の 0。モデルへの送信の失敗も busy と同じ答えである）が拒まれたら、Change Sorter は 3 つの一覧と選択とソース枠を前のまま残し、エラー欄に `runtime is busy` を出す。評価が終わり、窓がキーウィンドウになったら読み直す。読めたとき、エラー欄が `runtime is busy` なら空にする（それ以外のエラー欄の文言は残す）。
+読み出しも busy では拒まれる（P17。§3.10）。`ao_changes_count` が -1 を返したら、またはそのあとの読み出し（`*_count` の -1、`*_at` の `AO_ERR`、セットがあるのに `ao_changes_current` の 0。モデルへの送信の失敗も busy と同じ答えである）が拒まれたら、Change Sorter は 3 つの一覧と選択とソース枠を前のまま残し、エラー欄に `runtime is busy` を出す。評価が終わり、窓がキーウィンドウになったら読み直す。読めたとき、エラー欄が `runtime is busy` なら空にする（それ以外のエラー欄の文言は、Open Image… のあとを除いて残す）。
 
 File Out の形式（チャンク形式。§3.8）:
 
@@ -1935,7 +1939,12 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - Change Sorter（§3.9「Change Sorter（P16）」）: `ChangeSorterTests` に、モデル（`testNewSessionListsUnnamed1AsCurrentAndSelected`、`testAcceptedMethodShowsItsKindAndSource`、`testRemovedMethodAndRemovedClassShowRemoved`、`testNewSetIsCurrentAndNextFreeNameSkipsTakenNames`、`testMakeCurrentRemoveAndMoveUpdateTheLists`）、窓（`testWindowListsSetsWithTheCurrentMarkAndSubtitle`、`testSelectingAClassAndMethodShowsMarksAndSource`、`testNewButtonAsksForTheNextFreeNameAndSelectsTheNewCurrentSet`、`testMakeCurrentMovesTheMark`、`testEntryMenuOffersRemoveAndMoveToTheOtherSets`、`testRemoveFromMenuForgetsTheClassEntryButKeepsTheClass`、`testFileOutButtonWritesTheSelectedSet`、`testRefusedFileOutShowsTheReason`、`testBecomingKeyReadsTheSetsAgain`、`testImageLoadBringsBackTheSavedSetsInTheWindow`、`testPaneAccessibilityLabels`）、メニュー（`testToolsChangeSorterOpensOneWindow`、`testFileInWritesTheFiledInLineAndRecords`、`testFailedFileInWritesTheFailedLineAndTheFirstError`、`testFileOutChangeSetFailureShowsAnAlert`、`testOpenImageBringsBackTheSavedSetsInAnOpenChangeSorter`）、busy の拒否（`testWindowWritesWhileBusyShowRuntimeIsBusy`、`testMakeCurrentWhileBusyShowsMakeCurrentFailed`、`testFileOutChangeSetWhileBusyShowsTheReasonInTheAlert`、`testFileInWhileBusyWritesTheReasonToTheTranscript`）。`AcceptTests.testFileMenuImageCommandsAndShowHierarchy` に File In… と File Out Change Set…
 - Change Sorter（§3.9、§3.10。P17）: `ChangeSorterTests` の `boot()` は Tools-model を file-in し、`ChangeSorterTests` に、busy の読み出しは一覧を残してエラー欄に `runtime is busy` を出し、読み直しで消す（`testBusyReadKeepsTheListsAndSaysBusy`）、Open Image… で保存したセットと current が戻る（`testOpenImageShowsTheSavedSets`）、`ChangeSet` の無いイメージを開くとアプリが Tools-model を file-in して `Unnamed1` を出す（`testOpenImageWithoutChangeSetFilesInTheToolsModel`）、起動が Tools-model を file-in する（`testLaunchFilesInTheToolsModel`）、選択を変える読み出しが busy で拒まれると前の選択を残して `runtime is busy` を出す（`testSelectionChangeWhileBusyKeepsThePreviousSelectionAndSaysBusy`）、件数のあとの読み出しがモデルの失敗で拒まれても一覧と選択を残す（`testReadRefusedAfterTheCountKeepsTheListsAndSelection`）、ロードのあとに答えた File Out… のシートは何も書かない（`testFileOutAnsweredAfterImageLoadWritesNothing`）、保存したセットが窓に戻る（`testImageLoadBringsBackTheSavedSetsInTheWindow`、`testOpenImageBringsBackTheSavedSetsInAnOpenChangeSorter`）。`ToolWindowTests` に、Tools-model のディレクトリが `AO_TOOLS_MODEL_DIR`（空でないとき）かバンドルの `Tools-model`（`testToolsModelDirectoryHonoursTheEnvironment`）
 - メソッドソースの永続化（P18）: `ChangeSorterTests` に、Open Image… のあと戻ったセットのメソッドのソースがソース枠に出る（`testOpenImageShowsTheRestoredMethodSource`）
-- ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
+- Debugger の窓と道具の窓（§3.9、§3.10。review-agy R2）:
+  - `DebuggerWindowTests` に、printString の中で閉じようとしたライブ Debugger は閉じず、止まったプロセスも残る（`testClosingLiveDebuggerDuringItsPrintStringKeepsIt`）、別の Debugger の Abort の `ensure:` の中で閉じようとしたライブ Debugger は閉じない（`testClosingLiveDebuggerDuringAnotherAbortKeepsIt`）、自分の Abort の `ensure:` の中の Abort と閉じる操作はその Abort を待ち、窓はそのあと 1 度だけ閉じる（`testClosingLiveDebuggerDuringItsOwnAbortWaitsForIt`）、閉じる操作の Abort の `ensure:` の中で閉じようとしても窓はその Abort を待ち、そのあと閉じて止まったプロセスは残らない（`testClosingLiveDebuggerDuringItsOwnCloseAbortWaitsForIt`）、Inspect it の drain の中で呼んだ Proceed は断られ、Inspector は 1 枚で結果を示す（`testProceedDuringInspectItDrainKeepsInspectorResult`）、別のフレームを表示すると捨てた編集の Undo が消える（`testShowingAnotherFrameDropsUndoOfDiscardedEdit`）、frames の空いた所をクリックしても編集したフレームの選択が残る（`testClickingEmptyFrameAreaKeepsEditedFrameSelected`）、printString の読み直しは、pump で別のプロセスが選ばれても自分のプロセスを読む（`testPrintRetryReadsItsOwnProcessAfterPumpedSelect`）
+  - `AcceptTests` に、イメージのロードのあとに答えた Browser の削除確認シートは何もしない（`testDeleteSheetAnsweredAfterImageLoadDoesNothing`）、削除の前の破棄の確認にロードのあとで破棄と答えても、削除の確認を出さず何も消さず、ロードで名前から選び直したクラスが選ばれたまま（`testDiscardBeforeDeleteAnsweredAfterImageLoadDoesNothing`）
+  - `ChangeSorterTests` に、Open Image… のあと、置き換えたイメージでの操作の理由がエラー欄から消える（`testImageLoadClearsAnErrorOfTheReplacedImage`）
+  - `ToolWindowTests` に、起動時のウィンドウの組を後片付けして手放しても、あとから別の Transcript のウィンドウが入れたフックは外れず、フックを入れたウィンドウが無くなっても評価は `AO_OK` で、フックを入れたウィンドウだけがそれを外せる（`testDroppedLaunchSetKeepsAnotherWindowsTranscriptHook`）、手放した組はライブデバッガのモードと pump を残し、後片付けがそれを戻す（`testDroppedLaunchSetKeepsItsSettingsUntilTearDown`）
+- ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。起動時のウィンドウの組を作ったテストクラスは、`tearDown` で、作った組それぞれの後片付けを呼ぶか（`ToolWindowTests`、`ChangeSorterTests`）、組が入れたもの（pump のフック、捕捉の設定、ライブデバッガのモード）を ABI で戻す（`DebuggerWindowTests`）。
 
 `scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。
 
