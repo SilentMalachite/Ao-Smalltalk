@@ -1485,7 +1485,8 @@ bool stillHalted(Session& s, std::uint64_t id, const CallContext* fiber, const F
     return false;
   }
   for (std::size_t i = 2; i < slots.size(); ++i) {
-    if (f->temps == nullptr || f->temps->slots[i - 2] != slots[i]) {
+    // The bound sessionDebugAccept read the arguments with: f may be another activation now.
+    if (f->temps == nullptr || i - 2 >= f->temps->n || f->temps->slots[i - 2] != slots[i]) {
       return false;
     }
   }
@@ -1594,7 +1595,9 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
   const Oop old = target->method;
   std::uint8_t numArgs = 0;
   std::uint8_t numTemps = 0;
-  if (!decodeMethodHeader(ctx, old, &numArgs, &numTemps)) {
+  // A Do it while halted may have rewritten the header (instVarAt:put:): the arguments are read
+  // from the activation's temps, so a header naming more of them than it has is refused.
+  if (!decodeMethodHeader(ctx, old, &numArgs, &numTemps) || numArgs > target->temps->n) {
     spanMessage(err, "debugger accept refused: not an accepted method");
     blankOut(out, outLen);
     return AO_ERR;

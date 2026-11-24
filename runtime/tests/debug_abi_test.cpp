@@ -2210,6 +2210,46 @@ TEST_F(LiveAccept, AcceptRefusalMessages) {
   EXPECT_EQ(1, ao_debug_halted_count());
 }
 
+// review-agy H4: a Do it while halted may rewrite the halted method's header (instVarAt:put:), so
+// the Accept refuses a method that names more arguments than the activation has temps: with one
+// temp it would read past it, without temps there is nothing to read. Nothing is installed.
+TEST_F(LiveAccept, AcceptRefusesHeaderRewrittenWhileHalted) {
+  struct Case {
+    const char* method;
+    const char* selector;
+    const char* accepted;
+  };
+  const Case cases[] = {
+      {"baz\n  | t |\n  t := 7.\n  ^self halt", "baz", "baz ^3"},
+      {"bar ^self halt", "bar", "bar ^3"},
+  };
+  defineClass("DbgAccHdr");
+  const std::int64_t id = ao_browser_class_id("DbgAccHdr");
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.selector);
+    accept("DbgAccHdr", 0, c.method);
+    ASSERT_EQ(AO_ERR_HALT, printIt((std::string("DbgAccHdr new ") + c.selector).c_str()));
+    const std::int64_t pid = selectHalted();
+    ASSERT_EQ(std::string("DbgAccHdr>>") + c.selector, label(1));
+    const std::string bind =
+        std::string("m := DbgAccHdr compiledMethodAt: #") + c.selector + ". h := m instVarAt: 1";
+    ASSERT_EQ(AO_OK, doIt(bind.c_str())) << err_.message;
+    ASSERT_EQ(AO_OK, doIt("m instVarAt: 1 put: (m instVarAt: 1) + 3")) << err_.message;
+    ASSERT_EQ(AO_OK, printIt("(m instVarAt: 1) - h")) << err_.message;
+    ASSERT_STREQ("3", out_);
+    EXPECT_EQ(AO_ERR, acceptIn(pid, 1, c.accepted));
+    EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+    EXPECT_EQ(0u, err_.start);
+    EXPECT_EQ(0u, err_.end);
+    EXPECT_STREQ("", out_);
+    EXPECT_EQ(pid, ao_debug_halted_pid());
+    char buf[256] = "unset";
+    EXPECT_EQ(AO_OK, ao_browser_source(id, 0, c.selector, buf, sizeof buf));
+    EXPECT_STREQ(c.method, buf);
+  }
+  EXPECT_EQ(2, ao_debug_halted_count());
+}
+
 TEST_F(LiveAccept, AcceptUnknownPidFails) {
   EXPECT_EQ(AO_ERR, acceptIn(424242, 1, "bar\n  ^1"));
   EXPECT_STREQ("", err_.message);
