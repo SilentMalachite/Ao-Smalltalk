@@ -194,3 +194,53 @@ TEST(Behavior, EachClassAndGlobalsSeeExtraNamed) {
       &seen);
   EXPECT_TRUE(seen.found);
 }
+
+// SPEC §3.6: instSize, inherited slots included, is the 16-bit field of the format. The 3 slots
+// of OrderedCollection and 65533 more make 65536, which would wrap: no class, and the check comes
+// before the duplicate scan.
+TEST(Behavior, SubclassBeyondInstSizeLimitAborts) {
+  Boot b;
+  ASSERT_EQ(ao::Oop::fromSmallInteger(3), send0(b, b.wk.orderedCollectionClass, "instSize"));
+  std::string names;
+  for (int i = 0; i < 65533; ++i) {
+    names += " v" + std::to_string(i);
+  }
+  ao::RootedArray args(b.roots, 5);
+  args[1] = ao::Str::fromUtf8(b.ctx, names);
+  ASSERT_TRUE(args[1].isHeap());
+  args[0] = b.wk.intern("WideOrderedCollection");
+  args[2] = b.wk.intern("");
+  args[3] = b.wk.intern("");
+  args[4] = b.wk.intern("");
+  const ao::Oop sel = b.wk.intern(
+      "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:");
+  const ao::Oop r = ao::send(b.ctx, b.wk.orderedCollectionClass, sel, args.ptr(), 5, nullptr);
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("too many instance variables", takeAbortReason(b));
+  EXPECT_TRUE(b.wk.named("WideOrderedCollection").isNil());
+}
+
+// SPEC §3.6: instanceVariableNames is a String or a Symbol. The bytes of an Array are its slots,
+// not names: the send fails and no class is made.
+TEST(Behavior, SubclassWithNonStringInstanceVariableNamesFails) {
+  Boot b;
+  auto img = ao::compiler::compileMethod(
+      "doIt\n  | names |\n  names := Array new: 1.\n  names at: 1 put: Object.\n"
+      "  ^Object subclass: #NonStringNames instanceVariableNames: names classVariableNames: ''\n"
+      "    poolDictionaries: '' category: ''");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  const ao::Oop r =
+      ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("failed: #subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:",
+            takeAbortReason(b));
+  EXPECT_TRUE(b.wk.named("NonStringNames").isNil());
+
+  // The helpers that read text answer empty for a pointer object, as for a non-heap value.
+  ao::Root array(b.roots, send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(1)));
+  ASSERT_TRUE(array.slot.isHeap());
+  b.heap.slotAtPut(array.slot, 0, b.wk.objectClass);
+  EXPECT_EQ("", ao::Str::toUtf8(b.heap, array.slot));
+  EXPECT_EQ("", ao::Symbol::bytes(b.heap, array.slot));
+}
