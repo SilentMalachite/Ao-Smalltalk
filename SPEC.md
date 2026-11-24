@@ -1003,7 +1003,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - ボタンは対応する `ao_debug_*`（§3.10）を呼ぶ。Restart は選んだフレームの index を渡す。答えが `AO_ERR_HALT` なら（また止まった。step を含む）、理由、フレーム、ソース、temp 名を読み直し、最内のフレームを選ぶ。`AO_OK` か `AO_ERR_EVAL` なら、窓を閉じて結果を評価を始めた Workspace に渡す（上の Workspace）。Abort は窓を閉じる。
 - ボタン以外で窓を閉じようとしたら（プロセスがまだ止まっていれば）、窓は閉じる前に `ao_debug_abort` を呼ぶ。断られて、まだ止まっているなら（`ao_debug_select(pid)` が `AO_OK`）、窓を閉じない。ランタイムが busy の間（ABI 呼び出しの中で pump が窓の閉じる操作を配送したとき。§3.10）は `ao_debug_abort` が busy で断られるので、窓を閉じない（Abort ボタンと同じ）。
 - 値の print と inspect は、`ao_debug_select(pid)` が `AO_OK` のときだけ行う（止まっている間）。そうでなければ値は `-` にし、ボタンを無効にする。
-- 既知の制限: 評価でない ABI 呼び出しでランタイムが busy の間（Debugger 自身の `ao_debug_inspect` の中など）に pump が配った、Inspect it から開いた Debugger の Proceed（Step、Restart、Accept も同じ）と変数のダブルクリックは、busy で断られても inspect のフック（§3.10）を入れて外すので、その途中の Inspector が開かないことがある。データは失われない。
+- 既知の制限: 評価でない ABI 呼び出しでランタイムが busy の間（Debugger 自身の `ao_debug_inspect` の中など）に pump が配った、変数のダブルクリックと、Inspect it から開いた Debugger の Proceed（Step、Restart、Accept も同じ）は、busy で断られても inspect のフック（§3.10）を入れて外すので、その途中の Inspector が開かないことがある。データは失われない。
 - ライブ Debugger を開いたまま、別の Do it ができる。
 - Save Image が失敗し、止まったプロセスがあれば（`ao_debug_halted_count() > 0`）、警告文に `halted processes` を足す。
 
