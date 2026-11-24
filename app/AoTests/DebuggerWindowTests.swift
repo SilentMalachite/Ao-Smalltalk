@@ -511,6 +511,74 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(ao_debug_halted_count(), 0)
   }
 
+  // SPEC §3.9: a close the pump delivers while the variables pane reads a printString (the
+  // runtime is busy) keeps the window and the halted process; a later close aborts it.
+  func testClosingLiveDebuggerDuringItsPrintStringKeepsIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinSlow")
+    acceptMethod("DbgWinSlow", "printString\n  Transcript show: 'p'.\n  ^'slow'")
+    acceptMethod("DbgWinSlow", "bar\n  self halt.\n  ^1")
+    let workspace = workspace("DbgWinSlow new bar")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    // The pump would dispatch a click on the close button; the transcript runs inside the print.
+    var seen: [String] = []
+    let box = Unmanaged.passRetained(TranscriptBox {
+      seen.append($0)
+      debugger.window.performClose(nil)
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    let row = debugger.variable(at: 0)
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(seen, ["p"])
+    XCTAssertEqual(row.value, "slow")
+    XCTAssertTrue(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    debugger.window.performClose(nil)
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
+  // SPEC §3.9: a close the pump delivers while another Debugger's Abort runs its ensure: block
+  // (the runtime is busy) keeps the window and its halted process.
+  func testClosingLiveDebuggerDuringAnotherAbortKeepsIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let first = workspace("[self halt] ensure: [Transcript show: 'a']")
+    first.selectAll()
+    first.doIt()
+    let second = workspace("self halt")
+    second.selectAll()
+    second.doIt()
+    guard let debuggerA = first.debuggers.last, let debuggerB = second.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertEqual(ao_debug_halted_count(), 2)
+    var seen: [String] = []
+    let box = Unmanaged.passRetained(TranscriptBox {
+      seen.append($0)
+      debuggerB.window.performClose(nil)
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    button("Abort", in: debuggerA)?.performClick(nil)
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(seen, ["a"])
+    XCTAssertFalse(debuggerA.window.isVisible)
+    XCTAssertTrue(debuggerB.window.isVisible)
+    XCTAssertEqual(second.debuggers.count, 1)
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    debuggerB.window.performClose(nil)
+    XCTAssertFalse(debuggerB.window.isVisible)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
   // SPEC §3.9: text shortened during a Print it (the pump dispatched an edit): the result goes at
   // the end, as after a Proceed.
   func testPrintItAfterEditDuringEvaluationInsertsAtEnd() {

@@ -174,6 +174,8 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   private let onFinish: @MainActor (DebugOutcome) -> Void
   // Live: the process ended through a button, so closing the window does not abort it.
   private var finished = false
+  // Live: ao_debug_abort runs; a close pumped from its ensure: blocks waits for it (SPEC §3.9).
+  private var aborting = false
   private let frameTable = NSTableView()
   private let variableTable = NSTableView()
   private let sourceView: NSTextView
@@ -501,7 +503,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     guard isLive, !finished else {
       return
     }
-    guard ao_debug_abort(pid) == Int32(AO_OK) else {
+    aborting = true
+    let status = ao_debug_abort(pid)
+    aborting = false
+    guard status == Int32(AO_OK) else {
       updateButtons()
       return
     }
@@ -843,7 +848,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   }
 
   private func windowWillClose(_ onClose: @MainActor (DebuggerWindow) -> Void) {
-    // SPEC §3.9: closing a live Debugger (not through its buttons) aborts the halted process.
+    // SPEC §3.9: a close() from code (windowShouldClose does not run) aborts the halted process.
     if isLive, !finished {
       finished = true
       _ = ao_debug_abort(pid)
@@ -861,18 +866,35 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   }
 
   // SPEC §3.9 評価の中断: during an evaluation (the pump dispatched the close) the abort would be
-  // refused as busy, so the live window stays, as its Abort button would.
+  // refused as busy, so the live window stays, as its Abort button would; so it does for a close
+  // pumped from this window's own abort.
   func windowShouldClose(_ sender: NSWindow) -> Bool {
-    if isLive, !finished, EvaluationActivity.isActive {
+    if isLive, !finished, aborting || EvaluationActivity.isActive {
       return false
     }
-    guard hasUnacceptedChanges else {
+    if hasUnacceptedChanges {
+      // performClose, not close: the source is reverted by then, so windowShouldClose runs again and
+      // the busy check holds for an evaluation that started while the sheet was up.
+      confirmIfEdited { self.window.performClose(nil) }
+      return false
+    }
+    guard isLive, !finished else {
       return true
     }
-    // performClose, not close: the source is reverted by then, so windowShouldClose runs again and
-    // the busy check holds for an evaluation that started while the sheet was up.
-    confirmIfEdited { self.window.performClose(nil) }
-    return false
+    // SPEC §3.9: abort before closing. Refused while the runtime is busy (a close the pump delivers
+    // inside any ABI call), the window stays as long as the process is still halted.
+    aborting = true
+    let status = ao_debug_abort(pid)
+    aborting = false
+    if status == Int32(AO_OK) {
+      finished = true
+      return true
+    }
+    if ao_debug_select(pid) == Int32(AO_OK) {
+      updateButtons()
+      return false
+    }
+    return true
   }
 }
 
