@@ -866,10 +866,7 @@ final class DebuggerWindowTests: XCTestCase {
     debugger.selectFrame(1)
     debugger.replaceSource("bar\n  ^42")
     debugger.accept()
-    print("DBG", debugger.selectedFrame as Any, debugger.frameLabels, debugger.errorText, debugger.reason, debugger.hasUnacceptedChanges, debugger.sourceText, button("Proceed", in: debugger)?.isEnabled as Any)
     button("Proceed", in: debugger)?.performClick(nil)
-    debugger.proceed(); print("DBG3", ao_debug_halted_count())
-    print("DBG2", debugger.selectedFrame as Any, debugger.frameLabels, debugger.reason, ao_debug_halted_count(), workspace.errorText)
     XCTAssertEqual(workspace.text, "DbgWinAccP new bar42")
     XCTAssertFalse(debugger.window.isVisible)
   }
