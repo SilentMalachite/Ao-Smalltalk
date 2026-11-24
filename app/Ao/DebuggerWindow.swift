@@ -436,6 +436,12 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     guard let selectedFrame, row >= 0, row < variableCount, readable() else {
       return
     }
+    // SPEC §3.9: inside an evaluation the runtime refuses (busy) before the fields and the hook
+    // are touched, as for a Proceed.
+    guard !EvaluationActivity.isActive else {
+      _ = ao_debug_inspect(Int32(selectedFrame), Int32(row - 1))
+      return
+    }
     inspectClassName = ""
     inspectPrint = ""
     inspectReceived = false
@@ -524,7 +530,13 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     var out = [CChar](repeating: 0, count: debugOutCapacity)
     var err = AoSpan()
     var status = Int32(AO_ERR)
-    around {
+    // SPEC §3.9: inside another evaluation (a click the pump dispatched) the runtime refuses
+    // (busy); `around` is skipped, so an outer Inspect it keeps its answer.
+    var wrap = around
+    if EvaluationActivity.isActive {
+      wrap = { $0() }
+    }
+    wrap {
       // SPEC §3.9 評価の中断: Proceed / Step keep Interrupt enabled for ⌘. during resume.
       status = EvaluationActivity.whileActive {
         out.withUnsafeMutableBufferPointer { outBuf -> Int32 in

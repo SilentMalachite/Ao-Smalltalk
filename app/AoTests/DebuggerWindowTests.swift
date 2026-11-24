@@ -579,6 +579,36 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(ao_debug_halted_count(), 0)
   }
 
+  // SPEC §3.9: a Proceed the pump delivers in an Inspect it's drain (the runtime is busy) is
+  // refused; the Inspect it's Inspector still shows its answer, in one window.
+  func testProceedDuringInspectItDrainKeepsInspectorResult() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let workspace = workspace("self halt. 4")
+    workspace.selectAll()
+    workspace.inspectIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+    // The pump would dispatch a click on Proceed; the forked process shows 'x' in the drain.
+    var seen: [String] = []
+    let box = Unmanaged.passRetained(TranscriptBox {
+      seen.append($0)
+      debugger.proceed()
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    workspace.replaceText("[Transcript show: 'x'] fork. 3")
+    workspace.selectAll()
+    workspace.inspectIt()
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(seen, ["x"])
+    XCTAssertEqual(workspace.inspectorCount, 1)
+    XCTAssertEqual(workspace.inspectorText, "SmallInteger\n3")
+    XCTAssertEqual(ao_debug_halted_count(), 1)
+  }
+
   // SPEC §3.9: text shortened during a Print it (the pump dispatched an edit): the result goes at
   // the end, as after a Proceed.
   func testPrintItAfterEditDuringEvaluationInsertsAtEnd() {
