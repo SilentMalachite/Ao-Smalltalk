@@ -3,16 +3,13 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
 
 namespace ao {
 namespace {
-
-bool hasSlots(Heap& heap, Oop obj, std::uint32_t n) {
-  return obj.isHeap() && (heap.flags(obj) & kFlagBytes) == 0 && heap.size(obj) > n;
-}
 
 Oop ctxSlot(CallContext& ctx, Oop receiver, std::uint32_t slot) {
   if (!hasSlots(ctx.heap, receiver, slot)) {

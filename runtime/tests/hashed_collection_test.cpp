@@ -1342,6 +1342,22 @@ TEST_F(HashedCollection, DamagedOrderedCollectionFails) {
                             "(s = 6) & (oc size = 33)"));
 }
 
+// review-agy M15: OrderedCollection class>>new は、basicNew の答えがヒープのオブジェクトなら
+// array・firstIndex・lastIndex の 3 つのスロットに書いた。クラス側の basicNew を上書きして
+// `Array new: 1` や String を答えると、Debug は slotAt の assert、Release は範囲外の書き込みになった。
+// 答えがその 3 つのスロットを持つポインタオブジェクトでなければ、スロットに触らずにそのまま答える
+// （Semaphore new と同じ）。
+TEST_F(HashedCollection, NewAnswersForeignBasicNewUntouched) {
+  acceptClass("OrderedCollection", "M15ArrayOc", "");
+  acceptMethod("M15ArrayOc", "basicNew\n  ^Array new: 1", 1);
+  acceptClass("OrderedCollection", "M15StringOc", "");
+  acceptMethod("M15StringOc", "basicNew\n  ^'ab'", 1);
+  EXPECT_EQ("true", printIt("| a | a := M15ArrayOc new. "
+                            "(a class == Array) & (a size = 1) & ((a at: 1) == nil)"));
+  EXPECT_EQ("true", printIt("| s | s := M15StringOc new. "
+                            "(s class == String) & (s size = 2) & (s = 'ab')"));
+}
+
 namespace {
 
 // GC を走らせずに nursery を使い切る（残りは 16 B 未満）。

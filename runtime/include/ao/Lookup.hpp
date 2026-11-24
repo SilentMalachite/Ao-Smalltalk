@@ -18,6 +18,12 @@ inline bool isClassShaped(const Heap& heap, Oop cls) {
   return cls.isHeap() && (heap.flags(cls) & kFlagBytes) == 0 && heap.size(cls) >= kClassSlotCount;
 }
 
+// obj がヒープのポインタオブジェクトで、添字 n（0 起点）のスロットまで持つか。instVarAt:put: や
+// basicNew の上書きで別の形のものが来うるので、固定の位置のスロットはこれを確かめてから読み書きする。
+inline bool hasSlots(const Heap& heap, Oop obj, std::uint32_t n) {
+  return obj.isHeap() && (heap.flags(obj) & kFlagBytes) == 0 && heap.size(obj) > n;
+}
+
 // cls の親。cls がクラスの形でなければ nil（鎖の終わり）。
 inline Oop superclassOf(const Heap& heap, Oop cls) {
   return isClassShaped(heap, cls) ? heap.slotAt(cls, kClassSlotSuperclass) : Oop::nil();

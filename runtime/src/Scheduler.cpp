@@ -25,10 +25,6 @@ constexpr std::uint32_t kOcArray = 0;
 constexpr std::uint32_t kOcFirst = 1;
 constexpr std::uint32_t kOcLast = 2;
 
-bool hasSlots(Heap& heap, Oop obj, std::uint32_t n) {
-  return obj.isHeap() && (heap.flags(obj) & kFlagBytes) == 0 && heap.size(obj) > n;
-}
-
 std::int64_t ocSize(Heap& heap, Oop oc) {
   if (!hasSlots(heap, oc, kOcLast)) {
     return 0;

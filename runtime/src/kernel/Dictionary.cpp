@@ -5,6 +5,7 @@
 #include "ao/HandleScope.hpp"
 #include "ao/HashedCollection.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
@@ -790,7 +791,8 @@ Oop ao_OrderedCollection_new(CallContext& ctx, const Oop& receiver, const Oop*,
   Root cls(ctx.roots, receiver);
   Oop obj = send(ctx, cls.slot, ctx.wk.selBasicNew, nullptr, 0, nullptr);
   Root oc(ctx.roots, obj);
-  if (!oc.slot.isHeap()) {
+  // basicNew の上書きが別の形のもの（Array new: 1、String）を答えたら、スロットに触らずに答える。
+  if (!hasSlots(ctx.heap, oc.slot, kOcLast)) {
     return oc.slot;
   }
   Oop arr = allocateRetry(ctx, ctx.wk.arrayClass, kDefaultCap, 0);
