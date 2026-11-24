@@ -439,6 +439,11 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
       return
     }
     let ask = {
+      // A load while the discard question was up ends the command, as Cancel does: the row and
+      // `select` are of the replaced image.
+      guard self.loads == loadsAsked else {
+        return
+      }
       select?()
       self.publish()
       question()

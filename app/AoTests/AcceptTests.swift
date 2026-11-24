@@ -910,6 +910,45 @@ final class AcceptTests: XCTestCase {
     XCTAssertNotNil(pending)
   }
 
+  // SPEC §3.9 削除: the discard question before a removal, answered Discard after Open Image…,
+  // ends the command as Cancel does: no removal question, nothing removed, and the class the load
+  // reselected by name stays selected.
+  func testDiscardBeforeDeleteAnsweredAfterImageLoadDoesNothing() {
+    XCTAssertEqual(acceptClass("R2Dis", category: "R2-Dis"), Int32(AO_OK))
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    var discard: (@MainActor (Bool) -> Void)?
+    browser.confirmDiscard = { _, decide in discard = decide }
+    var removeAsked: [String] = []
+    browser.confirmRemove = { _, message, _ in removeAsked.append(message) }
+    selectCategory("R2-Dis", in: browser)
+    selectClass("R2Dis", in: browser)
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("r2-dis-\(UUID().uuidString).aoimage").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    XCTAssertEqual(path.withCString { ao_image_save($0) }, Int32(AO_OK))
+    browser.replaceSource("r2dis\n  ^1\n")
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    browser.removeClass()
+    XCTAssertNotNil(discard)
+    var err = AoSpan()
+    let loaded = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    discard?(true)
+    XCTAssertEqual(removeAsked, [])
+    XCTAssertEqual(browser.errorText, "")
+    XCTAssertEqual(printIt("R2Dis new printString"), "'R2Dis'")
+    XCTAssertTrue(browser.model.classes.contains("R2Dis"))
+    XCTAssertEqual(browser.model.selectedClass, "R2Dis")
+    XCTAssertEqual(browser.model.selectedClassID, BrowserModel.classID(named: "R2Dis"))
+    // The command is over: the next Remove Class… asks about the reselected class.
+    browser.removeClass()
+    XCTAssertEqual(removeAsked, ["Remove class R2Dis?"])
+  }
+
   // SPEC §3.9 System Browser: a click on a row whose class left the list since it was drawn (a
   // shape change) selects the class now bound to that row's name, not the first row.
   func testClickOnReshapedRowSelectsTheClassOfItsName() {
