@@ -196,12 +196,13 @@ TEST(Behavior, EachClassAndGlobalsSeeExtraNamed) {
 }
 
 // SPEC §3.6: instSize, inherited slots included, is the 16-bit field of the format. The 3 slots
-// of OrderedCollection and 65533 more make 65536, which would wrap: no class, and the check comes
-// before the duplicate scan.
+// of OrderedCollection and 65534 more make 65537, which would wrap: no class. The first name is
+// the inherited `array`, a duplicate, so the expected reason proves the size check comes before
+// the duplicate scan (and a scan that ran first would stop at that first name).
 TEST(Behavior, SubclassBeyondInstSizeLimitAborts) {
   Boot b;
   ASSERT_EQ(ao::Oop::fromSmallInteger(3), send0(b, b.wk.orderedCollectionClass, "instSize"));
-  std::string names;
+  std::string names = "array";
   for (int i = 0; i < 65533; ++i) {
     names += " v" + std::to_string(i);
   }
@@ -220,8 +221,8 @@ TEST(Behavior, SubclassBeyondInstSizeLimitAborts) {
   EXPECT_TRUE(b.wk.named("WideOrderedCollection").isNil());
 }
 
-// SPEC §3.6: instanceVariableNames is a String or a Symbol. The bytes of an Array are its slots,
-// not names: the send fails and no class is made.
+// SPEC §3.6: instanceVariableNames is a byte object (a String, a Symbol; a ByteArray passes too).
+// The slots of an Array are not names: the send fails and no class is made.
 TEST(Behavior, SubclassWithNonStringInstanceVariableNamesFails) {
   Boot b;
   auto img = ao::compiler::compileMethod(

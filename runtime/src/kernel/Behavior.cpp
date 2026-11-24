@@ -280,7 +280,8 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   // format は SmallInteger（即値）なので、GC をまたいでも変わらない。
   const Oop superFmt = classFormat(ctx, receiver);
   const auto superInst = Format::instSize(superFmt);
-  // SPEC §3.6: instanceVariableNames is a String or a Symbol. Another object's slots are no names.
+  // SPEC §3.6: instanceVariableNames is a byte object (a String, a Symbol; a ByteArray passes too).
+  // A pointer object's slots are no names.
   if (!args[1].isHeap() || (ctx.heap.flags(args[1]) & kFlagBytes) == 0) {
     return Oop{};
   }

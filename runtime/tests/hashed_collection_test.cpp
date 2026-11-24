@@ -1359,7 +1359,8 @@ TEST_F(HashedCollection, NewAnswersForeignBasicNewUntouched) {
   EXPECT_EQ("true", printIt("| s | s := M15StringOc new. "
                             "(s class == String) & (s size = 2) & (s = 'ab')"));
   acceptClass("OrderedCollection", "M15Array3Oc", "");
-  acceptMethod("M15Array3Oc", "basicNew\n  | a |\n  a := Array new: 3.\n  a at: 1 put: 7.\n  ^a", 1);
+  acceptMethod("M15Array3Oc",
+               "basicNew\n  | a |\n  a := Array new: 3.\n  a at: 1 put: 7.\n  ^a", 1);
   EXPECT_EQ("true", printIt("| a | a := M15Array3Oc new. (a class == Array) & (a size = 3) & "
                             "((a at: 1) = 7) & ((a at: 2) == nil) & ((a at: 3) == nil)"));
   acceptClass("OrderedCollection", "M15ObjectOc", "");

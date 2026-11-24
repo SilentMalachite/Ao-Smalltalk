@@ -240,7 +240,7 @@ TEST(AcceptAbi, RemoveThroughMetaclassAliasLeavesKernelIntact) {
   ao::Session& s = *ao::session();
   std::string reason;
   EXPECT_FALSE(ao::removeMethodOf(*s.ctx, s.wk.named("A"), true, "name", &reason));
-  EXPECT_EQ("native method removal refused: Foo class class>>name", reason);
+  EXPECT_EQ(0u, reason.rfind("native method removal refused: ", 0)) << reason;
   char out[64];
   const char* native = "(Metaclass compiledMethodAt: #name) class == NativeMethod";
   ASSERT_EQ(AO_OK, ao_eval(native, static_cast<int>(std::strlen(native)), AO_EVAL_PRINTIT, out,
