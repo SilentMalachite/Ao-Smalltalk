@@ -2,6 +2,7 @@
 
 #include "../src/Session.hpp"
 #include "ao/Bootstrap.hpp"
+#include "ao/Compile.hpp"
 #include "ao/CompiledMethod.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Gc.hpp"
@@ -164,6 +165,88 @@ TEST(AcceptAbi, AcceptRefusesKernelClassThroughAlias) {
   EXPECT_EQ(AO_OK, ao_accept_method("B3Alias", 0, "<= x\n  ^false\n", &err)) << err.message;
   ASSERT_EQ(AO_OK, run("B3Aliased new <= 1", AO_EVAL_PRINTIT)) << err.message;
   EXPECT_STREQ("false", out);
+  ao_runtime_shutdown();
+}
+
+namespace {
+
+// review-agy C1: Foo, a class that is not Kernel, and A bound to its metaclass (A class is Metaclass).
+void defineFooAndMetaclassAliasA() {
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #Foo\n"
+                                   "  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n"
+                                   "  poolDictionaries: ''\n"
+                                   "  category: 'C1-Test'\n",
+                                   &err))
+      << err.message;
+  const char* alias = "Smalltalk at: #A put: Foo class";
+  char out[64];
+  ASSERT_EQ(AO_OK, ao_eval(alias, static_cast<int>(std::strlen(alias)), AO_EVAL_DOIT, out, 64,
+                           &err))
+      << err.message;
+}
+
+}  // namespace
+
+// review-agy C1 / SPEC §3.10, §3.12: the side a method goes to decides Kernel-ness as well as the
+// class the name binds. A binds Foo class, which is not Kernel, but A class is Metaclass: Accept on
+// that side refuses a selector that hides a native, and `!A class methodsFor:` is refused as a
+// Kernel class. Metaclass gets neither method.
+TEST(AcceptAbi, MetaclassAliasCannotHideKernelNative) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  defineFooAndMetaclassAliasA();
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR_COMPILE, ao_accept_method("A", 1, "printString ^'x'", &err));
+  EXPECT_EQ(std::string("native selector overwrite refused: printString"),
+            std::string(err.message));
+  AoSpan chunkErr{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class("!A class methodsFor: 'x'!\nc1Probe\n  ^1! !\n", &chunkErr));
+  EXPECT_EQ(std::string("refusing to redefine kernel class: A"), std::string(chunkErr.message));
+  char out[64];
+  auto printIt = [&](const char* src) {
+    return ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &err);
+  };
+  struct Case {
+    const char* src;
+    const char* answer;
+  };
+  const Case cases[] = {
+      {"Metaclass includesSelector: #printString", "false"},
+      {"Metaclass includesSelector: #c1Probe", "false"},
+      {"Foo class printString", "'Metaclass'"},  // Object>>printString: the class's name
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.src);
+    ASSERT_EQ(AO_OK, printIt(c.src)) << err.message;
+    EXPECT_STREQ(c.answer, out);
+  }
+  ao_runtime_shutdown();
+}
+
+// review-agy Review Focus 2 / SPEC §3.9 削除, §3.10 クラス ID: A binds a metaclass, which lists no
+// class row, so ao_remove_method has no ID that reaches Metaclass through A. Removing through A's
+// class side itself (removeMethodOf on Foo class, meta) refuses Metaclass's native. Metaclass keeps
+// its native either way.
+TEST(AcceptAbi, RemoveThroughMetaclassAliasLeavesKernelIntact) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  defineFooAndMetaclassAliasA();
+  AoSpan err{};
+  const int64_t id = ao_browser_class_id("A");
+  EXPECT_EQ(0, id);
+  EXPECT_EQ(AO_ERR, ao_remove_method(id, 1, "name", &err));
+  EXPECT_STREQ("unknown class id", err.message);
+  ao::Session& s = *ao::session();
+  std::string reason;
+  EXPECT_FALSE(ao::removeMethodOf(*s.ctx, s.wk.named("A"), true, "name", &reason));
+  EXPECT_EQ("native method removal refused: Foo class class>>name", reason);
+  char out[64];
+  const char* native = "(Metaclass compiledMethodAt: #name) class == NativeMethod";
+  ASSERT_EQ(AO_OK, ao_eval(native, static_cast<int>(std::strlen(native)), AO_EVAL_PRINTIT, out,
+                           64, &err))
+      << err.message;
+  EXPECT_STREQ("true", out);
   ao_runtime_shutdown();
 }
 

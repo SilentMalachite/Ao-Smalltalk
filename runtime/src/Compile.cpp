@@ -241,10 +241,12 @@ bool isKernelClass(const WellKnown& wk, Oop cls) {
 
 // SPEC §3.10: whether installing sel on tgt (the side of cls the method goes to; old is what tgt's
 // own dictionary holds for sel, or nil) would hide a native: old is one, or, in a Kernel class
-// (cls itself, named or by ID, so an alias is one too), the lookup from tgt hits one. Neither
-// intern nor lookup GCs, so the raw Oops the caller passes stay valid.
+// (cls itself, named or by ID, so an alias is one too; or tgt, so `A class` counts as Metaclass
+// when A binds Foo class), the lookup from tgt hits one. Neither intern nor lookup GCs, so the
+// raw Oops the caller passes stay valid.
 bool hidesNative(CallContext& ctx, Oop cls, Oop tgt, Oop sel, Oop old) {
-  const Oop found = sel.isHeap() && isKernelClass(ctx.wk, cls) ? lookup(ctx.heap, tgt, sel) : old;
+  const bool kernel = isKernelClass(ctx.wk, cls) || isKernelClass(ctx.wk, tgt);
+  const Oop found = sel.isHeap() && kernel ? lookup(ctx.heap, tgt, sel) : old;
   return found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass;
 }
 
@@ -335,18 +337,16 @@ enum class ChunkMode { FileIn, Accept, Recorded };
 
 // Defined below; applyMethodsFor records under the class's own name.
 std::string ownClassName(CallContext& ctx, Oop cls);
+// Defined below; applyMethodsFor refuses a name that binds no Behavior.
+bool isBehavior(CallContext& ctx, Oop obj);
 
 bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
                      std::vector<FileInError>& errors, ChunkMode mode) {
   Root cls(ctx.roots, ctx.wk.named(action.className));
-  if (!cls.slot.isHeap()) {
+  // SPEC §3.10 / §3.12: a name that binds no Behavior (Smalltalk, Processor, a String) is no
+  // class, in every mode; nothing below reads its slots.
+  if (!cls.slot.isHeap() || !isBehavior(ctx, cls.slot)) {
     addError(errors, {action.span, "missing class: " + action.className});
-    return false;
-  }
-  // SPEC §3.10 / §3.12: File In... (Recorded) does not refuse a Kernel class's chunk wholesale; each
-  // method is judged below by Accept's native overwrite rule. The other modes refuse it.
-  if (mode != ChunkMode::Recorded &&
-      refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot), action, errors)) {
     return false;
   }
   const Oop target = action.meta ? ctx.heap.klass(cls.slot) : cls.slot;
@@ -355,6 +355,14 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
     return false;
   }
   Root tgt(ctx.roots, target);
+  // SPEC §3.10 / §3.12: File In... (Recorded) does not refuse a Kernel class's chunk wholesale; each
+  // method is judged below by Accept's native overwrite rule. The other modes refuse it. The side
+  // the methods go to counts too: `A class` is Metaclass when A binds Foo class.
+  if (mode != ChunkMode::Recorded &&
+      refusesKernelRedefinition(isKernelClass(ctx.wk, cls.slot) || isKernelClass(ctx.wk, tgt.slot),
+                                action, errors)) {
+    return false;
+  }
   compiler::CompileEnv env;
   fillInstVars(ctx, tgt.slot, env);
   fillClassVars(ctx, tgt.slot, env);
@@ -1347,6 +1355,10 @@ Oop boxMethodImage(CallContext& ctx, const compiler::MethodImage& image, Oop met
 }
 
 Oop installMethod(CallContext& ctx, Oop cls, const compiler::MethodImage& image) {
+  // SPEC §3.3: only a class has a method dictionary slot to read; box nothing for anything else.
+  if (!isClassShaped(ctx.heap, cls)) {
+    return Oop{};
+  }
   Root c(ctx.roots, cls);
   Root cm(ctx.roots, boxMethodImage(ctx, image, c.slot));
   if (!cm.slot.isHeap() || !c.slot.isHeap()) {

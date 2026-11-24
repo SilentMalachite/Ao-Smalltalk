@@ -137,6 +137,9 @@ TEST(ChunkFileIn, ChunkLevelErrorsCarryTheChunkSpan) {
       {"B3NoSuper subclass: #B3Child\n  category: 'K'", "missing class: B3NoSuper"},
       {"B3NoSuch methodsFor: 'x'", "missing class: B3NoSuch"},
       {"Object methodsFor: 'x'", "refusing to redefine kernel class: Object"},
+      // review-agy C1 / SPEC §3.10, §3.12: a global that is no Behavior is no class either.
+      {"Processor class methodsFor: 'x'", "missing class: Processor"},
+      {"Smalltalk methodsFor: 'x'", "missing class: Smalltalk"},
   };
   for (const Case& c : cases) {
     SCOPED_TRACE(c.chunk);
@@ -154,6 +157,30 @@ TEST(ChunkFileIn, ChunkLevelErrorsCarryTheChunkSpan) {
     EXPECT_EQ(chunk, src.substr(errs[0].span.start, errs[0].span.end - errs[0].span.start));
     EXPECT_FALSE(b.wk.named("B3After").isHeap());
   }
+}
+
+// review-agy C1 / SPEC §3.10, §3.12: methodsFor: on a global bound to a String is the chunk-level
+// "missing class: S". It installs nothing: the String, Object's superclass and Object's natives
+// stay as they were.
+TEST(ChunkFileIn, MethodsForNonClassGlobalLeavesObjectIntact) {
+  Boot b;
+  {
+    ao::Root name(b.roots, b.wk.intern("S"));
+    ao::Root text(b.roots, ao::Str::fromUtf8(b.ctx, "abc"));
+    send2(b, b.wk.smalltalk, "at:put:", name.slot, text.slot);
+  }
+  const std::string src = "!S methodsFor: 'x'!\nfoo\n  ^1! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  EXPECT_FALSE(ao::fileInString(b.ctx, src, errs));
+  ASSERT_EQ(1u, errs.size());
+  EXPECT_EQ("missing class: S", errs[0].message);
+  EXPECT_EQ("abc", ao::Str::toUtf8(b.heap, b.wk.named("S")));
+  ao::Root superclass(b.roots, send0(b, b.wk.objectClass, "superclass"));
+  EXPECT_EQ(ao::Oop::true_(), send0(b, superclass.slot, "isNil"));
+  ao::Root sel(b.roots, b.wk.intern("printString"));
+  const ao::Oop found = ao::lookup(b.heap, b.wk.objectClass, sel.slot);
+  ASSERT_TRUE(found.isHeap());
+  EXPECT_EQ(b.wk.nativeMethodClass, b.heap.klass(found));
 }
 
 // 05 High / SPEC §3.8 チャンク形式: `$'` と `$"` は文字リテラルで、文字列もコメントも開かない。
