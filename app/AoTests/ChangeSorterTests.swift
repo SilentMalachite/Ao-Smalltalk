@@ -20,8 +20,10 @@ final class ChangeSorterTests: XCTestCase {
   override func tearDown() {
     unsetenv("AO_TOOLS_MODEL_DIR")
     // tearDown is nonisolated; XCTest calls it on the main thread.
-    MainActor.assumeIsolated { Self.closeVisibleWindows() }
-    ao_set_transcript_hook(nil, nil)
+    MainActor.assumeIsolated {
+      Self.closeVisibleWindows()
+      Self.tearDownLaunches()
+    }
     ao_runtime_shutdown()
     super.tearDown()
   }
@@ -381,7 +383,27 @@ final class ChangeSorterTests: XCTestCase {
     app.applicationWillFinishLaunching(
       Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApplication.shared)
     )
+    if let launch = app.launch {
+      Self.launches.append(launch)
+    }
     return app
+  }
+
+  // SPEC §3.9 Transcript: the launch sets the test made, directly or through AoApp. Dropping a set
+  // takes nothing back, so tearDown calls each set's tearDown (the hook only while it holds it).
+  private static var launches: [LaunchSet] = []
+
+  private func makeLaunch() -> LaunchSet {
+    let launch = LaunchSet.make()
+    Self.launches.append(launch)
+    return launch
+  }
+
+  private static func tearDownLaunches() {
+    for launch in launches {
+      launch.tearDown()
+    }
+    launches = []
   }
 
   private func sendToolsItem(_ title: String) -> Bool {
@@ -410,7 +432,7 @@ final class ChangeSorterTests: XCTestCase {
 
   // SPEC §3.9 File In…: `filed in: <path>`, and the definitions and methods are recorded.
   func testFileInWritesTheFiledInLineAndRecords() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     // The records go to the Smalltalk ChangeSet (P17), so the tools model comes first.
     fileInToolsModel(at: Self.toolsModelURL, transcript: launch.transcript)
     let toolsLine = "tools model loaded: \(Self.toolsModelURL.path)\n"
@@ -427,7 +449,7 @@ final class ChangeSorterTests: XCTestCase {
 
   // SPEC §3.9 File In…: `file-in failed: <path>` and the first error in the `ao filein` form.
   func testFailedFileInWritesTheFailedLineAndTheFirstError() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     let header = "P16Acount methodsFor: 'user'"
     let url = temporaryFile("!\(header)!\nx\n  ^1! !\n")
     defer { try? FileManager.default.removeItem(at: url) }
@@ -651,7 +673,7 @@ final class ChangeSorterTests: XCTestCase {
   // SPEC §3.9 File In…: while busy nothing is filed in; the Transcript gets `runtime is busy` in the
   // failed form.
   func testFileInWhileBusyWritesTheReasonToTheTranscript() {
-    let launch = LaunchSet.make()
+    let launch = makeLaunch()
     let url = temporaryFile(
       "Object subclass: #P16BusyIn\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
         + "  poolDictionaries: ''\n  category: 'P16-In'!\n")

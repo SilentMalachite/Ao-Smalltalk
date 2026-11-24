@@ -925,7 +925,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 起動時に 1 枚開く。閉じてもオブジェクトは生き、再表示できる。
 - 出力は差分で足し、全文を置き換えない。末尾へのスクロールは、評価のあとで 1 回だけ行う。
 - 文字はシステムの文字色（`NSColor.textColor`）で描き、ダークモードでも読めるようにする。等幅の設定を切り替えても色は変わらない。
-- transcript フック（§3.10）は、最後にフックを入れたウィンドウに届く。フックを外せるのはそのウィンドウだけで、ほかのウィンドウが入れたフックは外さない。起動時のウィンドウの組を手放しても、フックは外さない。フックを入れたウィンドウが無くなったら、残ったフックには何も出ない。
+- transcript フック（§3.10）は、最後にフックを入れたウィンドウに届く。フックを外せるのはそのウィンドウだけで、ほかのウィンドウが入れたフックは外さない。フックを入れたウィンドウが無くなったら、残ったフックには何も出ない。起動時のウィンドウの組（Transcript と Workspace）が起動のときに入れたもの（transcript フック、RunLoop の pump のフック、捕捉の設定、ライブデバッガのモード）は、組の明示の後片付け（メインスレッドで呼ぶ）だけが戻す。transcript フックは、組の Transcript がまだ持っているときだけ外す。組を手放しても（deinit）、C のグローバルには何も書かない。
 
 #### Workspace
 
@@ -1939,8 +1939,8 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - Debugger の窓と道具の窓（§3.9、§3.10。review-agy R2）:
   - `DebuggerWindowTests` に、printString の中で閉じようとしたライブ Debugger は閉じず、止まったプロセスも残る（`testClosingLiveDebuggerDuringItsPrintStringKeepsIt`）、別の Debugger の Abort の `ensure:` の中で閉じようとしたライブ Debugger は閉じない（`testClosingLiveDebuggerDuringAnotherAbortKeepsIt`）、自分の Abort の `ensure:` の中の Abort と閉じる操作はその Abort を待ち、窓はそのあと 1 度だけ閉じる（`testClosingLiveDebuggerDuringItsOwnAbortWaitsForIt`）、Inspect it の drain の中で呼んだ Proceed は断られ、Inspector は 1 枚で結果を示す（`testProceedDuringInspectItDrainKeepsInspectorResult`）、別のフレームを表示すると捨てた編集の Undo が消える（`testShowingAnotherFrameDropsUndoOfDiscardedEdit`）、frames の空いた所をクリックしても編集したフレームの選択が残る（`testClickingEmptyFrameAreaKeepsEditedFrameSelected`）、printString の読み直しは、pump で別のプロセスが選ばれても自分のプロセスを読む（`testPrintRetryReadsItsOwnProcessAfterPumpedSelect`）
   - `AcceptTests` に、イメージのロードのあとに答えた Browser の削除確認シートは何もしない（`testDeleteSheetAnsweredAfterImageLoadDoesNothing`）
-  - `ToolWindowTests` に、起動時のウィンドウの組を手放しても、あとから別の Transcript のウィンドウが入れたフックは外れず、フックを入れていないウィンドウはそれを外せない（`testDroppedLaunchSetKeepsAnotherWindowsTranscriptHook`）
-- ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。
+  - `ToolWindowTests` に、起動時のウィンドウの組を後片付けして手放しても、あとから別の Transcript のウィンドウが入れたフックは外れず、フックを入れたウィンドウが無くなっても評価は `AO_OK` で、フックを入れたウィンドウだけがそれを外せる（`testDroppedLaunchSetKeepsAnotherWindowsTranscriptHook`）、手放した組はライブデバッガのモードと pump を残し、後片付けがそれを戻す（`testDroppedLaunchSetKeepsItsSettingsUntilTearDown`）
+- ウィンドウを作るテストクラスは、`tearDown` で、見えているウィンドウをすべて閉じ、transcript と inspect のフックを外してから shutdown する。起動時のウィンドウの組を作ったテストクラスは、`tearDown` で、作った組それぞれの後片付けを呼ぶか（`ToolWindowTests`、`ChangeSorterTests`）、組が入れたもの（pump のフック、捕捉の設定、ライブデバッガのモード）を ABI で戻す（`DebuggerWindowTests`）。
 
 `scripts/test.sh --app` は、配布するアプリを確かめる。GUI を開いてフォーカスを奪うので、既定では回さない。`--asan` とは併用しない。流れは次のとおり。
 

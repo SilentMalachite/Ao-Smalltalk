@@ -9,7 +9,7 @@ enum RunLoopPump {
   static let maxEventsPerPump = 64
   private static var pumping = false
 
-  // Only the ABI setter: callable from LaunchSet's nonisolated deinit as well.
+  // Only the ABI setter, so it needs no main actor.
   nonisolated static func install() {
     ao_set_runloop_pump_hook(aoRunLoopPumpHook, nil)
   }
