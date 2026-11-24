@@ -175,6 +175,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   // Live: the process ended through a button, so closing the window does not abort it.
   private var finished = false
   // Live: ao_debug_abort runs; a close pumped from its ensure: blocks waits for it (SPEC §3.9).
+  // Needed: ao_debug_select(pid) fails while those blocks run, so that close would go on.
   private var aborting = false
   private let frameTable = NSTableView()
   private let variableTable = NSTableView()
@@ -506,7 +507,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
   // Terminates the process (its ensure: blocks run) and closes the window.
   func abort() {
-    guard isLive, !finished else {
+    guard isLive, !finished, !aborting else {
       return
     }
     aborting = true
