@@ -2493,6 +2493,11 @@ int debugFrameSource(int i, char* buf, int len, AoSpan* highlight) {
       }
       return writeBuf(text, buf, len);
     }
+    // A block of a method restored from an image has no entry; its home method's text is the
+    // source, with no highlight (SPEC §3.10).
+    if (kind == kDebugFrameBlock && methodSource(homeMethodOf(*s, *f, fi), text)) {
+      return writeBuf(text, buf, len);
+    }
   }
   // SPEC §3.10: the browser's placeholder (sourceOf) for a method or a native; the doIt and the
   // DNU frame take the same shape with their labels.
