@@ -34,8 +34,9 @@ final class ToolWindowTests: XCTestCase {
   }
 
   // A menu built by AoApp holds the AoApp in its closures, and the AoApp its LaunchSet, whose
-  // deinit removes the transcript hook. Windows listed in the Window menu keep the menu alive
-  // after mainMenu = nil, so its items go too; then the AoApp goes now, not in a later test.
+  // deinit removes the pump hook and resets the debug settings. Windows listed in the Window menu
+  // keep the menu alive after mainMenu = nil, so its items go too; then the AoApp goes now, not in
+  // a later test.
   private static func dropMainMenu() {
     let menu = NSApplication.shared.mainMenu
     NSApplication.shared.mainMenu = nil
@@ -63,6 +64,22 @@ final class ToolWindowTests: XCTestCase {
     launch.workspace.selectAll()
     launch.workspace.doIt()
     XCTAssertTrue(launch.transcript.text.contains("from a fork"))
+  }
+
+  // SPEC §3.9 Transcript: the transcript hook reaches the window that set it last. Neither the
+  // launch transcript's removeHook nor dropping the launch windows takes it out; its own
+  // removeHook does.
+  func testDroppedLaunchSetKeepsAnotherWindowsTranscriptHook() {
+    var launch: LaunchSet? = LaunchSet.make()
+    let other = TranscriptWindow()
+    other.installHook()
+    launch?.transcript.removeHook()
+    launch = nil
+    XCTAssertEqual(doIt("Transcript show: 'kept'"), Int32(AO_OK))
+    XCTAssertEqual(other.text, "kept")
+    other.removeHook()
+    XCTAssertEqual(doIt("Transcript show: 'gone'"), Int32(AO_OK))
+    XCTAssertEqual(other.text, "kept")
   }
 
   // SPEC §3.9: the Transcript appends each chunk and scrolls to the end once after the eval.
