@@ -2087,6 +2087,34 @@ TEST(AcceptAbi, ShapeChangeRefusesAnsweredKernelClass) {
   ao_runtime_shutdown();
 }
 
+// review-agy M1 / SPEC §3.9: 失敗シナリオ。上書きがメタクラス（AoM1MSup class）を答えると、答えた
+// ものは Kernel ではないが、そのクラス側は Metaclass なので、クラス側の name が Metaclass のネイティブを
+// 置き換えていた。メタクラスはクラスではないので、送信の失敗として名前を旧クラスに戻して拒む。
+TEST(AcceptAbi, ShapeChangeRefusesAnsweredMetaclass) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("Object", "AoM1MSup", "", "").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(b4Definition("AoM1MSup", "AoM1MFoo", "a", "").c_str(), &err))
+      << err.message;
+  acceptMethods("AoM1MFoo", 1, {"name\n  ^'m1'\n"});
+  acceptMethods("AoM1MSup", 1,
+                {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+                 "category: k\n  Smalltalk at: n put: self class.\n  ^self class\n"});
+  expectPrints({{"oldFoo := AoM1MFoo. AoM1MFoo name", "'m1'"}});
+
+  AoSpan e{};
+  EXPECT_EQ(AO_ERR_COMPILE,
+            ao_accept_class(b4Definition("AoM1MSup", "AoM1MFoo", "a b", "").c_str(), &e));
+  EXPECT_STREQ("subclass failed: AoM1MFoo", e.message);
+  expectPrints({
+      {"(Metaclass compiledMethodAt: #name) class == NativeMethod", "true"},
+      {"(Smalltalk at: #AoM1MFoo) == oldFoo", "true"},
+      {"AoM1MFoo name", "'m1'"},
+  });
+  ao_runtime_shutdown();
+}
+
 // B4 review (Codex P2) / SPEC §3.9: 失敗シナリオ。インスタンス変数 x を同じ名前のクラス変数に
 // 付け替える（ivar y、classvar x）と、x を読み書きしていたメソッドは、黙ってクラス変数を読み書き
 // するようになっていた。逆向き（classvar x を ivar x に）も同じ。変更前にコンパイルされたメソッドが

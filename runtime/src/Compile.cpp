@@ -1081,8 +1081,8 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     return false;
   }
   Root fresh(ctx.roots, ctx.wk.named(action.className));
-  if (!isClassShaped(ctx.heap, fresh.slot) ||
-      !isClassShaped(ctx.heap, ctx.heap.klass(fresh.slot)) || fresh.slot == old.slot) {
+  // A metaclass is no class here (SPEC §3.9): its class side would be Metaclass.
+  if (!isClassObject(ctx, fresh.slot) || fresh.slot == old.slot) {
     rebindClassName(ctx, action.className, old.slot);
     addError(errors, {action.span, "subclass failed: " + action.className});
     return false;
