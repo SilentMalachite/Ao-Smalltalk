@@ -608,6 +608,32 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(ao_debug_halted_count(), 0)
   }
 
+  // SPEC §3.9: a close the pump delivers from the ensure: block of the abort that this window's own
+  // close runs waits for that abort; the window stays during it and closes afterwards.
+  func testClosingLiveDebuggerDuringItsOwnCloseAbortWaitsForIt() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    let workspace = workspace("[self halt] ensure: [Transcript show: 'a']")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    var visibleInHook: [Bool] = []
+    let box = Unmanaged.passRetained(TranscriptBox { _ in
+      debugger.window.performClose(nil)
+      visibleInHook.append(debugger.window.isVisible)
+    })
+    defer { box.release() }
+    ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    debugger.window.performClose(nil)
+    ao_set_transcript_hook(nil, nil)
+    XCTAssertEqual(visibleInHook, [true])
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertTrue(workspace.debuggers.isEmpty)
+    XCTAssertEqual(ao_debug_halted_count(), 0)
+  }
+
   // SPEC §3.9: a Proceed the pump delivers in an Inspect it's drain (the runtime is busy) is
   // refused; the Inspect it's Inspector still shows its answer, in one window.
   func testProceedDuringInspectItDrainKeepsInspectorResult() {
@@ -1320,7 +1346,6 @@ final class DebuggerWindowTests: XCTestCase {
       XCTFail("no source view or undo manager")
       return
     }
-    source.allowsUndo = true
     source.setSelectedRange(NSRange(location: 0, length: 0))
     source.insertText("x", replacementRange: NSRange(location: 0, length: 0))
     XCTAssertTrue(debugger.hasUnacceptedChanges)
