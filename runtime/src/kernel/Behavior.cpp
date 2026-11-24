@@ -22,7 +22,9 @@ namespace ao {
 namespace {
 
 Oop classFormat(CallContext& ctx, Oop cls) {
-  if (!cls.isHeap()) {
+  // SPEC §3.6: only a class-shaped receiver has a format. A byte object whose class is a metaclass
+  // (instVarAt:put: on the metaclass's format) inherits these natives but has no slots to read.
+  if (!isClassShaped(ctx.heap, cls)) {
     return Oop{};
   }
   return ctx.heap.slotAt(cls, kClassSlotFormat);
@@ -84,6 +86,9 @@ Oop ao_Behavior_basicNew_(CallContext& ctx, const Oop& receiver, const Oop* args
     return Oop{};
   }
   const Oop fmt = classFormat(ctx, receiver);
+  if (fmt.isEmpty()) {
+    return Oop{};
+  }
   const auto inst = Format::instSize(fmt);
   if (!Format::isIndexable(fmt)) {
     return allocateRetry(ctx, receiver, static_cast<std::uint32_t>(inst), 0);
@@ -105,6 +110,9 @@ Oop ao_Behavior_basicNew_(CallContext& ctx, const Oop& receiver, const Oop* args
 Oop ao_Behavior_basicNew(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   const Oop fmt = classFormat(ctx, receiver);
+  if (fmt.isEmpty()) {
+    return Oop{};
+  }
   if (Format::isIndexable(fmt)) {
     Oop zero = Oop::fromSmallInteger(0);
     return NativeMethod::invoke(ctx, ao_Behavior_basicNew_, receiver, &zero, 1);

@@ -244,3 +244,48 @@ TEST(Behavior, SubclassWithNonStringInstanceVariableNamesFails) {
   EXPECT_EQ("", ao::Str::toUtf8(b.heap, array.slot));
   EXPECT_EQ("", ao::Symbol::bytes(b.heap, array.slot));
 }
+
+// SPEC §3.6 (H8): instVarAt:put: can make a metaclass's format bytes, and basicNew: on it then
+// makes a byte object whose class is a metaclass. Behavior's natives read the format only of a
+// class-shaped receiver, so basicNew, basicNew: and new on that object fail instead of reading
+// its bytes as a format. eachClass does not visit it as a class.
+TEST(Behavior, BasicNewOnByteObjectWithMetaclassClassFails) {
+  Boot b;
+  ASSERT_TRUE(makeSubclass(b, "AoP8").isHeap());
+  auto run = [&](const std::string& body) {
+    auto img = ao::compiler::compileMethod("doIt\n" + body);
+    EXPECT_TRUE(img.ok) << img.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+    const ao::Oop r =
+        ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+    return r.isEmpty() ? takeAbortReason(b) : std::string("<answered>");
+  };
+  EXPECT_EQ("failed: #basicNew", run("  AoP8 class instVarAt: 3 put: 196608.\n"
+                                     "  ^(AoP8 class basicNew: 16) basicNew"));
+  ASSERT_EQ("<answered>", run("  ^Smalltalk at: #AoP8Bytes put: (AoP8 class basicNew: 16)"));
+  EXPECT_EQ("failed: #basicNew", run("  ^AoP8Bytes basicNew"));
+  EXPECT_EQ("failed: #basicNew:", run("  ^AoP8Bytes basicNew: 3"));
+  EXPECT_EQ("failed: #new", run("  ^AoP8Bytes new"));
+
+  // Nothing below collects, so the Oops read here stay put.
+  const ao::Oop cls = b.wk.named("AoP8");
+  const ao::Oop bytes = ao::Globals::at(b.wk, "AoP8Bytes");
+  ASSERT_TRUE(bytes.isHeap());
+  ASSERT_NE(0, b.heap.flags(bytes) & ao::kFlagBytes);
+  ASSERT_EQ(b.heap.klass(cls), b.heap.klass(bytes));
+  struct Seen {
+    ao::Oop cls;
+    ao::Oop bytes;
+    bool sawClass = false;
+    bool sawBytes = false;
+  } seen{cls, bytes};
+  b.wk.eachClass(
+      [](void* p, ao::Oop each) {
+        auto* s = static_cast<Seen*>(p);
+        s->sawClass = s->sawClass || each == s->cls;
+        s->sawBytes = s->sawBytes || each == s->bytes;
+      },
+      &seen);
+  EXPECT_TRUE(seen.sawClass);
+  EXPECT_FALSE(seen.sawBytes);
+}
