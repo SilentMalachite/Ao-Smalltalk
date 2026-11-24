@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace ao {
 namespace {
@@ -1024,16 +1025,27 @@ namespace {
   for (;;) {
     ctx.reactivating = false;
     const auto argc = static_cast<std::uint32_t>(ctx.acceptSlots.size() - 2);
-    Root method(ctx.roots, ctx.acceptSlots[0]);
-    Root receiver(ctx.roots, ctx.acceptSlots[1]);
-    RootedArray args(ctx.roots, argc);
-    for (std::uint32_t i = 0; i < argc; ++i) {
-      args.ptr()[i] = ctx.acceptSlots[2 + i];
+    // review-agy H7: a root slot that cannot be registered (std::bad_alloc) leaves the accept slots
+    // neither armed nor pinned. The roots outlive the try, for the run below.
+    std::optional<Root> method;
+    std::optional<Root> receiver;
+    std::optional<RootedArray> args;
+    try {
+      method.emplace(ctx.roots, ctx.acceptSlots[0]);
+      receiver.emplace(ctx.roots, ctx.acceptSlots[1]);
+      args.emplace(ctx.roots, argc);
+      for (std::uint32_t i = 0; i < argc; ++i) {
+        args->ptr()[i] = ctx.acceptSlots[2 + i];
+      }
+      disarmAccept(ctx);
+    } catch (...) {
+      disarmAccept(ctx);
+      ctx.reactivating = false;
+      throw;
     }
-    disarmAccept(ctx);
     ctx.stepMode = StepMode::Accepted;
     const Oop result =
-        Interpreter::run(ctx, method.slot, receiver.slot, args.ptr(), argc, Oop::nil());
+        Interpreter::run(ctx, method->slot, receiver->slot, args->ptr(), argc, Oop::nil());
     // The new activation did not reach its first instruction: the mark goes, not to a caller.
     if (ctx.stepMode == StepMode::Accepted) {
       ctx.stepMode = StepMode::None;

@@ -970,6 +970,9 @@ void Scheduler::runFiber(Record& me) {
   }
   clearUnwinding(ctx);
   ctx.abandoning = false;
+  // review-agy H7: no accept slot stays armed or pinned past the fiber, however it ended.
+  disarmAccept(ctx);
+  ctx.reactivating = false;
   base_.heap.clearOutOfMemory();
   assert(base_.roots.runningStack().empty() && "a fiber ends with no LIFO roots");
 }

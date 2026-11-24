@@ -2176,6 +2176,35 @@ TEST_F(LiveAccept, AcceptPinsReturnToBaseline) {
   expectBase("refused");
 }
 
+// review-agy H7: a root slot that cannot be registered anywhere in an Accept, the reactivation's
+// among them, leaves no accept slot pinned once the process has ended. The failing add moves
+// through every k, so no one place is assumed.
+TEST_F(LiveAccept, AcceptWithoutRootSlotsLeavesNoPin) {
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  defineClass("DbgAccNoPin");
+  int ended = 0;
+  for (std::size_t k = 0; k <= 64; ++k) {
+    SCOPED_TRACE(k);
+    accept("DbgAccNoPin", 0, "bar\n  self halt.\n  ^1");
+    ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccNoPin new bar"));
+    const std::int64_t pid = selectHalted();
+    s->roots.failSlotGrowthForTesting(k);
+    const int rc = acceptIn(pid, 1, "bar\n  ^2");
+    s->roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    if (ao_debug_halted_count() == 0) {
+      ++ended;
+      EXPECT_EQ(AO_ERR_EVAL, rc);
+      EXPECT_STREQ("internal error", err_.message);
+      ASSERT_EQ(0u, s->roots.counts().pinnedSlots);
+    } else {
+      ASSERT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+    }
+    ASSERT_EQ(AO_OK, ao_debug_clear());
+  }
+  EXPECT_GT(ended, 0);
+}
+
 TEST_F(LiveAccept, AcceptSelectorChangeIsRefused) {
   defineClass("DbgAccSel");
   accept("DbgAccSel", 0, "bar\n  self halt.\n  ^1");
