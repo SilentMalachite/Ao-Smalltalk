@@ -230,8 +230,9 @@ Oop DebugSnapshot::process() const { return held_ ? slots_[slotCount_ - 1] : Oop
 LiveFrames::LiveFrames(const CallContext& ctx, const std::string& reason)
     : ctx_(ctx), reason_(reason) {
   const Frame* const top = ctx.topFrame;
-  Oop ignored;
-  synth_ = synthesizesNative(ctx, top, &ignored);
+  // SPEC §3.13: decided at the stop (Scheduler::halt), not by looking the selector up again.
+  synth_ = top != nullptr && hasSendInFlight(*top) && ctx.scheduler != nullptr &&
+           ctx.scheduler->haltSynthesizes(ctx);
   std::uint64_t all = synth_ ? 1 : 0;
   for (const Frame* f = top; f != nullptr; f = f->prev) {
     ++all;
@@ -242,6 +243,11 @@ LiveFrames::LiveFrames(const CallContext& ctx, const std::string& reason)
   count_ = frames_.size() + (synth_ ? 1 : 0);
   total_ = static_cast<std::uint32_t>(
       std::min<std::uint64_t>(all, std::numeric_limits<std::uint32_t>::max()));
+}
+
+bool LiveFrames::synthesizes(const CallContext& ctx) {
+  Oop ignored;
+  return synthesizesNative(ctx, ctx.topFrame, &ignored);
 }
 
 const Frame* LiveFrames::frameAt(std::uint32_t i) const {
@@ -263,6 +269,7 @@ int LiveFrames::kind(std::uint32_t i) const {
 
 Oop LiveFrames::method(std::uint32_t i) const {
   if (synthesized(i)) {
+    // The native the send finds now; nil, the DNU's form, when it finds none or a method.
     Oop found;
     synthesizesNative(ctx_, ctx_.topFrame, &found);
     return found;

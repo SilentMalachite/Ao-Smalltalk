@@ -144,6 +144,10 @@ class DebugSnapshot final : public DebugFrames {
 class LiveFrames final : public DebugFrames {
  public:
   LiveFrames(const CallContext& ctx, const std::string& reason);
+  // SPEC §3.13: the innermost frame's send in flight is shown as a synthesized frame (a native,
+  // or a DNU). Scheduler::halt asks this at the stop and keeps the answer for the frames read
+  // while halted, so defining the selector meanwhile changes neither their count nor numbers.
+  static bool synthesizes(const CallContext& ctx);
 
   bool empty() const override { return false; }
   std::uint32_t count() const override { return static_cast<std::uint32_t>(count_); }

@@ -2,6 +2,7 @@
 
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
+#include "ao/DebugSnapshot.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/Lookup.hpp"
@@ -262,9 +263,11 @@ struct Scheduler::Record {
   bool outOfMemory = false;         // its out-of-memory mark while it does not run (SPEC §3.4)
   bool isEval = false;              // an evaluating process (SPEC §3.13): block is the doIt
   int evalMode = 0;                 // the ao_eval mode it answers for
-  // While Halted (SPEC §3.13): why, and whether Proceed and Step may go on.
+  // While Halted (SPEC §3.13): why, whether Proceed and Step may go on, and whether the innermost
+  // send in flight is a synthesized frame (decided at the stop).
   std::string haltReason;
   bool proceedable = false;
+  bool haltSynthesizes = false;
   Record* resumeTo = nullptr;       // who it goes back to when it next switches away
   bool isBase() const { return ownCtx == nullptr; }
 };;
@@ -522,6 +525,7 @@ bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   ctx.stepMode = StepMode::None;
   me.haltReason = std::move(reason);
   me.proceedable = proceedable;
+  me.haltSynthesizes = LiveFrames::synthesizes(ctx);
   me.state = State::Halted;
   me.resumeTo = nullptr;
   lastHalted_ = me.id;
@@ -531,6 +535,7 @@ bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   switchTo(b);
   me.haltReason.clear();
   me.proceedable = false;
+  me.haltSynthesizes = false;
   if (!afterResume(ctx, me)) {
     ctx.restartFrame = nullptr;
     ctx.restarting = false;
@@ -567,6 +572,15 @@ const CallContext* Scheduler::haltedContext(std::uint64_t pid, const std::string
     *reason = &r->haltReason;
   }
   return r->ctx;
+}
+
+bool Scheduler::haltSynthesizes(const CallContext& ctx) const {
+  for (const auto& r : records_) {
+    if (r->ctx == &ctx && r->state == State::Halted) {
+      return r->haltSynthesizes;
+    }
+  }
+  return false;
 }
 
 bool Scheduler::canProceed(std::uint64_t pid) const {

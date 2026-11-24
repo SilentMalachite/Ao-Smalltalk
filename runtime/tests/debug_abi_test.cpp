@@ -1435,6 +1435,39 @@ TEST_F(LiveDebug, HaltReasonEscapesNul) {
   EXPECT_EQ("a\\0b", reason());
 }
 
+// review-agy M7: whether the innermost frame's send in flight is synthesized is decided at the
+// stop. Defining the DNU's selector while halted keeps the frames' count and numbers, so a frame
+// number the Debugger cached still names the method that sent it, for Restart and Accept alike.
+TEST_F(LiveDebug, DefiningDnuSelectorWhileHaltedKeepsFrames) {
+  defineClass("PrbM7", "n");
+  accept("PrbM7", 0, "callZork\n  n := n isNil ifTrue: [1] ifFalse: [n + 1].\n  ^self zork + n");
+  ASSERT_EQ(AO_ERR_HALT, printIt("PrbM7 new callZork"));
+  EXPECT_STREQ("doesNotUnderstand: #zork", err_.message);
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(3, ao_debug_frame_count());
+  const int total = ao_debug_frame_total();
+  EXPECT_EQ("#zork (doesNotUnderstand:)", label(0));
+  EXPECT_EQ("PrbM7>>callZork", label(1));
+  EXPECT_EQ("doIt", label(2));
+  accept("PrbM7", 0, "zork\n  ^7");
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ(total, ao_debug_frame_total());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("#zork (doesNotUnderstand:)", label(0));
+  EXPECT_EQ("PrbM7>>callZork", label(1));
+  EXPECT_EQ("doIt", label(2));
+  EXPECT_EQ(0, ao_debug_can_restart(pid, 0));
+  EXPECT_EQ(1, ao_debug_can_restart(pid, 1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  // Restarting frame 1 reruns callZork on the same receiver (n becomes 2); the doIt would make a
+  // new one (n 1, answering 8).
+  err_ = AoSpan{};
+  ASSERT_EQ(AO_OK, ao_debug_restart(pid, 1, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("9", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+}
+
 // SPEC §3.13: a proceeded halt deeper down (in an interpreted method) does not turn a later,
 // unrelated failure of the native into nil.
 TEST_F(LiveProceed, ProceededHaltDeeperDoesNotHideLaterFailure) {
