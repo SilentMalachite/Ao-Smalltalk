@@ -4,6 +4,7 @@
 #include "ao/CompiledMethod.hpp"
 #include "ao/Context.hpp"
 #include "ao/Lookup.hpp"
+#include "ao/MethodDictionary.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Scheduler.hpp"
 #include "ao/Send.hpp"
@@ -46,14 +47,37 @@ bool sentToSuper(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
          static_cast<std::uint8_t>(compiler::Op::SendSuper);
 }
 
+// The class the frame's send in flight looks up from: the receiver's, or for a SendSuper the
+// superclass of the sending method's class.
+Oop sendStart(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
+  if (sentToSuper(ctx, f, pc)) {
+    return superclassOf(ctx.heap, ctx.heap.slotAt(f.method, kCmSlotMethodClass));
+  }
+  return ctx.wk.classOf(*f.sendReceiver);
+}
+
 // What the frame's send in flight finds (SPEC §3.3 探索, which allocates nothing): a method, or
 // nil when it found none (doesNotUnderstand:).
 Oop sendTarget(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
-  Oop start = ctx.wk.classOf(*f.sendReceiver);
-  if (sentToSuper(ctx, f, pc)) {
-    start = superclassOf(ctx.heap, ctx.heap.slotAt(f.method, kCmSlotMethodClass));
+  return lookup(ctx.heap, sendStart(ctx, f, pc), *f.sendSelector);
+}
+
+// SPEC §3.13: the native a frame synthesized at the stop halted in: the first NativeMethod on the
+// chain the send looks up, past any CompiledMethod (a class below the native's that defined the
+// selector while halted; a Kernel native is neither overridden in its own class nor removed).
+// nil when there is none, the DNU's form, so a DNU stays one. lookup's chain step (SuperclassWalk);
+// allocates nothing.
+Oop haltedNative(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
+  SuperclassWalk walk(ctx.heap, sendStart(ctx, f, pc));
+  for (Oop cls; walk.next(cls);) {
+    const Oop dict = ctx.heap.slotAt(cls, kClassSlotMethodDict);
+    const Oop found = dict.isHeap() ? MethodDictionary::at(ctx.heap, dict, *f.sendSelector)
+                                    : Oop::nil();
+    if (found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass) {
+      return found;
+    }
   }
-  return lookup(ctx.heap, start, *f.sendSelector);
+  return Oop::nil();
 }
 
 bool hasSendInFlight(const Frame& f) {
@@ -269,10 +293,8 @@ int LiveFrames::kind(std::uint32_t i) const {
 
 Oop LiveFrames::method(std::uint32_t i) const {
   if (synthesized(i)) {
-    // The native the send finds now; nil, the DNU's form, when it finds none or a method.
-    Oop found;
-    synthesizesNative(ctx_, ctx_.topFrame, &found);
-    return found;
+    // The native it halted in, even if a class below defines the selector now; nil for a DNU.
+    return haltedNative(ctx_, *ctx_.topFrame, contextPc(ctx_, *ctx_.topFrame));
   }
   const Frame* f = frameAt(i);
   return f != nullptr ? f->method : Oop{};

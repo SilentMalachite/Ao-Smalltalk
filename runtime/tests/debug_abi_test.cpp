@@ -1534,6 +1534,33 @@ TEST_F(LiveDebug, DefiningDnuSelectorWhileHaltedKeepsFrames) {
   EXPECT_EQ(0, ao_debug_halted_count());
 }
 
+// review-agy M7: a frame synthesized at the stop for the native it halted in keeps that native
+// when a class below it (here the receiver's) defines the selector while halted: the frames'
+// count and numbers and the innermost frame's label stay as they were, not the DNU's form.
+TEST_F(LiveDebug, OverridingHaltedNativeKeepsItsFrame) {
+  defineClass("PrbM7n");
+  accept("PrbM7n", 0, "callHalt\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("PrbM7n new callHalt"));
+  EXPECT_STREQ("halt", err_.message);
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(3, ao_debug_frame_count());
+  const int total = ao_debug_frame_total();
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  EXPECT_EQ("PrbM7n>>callHalt", label(1));
+  EXPECT_EQ("doIt", label(2));
+  accept("PrbM7n", 0, "halt\n  ^7");
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ(total, ao_debug_frame_total());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  EXPECT_EQ("PrbM7n>>callHalt", label(1));
+  EXPECT_EQ("doIt", label(2));
+  EXPECT_EQ(0, ao_debug_can_restart(pid, 0));
+  EXPECT_EQ(1, ao_debug_can_restart(pid, 1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+}
+
 // SPEC §3.13: a proceeded halt deeper down (in an interpreted method) does not turn a later,
 // unrelated failure of the native into nil.
 TEST_F(LiveProceed, ProceededHaltDeeperDoesNotHideLaterFailure) {
