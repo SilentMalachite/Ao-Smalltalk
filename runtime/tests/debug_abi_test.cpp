@@ -1355,6 +1355,40 @@ TEST_F(LiveStep, InterruptThenStepOverAdvances) {
   ao_set_runloop_pump_hook(nullptr, nullptr);
 }
 
+// SPEC §3.13 Step: an interrupt at a method's activation stops before its first instruction; Step
+// over from there runs the stopped statement and stops at the next one, exactly one statement on.
+TEST_F(LiveStep, InterruptAtActivationThenStepAdvances) {
+  defineClass("DbgIntAct");
+  accept("DbgIntAct", 0, "count\n  | n |\n  n := 1.\n  n := n + 10.\n  ^n");
+  static bool armed = false;
+  armed = false;
+  // Armed from the transcript after the receiver is made, so the next checkpoint is count's
+  // activation: the doIt has no backward jump.
+  ao_set_transcript_hook(
+      [](const char*, int, int, void*) {
+        if (!armed) {
+          armed = true;
+          ao::setInterruptRequestedForTest();
+        }
+      },
+      nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("| r | r := DbgIntAct new. Transcript show: 'x'. r count"));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_STREQ("interrupted", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  ASSERT_EQ("DbgIntAct>>count", label(0));
+  ASSERT_EQ(0, ao_debug_frame_pc(0));
+  EXPECT_EQ("nil", tempPrint(0, 0).print);
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid)) << err_.message;
+  EXPECT_STREQ("step", err_.message);
+  EXPECT_EQ("DbgIntAct>>count", label(0));
+  EXPECT_EQ("n := n + 10", at());
+  EXPECT_EQ("n", tempName(0, 0));
+  EXPECT_EQ("1", tempPrint(0, 0).print);
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+}
+
 TEST_F(LiveDebug, InterruptIgnoredWhenNotLive) {
   ao_set_debug_mode(AO_DEBUG_POSTMORTEM);
   ao_set_runloop_pump_hook(interruptOncePump, nullptr);

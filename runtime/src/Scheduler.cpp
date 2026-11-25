@@ -521,8 +521,9 @@ bool Scheduler::canHalt(const CallContext& ctx) const {
 bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   Record& me = *current_;
   assert(canHalt(ctx) && "halt needs canHalt");
-  // Any halt ends a step: the next Step sets its own mark.
+  // Any halt ends a step: the next Step sets its own mark (and checkInterrupt its skip).
   ctx.stepMode = StepMode::None;
+  ctx.stepSkipOnce = false;
   me.haltReason = std::move(reason);
   me.proceedable = proceedable;
   me.haltSynthesizes = LiveFrames::synthesizes(ctx);
@@ -630,9 +631,6 @@ Scheduler::EvalEnd Scheduler::step(std::uint64_t pid, StepMode mode) {
   CallContext& c = *r->ctx;
   c.stepMode = mode;
   c.stepDepth = c.topFrame != nullptr ? c.topFrame->depth : 0;
-  // SPEC §3.13 Step: an interrupted stop is at a checkpoint, before the loop top checks the same
-  // instruction. No send in flight tells it from a halt whose message is "interrupted".
-  c.stepSkipOnce = !r->haltSynthesizes && r->haltReason == "interrupted";
   return proceed(pid);
 }
 

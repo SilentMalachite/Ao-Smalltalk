@@ -442,7 +442,13 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
     return true;
   }
   ao::clearInterruptRequest();
-  return ctx.scheduler->halt(ctx, "interrupted", true);
+  if (!ctx.scheduler->halt(ctx, "interrupted", true)) {
+    return false;
+  }
+  // SPEC §3.13 Step: both checkpoints go on at this frame's loop top, which would check the
+  // stopped instruction again; a Step from here skips that check once, so the instruction runs.
+  ctx.stepSkipOnce = ctx.stepMode != StepMode::None;
+  return true;
 }
 
 // SPEC §3.13 step: whether the stepping process has come where it stops, before the instruction at

@@ -126,10 +126,11 @@ struct CallContext {
   // at stepMode at the top of each instruction. stepDepth is the depth (Frame::depth) of the
   // innermost interpreted frame when it halted. This process's own: never copied.
   StepMode stepMode = StepMode::None;
-  std::uint32_t stepDepth = 0;
-  // A Step from an interrupted stop: the loop top skips the step check once, so the stopped
-  // instruction runs before the step can stop (SPEC §3.13 Step).
+  // A Step from an interrupted stop (checkInterrupt sets it, every halt clears it): the loop top
+  // skips the step check once, so the stopped instruction runs before the step can stop (SPEC
+  // §3.13 Step). Kept next to stepMode, in the padding before stepDepth.
   bool stepSkipOnce = false;
+  std::uint32_t stepDepth = 0;
   // SPEC §3.13: halts of this process that were proceeded (a count that only grows), and the
   // innermost interpreted frame at the last one. A send whose native failed after a halt was
   // proceeded right inside it (no interpreted frame between) answers nil instead of halting again.
