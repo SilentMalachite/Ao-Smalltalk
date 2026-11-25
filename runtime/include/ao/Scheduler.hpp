@@ -134,8 +134,9 @@ class Scheduler {
   bool canProceed(std::uint64_t pid) const;
   bool isHalted(std::uint64_t pid) const;
   // The halted process running on ctx had its innermost send in flight synthesized when it
-  // stopped (LiveFrames::synthesizes, SPEC §3.13); false when no process on ctx is halted.
-  bool haltSynthesizes(const CallContext& ctx) const;
+  // stopped (LiveFrames::synthesizes, SPEC §3.13), and *dnu whether that frame was a DNU then;
+  // false (and *dnu false) when no process on ctx is halted.
+  bool haltSynthesizes(const CallContext& ctx, bool* dnu) const;
   // The ao_eval mode the evaluating process pid answers for (0 when there is none).
   int evalModeOf(std::uint64_t pid) const;
   // SPEC §3.13 操作, from the base. Proceed: the halted process pid (canProceed) goes on, and the

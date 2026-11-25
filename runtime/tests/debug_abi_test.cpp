@@ -1595,10 +1595,12 @@ TEST_F(LiveDebug, OverridingHaltedNativeKeepsItsFrame) {
   EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
 }
 
-// review-agy R5-T5 A / SPEC §3.13: the native of a frame synthesized at the stop is looked up like
-// the send's: the first value on the chain that is not nil (or a CompiledMethod) decides. A DNU
-// whose lookup found a value that is no method (3, put into the receiver class's dictionary with
-// instVarAt:put:) stays a DNU, though Object has a native for the selector.
+// review-agy R5-T5 A / SPEC §3.13: whether the frame synthesized at the stop is a DNU or a native
+// is decided at the stop, like the count. A DNU whose lookup found a value that is no method (3,
+// put into the receiver class's dictionary with instVarAt:put:) is a DNU, though Object has a
+// native for the selector, and stays one when the selector is defined while halted (the
+// definition replaces the 3). A frame that halted in Object's native keeps that native when a
+// subclass's dictionary gets a 3 for the selector while halted.
 TEST_F(LiveDebug, HaltedNativeStopsAtFirstNonNilValue) {
   defineClass("PrbHn");
   ASSERT_EQ(AO_OK, doIt("(PrbHn instVarAt: 2) instVarAt: 2 put: "
@@ -1606,11 +1608,38 @@ TEST_F(LiveDebug, HaltedNativeStopsAtFirstNonNilValue) {
       << err_.message;
   ASSERT_EQ(AO_ERR_HALT, doIt("PrbHn new halt"));
   EXPECT_STREQ("doesNotUnderstand: #halt", err_.message);
-  selectHalted();
+  const std::int64_t dnu = selectHalted();
   ASSERT_EQ(2, ao_debug_frame_count());
   EXPECT_EQ(2, ao_debug_frame_kind(0));
   EXPECT_EQ("#halt (doesNotUnderstand:)", label(0));
   EXPECT_EQ("doIt", label(1));
+  accept("PrbHn", 0, "halt\n  ^7");
+  ASSERT_EQ(AO_OK, ao_debug_select(dnu));
+  ASSERT_EQ(2, ao_debug_frame_count());
+  EXPECT_EQ("#halt (doesNotUnderstand:)", label(0));
+
+  defineClass("PrbHnSup");
+  accept("PrbHnSup", 0, "callHalt\n  self halt.\n  ^1");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("PrbHnSup subclass: #PrbHnSub\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P10-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_ERR_HALT, printIt("PrbHnSub new callHalt"));
+  EXPECT_STREQ("halt", err_.message);
+  const std::int64_t native = selectHalted();
+  ASSERT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  ASSERT_EQ(AO_OK, doIt("(PrbHnSub instVarAt: 2) instVarAt: 2 put: "
+                        "((Array new: 2) at: 1 put: #halt; at: 2 put: 3; yourself)"))
+      << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(native));
+  ASSERT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  EXPECT_EQ("PrbHnSup>>callHalt", label(1));
+  EXPECT_EQ("doIt", label(2));
 }
 
 // SPEC §3.13: a proceeded halt deeper down (in an interpreted method) does not turn a later,

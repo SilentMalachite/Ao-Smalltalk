@@ -145,9 +145,10 @@ class LiveFrames final : public DebugFrames {
  public:
   LiveFrames(const CallContext& ctx, const std::string& reason);
   // SPEC §3.13: the innermost frame's send in flight is shown as a synthesized frame (a native,
-  // or a DNU). Scheduler::halt asks this at the stop and keeps the answer for the frames read
-  // while halted, so defining the selector meanwhile changes neither their count nor numbers.
-  static bool synthesizes(const CallContext& ctx);
+  // or a DNU: *dnu). Scheduler::halt asks this at the stop and keeps both answers for the frames
+  // read while halted, so defining the selector meanwhile changes neither their count nor
+  // numbers, and a DNU stays one.
+  static bool synthesizes(const CallContext& ctx, bool* dnu);
 
   bool empty() const override { return false; }
   std::uint32_t count() const override { return static_cast<std::uint32_t>(count_); }
@@ -175,6 +176,7 @@ class LiveFrames final : public DebugFrames {
   std::size_t count_ = 0;
   std::uint32_t total_ = 0;
   bool synth_ = false;
+  bool synthDnu_ = false;  // the synthesized frame is a DNU (decided at the stop)
   std::string reason_;
 };
 
