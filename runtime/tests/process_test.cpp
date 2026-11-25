@@ -1224,3 +1224,60 @@ TEST(Process, EvalProcessRunsUntilItEndsAndLeavesNothing) {
   EXPECT_EQ(0u, b.scheduler.processFailures());
   EXPECT_EQ(0u, b.scheduler.liveFibers());
 }
+
+// review-agy (R1 merge review): Semaphore class>>new and SharedQueue class>>new initialised any
+// basicNew answer that had the slots. A class-side basicNew answering `Array new: 3` had its
+// elements overwritten, and one answering Object had Object's superclass and methodDict (and, for
+// SharedQueue, its format) overwritten. SPEC §3.4: they initialise only an instance of their
+// class, subclasses included, and answer anything else untouched (like OrderedCollection's new,
+// §3.6).
+// Each class gets its own Boot, and the Object row comes last: a broken Object spoils what follows.
+TEST(Process, SemaphoreAndSharedQueueNewAnswerForeignBasicNewUntouched) {
+  struct Case {
+    const char* kernel;
+    const char* initialised;  // whether x, a new instance of the subclass R4Sub, was initialised
+  };
+  const Case cases[] = {
+      {"Semaphore", "((x instVarAt: 1) = 0) & ((x instVarAt: 2) class == OrderedCollection)"},
+      {"SharedQueue",
+       "((x instVarAt: 1) class == OrderedCollection) & ((x instVarAt: 2) class == Semaphore) & "
+       "((x instVarAt: 3) class == Semaphore)"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.kernel);
+    Boot b;
+    ao::compiler::CompileError err;
+    for (const char* name : {"R4Sub", "R4Array3", "R4Object"}) {
+      ASSERT_TRUE(ao::acceptClassSource(b.ctx,
+                                        std::string(c.kernel) + " subclass: #" + name +
+                                            "\n  instanceVariableNames: ''\n"
+                                            "  classVariableNames: ''\n"
+                                            "  poolDictionaries: ''\n"
+                                            "  category: 'R4-Test'",
+                                        &err))
+          << name << ": " << err.message;
+    }
+    ASSERT_TRUE(ao::acceptMethodSource(b.ctx, "R4Array3", true,
+                                       "basicNew\n  | a |\n  a := Array new: 3.\n"
+                                       "  a at: 1 put: 7.\n  ^a",
+                                       &err))
+        << err.message;
+    ASSERT_TRUE(ao::acceptMethodSource(b.ctx, "R4Object", true, "basicNew\n  ^Object", &err))
+        << err.message;
+
+    EXPECT_EQ(ao::Oop::true_(), run(b, std::string("doIt\n  | x |\n  x := R4Sub new.\n"
+                                                   "  ^(x class == R4Sub) & ") +
+                                           c.initialised));
+    EXPECT_EQ(ao::Oop::true_(),
+              run(b, "doIt\n  | a |\n  a := R4Array3 new.\n"
+                     "  ^(a class == Array) & (a size = 3) & ((a at: 1) = 7) & "
+                     "((a at: 2) == nil) & ((a at: 3) == nil)"));
+    ao::Root dict(b.roots, b.heap.slotAt(b.wk.objectClass, ao::kClassSlotMethodDict));
+    const ao::Oop format = b.heap.slotAt(b.wk.objectClass, ao::kClassSlotFormat);
+    EXPECT_EQ(ao::Oop::true_(), run(b, "doIt\n  ^R4Object new == Object"));
+    EXPECT_TRUE(b.heap.slotAt(b.wk.objectClass, ao::kClassSlotSuperclass).isNil());
+    EXPECT_EQ(dict.slot, b.heap.slotAt(b.wk.objectClass, ao::kClassSlotMethodDict));
+    EXPECT_EQ(format, b.heap.slotAt(b.wk.objectClass, ao::kClassSlotFormat));
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+  }
+}

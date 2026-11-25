@@ -1181,3 +1181,87 @@ TEST(GcSafety, NoGcAllocationFailuresSetOutOfMemory) {
   EXPECT_FALSE(ao::MethodDictionary::atPut(b.heap, dict.slot, grownKey.slot, smi(2)));
   EXPECT_TRUE(b.heap.outOfMemory());
 }
+
+// review-agy H10: Semaphore class>>new stored the answer of `OrderedCollection new` without
+// looking at it. When memory ran out it answered the Semaphore with the empty Oop in its
+// linkedList. Old and the nursery hold only live objects, and the nursery has room for the 2
+// slots of the Semaphore but not for the 3 of the OrderedCollection: no GC frees anything, so
+// `new` answers the empty Oop and out of memory is set (SPEC §3.3).
+TEST(GcSafety, SemaphoreNewOutOfMemoryLeavesNoEmptySlot) {
+  Boot b(1 << 20, 1 << 20, 2 << 20);  // old は 2 MiB で頭打ち
+  b.heap.setGcStress(0);
+  {
+    ao::Gc gc(b.heap, b.roots);
+    gc.collectNursery();
+    gc.collectOld();
+  }
+  const std::size_t header = b.heap.objectBytesFor(0, ao::kFlagBytes);
+  const std::size_t room = b.heap.oldMaxBytes() - b.heap.oldUsed();
+  ASSERT_GT(room, header);
+  ao::Root oldFill(b.roots, b.heap.allocateTenured(ao::Oop::nil(),
+                                                   static_cast<std::uint32_t>(room - header),
+                                                   ao::kFlagBytes));
+  ASSERT_TRUE(oldFill.slot.isHeap());
+  ASSERT_EQ(b.heap.oldMaxBytes(), b.heap.oldUsed());
+  // The nursery is filled with live bytes objects below the large-object size, so they stay there.
+  const std::size_t target = b.heap.objectBytesFor(2, 0);
+  const std::size_t chunk = b.heap.largeObjectBytes() / 2;
+  ao::RootedArray live(b.roots, 64);
+  std::uint32_t used = 0;
+  while (b.heap.nurseryRemaining() > target) {
+    ASSERT_LT(used, 64u);
+    const std::size_t gap = b.heap.nurseryRemaining() - target;
+    const std::size_t take = gap <= chunk ? gap : (gap - chunk >= header ? chunk : gap - header);
+    live[used] = b.heap.allocate(ao::Oop::nil(), static_cast<std::uint32_t>(take - header),
+                                 ao::kFlagBytes);
+    ASSERT_TRUE(live[used].isHeap());
+    ++used;
+  }
+  ASSERT_EQ(target, b.heap.nurseryRemaining());
+  ASSERT_FALSE(b.heap.outOfMemory());
+
+  const ao::Oop sem = ao::send(b.ctx, b.wk.semaphoreClass, b.wk.selNew, nullptr, 0, nullptr);
+  EXPECT_TRUE(sem.isEmpty());
+  EXPECT_TRUE(b.heap.outOfMemory());
+  if (sem.isHeap()) {
+    EXPECT_FALSE(b.heap.slotAt(sem, ao::kSemaphoreSlotList).isEmpty());
+  }
+}
+
+// review-agy H11: makeFraction kept the answers of truncDiv and neg without looking at them. When
+// the normalisation ran out of memory it answered a Fraction with the empty Oop as its numerator.
+// Old has room for `1 bitShift: 600000` and the copy that / makes of it (num * 1), but not for the
+// quotient by the gcd that the normalisation makes: the evaluation ends in out of memory instead
+// of answering a Fraction (SPEC §3.3).
+TEST(GcSafety, FractionNormalizeOutOfMemoryAnswersNoFraction) {
+  Boot b(1 << 20, 1 << 20, 2 << 20);  // old は 2 MiB で頭打ち
+  b.heap.setGcStress(0);
+  const ao::Oop probe = send1(b, smi(1), "bitShift:", smi(600000));
+  ASSERT_TRUE(probe.isHeap());
+  const std::size_t bigBytes = b.heap.objectBytesFor(b.heap.size(probe), ao::kFlagBytes);
+  auto img = ao::compiler::compileMethod("doIt\n  ^(1 bitShift: 600000) / 3");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  ASSERT_TRUE(cm.slot.isHeap());
+  {
+    ao::Gc gc(b.heap, b.roots);
+    gc.collectNursery();
+    gc.collectOld();
+  }
+  // Rooted, so no full GC frees it: what is left is two and a half of the big integer.
+  const std::size_t header = b.heap.objectBytesFor(0, ao::kFlagBytes);
+  const std::size_t keep = 2 * bigBytes + bigBytes / 2;
+  const std::size_t room = b.heap.oldMaxBytes() - b.heap.oldUsed();
+  ASSERT_GT(room, keep + header);
+  ao::Root oldFill(b.roots, b.heap.allocateTenured(ao::Oop::nil(),
+                                                   static_cast<std::uint32_t>(room - keep - header),
+                                                   ao::kFlagBytes));
+  ASSERT_TRUE(oldFill.slot.isHeap());
+  ASSERT_FALSE(b.heap.outOfMemory());
+
+  const ao::Oop answer =
+      ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_TRUE(answer.isEmpty());
+  EXPECT_TRUE(b.heap.outOfMemory());
+  EXPECT_EQ("out of memory", takeAbortReason(b));
+}
