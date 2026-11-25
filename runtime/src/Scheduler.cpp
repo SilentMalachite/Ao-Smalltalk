@@ -26,18 +26,50 @@ constexpr std::uint32_t kOcArray = 0;
 constexpr std::uint32_t kOcFirst = 1;
 constexpr std::uint32_t kOcLast = 2;
 
-std::int64_t ocSize(Heap& heap, Oop oc) {
+// What an OrderedCollection's slots say, read without a send (SPEC §3.6).
+enum class OcShape {
+  Empty,    // no three slots (a linkedList slot holding nil), or array is nil: no elements
+  Sound,    // the elements are array's firstIndex-th to lastIndex-th
+  Damaged,  // they do not fit (instVarAt:put:): the natives fail, the adoption walk sees none
+};
+
+struct OcSlots {
+  Oop array = Oop::nil();
+  std::int64_t first = 1;
+  std::int64_t last = 0;
+};
+
+// Reads oc's slots. Sound when array is a Kernel Array and firstIndex and lastIndex are
+// SmallIntegers with 1 <= firstIndex <= lastIndex + 1 <= array size + 1 (SPEC §3.6), so every
+// index from firstIndex to lastIndex is inside array; only then is out filled. Does not allocate.
+OcShape ocRead(const Heap& heap, const WellKnown& wk, Oop oc, OcSlots* out) {
   if (!hasSlots(heap, oc, kOcLast)) {
-    return 0;
+    return OcShape::Empty;
+  }
+  const Oop array = heap.slotAt(oc, kOcArray);
+  if (array.isNil()) {
+    return OcShape::Empty;
   }
   const Oop first = heap.slotAt(oc, kOcFirst);
   const Oop last = heap.slotAt(oc, kOcLast);
-  if (!first.isSmallInteger() || !last.isSmallInteger()) {
-    return 0;
+  if (!array.isHeap() || heap.klass(array) != wk.arrayClass ||
+      (heap.flags(array) & kFlagBytes) != 0 || !first.isSmallInteger() || !last.isSmallInteger()) {
+    return OcShape::Damaged;
   }
-  const auto f = first.smallIntegerValue();
-  const auto l = last.smallIntegerValue();
-  return l < f ? 0 : l - f + 1;
+  const std::int64_t f = first.smallIntegerValue();
+  const std::int64_t l = last.smallIntegerValue();
+  if (f < 1 || l < f - 1 || l > static_cast<std::int64_t>(heap.size(array))) {
+    return OcShape::Damaged;
+  }
+  out->array = array;
+  out->first = f;
+  out->last = l;
+  return OcShape::Sound;
+}
+
+std::int64_t ocSize(Heap& heap, const WellKnown& wk, Oop oc) {
+  OcSlots s;
+  return ocRead(heap, wk, oc, &s) == OcShape::Sound ? s.last - s.first + 1 : 0;
 }
 
 // SPEC §3.13: the scheduler's own sends (its lists) never halt the process that runs them: a
@@ -70,110 +102,54 @@ Oop ocAdd(CallContext& ctx, Oop oc, Oop value) {
 }
 
 // The first element, left in place; nil when there is none. Does not collect.
-Oop ocFirst(Heap& heap, Oop oc) {
-  if (ocSize(heap, oc) == 0) {
+Oop ocFirst(Heap& heap, const WellKnown& wk, Oop oc) {
+  OcSlots s;
+  if (ocRead(heap, wk, oc, &s) != OcShape::Sound || s.last < s.first) {
     return Oop::nil();
   }
-  const auto f = heap.slotAt(oc, kOcFirst).smallIntegerValue();
-  const Oop arr = heap.slotAt(oc, kOcArray);
-  if (f < 1 || !arr.isHeap() || (heap.flags(arr) & kFlagBytes) != 0 ||
-      static_cast<std::uint64_t>(f) > heap.size(arr)) {
-    return Oop::nil();
-  }
-  return heap.slotAt(arr, static_cast<std::uint32_t>(f - 1));
+  return heap.slotAt(s.array, static_cast<std::uint32_t>(s.first - 1));
 }
 
 // The first element, taken out; nil when there is none. Does not collect.
-Oop ocRemoveFirst(Heap& heap, Oop oc) {
-  if (!hasSlots(heap, oc, kOcLast)) {
+Oop ocRemoveFirst(Heap& heap, const WellKnown& wk, Oop oc) {
+  OcSlots s;
+  if (ocRead(heap, wk, oc, &s) != OcShape::Sound || s.last < s.first) {
     return Oop::nil();
   }
-  const Oop first = heap.slotAt(oc, kOcFirst);
-  const Oop last = heap.slotAt(oc, kOcLast);
-  if (!first.isSmallInteger() || !last.isSmallInteger()) {
-    return Oop::nil();
-  }
-  const auto f = first.smallIntegerValue();
-  const auto l = last.smallIntegerValue();
-  if (l < f) {
-    return Oop::nil();
-  }
-  const Oop arr = heap.slotAt(oc, kOcArray);
-  if (!arr.isHeap() || (heap.flags(arr) & kFlagBytes) != 0) {
-    return Oop::nil();
-  }
-  const auto idx = static_cast<std::uint32_t>(f - 1);
-  if (f < 1 || idx >= heap.size(arr)) {
-    return Oop::nil();
-  }
-  const Oop value = heap.slotAt(arr, idx);
-  heap.slotAtPut(arr, idx, Oop::nil());
-  heap.slotAtPut(oc, kOcFirst, Oop::fromSmallInteger(f + 1));
+  const auto idx = static_cast<std::uint32_t>(s.first - 1);
+  const Oop value = heap.slotAt(s.array, idx);
+  heap.slotAtPut(s.array, idx, Oop::nil());
+  heap.slotAtPut(oc, kOcFirst, Oop::fromSmallInteger(s.first + 1));
   return value;
 }
 
 // Takes the last element out: undoes an add: when what came after it failed. Does not collect.
-void ocRemoveLast(Heap& heap, Oop oc) {
-  if (!hasSlots(heap, oc, kOcLast)) {
+void ocRemoveLast(Heap& heap, const WellKnown& wk, Oop oc) {
+  OcSlots s;
+  if (ocRead(heap, wk, oc, &s) != OcShape::Sound || s.last < s.first) {
     return;
   }
-  const Oop first = heap.slotAt(oc, kOcFirst);
-  const Oop last = heap.slotAt(oc, kOcLast);
-  if (!first.isSmallInteger() || !last.isSmallInteger()) {
-    return;
-  }
-  const auto f = first.smallIntegerValue();
-  const auto l = last.smallIntegerValue();
-  const Oop arr = heap.slotAt(oc, kOcArray);
-  if (l < f || l < 1 || !arr.isHeap() || (heap.flags(arr) & kFlagBytes) != 0 ||
-      static_cast<std::uint64_t>(l) > heap.size(arr)) {
-    return;
-  }
-  heap.slotAtPut(arr, static_cast<std::uint32_t>(l - 1), Oop::nil());
-  heap.slotAtPut(oc, kOcLast, Oop::fromSmallInteger(l - 1));
+  heap.slotAtPut(s.array, static_cast<std::uint32_t>(s.last - 1), Oop::nil());
+  heap.slotAtPut(oc, kOcLast, Oop::fromSmallInteger(s.last - 1));
 }
 
 // Takes the first element identical to target out, closing the gap. Does not collect.
-bool ocRemoveIdentity(Heap& heap, Oop oc, Oop target) {
-  if (!hasSlots(heap, oc, kOcLast)) {
+bool ocRemoveIdentity(Heap& heap, const WellKnown& wk, Oop oc, Oop target) {
+  OcSlots s;
+  if (ocRead(heap, wk, oc, &s) != OcShape::Sound) {
     return false;
   }
-  const Oop first = heap.slotAt(oc, kOcFirst);
-  const Oop last = heap.slotAt(oc, kOcLast);
-  if (!first.isSmallInteger() || !last.isSmallInteger()) {
-    return false;
-  }
-  const auto f = first.smallIntegerValue();
-  const auto l = last.smallIntegerValue();
-  if (l < f || f < 1) {
-    return false;
-  }
-  const Oop arr = heap.slotAt(oc, kOcArray);
-  if (!arr.isHeap() || (heap.flags(arr) & kFlagBytes) != 0) {
-    return false;
-  }
-  const auto n = heap.size(arr);
-  for (auto i = f; i <= l; ++i) {
-    const auto idx = static_cast<std::uint32_t>(i - 1);
-    if (idx >= n) {
-      return false;
-    }
-    if (heap.slotAt(arr, idx) != target) {
+  // Sound: every index from first to last is inside the array.
+  for (auto i = s.first; i <= s.last; ++i) {
+    if (heap.slotAt(s.array, static_cast<std::uint32_t>(i - 1)) != target) {
       continue;
     }
-    for (auto j = i; j < l; ++j) {
-      const auto dst = static_cast<std::uint32_t>(j - 1);
-      const auto src = static_cast<std::uint32_t>(j);
-      if (src >= n) {
-        break;
-      }
-      heap.slotAtPut(arr, dst, heap.slotAt(arr, src));
+    for (auto j = i; j < s.last; ++j) {
+      heap.slotAtPut(s.array, static_cast<std::uint32_t>(j - 1),
+                     heap.slotAt(s.array, static_cast<std::uint32_t>(j)));
     }
-    const auto lastIdx = static_cast<std::uint32_t>(l - 1);
-    if (lastIdx < n) {
-      heap.slotAtPut(arr, lastIdx, Oop::nil());
-    }
-    heap.slotAtPut(oc, kOcLast, Oop::fromSmallInteger(l - 1));
+    heap.slotAtPut(s.array, static_cast<std::uint32_t>(s.last - 1), Oop::nil());
+    heap.slotAtPut(oc, kOcLast, Oop::fromSmallInteger(s.last - 1));
     return true;
   }
   return false;
@@ -350,10 +326,11 @@ void Scheduler::adoptImage() {
   setMyList(heap, b.process, Oop::nil());
   if (hasSlots(heap, sched.slot, kSchedulerSlotActive)) {
     heap.slotAtPut(sched.slot, kSchedulerSlotActive, b.process);
-    // SPEC §3.11: the ready queue starts empty; what the image had there cannot run.
+    // SPEC §3.11: the ready queue starts empty; what the image had there cannot run. A damaged
+    // queue is read as empty (SPEC §3.4).
     const Oop q = heap.slotAt(sched.slot, kSchedulerSlotQuiescent);
-    for (auto n = ocSize(heap, q); n > 0; --n) {
-      const Oop p = ocRemoveFirst(heap, q);
+    for (auto n = ocSize(heap, ctx.wk, q); n > 0; --n) {
+      const Oop p = ocRemoveFirst(heap, ctx.wk, q);
       if (hasSlots(heap, p, kProcessSlotMyList) && heap.slotAt(p, kProcessSlotMyList) == q) {
         setMyList(heap, p, Oop::nil());
       }
@@ -699,9 +676,17 @@ bool Scheduler::signal(CallContext& ctx, Oop semaphore) {
   if (!hasSlots(heap, sem.slot, kSemaphoreSlotList)) {
     return false;
   }
-  for (auto n = ocSize(heap, heap.slotAt(sem.slot, kSemaphoreSlotList)); n > 0; --n) {
+  // SPEC §3.4: a linkedList whose slots do not fit (instVarAt:put:) fails the signal, which
+  // changes nothing. The loop below then stays inside its array.
+  OcSlots slots;
+  if (ocRead(heap, ctx.wk, heap.slotAt(sem.slot, kSemaphoreSlotList), &slots) ==
+      OcShape::Damaged) {
+    fail(ctx, sem.slot, "damaged ordered collection");
+    return false;
+  }
+  for (auto n = ocSize(heap, ctx.wk, heap.slotAt(sem.slot, kSemaphoreSlotList)); n > 0; --n) {
     const Oop list = heap.slotAt(sem.slot, kSemaphoreSlotList);
-    const Oop waiter = ocFirst(heap, list);
+    const Oop waiter = ocFirst(heap, ctx.wk, list);
     Record* r = find(waiter);
     if (r != nullptr && r->state == State::Waiting && r->waitingOn == sem.slot) {
       // Ready at the end of the queue; the signaller goes on (SPEC §3.4). The queue takes it
@@ -709,13 +694,13 @@ bool Scheduler::signal(CallContext& ctx, Oop semaphore) {
       if (!enqueue(ctx, *r)) {
         return false;
       }
-      ocRemoveIdentity(heap, heap.slotAt(sem.slot, kSemaphoreSlotList), r->process);
+      ocRemoveIdentity(heap, ctx.wk, heap.slotAt(sem.slot, kSemaphoreSlotList), r->process);
       r->waitingOn = Oop::nil();
       r->signaledBy = sem.slot;
       return true;
     }
     // SPEC §3.4, §3.11: a waiter that cannot run is dropped.
-    ocRemoveFirst(heap, list);
+    ocRemoveFirst(heap, ctx.wk, list);
     if (hasSlots(heap, waiter, kProcessSlotMyList) &&
         heap.slotAt(waiter, kProcessSlotMyList) == list) {
       setMyList(heap, waiter, Oop::nil());
@@ -835,11 +820,11 @@ bool Scheduler::nextPut(CallContext& ctx, Oop queue, Oop value) {
   try {
     woke = hasSlots(heap, read, kSemaphoreSlotList) && signal(ctx, read);
   } catch (...) {
-    ocRemoveLast(heap, contents.slot);
+    ocRemoveLast(heap, ctx.wk, contents.slot);
     throw;
   }
   if (!woke) {
-    ocRemoveLast(heap, contents.slot);
+    ocRemoveLast(heap, ctx.wk, contents.slot);
     return false;
   }
   return true;
@@ -862,8 +847,14 @@ Oop Scheduler::next(CallContext& ctx, Oop queue) {
     // Other processes ran: read the queue again. A waiter resumed without a signal (suspend and
     // resume, SPEC §3.4) takes an element when there is one, and waits again when it is empty.
     const Oop contents = heap.slotAt(q.slot, kSharedQueueSlotContents);
-    if (ocSize(heap, contents) > 0) {
-      return ocRemoveFirst(heap, contents);
+    // SPEC §3.4: contents whose slots do not fit (instVarAt:put:) fail next.
+    OcSlots slots;
+    if (ocRead(heap, ctx.wk, contents, &slots) == OcShape::Damaged) {
+      fail(ctx, q.slot, "damaged ordered collection");
+      return Oop{};
+    }
+    if (ocSize(heap, ctx.wk, contents) > 0) {
+      return ocRemoveFirst(heap, ctx.wk, contents);
     }
   }
 }
@@ -1087,11 +1078,11 @@ void Scheduler::leaveLists(Record& r) {
   if (r.state == State::Ready) {
     ready_.erase(std::remove(ready_.begin(), ready_.end(), &r), ready_.end());
     if (hasSlots(heap, sched, kSchedulerSlotActive)) {
-      ocRemoveIdentity(heap, heap.slotAt(sched, kSchedulerSlotQuiescent), r.process);
+      ocRemoveIdentity(heap, base_.wk, heap.slotAt(sched, kSchedulerSlotQuiescent), r.process);
     }
   } else if (r.state == State::Waiting) {
     if (hasSlots(heap, r.waitingOn, kSemaphoreSlotList)) {
-      ocRemoveIdentity(heap, heap.slotAt(r.waitingOn, kSemaphoreSlotList), r.process);
+      ocRemoveIdentity(heap, base_.wk, heap.slotAt(r.waitingOn, kSemaphoreSlotList), r.process);
     }
     r.waitingOn = Oop::nil();
     if (r.awaitingTerminate) {

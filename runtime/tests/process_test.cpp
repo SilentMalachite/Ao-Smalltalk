@@ -337,6 +337,59 @@ TEST(Process, SignalWithExcessAtSmiMaxFails) {
   EXPECT_EQ(max, send1(b, sem.slot, "instVarAt:", ao::Oop::fromSmallInteger(1)));
 }
 
+// review-agy M6: the Scheduler read a linkedList's firstIndex and lastIndex without checking them
+// against its array. With lastIndex at the SmallInteger maximum, signal went round that many times
+// (a hang); an array that is not a Kernel Array was read as one. SPEC §3.4: signal fails with
+// `damaged ordered collection`, changes nothing, and reads nothing outside the array.
+TEST(Process, SignalOnDamagedLinkedListEnds) {
+  Boot b;
+  const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
+  {
+    SCOPED_TRACE("array not a Kernel Array");
+    ao::Root sem(b.roots, send0(b, b.wk.semaphoreClass, "new"));
+    ASSERT_TRUE(sem.slot.isHeap());
+    ao::Root list(b.roots, send1(b, sem.slot, "instVarAt:", smi(2)));
+    ASSERT_TRUE(list.slot.isHeap());
+    ao::Root str(b.roots, ao::Str::fromUtf8(b.ctx, "abcdefgh"));
+    ASSERT_EQ(str.slot, send2(b, list.slot, "instVarAt:put:", smi(1), str.slot));
+    EXPECT_TRUE(send0(b, sem.slot, "signal").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    EXPECT_EQ(smi(0), send1(b, sem.slot, "instVarAt:", smi(1)));
+    EXPECT_EQ(str.slot, send1(b, list.slot, "instVarAt:", smi(1)));
+  }
+  {
+    SCOPED_TRACE("lastIndex at the SmallInteger maximum");
+    ao::Root sem(b.roots, send0(b, b.wk.semaphoreClass, "new"));
+    ASSERT_TRUE(sem.slot.isHeap());
+    // (s instVarAt: 2) instVarAt: 3 put: 4611686018427387903
+    ao::Root list(b.roots, send1(b, sem.slot, "instVarAt:", smi(2)));
+    ASSERT_TRUE(list.slot.isHeap());
+    ASSERT_EQ(max, send2(b, list.slot, "instVarAt:put:", smi(3), max));
+    EXPECT_TRUE(send0(b, sem.slot, "signal").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    EXPECT_EQ(smi(0), send1(b, sem.slot, "instVarAt:", smi(1)));
+    EXPECT_EQ(max, send1(b, list.slot, "instVarAt:", smi(3)));
+  }
+}
+
+// review-agy M6: next reads the SharedQueue's contents the same way. With lastIndex past the
+// array, next answered the element at firstIndex; read as empty, it would take readSynch's signal
+// and wait. SPEC §3.4: next fails with `damaged ordered collection`.
+TEST(Process, NextOnDamagedContentsFails) {
+  Boot b;
+  const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
+  ao::Root q(b.roots, send0(b, b.wk.sharedQueueClass, "new"));
+  ASSERT_TRUE(q.slot.isHeap());
+  ASSERT_EQ(smi(1), send1(b, q.slot, "nextPut:", smi(1)));
+  ao::Root contents(b.roots, send1(b, q.slot, "instVarAt:", smi(1)));
+  ASSERT_TRUE(contents.slot.isHeap());
+  ASSERT_EQ(max, send2(b, contents.slot, "instVarAt:put:", smi(3), max));
+  EXPECT_TRUE(send0(b, q.slot, "next").isEmpty());
+  EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+  EXPECT_EQ(smi(1), send1(b, contents.slot, "instVarAt:", smi(2)));
+  EXPECT_EQ(max, send1(b, contents.slot, "instVarAt:", smi(3)));
+}
+
 // ---- fork と yield ----
 
 TEST(Process, ForkRunsOnlyAfterYield) {
