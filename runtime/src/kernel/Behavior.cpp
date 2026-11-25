@@ -224,7 +224,8 @@ Oop ao_Class_category(CallContext& ctx, const Oop& receiver, const Oop*, std::ui
 // SPEC §3.10 Behavior>>sourceCodeAt: (P17): the source-table text of the method aSelector names in
 // the receiver's own dictionary (a metaclass's is the class side). nil when there is none, it is a
 // NativeMethod, it has no source, or the receiver's heap is not the session's (the source table is
-// the session's). The selector is looked up, never interned.
+// the session's). The selector is looked up, never interned. A receiver that is not class-shaped
+// (§3.6) fails, in a session or not.
 Oop ao_Behavior_sourceCodeAt_(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
   if (argc != 1 || !isClassShaped(ctx.heap, receiver)) {
@@ -236,7 +237,7 @@ Oop ao_Behavior_sourceCodeAt_(CallContext& ctx, const Oop& receiver, const Oop* 
     return Oop::nil();
   }
   const Oop sel = ctx.wk.findSymbol(Str::toUtf8(ctx.heap, args[0]));
-  if (!sel.isHeap() || ctx.heap.size(receiver) <= kClassSlotMethodDict) {
+  if (!sel.isHeap()) {
     return Oop::nil();
   }
   const Oop method =
