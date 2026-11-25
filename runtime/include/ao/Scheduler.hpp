@@ -165,6 +165,13 @@ class Scheduler {
   Record* findId(std::uint64_t id) const;
   bool enqueue(CallContext& ctx, Record& r);
   void leaveLists(Record& r);
+  // SPEC §3.4: whether a list that leaveLists would take r out of is damaged, which fails the
+  // suspend and terminate natives. Does not collect.
+  bool listsDamaged(const Record& r) const;
+  // The body of terminate. fromSend: the native's, which fails on a damaged list; false for the
+  // runtime's own ends without a send (abortHalted, terminateAll), which take the process out as
+  // before.
+  bool terminateProcess(CallContext& ctx, Oop process, bool fromSend);
   Record* takeNext(Record& me);
   bool block(CallContext& ctx, Record& me);
   bool afterResume(CallContext& ctx, Record& me);

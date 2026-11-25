@@ -582,8 +582,9 @@ bool Scheduler::abortHalted(std::uint64_t pid) {
     return false;
   }
   // SPEC §3.13: a terminate from the base. It comes back when the process ends or first switches
-  // away (a cleanup that waits); the rest runs in the drains to come.
-  terminate(base_, r->process);
+  // away (a cleanup that waits); the rest runs in the drains to come. No send: a damaged list does
+  // not stop it (SPEC §3.4).
+  terminateProcess(base_, r->process, false);
   if (unwinding(base_)) {
     clearUnwinding(base_);
   }
@@ -608,6 +609,14 @@ bool Scheduler::wait(CallContext& ctx, Oop semaphore) {
   Heap& heap = ctx.heap;
   Root sem(ctx.roots, semaphore);
   if (!hasSlots(heap, sem.slot, kSemaphoreSlotList)) {
+    return false;
+  }
+  // SPEC §3.4: a linkedList whose slots do not fit (instVarAt:put:) fails the wait, whatever
+  // excessSignals holds, and changes nothing.
+  OcSlots slots;
+  if (listShape(heap, ctx.wk, heap.slotAt(sem.slot, kSemaphoreSlotList), &slots) ==
+      OcShape::Damaged) {
+    fail(ctx, sem.slot, "damaged ordered collection");
     return false;
   }
   const Oop excess = heap.slotAt(sem.slot, kSemaphoreSlotExcess);
@@ -689,6 +698,12 @@ bool Scheduler::suspend(CallContext& ctx, Oop process) {
     return true;
   }
   if (r != current_) {
+    // SPEC §3.4: a damaged list it would leave fails the suspend; the process stays as it was.
+    if (listsDamaged(*r)) {
+      Root p(ctx.roots, process);
+      fail(ctx, p.slot, "damaged ordered collection");
+      return false;
+    }
     // Out of the ready queue or the linkedList; a waiter resumed later returns from wait.
     leaveLists(*r);
     return true;
@@ -714,6 +729,10 @@ bool Scheduler::resume(CallContext& ctx, Oop process) {
 }
 
 bool Scheduler::terminate(CallContext& ctx, Oop process) {
+  return terminateProcess(ctx, process, true);
+}
+
+bool Scheduler::terminateProcess(CallContext& ctx, Oop process, bool fromSend) {
   Record* r = find(process);
   if (r == nullptr || r->state == State::Dead) {
     return true;
@@ -731,6 +750,13 @@ bool Scheduler::terminate(CallContext& ctx, Oop process) {
     return false;
   }
   if (me.abandon) {
+    return false;
+  }
+  // SPEC §3.4: from a send, a damaged list it would leave fails the terminate before anything
+  // changes (the signal it would give back included); nothing unwinds.
+  if (fromSend && listsDamaged(*r)) {
+    Root p(ctx.roots, process);
+    fail(ctx, p.slot, "damaged ordered collection");
     return false;
   }
   if (r->signaledBy.isHeap()) {
@@ -858,7 +884,7 @@ void Scheduler::terminateAll(bool abandon) {
       if (r == nullptr || r->state == State::Dead || r->terminated) {
         continue;
       }
-      terminate(base_, r->process);
+      terminateProcess(base_, r->process, false);
       if (unwinding(base_)) {
         clearUnwinding(base_);
       }
@@ -1064,6 +1090,24 @@ void Scheduler::leaveLists(Record& r) {
   if (r.state != State::Dead) {
     r.state = State::Suspended;
   }
+}
+
+// The lists leaveLists reads, under the same conditions.
+bool Scheduler::listsDamaged(const Record& r) const {
+  const Heap& heap = base_.heap;
+  const WellKnown& wk = base_.wk;
+  OcSlots slots;
+  if (r.state == State::Ready) {
+    return hasSlots(heap, wk.processor, kSchedulerSlotActive) &&
+           listShape(heap, wk, heap.slotAt(wk.processor, kSchedulerSlotQuiescent), &slots) ==
+               OcShape::Damaged;
+  }
+  if (r.state == State::Waiting) {
+    return hasSlots(heap, r.waitingOn, kSemaphoreSlotList) &&
+           listShape(heap, wk, heap.slotAt(r.waitingOn, kSemaphoreSlotList), &slots) ==
+               OcShape::Damaged;
+  }
+  return false;
 }
 
 // Whom me switches to when it stops running: the process waiting for it to end or switch (a
