@@ -1503,7 +1503,7 @@ bool stillHalted(Session& s, std::uint64_t id, const CallContext* fiber, const F
     return false;
   }
   for (std::size_t i = 2; i < slots.size(); ++i) {
-    // The bound sessionDebugAccept read the arguments with: f may be another activation now.
+    // acceptTarget's bound, which the arguments were read with: f may be another activation now.
     if (f->temps == nullptr || i - 2 >= f->temps->n || f->temps->slots[i - 2] != slots[i]) {
       return false;
     }
