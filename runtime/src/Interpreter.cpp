@@ -370,9 +370,11 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   // unwinding already, it aborts with the selector as the reason (sel is rooted). The send is
   // still in flight for that abort's capture. SPEC §3.13: a live debugger halts here instead, and
   // Proceed makes nil the send's value. A native that fails after a halt right in it was
-  // proceeded (its error: answered nil) answers nil too, without halting again.
+  // proceeded (its error: answered nil) answers nil too, without halting again. Out of memory
+  // comes first: after it, stopFailedSend aborts with out of memory at this send.
   const bool proceededHere = ctx.haltProceeds != proceeds && ctx.proceededAt == &frame;
-  if (result.isEmpty() && !unwinding(ctx) && (proceededHere || stopFailedSend(ctx, sel.slot))) {
+  if (result.isEmpty() && !unwinding(ctx) &&
+      ((!ctx.heap.outOfMemory() && proceededHere) || stopFailedSend(ctx, sel.slot))) {
     result = Oop::nil();
   }
   frame.sendReceiver = nullptr;

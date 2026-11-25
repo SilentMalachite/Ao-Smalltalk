@@ -6,8 +6,11 @@
 #include "../src/Session.hpp"
 #include "ao/Bootstrap.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/MethodDictionary.hpp"
+#include "ao/Send.hpp"
 #include "ao/WellKnown.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -1192,6 +1195,34 @@ TEST_F(LiveProceed, ProceedFromNativeFailureDoesNotHaltAgain) {
   ASSERT_EQ(AO_OK, proceed(ao_debug_halted_pid())) << err_.message;
   EXPECT_STREQ("nil", out_);
   EXPECT_EQ(0, ao_debug_halted_count());
+}
+
+// Halts right in the native, and after the Proceed runs out of memory before it answers (more than
+// old's max, so no GC is tried): its send fails with the out-of-memory mark set.
+ao::Oop haltThenRunOutOfMemory(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*,
+                               std::uint32_t) {
+  if (!ao::stopOrAbort(ctx, "halt", true)) {
+    return ao::Oop{};
+  }
+  return ao::allocateRetry(ctx, ctx.wk.arrayClass, 600000000, 0);
+}
+
+// SPEC §3.3, §3.13: out of memory after a Proceed from a halt right in a native aborts at that
+// send with out of memory, instead of answering nil: the statement after it does not run.
+TEST_F(LiveProceed, ProceedThenOutOfMemoryAbortsAtTheSend) {
+  defineClass("DbgOom");
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  ASSERT_TRUE(ao::kernel::putNative(s->heap, s->wk, s->cache.get(), s->wk.named("DbgOom"),
+                                    "haltThenRunOutOfMemory", 0,
+                                    "dbg_test_haltThenRunOutOfMemory", haltThenRunOutOfMemory));
+  ASSERT_EQ(AO_ERR_HALT, doIt("x := 1. DbgOom new haltThenRunOutOfMemory. x := 2"));
+  EXPECT_STREQ("halt", err_.message);
+  ASSERT_EQ(AO_ERR_EVAL, proceed(ao_debug_halted_pid()));
+  EXPECT_STREQ("out of memory", err_.message);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, printIt("x"));
+  EXPECT_STREQ("1", out_);
 }
 
 // SPEC §3.13: Debug it with eight processes halted aborts before running anything.
