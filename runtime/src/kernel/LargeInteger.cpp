@@ -113,31 +113,32 @@ void magMul(const Digits& a, const Digits& b, Digits& r) {
   strip(r);
 }
 
-int magBitLength(const Digits& d) {
+std::int64_t magBitLength(const Digits& d) {
   if (d.empty()) {
     return 0;
   }
   const std::uint32_t top = d.back();
+  const auto digits = static_cast<std::int64_t>(d.size());
   if (top == 0) {
-    return static_cast<int>(d.size() * 32);
+    return digits * 32;
   }
-  return static_cast<int>((d.size() - 1) * 32 + 32 - static_cast<unsigned>(__builtin_clz(top)));
+  return (digits - 1) * 32 + 32 - __builtin_clz(top);
 }
 
-bool magBit(const Digits& d, int bit) {
+bool magBit(const Digits& d, std::int64_t bit) {
   if (bit < 0) {
     return false;
   }
-  const int idx = bit / 32;
-  if (idx >= static_cast<int>(d.size())) {
+  const std::int64_t idx = bit / 32;
+  if (idx >= static_cast<std::int64_t>(d.size())) {
     return false;
   }
   return ((d[static_cast<std::size_t>(idx)] >> (bit % 32)) & 1u) != 0;
 }
 
-void magSetBit(Digits& d, int bit) {
-  const int idx = bit / 32;
-  if (idx >= static_cast<int>(d.size())) {
+void magSetBit(Digits& d, std::int64_t bit) {
+  const std::int64_t idx = bit / 32;
+  if (idx >= static_cast<std::int64_t>(d.size())) {
     d.resize(static_cast<std::size_t>(idx) + 1, 0);
   }
   d[static_cast<std::size_t>(idx)] |= 1u << (bit % 32);
@@ -237,8 +238,8 @@ void magDivMod(const Digits& a, const Digits& b, Digits& q, Digits& r) {
     magFromU128(ua % ub, r);
     return;
   }
-  const int bits = magBitLength(a);
-  for (int bit = bits - 1; bit >= 0; --bit) {
+  const std::int64_t bits = magBitLength(a);
+  for (std::int64_t bit = bits - 1; bit >= 0; --bit) {
     magShl1(r);
     if (magBit(a, bit)) {
       std::uint64_t carry = 1;
@@ -405,6 +406,11 @@ Oop box(Heap& heap, WellKnown& wk, const Big& b) {
   if (toInt64(b, &v) && v >= kSmiMin && v <= kSmiMax) {
     return Oop::fromSmallInteger(v);
   }
+  // An object holds at most 2^32 - 1 bytes: a longer magnitude is out of memory.
+  if (b.d.size() > UINT32_MAX / 4) {
+    heap.setOutOfMemory();
+    return Oop{};
+  }
   const auto n = static_cast<std::uint32_t>(b.d.size() * 4);
   const Oop cls = b.neg ? wk.largeNegativeIntegerClass : wk.largePositiveIntegerClass;
   Oop o = heap.allocate(cls, n, kFlagBytes);
@@ -419,6 +425,11 @@ Oop box(CallContext& ctx, const Big& b) {
   std::int64_t v = 0;
   if (toInt64(b, &v) && v >= kSmiMin && v <= kSmiMax) {
     return Oop::fromSmallInteger(v);
+  }
+  // An object holds at most 2^32 - 1 bytes: a longer magnitude is out of memory.
+  if (b.d.size() > UINT32_MAX / 4) {
+    ctx.heap.setOutOfMemory();
+    return Oop{};
   }
   const auto n = static_cast<std::uint32_t>(b.d.size() * 4);
   const Oop cls = b.neg ? ctx.wk.largeNegativeIntegerClass : ctx.wk.largePositiveIntegerClass;
@@ -549,7 +560,7 @@ bool magAnyBitBelow(const Digits& d, std::int64_t bit) {
 
 bool magBitAt(const Digits& d, std::int64_t bit) {
   return bit >= 0 && bit < static_cast<std::int64_t>(d.size()) * 32 &&
-         magBit(d, static_cast<int>(bit));
+         magBit(d, bit);
 }
 
 // SPEC §3.6: the double nearest to mag · 2^exp2 (IEEE754 binary64, ties to even, subnormals
