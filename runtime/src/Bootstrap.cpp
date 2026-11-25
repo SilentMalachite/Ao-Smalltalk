@@ -10,6 +10,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -242,7 +243,16 @@ static void nameClasses(Heap& heap, WellKnown& wk) {
   for (const auto& d : kDefs) {
     const Oop name = wk.intern(d.name);
     heap.slotAtPut(wk.*(d.cls), kClassSlotName, name.isHeap() ? name : Oop::nil());
-    const Oop metaName = Str::fromUtf8(heap, wk, std::string(d.name) + " class");
+    // Not Str::fromUtf8, which only uses the nursery: like intern, the name goes to old when the
+    // nursery is full, and fails only with old at its max.
+    const std::string metaText = std::string(d.name) + " class";
+    const auto n = static_cast<std::uint32_t>(metaText.size());
+    const Oop metaName = heap.allocateNoGc(wk.stringClass, n, kFlagBytes);
+    if (metaName.isHeap()) {
+      std::memcpy(heap.bytes(metaName), metaText.data(), n);
+    } else {
+      heap.setOutOfMemory();
+    }
     heap.slotAtPut(wk.*(d.meta), kClassSlotName, metaName.isHeap() ? metaName : Oop::nil());
   }
   for (const auto& s : kSlotNames) {
