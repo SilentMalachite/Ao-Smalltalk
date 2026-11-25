@@ -10,6 +10,7 @@
 #include "ao/HandleScope.hpp"
 #include "ao/Image.hpp"
 #include "ao/Interpreter.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/MethodDictionary.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
@@ -1421,10 +1422,12 @@ namespace {
 // SPEC §3.13 Accept (P15): the activation an Accept of frame i of the halted process starts over —
 // frame i when it is a method, or its block's home method activation, still on the same chain —
 // when its method is an accepted one: a CompiledMethod with its own source entry (not the doIt's,
-// not a block's) that its methodClass's dictionary still holds under its selector. Null otherwise,
-// with the refusal in *refusal. Allocates nothing.
+// not a block's) that its methodClass's dictionary still holds under its selector, whose
+// methodClass is class-shaped (a metaclass's thisClass pointing back to it) and whose header's
+// argument count (in *numArgs) fits the activation's temps. Null otherwise, with the refusal in
+// *refusal. Allocates nothing.
 const Frame* acceptTarget(Session& s, const CallContext& fiber, const LiveFrames& frames,
-                          int frameIndex, const char** refusal) {
+                          int frameIndex, const char** refusal, std::uint8_t* numArgs) {
   *refusal = "debugger accept refused: not an accepted method";
   const Frame* f =
       frameIndex >= 0 ? frames.frameAt(static_cast<std::uint32_t>(frameIndex)) : nullptr;
@@ -1456,13 +1459,28 @@ const Frame* acceptTarget(Session& s, const CallContext& fiber, const LiveFrames
   if (!hasEntry) {
     return nullptr;
   }
+  // A Do it while halted may have rewritten the method's slots and its class's (instVarAt:put:):
+  // its methodClass with something that is no class, its metaclass's thisClass with another
+  // class (the Accept would go into that one's metaclass).
   const Oop cls = s.heap.slotAt(m, kCmSlotMethodClass);
   const Oop sel = s.heap.slotAt(m, kCmSlotSelector);
-  if (!cls.isHeap() || !sel.isHeap()) {
+  if (!isClassShaped(s.heap, cls) || !sel.isHeap()) {
     return nullptr;
+  }
+  if (s.heap.klass(cls) == s.wk.metaclassClass) {
+    const Oop thisClass = s.heap.slotAt(cls, kClassSlotThisClass);
+    if (!isClassShaped(s.heap, thisClass) || s.heap.klass(thisClass) != cls) {
+      return nullptr;
+    }
   }
   const Oop dict = s.heap.slotAt(cls, kClassSlotMethodDict);
   if (!dict.isHeap() || MethodDictionary::at(s.heap, dict, sel) != m) {
+    return nullptr;
+  }
+  // Its header too: the arguments are read from the activation's temps, so a header naming more
+  // of them than it has is refused.
+  std::uint8_t numTemps = 0;
+  if (!decodeMethodHeader(*s.ctx, m, numArgs, &numTemps) || *numArgs > f->temps->n) {
     return nullptr;
   }
   *refusal = nullptr;
@@ -1583,7 +1601,8 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
   }
   const LiveFrames frames(*fiber, *reason);
   const char* refusal = nullptr;
-  const Frame* target = acceptTarget(*s, *fiber, frames, frameIndex, &refusal);
+  std::uint8_t numArgs = 0;
+  const Frame* target = acceptTarget(*s, *fiber, frames, frameIndex, &refusal, &numArgs);
   if (target == nullptr) {
     spanMessage(err, refusal);
     blankOut(out, outLen);
@@ -1593,15 +1612,6 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
   // which may collect, and handed to the process by proceed.
   CallContext& ctx = *s->ctx;
   const Oop old = target->method;
-  std::uint8_t numArgs = 0;
-  std::uint8_t numTemps = 0;
-  // A Do it while halted may have rewritten the header (instVarAt:put:): the arguments are read
-  // from the activation's temps, so a header naming more of them than it has is refused.
-  if (!decodeMethodHeader(ctx, old, &numArgs, &numTemps) || numArgs > target->temps->n) {
-    spanMessage(err, "debugger accept refused: not an accepted method");
-    blankOut(out, outLen);
-    return AO_ERR;
-  }
   std::vector<Oop> slots(2u + numArgs, Oop::nil());
   slots[1] = target->receiver;
   for (std::uint32_t i = 0; i < numArgs; ++i) {
@@ -2637,7 +2647,8 @@ int debugCanAccept(std::int64_t pid, int frameIndex) {
   }
   const LiveFrames frames(*ctx, *reason);
   const char* refusal = nullptr;
-  return acceptTarget(*s, *ctx, frames, frameIndex, &refusal) != nullptr ? 1 : 0;
+  std::uint8_t numArgs = 0;
+  return acceptTarget(*s, *ctx, frames, frameIndex, &refusal, &numArgs) != nullptr ? 1 : 0;
 }
 
 int debugSelect(std::int64_t pid) {

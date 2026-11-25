@@ -2365,6 +2365,7 @@ TEST_F(LiveAccept, AcceptRefusesHeaderRewrittenWhileHalted) {
     ASSERT_EQ(AO_OK, doIt("m instVarAt: 1 put: (m instVarAt: 1) + 3")) << err_.message;
     ASSERT_EQ(AO_OK, printIt("(m instVarAt: 1) - h")) << err_.message;
     ASSERT_STREQ("3", out_);
+    EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
     EXPECT_EQ(AO_ERR, acceptIn(pid, 1, c.accepted));
     EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
     EXPECT_EQ(0u, err_.start);
@@ -2376,6 +2377,83 @@ TEST_F(LiveAccept, AcceptRefusesHeaderRewrittenWhileHalted) {
     EXPECT_STREQ(c.method, buf);
   }
   EXPECT_EQ(2, ao_debug_halted_count());
+}
+
+// review-agy H4: a Do it while halted may put something that is no class into the halted method's
+// methodClass (instVarAt: 6 put:). The Accept is refused from the method's frame and from its
+// block's frame alike, and the frames, their labels and their sources still read.
+TEST_F(LiveAccept, AcceptRefusesMethodClassRewrittenWhileHalted) {
+  const char* const method = "bar\n  ^[self halt. 1] value";
+  const char* const others[] = {"Object new", "'abc'"};
+  defineClass("DbgAccCls");
+  const std::int64_t id = ao_browser_class_id("DbgAccCls");
+  for (const char* other : others) {
+    SCOPED_TRACE(other);
+    accept("DbgAccCls", 0, method);
+    ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccCls new bar"));
+    const std::int64_t pid = selectHalted();
+    ASSERT_EQ(4, ao_debug_frame_count());
+    ASSERT_EQ("[] in DbgAccCls>>bar", label(1));
+    ASSERT_EQ("DbgAccCls>>bar", label(2));
+    ASSERT_EQ(1, ao_debug_can_accept(pid, 2));
+    const std::string rewrite =
+        std::string("(DbgAccCls compiledMethodAt: #bar) instVarAt: 6 put: ") + other;
+    ASSERT_EQ(AO_OK, doIt(rewrite.c_str())) << err_.message;
+    EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+    EXPECT_EQ(0, ao_debug_can_accept(pid, 2));
+    for (const int frame : {1, 2}) {
+      SCOPED_TRACE(frame);
+      EXPECT_EQ(AO_ERR, acceptIn(pid, frame, "bar\n  ^3"));
+      EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+      EXPECT_EQ(0u, err_.start);
+      EXPECT_EQ(0u, err_.end);
+      EXPECT_STREQ("", out_);
+    }
+    EXPECT_EQ(pid, ao_debug_halted_pid());
+    ASSERT_EQ(AO_OK, ao_debug_select(pid));
+    EXPECT_EQ(4, ao_debug_frame_count());
+    EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+    EXPECT_EQ("[] in >>bar", label(1));
+    EXPECT_EQ(">>bar", label(2));
+    EXPECT_EQ("doIt", label(3));
+    for (const int frame : {1, 2}) {
+      SCOPED_TRACE(frame);
+      const Source src = source(frame);
+      EXPECT_EQ(AO_OK, src.rc);
+      EXPECT_EQ(method, src.text);
+    }
+    char buf[256] = "unset";
+    EXPECT_EQ(AO_OK, ao_browser_source(id, 0, "bar", buf, sizeof buf));
+    EXPECT_STREQ(method, buf);
+  }
+  EXPECT_EQ(2, ao_debug_halted_count());
+}
+
+// review-agy H4: a Do it while halted may point the metaclass's thisClass at another class
+// (instVarAt: 5 put:). The Accept of the class-side method is refused instead of going into the
+// other class's metaclass.
+TEST_F(LiveAccept, AcceptRefusesThisClassRewrittenWhileHalted) {
+  defineClass("DbgAccThis");
+  defineClass("DbgAccOther");
+  accept("DbgAccThis", 1, "make\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccThis make"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccThis class>>make", label(1));
+  ASSERT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_OK, doIt("m := DbgAccThis class compiledMethodAt: #make")) << err_.message;
+  ASSERT_EQ(AO_OK, doIt("DbgAccThis class instVarAt: 5 put: DbgAccOther")) << err_.message;
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 1, "make\n  ^7"));
+  EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+  EXPECT_EQ(0u, err_.start);
+  EXPECT_EQ(0u, err_.end);
+  EXPECT_STREQ("", out_);
+  EXPECT_EQ(pid, ao_debug_halted_pid());
+  ASSERT_EQ(AO_OK, printIt("(DbgAccThis class compiledMethodAt: #make) == m")) << err_.message;
+  EXPECT_STREQ("true", out_);
+  ASSERT_EQ(AO_OK, printIt("DbgAccOther class includesSelector: #make")) << err_.message;
+  EXPECT_STREQ("false", out_);
+  EXPECT_EQ(1, ao_debug_halted_count());
 }
 
 TEST_F(LiveAccept, AcceptUnknownPidFails) {
