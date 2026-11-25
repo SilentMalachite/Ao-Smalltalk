@@ -374,7 +374,7 @@ TEST(Process, SignalOnDamagedLinkedListEnds) {
 
 // review-agy M6: next reads the SharedQueue's contents the same way. With lastIndex past the
 // array, next answered the element at firstIndex; read as empty, it would take readSynch's signal
-// and wait. SPEC §3.4: next fails with `damaged ordered collection`.
+// and wait. SPEC §3.4: next fails with `damaged ordered collection` and changes nothing.
 TEST(Process, NextOnDamagedContentsFails) {
   Boot b;
   const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
@@ -388,6 +388,9 @@ TEST(Process, NextOnDamagedContentsFails) {
   EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
   EXPECT_EQ(smi(1), send1(b, contents.slot, "instVarAt:", smi(2)));
   EXPECT_EQ(max, send1(b, contents.slot, "instVarAt:", smi(3)));
+  // It fails before it waits: readSynch keeps the signal of the element still in contents.
+  ao::Root read(b.roots, send1(b, q.slot, "instVarAt:", smi(2)));
+  EXPECT_EQ(smi(1), send1(b, read.slot, "instVarAt:", smi(1)));
 }
 
 // ---- fork と yield ----

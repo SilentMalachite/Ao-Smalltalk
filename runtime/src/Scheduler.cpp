@@ -837,6 +837,14 @@ Oop Scheduler::next(CallContext& ctx, Oop queue) {
     return Oop{};
   }
   for (;;) {
+    // SPEC §3.4: contents whose slots do not fit (instVarAt:put:) fail next before it waits, so
+    // readSynch keeps its signal. Damaged while it waited, they read as empty and come back here.
+    OcSlots slots;
+    if (ocRead(heap, ctx.wk, heap.slotAt(q.slot, kSharedQueueSlotContents), &slots) ==
+        OcShape::Damaged) {
+      fail(ctx, q.slot, "damaged ordered collection");
+      return Oop{};
+    }
     const Oop read = heap.slotAt(q.slot, kSharedQueueSlotRead);
     if (!hasSlots(heap, read, kSemaphoreSlotList)) {
       return Oop{};
@@ -847,12 +855,6 @@ Oop Scheduler::next(CallContext& ctx, Oop queue) {
     // Other processes ran: read the queue again. A waiter resumed without a signal (suspend and
     // resume, SPEC §3.4) takes an element when there is one, and waits again when it is empty.
     const Oop contents = heap.slotAt(q.slot, kSharedQueueSlotContents);
-    // SPEC §3.4: contents whose slots do not fit (instVarAt:put:) fail next.
-    OcSlots slots;
-    if (ocRead(heap, ctx.wk, contents, &slots) == OcShape::Damaged) {
-      fail(ctx, q.slot, "damaged ordered collection");
-      return Oop{};
-    }
     if (ocSize(heap, ctx.wk, contents) > 0) {
       return ocRemoveFirst(heap, ctx.wk, contents);
     }
