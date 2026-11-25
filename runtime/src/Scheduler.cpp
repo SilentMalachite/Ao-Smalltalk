@@ -23,7 +23,8 @@ namespace {
 
 // What a Scheduler list (a linkedList, the ready queue, a SharedQueue's contents) says, read
 // without a send. One without the three slots (a linkedList slot holding nil) has no elements;
-// otherwise as ocRead (SPEC §3.6). Damaged: the natives fail, the adoption walk sees none (§3.4).
+// otherwise as ocRead (SPEC §3.6). Damaged: the natives fail, the send-less walks see none, and
+// adoption resets a damaged ready queue (§3.4).
 OcShape listShape(const Heap& heap, const WellKnown& wk, Oop oc, OcSlots* out) {
   if (!hasSlots(heap, oc, kOcLast)) {
     return OcShape::Empty;
@@ -291,8 +292,16 @@ void Scheduler::adoptImage() {
   if (hasSlots(heap, sched.slot, kSchedulerSlotActive)) {
     heap.slotAtPut(sched.slot, kSchedulerSlotActive, b.process);
     // SPEC §3.11: the ready queue starts empty; what the image had there cannot run. A damaged
-    // queue is read as empty (SPEC §3.4).
+    // OrderedCollection there is reset to the empty form without allocating, so the natives can
+    // use it again; anything else is left alone, and the next enqueue replaces it (SPEC §3.4).
     const Oop q = heap.slotAt(sched.slot, kSchedulerSlotQuiescent);
+    OcSlots slots;
+    if (ctx.wk.classOf(q) == ctx.wk.orderedCollectionClass &&
+        listShape(heap, ctx.wk, q, &slots) == OcShape::Damaged) {
+      heap.slotAtPut(q, kOcArray, Oop::nil());
+      heap.slotAtPut(q, kOcFirst, Oop::fromSmallInteger(1));
+      heap.slotAtPut(q, kOcLast, Oop::fromSmallInteger(0));
+    }
     for (auto n = ocSize(heap, ctx.wk, q); n > 0; --n) {
       const Oop p = ocRemoveFirst(heap, ctx.wk, q);
       if (hasSlots(heap, p, kProcessSlotMyList) && heap.slotAt(p, kProcessSlotMyList) == q) {
@@ -761,9 +770,15 @@ bool Scheduler::terminateProcess(CallContext& ctx, Oop process, bool fromSend) {
   }
   if (r->signaledBy.isHeap()) {
     // SPEC §3.4 terminate: signalled but not back from wait yet, it gives the signal back, as a
-    // second signal would. When that fails, the process stays as it was.
+    // second signal would. When that fails, the process stays as it was. Without a send, a
+    // damaged linkedList cannot take the signal back: it is dropped and the terminate goes on.
     Root sem(ctx.roots, r->signaledBy);
-    if (!signal(ctx, sem.slot)) {
+    OcSlots slots;
+    const bool dropped =
+        !fromSend && hasSlots(ctx.heap, sem.slot, kSemaphoreSlotList) &&
+        listShape(ctx.heap, ctx.wk, ctx.heap.slotAt(sem.slot, kSemaphoreSlotList), &slots) ==
+            OcShape::Damaged;
+    if (!dropped && !signal(ctx, sem.slot)) {
       return false;
     }
     r->signaledBy = Oop::nil();

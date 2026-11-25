@@ -169,8 +169,10 @@ class Scheduler {
   // suspend and terminate natives. Does not collect.
   bool listsDamaged(const Record& r) const;
   // The body of terminate. fromSend: the native's, which fails on a damaged list; false for the
-  // runtime's own ends without a send (abortHalted, terminateAll), which take the process out as
-  // before.
+  // runtime's own ends without a send (abortHalted, terminateAll), which read a damaged list as
+  // empty and drop a signal they cannot give back to a damaged linkedList. Giving a signal back
+  // can still fail them otherwise (excess signals out of range, or a waiter it wakes that the
+  // ready queue cannot take).
   bool terminateProcess(CallContext& ctx, Oop process, bool fromSend);
   Record* takeNext(Record& me);
   bool block(CallContext& ctx, Record& me);

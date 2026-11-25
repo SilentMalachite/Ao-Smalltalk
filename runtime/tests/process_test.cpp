@@ -493,6 +493,101 @@ TEST(Process, SuspendAndTerminateOnDamagedListFail) {
   EXPECT_FALSE(b.ctx.aborting);
 }
 
+// review-agy R4 F3 / SPEC §3.4, §3.11: adoption (what a load and a boot end with) resets a damaged
+// ready queue to the empty form, so fork, resume, yield and signal work afterwards. A ready queue
+// that is no OrderedCollection stays as it was; the next fork replaces it.
+TEST(Process, AdoptionResetsDamagedReadyQueue) {
+  Boot b;
+  ao::Root queue(b.roots, readyList(b));
+  // A fork and a yield give the queue its array, so lastIndex alone damages it.
+  run(b, "doIt\n  [nil] fork.\n  Processor yield");
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  ASSERT_TRUE(send1(b, queue.slot, "instVarAt:", smi(1)).isHeap());
+  ao::Root max(b.roots, smi(ao::kSmiMax));
+  ao::Root abc(b.roots, run(b, "doIt\n  ^'abc'"));
+  ASSERT_TRUE(abc.slot.isHeap());
+
+  struct Case {
+    const char* name;
+    std::int64_t slot;
+    const ao::Root* value;
+  };
+  for (const Case& c : {Case{"lastIndex at SmallInteger max", 3, &max},
+                        Case{"array a String", 1, &abc}}) {
+    SCOPED_TRACE(c.name);
+    ASSERT_EQ(c.value->slot, send2(b, queue.slot, "instVarAt:put:", smi(c.slot), c.value->slot));
+    EXPECT_TRUE(send0(b, queue.slot, "size").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    EXPECT_EQ("damaged ordered collection", runAbort(b, "doIt\n  [nil] fork"));
+    b.scheduler.adoptImage();
+    EXPECT_EQ(queue.slot, readyList(b));
+    EXPECT_TRUE(send1(b, queue.slot, "instVarAt:", smi(1)).isNil());
+    EXPECT_EQ(smi(1), send1(b, queue.slot, "instVarAt:", smi(2)));
+    EXPECT_EQ(smi(0), send1(b, queue.slot, "instVarAt:", smi(3)));
+    ao::Root forked(b.roots, run(b, "doIt\n  ^[nil] fork"));
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+    ASSERT_TRUE(forked.slot.isHeap());
+    EXPECT_EQ(b.wk.processClass, b.heap.klass(forked.slot));
+    EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+  }
+
+  // Not an OrderedCollection: adoption leaves its slots alone.
+  ao::Root other(b.roots, run(b, "doIt\n  ^#(7 8 9)"));
+  ASSERT_TRUE(other.slot.isHeap());
+  ASSERT_EQ(other.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), other.slot));
+  b.scheduler.adoptImage();
+  EXPECT_EQ(other.slot, readyList(b));
+  EXPECT_EQ("7 8 9", itemsOf(b, other.slot));
+  ao::Root forked(b.roots, run(b, "doIt\n  ^[nil] fork"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  ASSERT_TRUE(forked.slot.isHeap());
+  EXPECT_EQ(b.wk.processClass, b.heap.klass(forked.slot));
+  EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(readyList(b)));
+  EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}
+
+// review-agy R4 F4 / SPEC §3.4: terminateAll is no send. A process signalled and then suspended
+// before it came back from wait has the signal to give back; a damaged linkedList cannot take it,
+// so the terminate goes on without it and the cleanups run.
+TEST(Process, TerminateAllEndsSignaledProcessOnDamagedLinkedList) {
+  Boot b;
+  ao::Root env(b.roots, newEnv(b, 3));
+  run(b,
+      "doIt: env\n"
+      "  | sem |\n"
+      "  sem := Semaphore new.\n"
+      "  env at: 1 put: sem.\n"
+      "  env at: 2 put: [[sem wait] ensure: [env at: 3 put: #cleaned]] fork.\n"
+      "  Processor yield",
+      env.slot);
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  ao::Root sem(b.roots, at(b, env.slot, 1));
+  ao::Root waiter(b.roots, at(b, env.slot, 2));
+  ASSERT_EQ(1u, b.scheduler.liveFibers());
+  // Signalled (ready, not back from wait), then suspended: the signal is still to give back.
+  EXPECT_EQ(sem.slot, send0(b, sem.slot, "signal"));
+  send0(b, waiter.slot, "suspend");
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  ao::Root list(b.roots, send1(b, sem.slot, "instVarAt:", smi(2)));
+  ao::Root abc(b.roots, run(b, "doIt\n  ^'abc'"));
+  ASSERT_TRUE(abc.slot.isHeap());
+  ASSERT_EQ(abc.slot, send2(b, list.slot, "instVarAt:put:", smi(1), abc.slot));
+  EXPECT_TRUE(send0(b, list.slot, "size").isEmpty());
+  EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+
+  b.scheduler.terminateAll(false);
+  ao::Root cleaned(b.roots, b.wk.intern("cleaned"));
+  EXPECT_EQ(cleaned.slot, at(b, env.slot, 3));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_EQ(0u, b.scheduler.processFailures());
+  EXPECT_FALSE(b.ctx.aborting);
+  // The signal was dropped: no excess signal, and the list is as it was.
+  EXPECT_EQ(smi(0), send1(b, sem.slot, "instVarAt:", smi(1)));
+  EXPECT_EQ(abc.slot, send1(b, list.slot, "instVarAt:", smi(1)));
+}
+
 // ---- fork と yield ----
 
 TEST(Process, ForkRunsOnlyAfterYield) {
