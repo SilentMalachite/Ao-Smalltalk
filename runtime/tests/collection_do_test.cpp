@@ -807,6 +807,34 @@ TEST(CollectionDo, IsEmptyOnLargeIntervalAnswersBoolean) {
   EXPECT_EQ("true", printOf(b, "^(1 to: 0) isEmpty"));
 }
 
+// review-agy R4 F2 / SPEC §3.6: isEmpty fails when size answers no Integer, instead of answering a
+// Boolean for it.
+TEST(CollectionDo, IsEmptyWithNonIntegerSizeFails) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Collection subclass: #NilSized\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'R4-Test'!\n"
+                               "!NilSized methodsFor: 'accessing'!\n"
+                               "size\n"
+                               "  ^nil! !\n"
+                               "!Collection subclass: #StringSized\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'R4-Test'!\n"
+                               "!StringSized methodsFor: 'accessing'!\n"
+                               "size\n"
+                               "  ^'0'! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  EXPECT_EQ("<abort: failed: #isEmpty>", printOf(b, "^NilSized new isEmpty"));
+  EXPECT_EQ("<abort: failed: #isEmpty>", printOf(b, "^StringSized new isEmpty"));
+}
+
 // review-agy M12 / SPEC §3.6: ArrayedCollection>>do: fails when size is not a SmallInteger,
 // instead of answering the size.
 TEST(CollectionDo, ArrayedDoWithNonSmallIntegerSizeFails) {
