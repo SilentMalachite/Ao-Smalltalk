@@ -135,8 +135,9 @@ TEST(MethodDictionary, AtPutFailureReachesInstallMethod) {
 }
 
 // メソッド辞書の tally も Smalltalk から書き換えられる（クラスの instVarAt: 2 が辞書）。
-// SmallInteger の最大値にしてからメソッドを足すと、+1 が範囲を超える。abort せず、登録に失敗する。
-TEST(MethodDictionary, AtPutWithTallyAtSmiMaxFails) {
+// SmallInteger の最大値にしてからメソッドを足しても、atPut は tally を信じず数え直すので、
+// +1 が範囲を超えることはない。登録は入り、tally は実際の数になる。
+TEST(MethodDictionary, AtPutWithTallyAtSmiMaxRecountsAndInstalls) {
   Boot b;
   std::vector<ao::compiler::CompileError> errs;
   ASSERT_TRUE(ao::fileInString(b.ctx,
@@ -159,9 +160,40 @@ TEST(MethodDictionary, AtPutWithTallyAtSmiMaxFails) {
   ASSERT_TRUE(cr.ok);
   ao::Root sel(b.roots, b.wk.intern("one"));
 
-  EXPECT_FALSE(ao::installMethod(b.ctx, cls.slot, cr.image).isHeap());
-  EXPECT_FALSE(ao::lookup(b.heap, cls.slot, sel.slot).isHeap());
-  EXPECT_EQ(max, b.heap.slotAt(dict.slot, ao::kDictSlotTally));
+  EXPECT_TRUE(ao::installMethod(b.ctx, cls.slot, cr.image).isHeap());
+  EXPECT_TRUE(ao::lookup(b.heap, cls.slot, sel.slot).isHeap());
+  EXPECT_EQ(ao::Oop::fromSmallInteger(1), b.heap.slotAt(dict.slot, ao::kDictSlotTally));
+}
+
+// 内側の配列は instVarAt:put: で奇数長に差し替えられ、tally は実際の数と食い違いうる。
+// それでも atPut は空きの対を探し、空きが無ければ拡張して tally を数え直し、登録する（bindIn と同じ）。
+TEST(MethodDictionary, AtPutGrowsWhenTallyLies) {
+  Boot b;
+  ao::Root dict(b.roots, ao::MethodDictionary::create(b.heap, b.wk, 1));
+  ASSERT_TRUE(dict.slot.isHeap());
+  ao::Root odd(b.roots, b.heap.allocateNoGc(ao::Oop::nil(), 3, 0));  // 対は 1 つ、余りが 1 スロット
+  ASSERT_TRUE(odd.slot.isHeap());
+  for (std::uint32_t i = 0; i < 3; ++i) {
+    b.heap.slotAtPut(odd.slot, i, ao::Oop::nil());
+  }
+  b.heap.slotAtPut(dict.slot, ao::kDictSlotArray, odd.slot);
+  ao::Root a(b.roots, b.wk.intern("lieA"));
+  ao::Root c(b.roots, b.wk.intern("lieB"));
+  ao::Root d(b.roots, b.wk.intern("lieC"));
+  const ao::Oop one = ao::Oop::fromSmallInteger(1);
+  const ao::Oop two = ao::Oop::fromSmallInteger(2);
+  const ao::Oop three = ao::Oop::fromSmallInteger(3);
+
+  EXPECT_TRUE(ao::MethodDictionary::atPut(b.heap, dict.slot, a.slot, one));
+  // tally を 0 に偽る。空きの対は無いので、2 回目は拡張が要る。
+  b.heap.slotAtPut(dict.slot, ao::kDictSlotTally, ao::Oop::fromSmallInteger(0));
+  EXPECT_TRUE(ao::MethodDictionary::atPut(b.heap, dict.slot, c.slot, two));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(2), b.heap.slotAt(dict.slot, ao::kDictSlotTally));
+  EXPECT_TRUE(ao::MethodDictionary::atPut(b.heap, dict.slot, d.slot, three));
+  EXPECT_EQ(ao::Oop::fromSmallInteger(3), b.heap.slotAt(dict.slot, ao::kDictSlotTally));
+  EXPECT_EQ(one, ao::MethodDictionary::at(b.heap, dict.slot, a.slot));
+  EXPECT_EQ(two, ao::MethodDictionary::at(b.heap, dict.slot, c.slot));
+  EXPECT_EQ(three, ao::MethodDictionary::at(b.heap, dict.slot, d.slot));
 }
 
 // セレクタはヒープの Symbol に限る。空 Oop（intern の失敗）や nil（空きスロットの印）、即値をキーに

@@ -72,35 +72,33 @@ bool atPut(Heap& heap, Oop dict, Oop key, Oop value) {
   if (inner.isEmpty()) {
     return false;
   }
+  // tally と配列の長さは Smalltalk から書き換えられる（クラスの instVarAt: で辞書に届く）。
+  // tally は信じず、空きの対を探しながら実際の数を数える（Globals の bindIn と同じ形）。
   auto n = heap.size(inner);
+  std::uint32_t empty = UINT32_MAX;
+  std::int64_t bound = 0;
   for (std::uint32_t i = 0; i + 1 < n; i += 2) {
-    if (heap.slotAt(inner, i) == key) {
+    const Oop k = heap.slotAt(inner, i);
+    if (k == key) {
       heap.slotAtPut(inner, i + 1, value);
       return true;
     }
+    if (!k.isNil()) {
+      ++bound;
+    } else if (empty == UINT32_MAX) {
+      empty = i;
+    }
   }
-  const auto tallyOop = heap.slotAt(dict, kDictSlotTally);
-  const auto tally = tallyOop.isSmallInteger() ? tallyOop.smallIntegerValue() : 0;
-  // tally は Smalltalk から書き換えられる（クラスの instVarAt: で辞書に届く）。+1 が SmallInteger
-  // を超えるなら、登録せずに失敗を返す。
-  if (tally >= kSmiMax) {
-    return false;
-  }
-  if (tally * 2 == static_cast<std::int64_t>(n)) {
+  if (empty == UINT32_MAX) {
     if (!growInner(heap, dict, inner)) {
       return false;
     }
-    n = heap.size(inner);
+    empty = n - n % 2;  // 奇数長の余りのスロットは対にしない
   }
-  for (std::uint32_t i = 0; i + 1 < n; i += 2) {
-    if (heap.slotAt(inner, i).isNil()) {
-      heap.slotAtPut(inner, i, key);
-      heap.slotAtPut(inner, i + 1, value);
-      heap.slotAtPut(dict, kDictSlotTally, Oop::fromSmallInteger(tally + 1));
-      return true;
-    }
-  }
-  return false;
+  heap.slotAtPut(inner, empty, key);
+  heap.slotAtPut(inner, empty + 1, value);
+  heap.slotAtPut(dict, kDictSlotTally, Oop::fromSmallInteger(bound + 1));
+  return true;
 }
 
 bool removeKey(Heap& heap, Oop dict, Oop key) {
