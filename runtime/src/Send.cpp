@@ -410,6 +410,19 @@ bool callBlock(CallContext& ctx, Oop blk, const Oop* args, std::uint32_t n, Oop*
   return true;
 }
 
+bool sendDo(CallContext& ctx, Oop receiver, Oop thunk) {
+  const Oop answer = send(ctx, receiver, ctx.wk.selDo_, &thunk, 1, nullptr);
+  if (unwinding(ctx)) {
+    return false;
+  }
+  if (answer.isEmpty()) {
+    // SPEC §3.3: do: failed without an abort. Its elements were not all seen.
+    abortFailedSend(ctx, ctx.wk.selDo_);
+    return false;
+  }
+  return true;
+}
+
 bool truthOf(CallContext& ctx, Oop value, bool* truth) {
   if (value.isTrue() || value.isFalse()) {
     *truth = value.isTrue();

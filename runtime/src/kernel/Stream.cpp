@@ -477,11 +477,10 @@ Oop ao_Stream_nextPutAll_(CallContext& ctx, const Oop& receiver, const Oop* args
   Root coll(ctx.roots, args[0]);
   Root thunk(ctx.roots, makeNativeBlock(ctx, ao_Stream_nextPutAll_each, 1));
   if (!thunk.slot.isHeap()) {
-    return coll.slot;
+    return Oop{};
   }
   ctx.heap.slotAtPut(thunk.slot, kBlockHome, self.slot);
-  send(ctx, coll.slot, ctx.wk.selDo_, &thunk.slot, 1, nullptr);
-  if (unwinding(ctx)) {
+  if (!sendDo(ctx, coll.slot, thunk.slot)) {
     return Oop{};
   }
   return coll.slot;
@@ -493,8 +492,8 @@ Oop ao_Stream_cr(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_
   }
   Root self(ctx.roots, receiver);
   Oop nl = Oop::fromCharacter(static_cast<char32_t>('\n'));
-  send(ctx, self.slot, selNextPut(ctx.wk), &nl, 1, nullptr);
-  if (unwinding(ctx)) {
+  const Oop put = send(ctx, self.slot, selNextPut(ctx.wk), &nl, 1, nullptr);
+  if (unwinding(ctx) || put.isEmpty()) {
     return Oop{};
   }
   return self.slot;

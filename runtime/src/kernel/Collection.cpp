@@ -240,8 +240,7 @@ Oop filterIntoArray(CallContext& ctx, Root& rcvr, Root& blk, bool keepTrue) {
   ctx.heap.slotAtPut(thunk.slot, kBlockHome, buf.slot);
   ctx.heap.slotAtPut(thunk.slot, kCtxPc, Oop::fromSmallInteger(0));
   ctx.heap.slotAtPut(thunk.slot, kCtxStackp, keepTrue ? Oop::true_() : Oop::false_());
-  send(ctx, rcvr.slot, ctx.wk.selDo_, &thunk.slot, 1, nullptr);
-  if (unwinding(ctx)) {
+  if (!sendDo(ctx, rcvr.slot, thunk.slot)) {
     return Oop{};
   }
   std::int64_t n = 0;
@@ -299,14 +298,16 @@ Oop ao_Collection_collect_(CallContext& ctx, const Oop& receiver, const Oop* arg
   }
   Root arr(ctx.roots, send(ctx, ctx.wk.arrayClass, ctx.wk.selBasicNew_, &nOop, 1, nullptr));
   Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_collect_fill, 1));
-  if (!thunk.slot.isHeap() || !arr.slot.isHeap()) {
+  if (!thunk.slot.isHeap()) {
+    return Oop{};
+  }
+  if (!arr.slot.isHeap()) {
     return arr.slot;
   }
   ctx.heap.slotAtPut(thunk.slot, kBlockCopied, blk.slot);
   ctx.heap.slotAtPut(thunk.slot, kBlockHome, arr.slot);
   ctx.heap.slotAtPut(thunk.slot, kCtxPc, Oop::fromSmallInteger(1));
-  send(ctx, rcvr.slot, ctx.wk.selDo_, &thunk.slot, 1, nullptr);
-  if (unwinding(ctx)) {
+  if (!sendDo(ctx, rcvr.slot, thunk.slot)) {
     return Oop{};
   }
   return arr.slot;
@@ -343,14 +344,12 @@ Oop ao_Collection_detect_ifNone_(CallContext& ctx, const Oop& receiver, const Oo
   Oop answer;
   Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_detect_scan, 1));
   if (!thunk.slot.isHeap()) {
-    callBlock(ctx, none.slot, nullptr, 0, &answer);
-    return answer;
+    return Oop{};
   }
   ctx.heap.slotAtPut(thunk.slot, kBlockCopied, pred.slot);
   ctx.heap.slotAtPut(thunk.slot, kBlockHome, Oop::nil());
   ctx.heap.slotAtPut(thunk.slot, kCtxPc, Oop::false_());
-  send(ctx, rcvr.slot, ctx.wk.selDo_, &thunk.slot, 1, nullptr);
-  if (unwinding(ctx)) {
+  if (!sendDo(ctx, rcvr.slot, thunk.slot)) {
     return Oop{};
   }
   if (ctx.heap.slotAt(thunk.slot, kCtxPc).isTrue()) {
@@ -370,12 +369,11 @@ Oop ao_Collection_inject_into_(CallContext& ctx, const Oop& receiver, const Oop*
   Root bin(ctx.roots, args[1]);
   Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_inject_scan, 1));
   if (!thunk.slot.isHeap()) {
-    return acc.slot;
+    return Oop{};
   }
   ctx.heap.slotAtPut(thunk.slot, kBlockCopied, bin.slot);
   ctx.heap.slotAtPut(thunk.slot, kBlockHome, acc.slot);
-  send(ctx, rcvr.slot, ctx.wk.selDo_, &thunk.slot, 1, nullptr);
-  if (unwinding(ctx)) {
+  if (!sendDo(ctx, rcvr.slot, thunk.slot)) {
     return Oop{};
   }
   return ctx.heap.slotAt(thunk.slot, kBlockHome);
@@ -392,13 +390,12 @@ Oop ao_Collection_includes_(CallContext& ctx, const Oop& receiver, const Oop* ar
   // values. No hash is sent.
   Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_includes_scan, 1));
   if (!thunk.slot.isHeap()) {
-    return Oop::false_();
+    return Oop{};
   }
   ctx.heap.slotAtPut(thunk.slot, kBlockHome, needle.slot);
   ctx.heap.slotAtPut(thunk.slot, kCtxSender, selEquals(ctx.wk));
   ctx.heap.slotAtPut(thunk.slot, kCtxPc, Oop::false_());
-  send(ctx, rcvr.slot, ctx.wk.selDo_, &thunk.slot, 1, nullptr);
-  if (unwinding(ctx)) {
+  if (!sendDo(ctx, rcvr.slot, thunk.slot)) {
     return Oop{};
   }
   return ctx.heap.slotAt(thunk.slot, kCtxPc).isTrue() ? Oop::true_() : Oop::false_();
