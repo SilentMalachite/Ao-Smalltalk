@@ -2024,6 +2024,10 @@ TEST(ImageSaveLoad, LoadedBlockFrameReadsHomeSource) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
   char out[64];
+  // An early ASSERT must not leave capture on for the tests after this one.
+  struct CaptureOff {
+    ~CaptureOff() { ao_set_debug_capture(0); }
+  } captureOff;
   ao_set_debug_capture(1);
   ASSERT_EQ(AO_ERR_EVAL, ao_eval("H3Blk new run", 13, AO_EVAL_DOIT, out, 64, &err));
   int blockFrame = -1;
@@ -2035,16 +2039,22 @@ TEST(ImageSaveLoad, LoadedBlockFrameReadsHomeSource) {
   }
   ASSERT_GE(blockFrame, 0);
   char text[256];
+  // Seeded, so the empty highlight is the call's answer.
   AoSpan span{};
+  span.start = 7;
+  span.end = 9;
   EXPECT_EQ(AO_OK, ao_debug_frame_source(blockFrame, text, sizeof text, &span));
   EXPECT_STREQ(body, text);
   EXPECT_EQ(0u, span.start);
   EXPECT_EQ(0u, span.end);
   char small[16];
+  span.start = 7;
+  span.end = 9;
   EXPECT_EQ(AO_ERR_RANGE, ao_debug_frame_source(blockFrame, small, sizeof small, &span));
   EXPECT_EQ('\0', small[sizeof small - 1]);
+  EXPECT_EQ(0u, span.start);
+  EXPECT_EQ(0u, span.end);
   ao_runtime_shutdown();
-  ao_set_debug_capture(0);
   std::filesystem::remove(path);
 }
 

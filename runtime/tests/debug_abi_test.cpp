@@ -2361,6 +2361,7 @@ TEST_F(LiveAccept, AcceptWithoutRootSlotsLeavesNoPin) {
       ASSERT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
     }
     ASSERT_EQ(AO_OK, ao_debug_clear());
+    ASSERT_EQ(0u, s->roots.counts().pinnedSlots);
   }
   EXPECT_GT(ended, 0);
 }
