@@ -1,6 +1,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include "ao/Context.hpp"
+#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
@@ -275,12 +276,16 @@ Oop ao_ArrayedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* a
     return Oop{};
   }
   const auto n = nOop.smallIntegerValue();
+  Gc gc(ctx.heap, ctx.roots);
   Oop ignored;
   for (std::int64_t i = 1; i <= n; ++i) {
     Oop idx = Oop::fromSmallInteger(i);
     elt.slot = send(ctx, rcvr.slot, ctx.wk.selAt_, &idx, 1, nullptr);
     if (unwinding(ctx) || !callBlock(ctx, blk.slot, &elt.slot, 1, &ignored)) {
       return Oop{};
+    }
+    if ((i & 0xFFFF) == 0) {
+      gc.safepoint();
     }
   }
   return rcvr.slot;

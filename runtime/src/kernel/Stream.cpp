@@ -3,6 +3,7 @@
 #include "ao/Bootstrap.hpp"
 #include "ao/Context.hpp"
 #include "ao/Format.hpp"
+#include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Globals.hpp"
 #include "ao/Lookup.hpp"
@@ -282,7 +283,11 @@ Oop stringPrefix(CallContext& ctx, Root& self, Root& coll, std::int64_t k) {
     return s;
   }
   std::string out;
+  Gc gc(ctx.heap, ctx.roots);
   for (std::int64_t i = 1; i <= k; ++i) {
+    if ((i & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
     const Oop e = sendAt(ctx, coll, i);
     if (e.isEmpty()) {
       return Oop{};
@@ -306,7 +311,11 @@ Oop stringPrefix(CallContext& ctx, Root& self, Root& coll, std::int64_t k) {
 // its bytes). A byte must be a SmallInteger from 0 to 255.
 Oop fillFromAt(CallContext& ctx, Root& self, Root& coll, Root& answer, std::int64_t k,
                std::int64_t inst, bool bytes) {
+  Gc gc(ctx.heap, ctx.roots);
   for (std::int64_t i = 1; i <= k; ++i) {
+    if ((i & 0xFFFF) == 0) {
+      gc.safepoint();
+    }
     const Oop e = sendAt(ctx, coll, i);
     if (e.isEmpty()) {
       return Oop{};
