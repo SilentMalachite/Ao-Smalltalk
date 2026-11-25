@@ -290,3 +290,60 @@ TEST(Behavior, BasicNewOnByteObjectWithMetaclassClassFails) {
   EXPECT_TRUE(seen.sawClass);
   EXPECT_FALSE(seen.sawBytes);
 }
+
+// SPEC §3.6: the byte object of the test above is not class-shaped. The Behavior and Class natives
+// that read a class's slots fail on it instead of reading its bytes as slots (memory safety only),
+// and instSize, isVariable, isBytes and isPointers fail too instead of answering a format of 0.
+TEST(Behavior, NativesOnNonClassShapedReceiverFail) {
+  Boot b;
+  ASSERT_TRUE(makeSubclass(b, "AoP8").isHeap());
+  auto run = [&](const std::string& body) {
+    auto img = ao::compiler::compileMethod("doIt\n" + body);
+    EXPECT_TRUE(img.ok) << img.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+    const ao::Oop r =
+        ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+    return r.isEmpty() ? takeAbortReason(b) : std::string("<answered>");
+  };
+  ASSERT_EQ("<answered>", run("  AoP8 class instVarAt: 3 put: 196608.\n"
+                              "  ^Smalltalk at: #AoP8Bytes put: (AoP8 class basicNew: 16)"));
+  struct Row {
+    const char* send;
+    const char* reason;
+  };
+  const Row rows[] = {
+      {"instSize", "failed: #instSize"},
+      {"isVariable", "failed: #isVariable"},
+      {"isBytes", "failed: #isBytes"},
+      {"isPointers", "failed: #isPointers"},
+      {"sourceCodeAt: #foo", "failed: #sourceCodeAt:"},
+      {"superclass", "failed: #superclass"},
+      {"methodDict", "failed: #methodDict"},
+      {"selectors", "failed: #selectors"},
+      {"includesSelector: #foo", "failed: #includesSelector:"},
+      {"compiledMethodAt: #foo", "failed: #compiledMethodAt:"},
+      {"name", "failed: #name"},
+      {"category", "failed: #category"},
+      {"classPool", "failed: #classPool"},
+  };
+  for (const Row& row : rows) {
+    EXPECT_EQ(row.reason, run(std::string("  ^AoP8Bytes ") + row.send)) << row.send;
+  }
+}
+
+// SPEC §3.6: the class name, like instanceVariableNames, is a byte object. An empty pointer object
+// is no name: the send fails and no class is bound to ''.
+TEST(Behavior, SubclassWithNonByteClassNameFails) {
+  Boot b;
+  auto img = ao::compiler::compileMethod(
+      "doIt\n  ^Object subclass: Object new instanceVariableNames: '' classVariableNames: ''\n"
+      "    poolDictionaries: '' category: ''");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  const ao::Oop r =
+      ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("failed: #subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:",
+            takeAbortReason(b));
+  EXPECT_TRUE(b.wk.named("").isNil());
+}
