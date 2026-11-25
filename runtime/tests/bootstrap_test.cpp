@@ -3,7 +3,9 @@
 #include "ao/Gc.hpp"
 #include "ao/Globals.hpp"
 #include "ao/Heap.hpp"
+#include "ao/NativeMethod.hpp"
 #include "ao/Roots.hpp"
+#include "ao/Send.hpp"
 #include "ao/WellKnown.hpp"
 
 #include <gtest/gtest.h>
@@ -378,4 +380,47 @@ TEST(Bootstrap, KernelClassNamesAreInternedSymbols) {
                   b->heap->klass(b->heap->slotAt(b->heap->klass(cls), ao::kClassSlotName)));
       },
       &bag);
+}
+
+// M25 (review-agy): with a 4096-byte nursery the class skeletons, Processor and Transcript still
+// get an object (in old once the nursery is full), the sends that fill Processor's slots collect
+// instead of failing, and the booted image answers 1 + 2.
+TEST(Bootstrap, TinyNurseryStillBoots) {
+  ao::Heap heap(4096, 1 << 20);
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  ASSERT_TRUE(wk.processor.isHeap());
+  EXPECT_EQ(wk.processorSchedulerClass, heap.klass(wk.processor));
+  ASSERT_TRUE(wk.transcript.isHeap());
+  EXPECT_EQ(wk.transcriptClass, heap.klass(wk.transcript));
+  const ao::Oop quiescent = heap.slotAt(wk.processor, 0);
+  ASSERT_TRUE(quiescent.isHeap());
+  EXPECT_EQ(wk.orderedCollectionClass, heap.klass(quiescent));
+  const ao::Oop active = heap.slotAt(wk.processor, 1);
+  ASSERT_TRUE(active.isHeap());
+  EXPECT_EQ(wk.processClass, heap.klass(active));
+  // The skeletons were allocated in both the nursery and old, and old metaclasses point at
+  // Metaclass through their class word. Another nursery collection keeps the cycle.
+  ao::Gc gc(heap, roots);
+  gc.collectNursery();
+  struct Bag {
+    ao::Heap* heap;
+    ao::Oop metaclass;
+    int broken;
+  } bag{&heap, wk.metaclassClass, 0};
+  wk.eachClass(
+      [](void* p, ao::Oop cls) {
+        auto* b = static_cast<Bag*>(p);
+        if (b->heap->klass(b->heap->klass(cls)) != b->metaclass) {
+          ++b->broken;
+        }
+      },
+      &bag);
+  EXPECT_EQ(0, bag.broken);
+  ao::CallContext ctx{heap, roots, wk, nullptr};
+  const ao::Oop two = ao::Oop::fromSmallInteger(2);
+  EXPECT_EQ(ao::Oop::fromSmallInteger(3),
+            ao::send(ctx, ao::Oop::fromSmallInteger(1), wk.intern("+"), &two, 1, nullptr));
+  EXPECT_FALSE(heap.outOfMemory());
 }
