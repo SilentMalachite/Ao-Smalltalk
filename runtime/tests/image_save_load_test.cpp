@@ -2005,6 +2005,59 @@ TEST(ImageSaveLoad, AcceptedSourceSurvivesSaveAndLoad) {
   std::filesystem::remove(path);
 }
 
+// SPEC §3.10: a block frame of a method restored from an image has no source entry of its own (the
+// image keeps the method's), so it reads the home method's source with an empty highlight.
+TEST(ImageSaveLoad, LoadedBlockFrameReadsHomeSource) {
+  const auto path = std::filesystem::path(testing::TempDir()) / "h3-block-frame.aoimage";
+  const char* body = "run\n  ^#(1) collect: [:e | self error: 'inBlock']";
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("Object subclass: #H3Blk\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'H3'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("H3Blk", 0, body, &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_image_save(path.string().c_str()));
+  ao_runtime_shutdown();
+
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_image_load(path.string().c_str(), &err)) << err.message;
+  char out[64];
+  // An early ASSERT must not leave capture on for the tests after this one.
+  struct CaptureOff {
+    ~CaptureOff() { ao_set_debug_capture(0); }
+  } captureOff;
+  ao_set_debug_capture(1);
+  ASSERT_EQ(AO_ERR_EVAL, ao_eval("H3Blk new run", 13, AO_EVAL_DOIT, out, 64, &err));
+  int blockFrame = -1;
+  for (int i = 0; i < ao_debug_frame_count(); ++i) {
+    if (ao_debug_frame_kind(i) == 1) {
+      blockFrame = i;
+      break;
+    }
+  }
+  ASSERT_GE(blockFrame, 0);
+  char text[256];
+  // Seeded, so the empty highlight is the call's answer.
+  AoSpan span{};
+  span.start = 7;
+  span.end = 9;
+  EXPECT_EQ(AO_OK, ao_debug_frame_source(blockFrame, text, sizeof text, &span));
+  EXPECT_STREQ(body, text);
+  EXPECT_EQ(0u, span.start);
+  EXPECT_EQ(0u, span.end);
+  char small[16];
+  span.start = 7;
+  span.end = 9;
+  EXPECT_EQ(AO_ERR_RANGE, ao_debug_frame_source(blockFrame, small, sizeof small, &span));
+  EXPECT_EQ('\0', small[sizeof small - 1]);
+  EXPECT_EQ(0u, span.start);
+  EXPECT_EQ(0u, span.end);
+  ao_runtime_shutdown();
+  std::filesystem::remove(path);
+}
+
 // P18 / SPEC §3.11: a source for an object that is not a CompiledMethod.
 TEST(ImageSaveLoad, RefusesSourceForAnObjectThatIsNoMethod) {
   const auto path = saveWithSources("p18-not-method.aoimage", false);

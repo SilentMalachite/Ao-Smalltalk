@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace ao {
 namespace {
@@ -369,9 +370,11 @@ Leave performSend(CallContext& ctx, Frame& frame, OperandStack& stack, std::uint
   // unwinding already, it aborts with the selector as the reason (sel is rooted). The send is
   // still in flight for that abort's capture. SPEC §3.13: a live debugger halts here instead, and
   // Proceed makes nil the send's value. A native that fails after a halt right in it was
-  // proceeded (its error: answered nil) answers nil too, without halting again.
+  // proceeded (its error: answered nil) answers nil too, without halting again. Out of memory
+  // comes first: after it, stopFailedSend aborts with out of memory at this send.
   const bool proceededHere = ctx.haltProceeds != proceeds && ctx.proceededAt == &frame;
-  if (result.isEmpty() && !unwinding(ctx) && (proceededHere || stopFailedSend(ctx, sel.slot))) {
+  if (result.isEmpty() && !unwinding(ctx) &&
+      ((!ctx.heap.outOfMemory() && proceededHere) || stopFailedSend(ctx, sel.slot))) {
     result = Oop::nil();
   }
   frame.sendReceiver = nullptr;
@@ -439,7 +442,13 @@ bool litVar(CallContext& ctx, Oop method, std::uint8_t index, Oop* assoc) {
     return true;
   }
   ao::clearInterruptRequest();
-  return ctx.scheduler->halt(ctx, "interrupted", true);
+  if (!ctx.scheduler->halt(ctx, "interrupted", true)) {
+    return false;
+  }
+  // SPEC §3.13 Step: both checkpoints go on at this frame's loop top, which would check the
+  // stopped instruction again; a Step from here skips that check once, so the instruction runs.
+  ctx.stepSkipOnce = ctx.stepMode != StepMode::None;
+  return true;
 }
 
 // SPEC §3.13 step: whether the stepping process has come where it stops, before the instruction at
@@ -640,7 +649,9 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
     mirror(ctx, *frame, stack.depth());
     // SPEC §3.13: the one branch the live debugger's step adds to the loop.
     if (ctx.stepMode != StepMode::None) [[unlikely]] {
-      if (!stepCheck(ctx, *frame)) {
+      if (ctx.stepSkipOnce) {
+        ctx.stepSkipOnce = false;  // a Step from interrupted runs the stopped instruction first
+      } else if (!stepCheck(ctx, *frame)) {
         if (applyRestart(ctx, *frame, temps, stack, numArgs, numTemps)) {
           continue;
         }
@@ -1024,16 +1035,27 @@ namespace {
   for (;;) {
     ctx.reactivating = false;
     const auto argc = static_cast<std::uint32_t>(ctx.acceptSlots.size() - 2);
-    Root method(ctx.roots, ctx.acceptSlots[0]);
-    Root receiver(ctx.roots, ctx.acceptSlots[1]);
-    RootedArray args(ctx.roots, argc);
-    for (std::uint32_t i = 0; i < argc; ++i) {
-      args.ptr()[i] = ctx.acceptSlots[2 + i];
+    // review-agy H7: a root slot that cannot be registered (std::bad_alloc) leaves the accept slots
+    // neither armed nor pinned. The roots outlive the try, for the run below.
+    std::optional<Root> method;
+    std::optional<Root> receiver;
+    std::optional<RootedArray> args;
+    try {
+      method.emplace(ctx.roots, ctx.acceptSlots[0]);
+      receiver.emplace(ctx.roots, ctx.acceptSlots[1]);
+      args.emplace(ctx.roots, argc);
+      for (std::uint32_t i = 0; i < argc; ++i) {
+        args->ptr()[i] = ctx.acceptSlots[2 + i];
+      }
+      disarmAccept(ctx);
+    } catch (...) {
+      disarmAccept(ctx);
+      ctx.reactivating = false;
+      throw;
     }
-    disarmAccept(ctx);
     ctx.stepMode = StepMode::Accepted;
     const Oop result =
-        Interpreter::run(ctx, method.slot, receiver.slot, args.ptr(), argc, Oop::nil());
+        Interpreter::run(ctx, method->slot, receiver->slot, args->ptr(), argc, Oop::nil());
     // The new activation did not reach its first instruction: the mark goes, not to a caller.
     if (ctx.stepMode == StepMode::Accepted) {
       ctx.stepMode = StepMode::None;

@@ -6,8 +6,11 @@
 #include "../src/Session.hpp"
 #include "ao/Bootstrap.hpp"
 #include "ao/Gc.hpp"
+#include "ao/HandleScope.hpp"
 #include "ao/MethodDictionary.hpp"
+#include "ao/Send.hpp"
 #include "ao/WellKnown.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -1194,6 +1197,34 @@ TEST_F(LiveProceed, ProceedFromNativeFailureDoesNotHaltAgain) {
   EXPECT_EQ(0, ao_debug_halted_count());
 }
 
+// Halts right in the native, and after the Proceed runs out of memory before it answers (more than
+// old's max, so no GC is tried): its send fails with the out-of-memory mark set.
+ao::Oop haltThenRunOutOfMemory(ao::CallContext& ctx, const ao::Oop&, const ao::Oop*,
+                               std::uint32_t) {
+  if (!ao::stopOrAbort(ctx, "halt", true)) {
+    return ao::Oop{};
+  }
+  return ao::allocateRetry(ctx, ctx.wk.arrayClass, 600000000, 0);
+}
+
+// SPEC §3.3, §3.13: out of memory after a Proceed from a halt right in a native aborts at that
+// send with out of memory, instead of answering nil: the statement after it does not run.
+TEST_F(LiveProceed, ProceedThenOutOfMemoryAbortsAtTheSend) {
+  defineClass("DbgOom");
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  ASSERT_TRUE(ao::kernel::putNative(s->heap, s->wk, s->cache.get(), s->wk.named("DbgOom"),
+                                    "haltThenRunOutOfMemory", 0,
+                                    "dbg_test_haltThenRunOutOfMemory", haltThenRunOutOfMemory));
+  ASSERT_EQ(AO_ERR_HALT, doIt("x := 1. DbgOom new haltThenRunOutOfMemory. x := 2"));
+  EXPECT_STREQ("halt", err_.message);
+  ASSERT_EQ(AO_ERR_EVAL, proceed(ao_debug_halted_pid()));
+  EXPECT_STREQ("out of memory", err_.message);
+  EXPECT_EQ(0, ao_debug_halted_count());
+  ASSERT_EQ(AO_OK, printIt("x"));
+  EXPECT_STREQ("1", out_);
+}
+
 // SPEC §3.13: Debug it with eight processes halted aborts before running anything.
 TEST_F(LiveStep, DebugItPastTheHaltLimitAborts) {
   for (int k = 0; k < 8; ++k) {
@@ -1287,6 +1318,75 @@ TEST_F(LiveDebug, InterruptOnBackwardJumpShowsTargetPc) {
   selectHalted();
   EXPECT_EQ(0, ao_debug_frame_pc(0));
   ao_set_transcript_hook(nullptr, nullptr);
+}
+
+// SPEC §3.13 Step: a Step from an interrupted stop runs the stopped instruction, then stops at the
+// next boundary, not again at the stopped pc. It skips one check only: in [true] whileTrue the
+// loop top is the only statement start, so Step over comes round to it and stops there.
+TEST_F(LiveStep, InterruptThenStepOverAdvances) {
+  ao_set_runloop_pump_hook(interruptOncePump, nullptr);
+  const StepFn steps[] = {ao_debug_step_over, ao_debug_step_into};
+  for (const StepFn fn : steps) {
+    g_interruptPumps = 0;
+    ASSERT_EQ(AO_ERR_HALT, doIt("| n | n := 0. [n < 100000] whileTrue: [n := n + 1]"));
+    EXPECT_STREQ("interrupted", err_.message);
+    const std::int64_t pid = ao_debug_halted_pid();
+    ASSERT_EQ(AO_OK, ao_debug_select(pid));
+    const int stopped = ao_debug_frame_pc(0);
+    g_interruptPumps = 100;  // do not re-request
+    ASSERT_EQ(AO_ERR_HALT, step(fn, pid)) << err_.message;
+    EXPECT_STREQ("step", err_.message);
+    EXPECT_NE(stopped, ao_debug_frame_pc(0));
+    EXPECT_EQ("n := n + 1", at());
+    EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  }
+  g_interruptPumps = 0;
+  ASSERT_EQ(AO_ERR_HALT, doIt("[true] whileTrue"));
+  EXPECT_STREQ("interrupted", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  g_interruptPumps = 100;  // do not re-request
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  const int loopTop = ao_debug_frame_pc(0);
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid)) << err_.message;
+  EXPECT_STREQ("step", err_.message);
+  EXPECT_EQ(loopTop, ao_debug_frame_pc(0));
+  EXPECT_EQ("true", at());
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+}
+
+// SPEC §3.13 Step: an interrupt at a method's activation stops before its first instruction; Step
+// over from there runs the stopped statement and stops at the next one, exactly one statement on.
+TEST_F(LiveStep, InterruptAtActivationThenStepAdvances) {
+  defineClass("DbgIntAct");
+  accept("DbgIntAct", 0, "count\n  | n |\n  n := 1.\n  n := n + 10.\n  ^n");
+  static bool armed = false;
+  armed = false;
+  // Armed from the transcript after the receiver is made, so the next checkpoint is count's
+  // activation: the doIt has no backward jump.
+  ao_set_transcript_hook(
+      [](const char*, int, int, void*) {
+        if (!armed) {
+          armed = true;
+          ao::setInterruptRequestedForTest();
+        }
+      },
+      nullptr);
+  ASSERT_EQ(AO_ERR_HALT, doIt("| r | r := DbgIntAct new. Transcript show: 'x'. r count"));
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_STREQ("interrupted", err_.message);
+  const std::int64_t pid = ao_debug_halted_pid();
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  ASSERT_EQ("DbgIntAct>>count", label(0));
+  ASSERT_EQ(0, ao_debug_frame_pc(0));
+  EXPECT_EQ("nil", tempPrint(0, 0).print);
+  ASSERT_EQ(AO_ERR_HALT, step(ao_debug_step_over, pid)) << err_.message;
+  EXPECT_STREQ("step", err_.message);
+  EXPECT_EQ("DbgIntAct>>count", label(0));
+  EXPECT_EQ("n := n + 10", at());
+  EXPECT_EQ("n", tempName(0, 0));
+  EXPECT_EQ("1", tempPrint(0, 0).print);
+  EXPECT_EQ(AO_OK, ao_debug_abort(pid));
 }
 
 TEST_F(LiveDebug, InterruptIgnoredWhenNotLive) {
@@ -1433,6 +1533,66 @@ TEST_F(LiveDebug, HaltReasonEscapesNul) {
   EXPECT_STREQ("a\\0b", err_.message);
   selectHalted();
   EXPECT_EQ("a\\0b", reason());
+}
+
+// review-agy M7: whether the innermost frame's send in flight is synthesized is decided at the
+// stop. Defining the DNU's selector while halted keeps the frames' count and numbers, so a frame
+// number the Debugger cached still names the method that sent it, for Restart and Accept alike.
+TEST_F(LiveDebug, DefiningDnuSelectorWhileHaltedKeepsFrames) {
+  defineClass("PrbM7", "n");
+  accept("PrbM7", 0, "callZork\n  n := n isNil ifTrue: [1] ifFalse: [n + 1].\n  ^self zork + n");
+  ASSERT_EQ(AO_ERR_HALT, printIt("PrbM7 new callZork"));
+  EXPECT_STREQ("doesNotUnderstand: #zork", err_.message);
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(3, ao_debug_frame_count());
+  const int total = ao_debug_frame_total();
+  EXPECT_EQ("#zork (doesNotUnderstand:)", label(0));
+  EXPECT_EQ("PrbM7>>callZork", label(1));
+  EXPECT_EQ("doIt", label(2));
+  accept("PrbM7", 0, "zork\n  ^7");
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ(total, ao_debug_frame_total());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("#zork (doesNotUnderstand:)", label(0));
+  EXPECT_EQ("PrbM7>>callZork", label(1));
+  EXPECT_EQ("doIt", label(2));
+  EXPECT_EQ(0, ao_debug_can_restart(pid, 0));
+  EXPECT_EQ(1, ao_debug_can_restart(pid, 1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
+  // Restarting frame 1 reruns callZork on the same receiver (n becomes 2); the doIt would make a
+  // new one (n 1, answering 8).
+  err_ = AoSpan{};
+  ASSERT_EQ(AO_OK, ao_debug_restart(pid, 1, out_, sizeof out_, &err_)) << err_.message;
+  EXPECT_STREQ("9", out_);
+  EXPECT_EQ(0, ao_debug_halted_count());
+}
+
+// review-agy M7: a frame synthesized at the stop for the native it halted in keeps that native
+// when a class below it (here the receiver's) defines the selector while halted: the frames'
+// count and numbers and the innermost frame's label stay as they were, not the DNU's form.
+TEST_F(LiveDebug, OverridingHaltedNativeKeepsItsFrame) {
+  defineClass("PrbM7n");
+  accept("PrbM7n", 0, "callHalt\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("PrbM7n new callHalt"));
+  EXPECT_STREQ("halt", err_.message);
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ(3, ao_debug_frame_count());
+  const int total = ao_debug_frame_total();
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  EXPECT_EQ("PrbM7n>>callHalt", label(1));
+  EXPECT_EQ("doIt", label(2));
+  accept("PrbM7n", 0, "halt\n  ^7");
+  ASSERT_EQ(AO_OK, ao_debug_select(pid));
+  EXPECT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ(total, ao_debug_frame_total());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  EXPECT_EQ("PrbM7n>>callHalt", label(1));
+  EXPECT_EQ("doIt", label(2));
+  EXPECT_EQ(0, ao_debug_can_restart(pid, 0));
+  EXPECT_EQ(1, ao_debug_can_restart(pid, 1));
+  EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
 }
 
 // SPEC §3.13: a proceeded halt deeper down (in an interpreted method) does not turn a later,
@@ -2176,6 +2336,36 @@ TEST_F(LiveAccept, AcceptPinsReturnToBaseline) {
   expectBase("refused");
 }
 
+// review-agy H7: a root slot that cannot be registered anywhere in an Accept, the reactivation's
+// among them, leaves no accept slot pinned once the process has ended. The failing add moves
+// through every k, so no one place is assumed.
+TEST_F(LiveAccept, AcceptWithoutRootSlotsLeavesNoPin) {
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  defineClass("DbgAccNoPin");
+  int ended = 0;
+  for (std::size_t k = 0; k <= 64; ++k) {
+    SCOPED_TRACE(k);
+    accept("DbgAccNoPin", 0, "bar\n  self halt.\n  ^1");
+    ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccNoPin new bar"));
+    const std::int64_t pid = selectHalted();
+    s->roots.failSlotGrowthForTesting(k);
+    const int rc = acceptIn(pid, 1, "bar\n  ^2");
+    s->roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    if (ao_debug_halted_count() == 0) {
+      ++ended;
+      EXPECT_EQ(AO_ERR_EVAL, rc);
+      EXPECT_STREQ("internal error", err_.message);
+      ASSERT_EQ(0u, s->roots.counts().pinnedSlots);
+    } else {
+      ASSERT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+    }
+    ASSERT_EQ(AO_OK, ao_debug_clear());
+    ASSERT_EQ(0u, s->roots.counts().pinnedSlots);
+  }
+  EXPECT_GT(ended, 0);
+}
+
 TEST_F(LiveAccept, AcceptSelectorChangeIsRefused) {
   defineClass("DbgAccSel");
   accept("DbgAccSel", 0, "bar\n  self halt.\n  ^1");
@@ -2207,6 +2397,124 @@ TEST_F(LiveAccept, AcceptRefusalMessages) {
   EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
   EXPECT_EQ(0u, err_.start);
   EXPECT_EQ(0u, err_.end);
+  EXPECT_EQ(1, ao_debug_halted_count());
+}
+
+// review-agy H4: a Do it while halted may rewrite the halted method's header (instVarAt:put:), so
+// the Accept refuses a method that names more arguments than the activation has temps: with one
+// temp it would read past it, without temps there is nothing to read. Nothing is installed.
+TEST_F(LiveAccept, AcceptRefusesHeaderRewrittenWhileHalted) {
+  struct Case {
+    const char* method;
+    const char* selector;
+    const char* accepted;
+  };
+  const Case cases[] = {
+      {"baz\n  | t |\n  t := 7.\n  ^self halt", "baz", "baz ^3"},
+      {"bar ^self halt", "bar", "bar ^3"},
+  };
+  defineClass("DbgAccHdr");
+  const std::int64_t id = ao_browser_class_id("DbgAccHdr");
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.selector);
+    accept("DbgAccHdr", 0, c.method);
+    ASSERT_EQ(AO_ERR_HALT, printIt((std::string("DbgAccHdr new ") + c.selector).c_str()));
+    const std::int64_t pid = selectHalted();
+    ASSERT_EQ(std::string("DbgAccHdr>>") + c.selector, label(1));
+    const std::string bind =
+        std::string("m := DbgAccHdr compiledMethodAt: #") + c.selector + ". h := m instVarAt: 1";
+    ASSERT_EQ(AO_OK, doIt(bind.c_str())) << err_.message;
+    ASSERT_EQ(AO_OK, doIt("m instVarAt: 1 put: (m instVarAt: 1) + 3")) << err_.message;
+    ASSERT_EQ(AO_OK, printIt("(m instVarAt: 1) - h")) << err_.message;
+    ASSERT_STREQ("3", out_);
+    EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+    EXPECT_EQ(AO_ERR, acceptIn(pid, 1, c.accepted));
+    EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+    EXPECT_EQ(0u, err_.start);
+    EXPECT_EQ(0u, err_.end);
+    EXPECT_STREQ("", out_);
+    EXPECT_EQ(pid, ao_debug_halted_pid());
+    char buf[256] = "unset";
+    EXPECT_EQ(AO_OK, ao_browser_source(id, 0, c.selector, buf, sizeof buf));
+    EXPECT_STREQ(c.method, buf);
+  }
+  EXPECT_EQ(2, ao_debug_halted_count());
+}
+
+// review-agy H4: a Do it while halted may put something that is no class into the halted method's
+// methodClass (instVarAt: 6 put:). The Accept is refused from the method's frame and from its
+// block's frame alike, and the frames, their labels and their sources still read.
+TEST_F(LiveAccept, AcceptRefusesMethodClassRewrittenWhileHalted) {
+  const char* const method = "bar\n  ^[self halt. 1] value";
+  const char* const others[] = {"Object new", "'abc'"};
+  defineClass("DbgAccCls");
+  const std::int64_t id = ao_browser_class_id("DbgAccCls");
+  for (const char* other : others) {
+    SCOPED_TRACE(other);
+    accept("DbgAccCls", 0, method);
+    ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccCls new bar"));
+    const std::int64_t pid = selectHalted();
+    ASSERT_EQ(4, ao_debug_frame_count());
+    ASSERT_EQ("[] in DbgAccCls>>bar", label(1));
+    ASSERT_EQ("DbgAccCls>>bar", label(2));
+    ASSERT_EQ(1, ao_debug_can_accept(pid, 2));
+    const std::string rewrite =
+        std::string("(DbgAccCls compiledMethodAt: #bar) instVarAt: 6 put: ") + other;
+    ASSERT_EQ(AO_OK, doIt(rewrite.c_str())) << err_.message;
+    EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+    EXPECT_EQ(0, ao_debug_can_accept(pid, 2));
+    for (const int frame : {1, 2}) {
+      SCOPED_TRACE(frame);
+      EXPECT_EQ(AO_ERR, acceptIn(pid, frame, "bar\n  ^3"));
+      EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+      EXPECT_EQ(0u, err_.start);
+      EXPECT_EQ(0u, err_.end);
+      EXPECT_STREQ("", out_);
+    }
+    EXPECT_EQ(pid, ao_debug_halted_pid());
+    ASSERT_EQ(AO_OK, ao_debug_select(pid));
+    EXPECT_EQ(4, ao_debug_frame_count());
+    EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+    EXPECT_EQ("[] in >>bar", label(1));
+    EXPECT_EQ(">>bar", label(2));
+    EXPECT_EQ("doIt", label(3));
+    for (const int frame : {1, 2}) {
+      SCOPED_TRACE(frame);
+      const Source src = source(frame);
+      EXPECT_EQ(AO_OK, src.rc);
+      EXPECT_EQ(method, src.text);
+    }
+    char buf[256] = "unset";
+    EXPECT_EQ(AO_OK, ao_browser_source(id, 0, "bar", buf, sizeof buf));
+    EXPECT_STREQ(method, buf);
+  }
+  EXPECT_EQ(2, ao_debug_halted_count());
+}
+
+// review-agy H4: a Do it while halted may point the metaclass's thisClass at another class
+// (instVarAt: 5 put:). The Accept of the class-side method is refused instead of going into the
+// other class's metaclass.
+TEST_F(LiveAccept, AcceptRefusesThisClassRewrittenWhileHalted) {
+  defineClass("DbgAccThis");
+  defineClass("DbgAccOther");
+  accept("DbgAccThis", 1, "make\n  self halt.\n  ^1");
+  ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccThis make"));
+  const std::int64_t pid = selectHalted();
+  ASSERT_EQ("DbgAccThis class>>make", label(1));
+  ASSERT_EQ(1, ao_debug_can_accept(pid, 1));
+  ASSERT_EQ(AO_OK, doIt("m := DbgAccThis class compiledMethodAt: #make")) << err_.message;
+  ASSERT_EQ(AO_OK, doIt("DbgAccThis class instVarAt: 5 put: DbgAccOther")) << err_.message;
+  EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+  EXPECT_EQ(AO_ERR, acceptIn(pid, 1, "make\n  ^7"));
+  EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+  EXPECT_EQ(0u, err_.start);
+  EXPECT_EQ(0u, err_.end);
+  EXPECT_STREQ("", out_);
+  EXPECT_EQ(pid, ao_debug_halted_pid());
+  ASSERT_EQ(AO_OK, printIt("(DbgAccThis class compiledMethodAt: #make) == m")) << err_.message;
+  EXPECT_STREQ("true", out_);
+  ASSERT_EQ(AO_OK, printIt("DbgAccOther class includesSelector: #make")) << err_.message;
+  EXPECT_STREQ("false", out_);
   EXPECT_EQ(1, ao_debug_halted_count());
 }
 

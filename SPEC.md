@@ -1524,6 +1524,7 @@ int ao_debug_clear(void);
 - `ao_debug_frame_label` はラベル（§3.13）を書く。範囲外は `AO_ERR`。
 - `ao_debug_frame_pc` は、そのフレームのコンテキストの pc（実行中の命令の先頭）を返す。種類 2 と範囲外は -1。
 - `ao_debug_frame_source` は、そのフレームのメソッドがソース表（doIt を含む。上の「ソースはイメージのソース節に書く」）にあれば、そのソースを `buf` に書いて `AO_OK` を返す（入り切らなければ `AO_ERR_RANGE`）。`highlight` の `start` と `end` は pc の区間（§3.8。doIt は前置分を引いた値）で、`message` は空である。ブロックのフレームはホームのメソッドのソースを書く。
+  - ブロックのフレームで、ブロックがソース表に無くても、ホームのメソッドに項目があるなら、ホームのソースを書く。答えは `AO_OK` か `AO_ERR_RANGE` で、`highlight` は 0-0 である（ロードしたイメージの項目にはブロックが無いため）。
   - ソース表に無ければ、`ao_browser_source` と同じプレースホルダ（§3.10）を書いて `AO_ERR_NOSOURCE` を返す。`highlight` は 0-0 である。種類 2 も `AO_ERR_NOSOURCE` で、NativeMethod のプレースホルダ（`native <シンボル名>`）を書く。method の無い合成フレーム（DNU）のプレースホルダは `"<ラベル> source not available"` である。
   - `highlight` は NULL でよい。範囲外は `AO_ERR`。
 - `ao_debug_frame_temp_count` は、引数と temp の数（§3.8 の temp 名の数）を返す。種類 2 は進行中の送信の引数の数である。範囲外は -1。
@@ -1571,7 +1572,7 @@ int ao_debug_abort(int64_t pid);
 - `ao_debug_restart` は、止まったプロセスの `frame_index` の解釈フレームを本体の先頭からやり直す（§3.13）。答えの形、drain、評価結果、入場時の消去は Proceed と同じである。`ao_debug_can_restart` が 0 なら何もせずに `AO_ERR`（`out` は空）。種類 2 または範囲外のときは `err->message` を `restart refused: not an interpreted frame` にする。pid が止まっていない、セッションが無い、`out` が NULL か `out_len` が 1 未満なら、Proceed の拒否と同じく空の `AO_ERR` である。Proceed 不能の停止でも、解釈フレームなら呼べる。
 - `ao_debug_can_accept`（P15）は、pid が止まっていて、`frame_index` のフレームが §3.13 の「Accept」の対象を持てば 1、それ以外は 0 を返す（busy でも呼べる）。
 - `ao_debug_accept`（P15）は、`source` をコンパイルして、`frame_index` のフレームの対象メソッドを置き換え、対象の活性化を新しいメソッドで起動し直す（§3.13 の「Accept」）。
-  - `ao_debug_can_accept` が 0 なら、何も変えずに `AO_ERR` を返す。メッセージは、ホームがスタックに無いブロックのフレームなら `debugger accept refused: home frame is not on the stack`、それ以外（種類 2、範囲外、doIt、プレースホルダ）なら `debugger accept refused: not an accepted method` である。`start` と `end` は 0。
+  - `ao_debug_can_accept` が 0 なら、何も変えずに `AO_ERR` を返す。メッセージは、ホームがスタックに無いブロックのフレームなら `debugger accept refused: home frame is not on the stack`、それ以外（種類 2、範囲外、doIt、プレースホルダ、停止中にヘッダの引数の数をその活性化の temp の数より多く書き換えたメソッド、methodClass がクラスの形でないメソッド、methodClass がメタクラスでその thisClass がクラスの形でないか、そのクラスがそのメタクラスでないメソッド）なら `debugger accept refused: not an accepted method` である。`start` と `end` は 0。
   - コンパイルの規則、メッセージ、区間（`source` の先頭から数える）、拒否（`native selector overwrite refused` など）は、対象のクラスそのものへの `ao_accept_method_id` と同じである。失敗したら何も変えずに `AO_ERR_COMPILE` を返す。
   - コンパイルしたメソッドのセレクタが対象メソッドのセレクタと違えば、メソッドを入れずに `AO_ERR_COMPILE` を返す。メッセージは `debugger accept refused: selector changed to <新しいセレクタ>`、`start` と `end` は 0 である。
   - 上の失敗では、プロセスは止まったままで、メソッド辞書、ソース表、評価結果、スナップショット、中断のフラグに触れない。
@@ -1825,7 +1826,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 止まったプロセスのフレーム:
 
 - 止まったプロセスのフレームは、スナップショットでなく、そのプロセスの連鎖（`CallContext::topFrame`）を読むたびにたどる。ファイバのスタックは止まっている間も有効で、値は GC のルートのままである。
-- 形はスナップショットと同じである（種類、ラベル、ネイティブの合成、最内から 256 までと総数、pc、temps。上の「捕捉」と「フレームの種類とラベル」）。最内のフレームに進行中の送信があれば、捕捉と同じく合成する（`self halt` の最内は `Object>>halt native ao_Object_halt`）。step、Debug it、`interrupted` で止まったときは進行中の送信が無いので合成しない。pc はコンテキストの pc（次に実行する命令の先頭）である。
+- 形はスナップショットと同じである（種類、ラベル、ネイティブの合成、最内から 256 までと総数、pc、temps。上の「捕捉」と「フレームの種類とラベル」）。最内のフレームに進行中の送信があれば、捕捉と同じく合成する（`self halt` の最内は `Object>>halt native ao_Object_halt`）。step、Debug it、`interrupted` で止まったときは進行中の送信が無いので合成しない。連鎖は読むたびにたどるが、最内のフレームに進行中の送信があって合成するかどうかは、停止したときに決まる。停止中にそのセレクタを定義しても、フレームの数と番号は変わらない。ネイティブの中で止まった合成フレームは、停止中にサブクラスがそのセレクタを定義しても、止まったネイティブのままである（ラベルも変わらない）。DNU の合成フレームは、停止中にそのセレクタを定義しても DNU のままである。pc はコンテキストの pc（次に実行する命令の先頭）である。
 - ソースと区間は P10 と同じくソース表（§3.10）から読む。止まった評価の doIt の項目は、そのプロセスが止まっている間、次の `ao_eval` でも消さない。止まっている間に再 Accept や削除（§3.9）で項目が消えたメソッドのフレームは、スナップショットと同じくプレースホルダになる。クラスを削除しても、止まったプロセスから届くクラスとメソッドは回収しない（§3.2 のルート）。
 - ABI は、スナップショットと止まったプロセスを同じ抽象（`DebugFrames`: `count`、`total`、`reason`、`kind`、`method`、`receiver`、`context`、`pc`、`selector`、`tempCount`、`temp`、`sendArgCount`、`sendArg`）の上で読む。`ao_debug_select`（§3.10）が選ぶ。
 
@@ -1833,7 +1834,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 
 - Restart: 選んだ解釈フレーム（種類 0 または 1。`frame_index` は `ao_debug_frame_*` と同じく最内が 0 で、合成フレームを含む）を、その活性化の先頭からやり直す。より内側の解釈フレームと、その間のネイティブの C スタックは捨てる。捨てる側の `ensure:` / `ifCurtailed:` は走らせない（Abort とは違う。後始末が要るときは Abort を使う）。対象フレームの pc は 0、オペランドスタックは空、進行中の送信は無し、引数スロットはそのまま、残りの temp は nil である。ブロックを選んだときはその活性化だけ先頭へ戻す。ホームのメソッドを選んだときはブロック側を捨てる。種類 2（合成ネイティブ / DNU）は拒む。Proceed 不能の停止でも、解釈フレームならできる。再開のあと、halt 型の「止めた送信の値 nil」にはしない（本体をやり直す）。答えは Proceed と同じである（§3.10）。
 - Proceed: 止めた送信の値として nil を返し、続きを走らせる（Blue Book）。`halt`、`error:`、`doesNotUnderstand:` は nil を答える。失敗した送信（`failed: #sel`）は、送信の値として nil をオペランドスタックに積む。ネイティブがじかに（間に解釈フレームを挟まずに）送った `error:` など（文言のある失敗）を Proceed したあと、そのネイティブが失敗の印（空 OOP）を返したときも、インタプリタの送信の値は nil とし、もう一度止めない。より深い解釈メソッドの中の停止を Proceed したあとの、ネイティブの別の失敗は今までどおり止める。step、Debug it、`interrupted`、`accepted` の停止からは、止めた命令から続ける（halt 型の「送信の値 nil」ではない）。Proceed できない停止には `AO_ERR` を返す。中断のフラグは停止時に消費済みなので、Proceed のあと再要求するまで再停止しない。
-- Step: プロセスに step の印を立てて Proceed と同じく続ける。インタプリタのループの先頭（命令を実行する前）で印を見て、下の位置に来たら理由 `step` で止める。深さは、そのプロセスの連鎖の解釈フレームの段数である。基準の深さは、止まったときの最内の解釈フレームの深さである。
+- Step: プロセスに step の印を立てて Proceed と同じく続ける。インタプリタのループの先頭（命令を実行する前）で印を見て、下の位置に来たら理由 `step` で止める。`interrupted` の停止からの Step は、止めた命令そのものを実行してから次の境界（下の位置）で止まる（1 命令も進めずに同じ場所で止まり直さない）。深さは、そのプロセスの連鎖の解釈フレームの段数である。基準の深さは、止まったときの最内の解釈フレームの深さである。
   - Step into: 基準より深いフレーム（送信した先の解釈メソッド、ブロック）の最初の命令、基準より浅いフレーム（呼び出し元に戻ったところ）、基準と同じ深さの文の先頭（§3.8 の文の先頭表）。ネイティブの中には入らない（ネイティブが呼んだブロックとメソッドには入る）。
   - Step over: 基準と同じ深さの文の先頭か、基準より浅いフレーム。より深いフレームでは止めない。
   - Step out: 基準より浅いフレーム。
@@ -1843,7 +1844,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 - Abort: 止まったプロセスを `terminate` する（後始末を走らせる。§3.4）。後始末の中の失敗は止めない（abort の最中）。後始末が切り替えれば、`terminate` と同じくそこで戻り、残りはあとの drain と評価で続く。
 - Accept（P15）: 止まったプロセスのフレームのメソッドを Debugger のソースから入れ直し、その活性化を新しいメソッドで起動し直す。
   - 対象: 選んだフレームが種類 0 ならその活性化、種類 1 ならそのホームのメソッドの活性化である。ホームの活性化は、同じプロセスの連鎖にある解釈フレームでなければならない（ホームが死んでいるか、連鎖に無いブロックは拒む）。対象メソッドは、対象の活性化のメソッドである。
-  - 対象メソッドは、doIt でない CompiledMethod で、ソース表（§3.10）に項目を持ち、その定義クラス（methodClass。クラス側はメタクラス）のメソッド辞書のそのセレクタの値がそのメソッドそのものでなければならない。再 Accept、削除、形の変更（§3.9）で置き換えたか消したメソッド、vendor、`ao filein`、`ao_filein_load_order` の file-in、ロードしたイメージのメソッド（プレースホルダ）、種類 2 は拒む。File In…（`ao_filein_file`。P16）で読んだメソッドは項目を持つので、この条件を満たせば編集できる。`ao_debug_can_accept`（§3.10）はこの判定を返す。
+  - 対象メソッドは、doIt でない CompiledMethod で、ソース表（§3.10）に項目を持ち、その定義クラス（methodClass。クラス側はメタクラス）のメソッド辞書のそのセレクタの値がそのメソッドそのものでなければならない。methodClass はクラスの形（§3.3）でなければならず、メタクラスなら、その thisClass もクラスの形で、そのクラスがそのメタクラスでなければならない。ヘッダの引数の数は、対象の活性化の temp の数以下でなければならない（停止中の Do it の `instVarAt:put:` は methodClass、thisClass、ヘッダを書き換えうる）。再 Accept、削除、形の変更（§3.9）で置き換えたか消したメソッド、vendor、`ao filein`、`ao_filein_load_order` の file-in、ロードしたイメージのメソッド（プレースホルダ）、種類 2 は拒む。File In…（`ao_filein_file`。P16）で読んだメソッドは項目を持つので、この条件を満たせば編集できる。`ao_debug_can_accept`（§3.10）はこの判定を返す。
   - 入れ方: 定義クラスそのものへの Accept（`ao_accept_method_id` と同じ規則、同じ 1 つの無効化の関数。§3.3、§3.10）である。セレクタが違うソースは拒む。入れたあとは再 Accept と同じく、古いメソッドの項目が消える（ほかのフレームとスナップショットのその古いメソッドはプレースホルダになる）。
   - 起動し直し: より内側の解釈フレーム、その間のネイティブの C スタック、対象の活性化そのものを捨てる。捨てる側の `ensure:` / `ifCurtailed:` は走らせない（Restart と同じ）。捨てた活性化のコンテキストは死んだ印（§3.4）になるので、そこで作ったブロックのうち生き残ったものの `^` は `cannot return` になる。そのあと、対象の活性化を起動した送信（解釈フレームからの送信でも、ネイティブの中の送信や `perform:` でも）の中で、同じ receiver と引数で新しいメソッドを起動する。探索し直さない（新しいメソッドをそのまま起動する）。新しい活性化の temp とスタックの大きさは新しいメソッドのものである。
   - 新しい活性化の最初の命令の前で、理由 `accepted` で止める（Debug it と同じ形。進行中の送信が無いので合成しない）。答えは Proceed と同じである（§3.10）。
@@ -1903,6 +1904,10 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
   - `remove_abi_test` に、メタクラスの `thisClass` を書き換えたクラスが束縛されたままクラス一覧から消え、`ao_browser_class_id` が 0 で、前に発行した ID に `ao_remove_class` と `ao_accept_method_id` が `unknown class id` を返す（`RemoveAbi.RewrittenThisClassDropsTheClassAndItsId`）
   - `hashed_collection_test` に、`basicNew` の上書きが答えた OrderedCollection のインスタンスでないもの（別の形のオブジェクト、`Object`、3 つのスロットの Array）を `new` がスロットに触らずに答える（`HashedCollection.NewAnswersForeignBasicNewUntouched`）
   - `behavior_test` に、instSize が上限を超える `subclass:` の中断（`Behavior.SubclassBeyondInstSizeLimitAborts`）、バイト列でない instanceVariableNames の失敗（`Behavior.SubclassWithNonStringInstanceVariableNamesFails`）、format をバイト列にしたメタクラスが作ったバイト列のオブジェクトへの `basicNew` の失敗（`Behavior.BasicNewOnByteObjectWithMetaclassClassFails`）
+- ライブデバッガのランタイム（§3.3、§3.10、§3.13。review-agy R3）:
+  - `debug_abi_test` に、停止中の Do it でヘッダの引数の数を増やしたメソッドの Accept が `debugger accept refused: not an accepted method` で拒まれ、`ao_debug_can_accept` が 0 を返す（`LiveAccept.AcceptRefusesHeaderRewrittenWhileHalted`）、停止中に methodClass をクラスの形でないもの（`Object new`、`'abc'`）に書き換えたメソッドの Accept が同じ文言で拒まれ、`ao_debug_can_accept` が 0 を返し、フレームのラベルとソースが読める（`LiveAccept.AcceptRefusesMethodClassRewrittenWhileHalted`）、停止中にメタクラスの thisClass を別のクラスに書き換えたクラス側のメソッドの Accept が同じ文言で拒まれ、別のクラスに入れない（`LiveAccept.AcceptRefusesThisClassRewrittenWhileHalted`）、スロットの確保に失敗した Accept のあとにピンが残らない（`LiveAccept.AcceptWithoutRootSlotsLeavesNoPin`）、DNU で止まったあとにそのセレクタを定義してもフレームの数と番号が変わらない（`LiveDebug.DefiningDnuSelectorWhileHaltedKeepsFrames`）、ネイティブの中で止まったあとにそのセレクタを受け手のクラスに定義しても、フレームの数と番号と最内のネイティブのラベルが変わらない（`LiveDebug.OverridingHaltedNativeKeepsItsFrame`）、`interrupted` の停止からの Step over と Step into が止めた pc から進む（`LiveStep.InterruptThenStepOverAdvances`）、メソッドの起動の検査点で `interrupted` で止まったあとの Step over がちょうど 1 文進む（`LiveStep.InterruptAtActivationThenStepAdvances`）、Proceed のあとのメモリ不足がその送信で `out of memory` の中断になる（`LiveProceed.ProceedThenOutOfMemoryAbortsAtTheSend`）
+  - `image_save_load_test` に、ロードしたイメージのメソッドのブロックのフレームがホームのソースを読む（`ImageSaveLoad.LoadedBlockFrameReadsHomeSource`）
+  - `failure_test` に、Message を作る余地の無い DNU が `out of memory` で中断する（`FailureAbort.DnuWithoutRoomForMessageIsOutOfMemory`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
 - `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる
