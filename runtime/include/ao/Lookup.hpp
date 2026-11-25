@@ -24,6 +24,28 @@ inline bool hasSlots(const Heap& heap, Oop obj, std::uint32_t n) {
   return obj.isHeap() && (heap.flags(obj) & kFlagBytes) == 0 && heap.size(obj) > n;
 }
 
+// SPEC §3.6 OrderedCollection のスロット `array firstIndex lastIndex`。
+inline constexpr std::uint32_t kOcArray = 0;
+inline constexpr std::uint32_t kOcFirst = 1;
+inline constexpr std::uint32_t kOcLast = 2;
+
+// SPEC §3.6 OrderedCollection: what the slots `array firstIndex lastIndex` say.
+enum class OcShape {
+  Empty,    // array is nil (basicNew): no elements
+  Sound,    // the elements are array at firstIndex .. lastIndex
+  Damaged,  // they do not fit (instVarAt:put:): the natives fail
+};
+
+struct OcSlots {
+  Oop array{};
+  std::int64_t first = 1;
+  std::int64_t last = 0;
+};
+
+// Reads oc's slots. Sound when array is a Kernel Array and firstIndex and lastIndex are
+// SmallIntegers with 1 <= firstIndex <= lastIndex + 1 <= array size + 1. Does not allocate.
+OcShape ocRead(const Heap& heap, const WellKnown& wk, Oop oc, OcSlots* out);
+
 // cls の親。cls がクラスの形でなければ nil（鎖の終わり）。
 inline Oop superclassOf(const Heap& heap, Oop cls) {
   return isClassShaped(heap, cls) ? heap.slotAt(cls, kClassSlotSuperclass) : Oop::nil();

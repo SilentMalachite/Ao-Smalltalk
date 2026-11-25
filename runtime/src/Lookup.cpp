@@ -8,6 +8,31 @@
 
 namespace ao {
 
+OcShape ocRead(const Heap& heap, const WellKnown& wk, Oop oc, OcSlots* out) {
+  if (!oc.isHeap() || (heap.flags(oc) & kFlagBytes) != 0 || heap.size(oc) <= kOcLast) {
+    return OcShape::Damaged;
+  }
+  const Oop array = heap.slotAt(oc, kOcArray);
+  if (array.isNil()) {
+    return OcShape::Empty;
+  }
+  const Oop first = heap.slotAt(oc, kOcFirst);
+  const Oop last = heap.slotAt(oc, kOcLast);
+  if (!array.isHeap() || heap.klass(array) != wk.arrayClass ||
+      (heap.flags(array) & kFlagBytes) != 0 || !first.isSmallInteger() || !last.isSmallInteger()) {
+    return OcShape::Damaged;
+  }
+  const std::int64_t f = first.smallIntegerValue();
+  const std::int64_t l = last.smallIntegerValue();
+  if (f < 1 || l < f - 1 || l > static_cast<std::int64_t>(heap.size(array))) {
+    return OcShape::Damaged;
+  }
+  out->array = array;
+  out->first = f;
+  out->last = l;
+  return OcShape::Sound;
+}
+
 bool chainIncludes(const Heap& heap, Oop start, Oop target) {
   SuperclassWalk walk(heap, start);
   for (Oop cls; walk.next(cls);) {
