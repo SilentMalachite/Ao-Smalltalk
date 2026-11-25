@@ -421,3 +421,53 @@ TEST(FailureOutermost, WorkspaceResetStartsAndEndsClean) {
   s->roots.dropHandle(probe);
   ao_runtime_shutdown();
 }
+
+// C2 / SPEC §3.6 Kernel-Classes の既知の制約: クラスの format の isBytes がインスタンスのバイト列の
+// 印と合わなければ、Object と ArrayedCollection の basicAt: と basicAt:put: はインスタンスを読み書き
+// せずに失敗し、basicSize は 0 を答える。直す前は、ポインタのスロットにバイトを書いて OOP を偽造し、
+// バイト列のオブジェクトをスロットとして範囲の外まで読んでいた（Debug では Heap の assert）。
+TEST_F(FailureAbort, BasicAtPutRefusesFormatThatDisagreesWithObject) {
+  const char* const kAt = "basicAt: object does not match its class format";
+  const char* const kAtPut = "basicAt:put: object does not match its class format";
+  for (const char* def : {"Array subclass: #P", "ByteArray subclass: #Q", "Object subclass: #R"}) {
+    ASSERT_EQ(AO_OK, doIt((std::string(def) +
+                           " instanceVariableNames: '' classVariableNames: ''"
+                           " poolDictionaries: '' category: 'R5-Test'")
+                              .c_str()))
+        << def << ": " << err_.message;
+  }
+  // format はスロット 3。pf は添字つきのポインタ、qf は添字つきのバイト列（どちらも instSize 0）。
+  ASSERT_EQ(AO_OK, doIt("pf := P instVarAt: 3. qf := Q instVarAt: 3")) << err_.message;
+  ASSERT_EQ("65536", printed("pf"));
+  ASSERT_EQ("196608", printed("qf"));
+  ASSERT_EQ(AO_OK, doIt("p := P new: 2. p at: 1 put: Object")) << err_.message;
+  ASSERT_EQ(AO_OK, doIt("q := Q new: 8. q at: 8 put: 7")) << err_.message;
+  ASSERT_EQ(AO_OK, doIt("R instVarAt: 3 put: pf. r := R basicNew: 2. r basicAt: 1 put: Object"))
+      << err_.message;
+
+  // 書き換えてから戻すまで、P、Q、R のインスタンスは作らない。
+  ASSERT_EQ(AO_OK,
+            doIt("P instVarAt: 3 put: 196608. R instVarAt: 3 put: qf. Q instVarAt: 3 put: pf"))
+      << err_.message;
+  EXPECT_EQ("0", printed("p basicSize"));
+  EXPECT_EQ("0", printed("r basicSize"));
+  EXPECT_EQ("0", printed("q basicSize"));
+  EXPECT_EQ(AO_ERR_EVAL, print("p basicAt: 1"));
+  EXPECT_STREQ(kAt, err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, print("r basicAt: 1"));
+  EXPECT_STREQ(kAt, err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, print("p basicAt: 1 put: 24"));
+  EXPECT_STREQ(kAtPut, err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, print("r basicAt: 1 put: 24"));
+  EXPECT_STREQ(kAtPut, err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, print("q basicAt: 8"));
+  EXPECT_STREQ(kAt, err_.message);
+  EXPECT_EQ(AO_ERR_EVAL, print("q basicAt: 8 put: Object"));
+  EXPECT_STREQ(kAtPut, err_.message);
+
+  ASSERT_EQ(AO_OK, doIt("P instVarAt: 3 put: pf. R instVarAt: 3 put: pf. Q instVarAt: 3 put: qf"))
+      << err_.message;
+  EXPECT_EQ("true", printed("(p at: 1) == Object"));
+  EXPECT_EQ("true", printed("(r basicAt: 1) == Object"));
+  EXPECT_EQ("7", printed("q at: 8"));
+}

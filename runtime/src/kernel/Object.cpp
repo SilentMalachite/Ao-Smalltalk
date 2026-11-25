@@ -44,6 +44,14 @@ Oop classFormat(CallContext& ctx, Oop receiver) {
   return ctx.heap.slotAt(cls, kClassSlotFormat);
 }
 
+// C2 / SPEC §3.6: instVarAt:put: can rewrite a class format so that its isBytes no longer matches
+// the byte mark of the instances. basicAt:, basicAt:put: and basicSize index by the format, so
+// they refuse such a receiver instead of reading slots as bytes or bytes as slots.
+bool bytesMarkMatchesFormat(CallContext& ctx, Oop receiver) {
+  const bool objBytes = (ctx.heap.flags(receiver) & kFlagBytes) != 0;
+  return objBytes == Format::isBytes(classFormat(ctx, receiver));
+}
+
 std::int64_t namedInstSize(CallContext& ctx, Oop receiver) {
   return Format::instSize(classFormat(ctx, receiver));
 }
@@ -342,7 +350,7 @@ Oop ao_Object_instVarNamed_(CallContext& ctx, const Oop& receiver, const Oop* ar
 
 Oop ao_Object_basicSize(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
-  if (!receiver.isHeap()) {
+  if (!receiver.isHeap() || !bytesMarkMatchesFormat(ctx, receiver)) {
     return Oop::fromSmallInteger(0);
   }
   const Oop fmt = classFormat(ctx, receiver);
@@ -360,6 +368,9 @@ Oop ao_Object_basicSize(CallContext& ctx, const Oop& receiver, const Oop*, std::
 
 Oop ao_Object_basicAt_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
   if (argc != 1) return Oop{};
+  if (receiver.isHeap() && !bytesMarkMatchesFormat(ctx, receiver)) {
+    return fail(ctx, receiver, "basicAt: object does not match its class format");
+  }
   if (!receiver.isHeap() || !args[0].isSmallInteger()) {
     return fail(ctx, receiver, "basicAt: index out of range");
   }
@@ -387,6 +398,9 @@ Oop ao_Object_basicAt_(CallContext& ctx, const Oop& receiver, const Oop* args, s
 Oop ao_Object_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop* args,
                            std::uint32_t argc) {
   if (argc != 2) return Oop{};
+  if (receiver.isHeap() && !bytesMarkMatchesFormat(ctx, receiver)) {
+    return fail(ctx, receiver, "basicAt:put: object does not match its class format");
+  }
   if (!receiver.isHeap() || !args[0].isSmallInteger()) {
     return fail(ctx, receiver, "basicAt:put: index out of range");
   }
