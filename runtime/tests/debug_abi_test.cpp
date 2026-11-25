@@ -1595,6 +1595,24 @@ TEST_F(LiveDebug, OverridingHaltedNativeKeepsItsFrame) {
   EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
 }
 
+// review-agy R5-T5 A / SPEC §3.13: the native of a frame synthesized at the stop is looked up like
+// the send's: the first value on the chain that is not nil (or a CompiledMethod) decides. A DNU
+// whose lookup found a value that is no method (3, put into the receiver class's dictionary with
+// instVarAt:put:) stays a DNU, though Object has a native for the selector.
+TEST_F(LiveDebug, HaltedNativeStopsAtFirstNonNilValue) {
+  defineClass("PrbHn");
+  ASSERT_EQ(AO_OK, doIt("(PrbHn instVarAt: 2) instVarAt: 2 put: "
+                        "((Array new: 2) at: 1 put: #halt; at: 2 put: 3; yourself)"))
+      << err_.message;
+  ASSERT_EQ(AO_ERR_HALT, doIt("PrbHn new halt"));
+  EXPECT_STREQ("doesNotUnderstand: #halt", err_.message);
+  selectHalted();
+  ASSERT_EQ(2, ao_debug_frame_count());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("#halt (doesNotUnderstand:)", label(0));
+  EXPECT_EQ("doIt", label(1));
+}
+
 // SPEC §3.13: a proceeded halt deeper down (in an interpreted method) does not turn a later,
 // unrelated failure of the native into nil.
 TEST_F(LiveProceed, ProceededHaltDeeperDoesNotHideLaterFailure) {

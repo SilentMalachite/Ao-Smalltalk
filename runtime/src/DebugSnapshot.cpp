@@ -62,20 +62,24 @@ Oop sendTarget(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
   return lookup(ctx.heap, sendStart(ctx, f, pc), *f.sendSelector);
 }
 
-// SPEC §3.13: the native a frame synthesized at the stop halted in: the first NativeMethod on the
-// chain the send looks up, past any CompiledMethod (a class below the native's that defined the
-// selector while halted; a Kernel native is neither overridden in its own class nor removed).
-// nil when there is none, the DNU's form, so a DNU stays one. lookup's chain step (SuperclassWalk);
-// allocates nothing.
+// SPEC §3.13: the native a frame synthesized at the stop halted in. The chain the send looks up,
+// walked like lookup: past nil and past a CompiledMethod (a class below the native's that defined
+// the selector while halted; a Kernel native is neither overridden in its own class nor removed);
+// the first other value is the answer when it is a NativeMethod. nil otherwise, the DNU's form, so
+// a DNU stays one, also when its lookup found a value that is no method (instVarAt:put:).
+// lookup's chain step (SuperclassWalk); allocates nothing.
 Oop haltedNative(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
   SuperclassWalk walk(ctx.heap, sendStart(ctx, f, pc));
   for (Oop cls; walk.next(cls);) {
     const Oop dict = ctx.heap.slotAt(cls, kClassSlotMethodDict);
     const Oop found = dict.isHeap() ? MethodDictionary::at(ctx.heap, dict, *f.sendSelector)
                                     : Oop::nil();
-    if (found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass) {
-      return found;
+    if (found.isNil() ||
+        (found.isHeap() && ctx.heap.klass(found) == ctx.wk.compiledMethodClass)) {
+      continue;
     }
+    return found.isHeap() && ctx.heap.klass(found) == ctx.wk.nativeMethodClass ? found
+                                                                               : Oop::nil();
   }
   return Oop::nil();
 }
