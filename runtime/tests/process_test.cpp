@@ -735,6 +735,59 @@ TEST(Process, NonOrderedCollectionListIsReadByShape) {
   EXPECT_EQ("7 8 9", itemsOf(b, other.slot));
 }
 
+// review-agy R5-T5 E / SPEC §3.4: Processor yield puts the running process at the end of the ready
+// queue, so a damaged OrderedCollection there fails it with `damaged ordered collection`, changing
+// nothing. With no other ready process it returns without reading the queue.
+TEST(Process, YieldOnDamagedReadyQueueFails) {
+  Boot b;
+  ao::Root env(b.roots, newEnv(b, 1));
+  run(b, "doIt: env\n  [env at: 1 put: #ran] fork", env.slot);
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  ao::Root queue(b.roots, readyList(b));
+  ao::Root last(b.roots, send1(b, queue.slot, "instVarAt:", smi(3)));
+  const ao::Oop max = smi(ao::kSmiMax);
+  ASSERT_EQ(max, send2(b, queue.slot, "instVarAt:put:", smi(3), max));
+  EXPECT_TRUE(send0(b, b.wk.processor, "yield").isEmpty());
+  EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+  EXPECT_EQ(max, send1(b, queue.slot, "instVarAt:", smi(3)));
+  EXPECT_TRUE(at(b, env.slot, 1).isNil());
+  EXPECT_EQ(1u, b.scheduler.liveFibers());
+  // Repaired, the yield switches to the forked process.
+  ASSERT_EQ(last.slot, send2(b, queue.slot, "instVarAt:put:", smi(3), last.slot));
+  EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+  ao::Root ran(b.roots, b.wk.intern("ran"));
+  EXPECT_EQ(ran.slot, at(b, env.slot, 1));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  // No other ready process: yield returns, the queue damaged or not.
+  ASSERT_EQ(max, send2(b, queue.slot, "instVarAt:put:", smi(3), max));
+  EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(max, send1(b, queue.slot, "instVarAt:", smi(3)));
+}
+
+// review-agy R5-T5 E / SPEC §3.4: a wait that blocks switches to the next ready process without
+// failing on a damaged ready queue, and leaves the queue as it was: the forked process sees
+// lastIndex still at the maximum. It then repairs the queue, so its signal can put the base back.
+TEST(Process, BlockingWaitSwitchesPastDamagedReadyQueue) {
+  Boot b;
+  ao::Root env(b.roots, newEnv(b, 2));
+  run(b,
+      "doIt: env\n"
+      "  | sem q |\n"
+      "  sem := Semaphore new.\n"
+      "  q := Processor instVarAt: 1.\n"
+      "  [env at: 1 put: (q instVarAt: 3). q instVarAt: 3 put: 0. sem signal] fork.\n"
+      "  q instVarAt: 3 put: 4611686018427387903.\n"
+      "  sem wait.\n"
+      "  env at: 2 put: #back",
+      env.slot);
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(smi(ao::kSmiMax), at(b, env.slot, 1));
+  ao::Root back(b.roots, b.wk.intern("back"));
+  EXPECT_EQ(back.slot, at(b, env.slot, 2));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}
+
 // ---- fork と yield ----
 
 TEST(Process, ForkRunsOnlyAfterYield) {
