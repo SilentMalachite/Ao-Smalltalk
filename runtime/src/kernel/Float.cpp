@@ -71,6 +71,10 @@ Oop makeFraction(CallContext& ctx, Oop num, Oop den) {
   }
   n.slot = LargeInteger::truncDiv(ctx, n.slot, g.slot);
   d.slot = LargeInteger::truncDiv(ctx, d.slot, g.slot);
+  // SPEC §3.3: 割り当てに失敗した商（空）を Fraction のスロットに入れない。
+  if (n.slot.isEmpty() || d.slot.isEmpty()) {
+    return Oop{};
+  }
   bool dFits = false;
   const std::int64_t dv = LargeInteger::asInt64IfFits(ctx.heap, ctx.wk, d.slot, &dFits);
   if (dFits && dv < 0) {
@@ -81,6 +85,9 @@ Oop makeFraction(CallContext& ctx, Oop num, Oop den) {
       n.slot = LargeInteger::neg(ctx, n.slot);
       d.slot = LargeInteger::neg(ctx, d.slot);
     }
+  }
+  if (n.slot.isEmpty() || d.slot.isEmpty()) {
+    return Oop{};
   }
   bool oneFits = false;
   const std::int64_t one = LargeInteger::asInt64IfFits(ctx.heap, ctx.wk, d.slot, &oneFits);

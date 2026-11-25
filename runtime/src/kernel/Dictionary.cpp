@@ -14,9 +14,6 @@
 namespace ao {
 namespace {
 
-constexpr std::uint32_t kOcArray = 0;
-constexpr std::uint32_t kOcFirst = 1;
-constexpr std::uint32_t kOcLast = 2;
 constexpr std::uint32_t kIvStart = 0;
 constexpr std::uint32_t kIvStop = 1;
 constexpr std::uint32_t kIvStep = 2;
@@ -491,46 +488,6 @@ Oop setIncludes(CallContext& ctx, const Oop& receiver, const Oop* args, std::uin
     return Oop{};
   }
   return p.result == Lookup::Found ? Oop::true_() : Oop::false_();
-}
-
-// SPEC §3.6 OrderedCollection: what the slots `array firstIndex lastIndex` say.
-enum class OcShape {
-  Empty,    // array is nil (basicNew): no elements
-  Sound,    // the elements are array at firstIndex .. lastIndex
-  Damaged,  // they do not fit (instVarAt:put:): the natives fail
-};
-
-struct OcSlots {
-  Oop array{};
-  std::int64_t first = 1;
-  std::int64_t last = 0;
-};
-
-// Reads oc's slots. Sound when array is a Kernel Array and firstIndex and lastIndex are
-// SmallIntegers with 1 <= firstIndex <= lastIndex + 1 <= array size + 1. Does not allocate.
-OcShape ocRead(const Heap& heap, const WellKnown& wk, Oop oc, OcSlots* out) {
-  if (!oc.isHeap() || (heap.flags(oc) & kFlagBytes) != 0 || heap.size(oc) <= kOcLast) {
-    return OcShape::Damaged;
-  }
-  const Oop array = heap.slotAt(oc, kOcArray);
-  if (array.isNil()) {
-    return OcShape::Empty;
-  }
-  const Oop first = heap.slotAt(oc, kOcFirst);
-  const Oop last = heap.slotAt(oc, kOcLast);
-  if (!array.isHeap() || heap.klass(array) != wk.arrayClass ||
-      (heap.flags(array) & kFlagBytes) != 0 || !first.isSmallInteger() || !last.isSmallInteger()) {
-    return OcShape::Damaged;
-  }
-  const std::int64_t f = first.smallIntegerValue();
-  const std::int64_t l = last.smallIntegerValue();
-  if (f < 1 || l < f - 1 || l > static_cast<std::int64_t>(heap.size(array))) {
-    return OcShape::Damaged;
-  }
-  out->array = array;
-  out->first = f;
-  out->last = l;
-  return OcShape::Sound;
 }
 
 Oop failDamagedOc(CallContext& ctx, const Oop& oc) {

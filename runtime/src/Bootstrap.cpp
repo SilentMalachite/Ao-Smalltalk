@@ -10,6 +10,7 @@
 #include "ao/kernel/Install.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -180,7 +181,7 @@ constexpr SlotNames kSlotNames[] = {
     {&WellKnown::smalltalkImageClass, "tally array"},
 };
 
-static Oop allocClass(Heap& heap) { return heap.allocate(Oop::nil(), kClassSlotCount, 0); }
+static Oop allocClass(Heap& heap) { return heap.allocateNoGc(Oop::nil(), kClassSlotCount, 0); }
 
 static void wireClass(Heap& heap, Oop cls, Oop meta, Oop superCls, Oop thisClass, Oop format) {
   heap.header(cls)->klass = meta;
@@ -223,6 +224,7 @@ static Oop makeSlotNames(Heap& heap, WellKnown& wk, std::string_view names) {
   }
   const Oop arr = heap.allocateNoGc(wk.arrayClass, static_cast<std::uint32_t>(parts.size()), 0);
   if (!arr.isHeap()) {
+    heap.setOutOfMemory();
     return Oop::nil();
   }
   for (std::uint32_t i = 0; i < parts.size(); ++i) {
@@ -242,7 +244,16 @@ static void nameClasses(Heap& heap, WellKnown& wk) {
   for (const auto& d : kDefs) {
     const Oop name = wk.intern(d.name);
     heap.slotAtPut(wk.*(d.cls), kClassSlotName, name.isHeap() ? name : Oop::nil());
-    const Oop metaName = Str::fromUtf8(heap, wk, std::string(d.name) + " class");
+    // Not Str::fromUtf8, which only uses the nursery: like intern, the name goes to old when the
+    // nursery is full, and fails only with old at its max.
+    const std::string metaText = std::string(d.name) + " class";
+    const auto n = static_cast<std::uint32_t>(metaText.size());
+    const Oop metaName = heap.allocateNoGc(wk.stringClass, n, kFlagBytes);
+    if (metaName.isHeap()) {
+      std::memcpy(heap.bytes(metaName), metaText.data(), n);
+    } else {
+      heap.setOutOfMemory();
+    }
     heap.slotAtPut(wk.*(d.meta), kClassSlotName, metaName.isHeap() ? metaName : Oop::nil());
   }
   for (const auto& s : kSlotNames) {
@@ -304,20 +315,38 @@ void installNatives(Heap& heap, Roots& roots, WellKnown& wk) {
       },
       &baton);
   kernel::installAll(heap, roots, wk);
+  // Processor and Transcript do not depend on the nursery's size: allocateNoGc goes to old when
+  // the nursery is full, and fails only with old at its max. Each then stays nil.
   if (wk.processorSchedulerClass.isHeap()) {
     const auto n = Format::instSize(heap.slotAt(wk.processorSchedulerClass, kClassSlotFormat));
-    wk.processor = heap.allocate(wk.processorSchedulerClass, static_cast<std::uint32_t>(n), 0);
-    if (wk.processor.isHeap()) {
+    const Oop processor =
+        heap.allocateNoGc(wk.processorSchedulerClass, static_cast<std::uint32_t>(n), 0);
+    if (processor.isHeap()) {
+      wk.processor = processor;
       CallContext ctx{heap, roots, wk, nullptr};
+      // The sends may collect; wk.processor is a root. A failed send answers an empty Oop, and
+      // its slot then stays nil.
       auto q = send(ctx, wk.orderedCollectionClass, wk.selNew, nullptr, 0, nullptr);
-      heap.slotAtPut(wk.processor, 0, q);
+      if (q.isHeap()) {
+        heap.slotAtPut(wk.processor, 0, q);
+      }
       auto proc = send(ctx, wk.processClass, wk.selNew, nullptr, 0, nullptr);
-      heap.slotAtPut(wk.processor, 1, proc);
+      if (proc.isHeap()) {
+        heap.slotAtPut(wk.processor, 1, proc);
+      }
+    } else {
+      heap.setOutOfMemory();
     }
   }
   if (wk.transcriptClass.isHeap()) {
     const auto n = Format::instSize(heap.slotAt(wk.transcriptClass, kClassSlotFormat));
-    wk.transcript = heap.allocate(wk.transcriptClass, static_cast<std::uint32_t>(n), 0);
+    const Oop transcript =
+        heap.allocateNoGc(wk.transcriptClass, static_cast<std::uint32_t>(n), 0);
+    if (transcript.isHeap()) {
+      wk.transcript = transcript;
+    } else {
+      heap.setOutOfMemory();
+    }
   }
 }
 

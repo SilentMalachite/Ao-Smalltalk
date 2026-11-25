@@ -3,7 +3,9 @@
 #include "ao/Gc.hpp"
 #include "ao/Globals.hpp"
 #include "ao/Heap.hpp"
+#include "ao/NativeMethod.hpp"
 #include "ao/Roots.hpp"
+#include "ao/Send.hpp"
 #include "ao/WellKnown.hpp"
 
 #include <gtest/gtest.h>
@@ -217,7 +219,7 @@ TEST(Bootstrap, CycleImmediateClassOf) {
 }
 
 TEST(Bootstrap, CycleSurvivesNurseryGc) {
-  // Nursery must fit all skeletons + name byte objects; allocate() does not GC.
+  // The skeletons and names go to old when the nursery is full (allocateNoGc); the GC keeps them.
   ao::Heap heap(1 << 20, 1 << 18);
   ao::Roots roots;
   ao::WellKnown wk(heap, roots);
@@ -378,4 +380,59 @@ TEST(Bootstrap, KernelClassNamesAreInternedSymbols) {
                   b->heap->klass(b->heap->slotAt(b->heap->klass(cls), ao::kClassSlotName)));
       },
       &bag);
+}
+
+// M25 (review-agy): with a 4096-byte nursery the class skeletons, the metaclass names, Processor
+// and Transcript still get an object (in old once the nursery is full), the sends that fill
+// Processor's slots collect instead of failing, and the booted image answers 1 + 2.
+TEST(Bootstrap, TinyNurseryStillBoots) {
+  ao::Heap heap(4096, 1 << 20);
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  ASSERT_TRUE(wk.processor.isHeap());
+  EXPECT_EQ(wk.processorSchedulerClass, heap.klass(wk.processor));
+  ASSERT_TRUE(wk.transcript.isHeap());
+  EXPECT_EQ(wk.transcriptClass, heap.klass(wk.transcript));
+  const ao::Oop quiescent = heap.slotAt(wk.processor, 0);
+  ASSERT_TRUE(quiescent.isHeap());
+  EXPECT_EQ(wk.orderedCollectionClass, heap.klass(quiescent));
+  const ao::Oop active = heap.slotAt(wk.processor, 1);
+  ASSERT_TRUE(active.isHeap());
+  EXPECT_EQ(wk.processClass, heap.klass(active));
+  // SPEC §3.6 / §3.7 step 5: the Kernel classes that add named slots get their names, and a
+  // metaclass's name is the String "<name> class".
+  const ao::Oop ivars = heap.slotAt(wk.associationClass, ao::kClassSlotInstVarNames);
+  ASSERT_TRUE(ivars.isHeap());
+  ASSERT_EQ(2u, heap.size(ivars));
+  EXPECT_EQ(wk.intern("key"), heap.slotAt(ivars, 0));
+  EXPECT_EQ(wk.intern("value"), heap.slotAt(ivars, 1));
+  const ao::Oop metaName = heap.slotAt(heap.klass(wk.objectClass), ao::kClassSlotName);
+  ASSERT_TRUE(metaName.isHeap());
+  EXPECT_EQ(wk.stringClass, heap.klass(metaName));
+  EXPECT_EQ("Object class",
+            std::string(reinterpret_cast<const char*>(heap.bytes(metaName)), heap.size(metaName)));
+  // The skeletons were allocated in both the nursery and old, and old metaclasses point at
+  // Metaclass through their class word. Another nursery collection keeps the cycle.
+  ao::Gc gc(heap, roots);
+  gc.collectNursery();
+  struct Bag {
+    ao::Heap* heap;
+    ao::Oop metaclass;
+    int broken;
+  } bag{&heap, wk.metaclassClass, 0};
+  wk.eachClass(
+      [](void* p, ao::Oop cls) {
+        auto* b = static_cast<Bag*>(p);
+        if (b->heap->klass(b->heap->klass(cls)) != b->metaclass) {
+          ++b->broken;
+        }
+      },
+      &bag);
+  EXPECT_EQ(0, bag.broken);
+  ao::CallContext ctx{heap, roots, wk, nullptr};
+  const ao::Oop two = ao::Oop::fromSmallInteger(2);
+  EXPECT_EQ(ao::Oop::fromSmallInteger(3),
+            ao::send(ctx, ao::Oop::fromSmallInteger(1), wk.intern("+"), &two, 1, nullptr));
+  EXPECT_FALSE(heap.outOfMemory());
 }

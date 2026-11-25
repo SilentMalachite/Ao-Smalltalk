@@ -119,11 +119,18 @@ Oop ao_Semaphore_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uin
   Root cls(ctx.roots, receiver);
   Oop obj = send(ctx, cls.slot, ctx.wk.selBasicNew, nullptr, 0, nullptr);
   Root sem(ctx.roots, obj);
-  if (!hasSlots(ctx.heap, sem.slot, kSemaphoreSlotList)) {
+  // SPEC §3.4: basicNew の上書きが Semaphore のインスタンスでないもの（Object、Array new: 3）を
+  // 答えたら、スロットに触らずに答える。hasSlots を先に見る（klass はヒープのオブジェクトにしか
+  // 読めない）。
+  if (!hasSlots(ctx.heap, sem.slot, kSemaphoreSlotList) ||
+      !chainIncludes(ctx.heap, ctx.heap.klass(sem.slot), ctx.wk.semaphoreClass)) {
     return sem.slot;
   }
   ctx.heap.slotAtPut(sem.slot, kSemaphoreSlotExcess, Oop::fromSmallInteger(0));
   Oop list = send(ctx, ctx.wk.orderedCollectionClass, ctx.wk.selNew, nullptr, 0, nullptr);
+  if (unwinding(ctx) || list.isEmpty()) {
+    return Oop{};
+  }
   ctx.heap.slotAtPut(sem.slot, kSemaphoreSlotList, list);
   return sem.slot;
 }
@@ -157,14 +164,25 @@ Oop ao_SharedQueue_new(CallContext& ctx, const Oop& receiver, const Oop*, std::u
   Root cls(ctx.roots, receiver);
   Oop obj = send(ctx, cls.slot, ctx.wk.selBasicNew, nullptr, 0, nullptr);
   Root q(ctx.roots, obj);
-  if (!hasSlots(ctx.heap, q.slot, kSharedQueueSlotWrite)) {
+  // SPEC §3.4: Semaphore の new と同じく、SharedQueue のインスタンスでないものには触らない。
+  if (!hasSlots(ctx.heap, q.slot, kSharedQueueSlotWrite) ||
+      !chainIncludes(ctx.heap, ctx.heap.klass(q.slot), ctx.wk.sharedQueueClass)) {
     return q.slot;
   }
   Oop contents = send(ctx, ctx.wk.orderedCollectionClass, ctx.wk.selNew, nullptr, 0, nullptr);
+  if (unwinding(ctx) || contents.isEmpty()) {
+    return Oop{};
+  }
   ctx.heap.slotAtPut(q.slot, kSharedQueueSlotContents, contents);
   Oop read = send(ctx, ctx.wk.semaphoreClass, ctx.wk.selNew, nullptr, 0, nullptr);
+  if (unwinding(ctx) || read.isEmpty()) {
+    return Oop{};
+  }
   ctx.heap.slotAtPut(q.slot, kSharedQueueSlotRead, read);
   Oop write = send(ctx, ctx.wk.semaphoreClass, ctx.wk.selNew, nullptr, 0, nullptr);
+  if (unwinding(ctx) || write.isEmpty()) {
+    return Oop{};
+  }
   ctx.heap.slotAtPut(q.slot, kSharedQueueSlotWrite, write);
   return q.slot;
 }

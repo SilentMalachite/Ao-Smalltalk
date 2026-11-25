@@ -741,6 +741,119 @@ TEST(CollectionDo, NonBooleanPredicateAnswersGetMustBeBoolean) {
             printOf(b, "^#(1 2 3) select: [:x | B9Truthy new truth: 7]"));
 }
 
+// review-agy H12 / SPEC §3.3: a do: that fails without an abort fails the native that sent it, so
+// the failure is not taken for an empty receiver. The step's < and > answer 3, so Interval>>do:
+// fails before the first element. OddSizedInterval answers a size, so collect: gets to its do:.
+TEST(CollectionDo, IntervalDoFailureIsNotSwallowed) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #OddStep\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'H12-Test'!\n"
+                               "!OddStep methodsFor: 'comparing'!\n"
+                               "< x\n"
+                               "  ^3!\n"
+                               "> x\n"
+                               "  ^3! !\n"
+                               "!Interval subclass: #OddSizedInterval\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'H12-Test'!\n"
+                               "!OddSizedInterval methodsFor: 'accessing'!\n"
+                               "size\n"
+                               "  ^5! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  ao::Root iv(b.roots, evalBody(b, "^Interval from: 1 to: 5 by: OddStep new"));
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  ASSERT_TRUE(iv.slot.isHeap());
+  ao::Root sized(b.roots, evalBody(b, "^OddSizedInterval from: 1 to: 5 by: OddStep new"));
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  ASSERT_TRUE(sized.slot.isHeap());
+  ao::Root ws(b.roots, evalBody(b, "^WriteStream on: (Array new: 4)"));
+  ASSERT_FALSE(b.ctx.aborting) << takeAbortReason(b);
+  ASSERT_TRUE(ws.slot.isHeap());
+  auto pred = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+    return ao::Oop::true_();
+  };
+  auto none = [](ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
+    return ao::Oop::fromSmallInteger(0);
+  };
+  auto acc = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    return args[0];
+  };
+  ao::Root predBlk(b.roots, ao::makeNativeBlock(b.ctx, +pred, 1));
+  ao::Root noneBlk(b.roots, ao::makeNativeBlock(b.ctx, +none, 0));
+  ao::Root accBlk(b.roots, ao::makeNativeBlock(b.ctx, +acc, 2));
+  expectFailAbort(b, send1(b, iv.slot, "select:", predBlk.slot), "failed: #do:");
+  expectFailAbort(b, send1(b, iv.slot, "reject:", predBlk.slot), "failed: #do:");
+  expectFailAbort(b, send2(b, iv.slot, "detect:ifNone:", predBlk.slot, noneBlk.slot),
+                  "failed: #do:");
+  expectFailAbort(b, send2(b, iv.slot, "inject:into:", smi(0), accBlk.slot), "failed: #do:");
+  expectFailAbort(b, send1(b, iv.slot, "includes:", smi(3)), "failed: #do:");
+  expectFailAbort(b, send1(b, ws.slot, "nextPutAll:", iv.slot), "failed: #do:");
+  expectFailAbort(b, send1(b, sized.slot, "collect:", predBlk.slot), "failed: #do:");
+}
+
+// review-agy M12 / SPEC §3.6: isEmpty answers whether an Integer size is 0, so a LargeInteger size
+// is not taken for a failure.
+TEST(CollectionDo, IsEmptyOnLargeIntervalAnswersBoolean) {
+  Boot b;
+  EXPECT_EQ("false", printOf(b, "^(1 to: (1 bitShift: 100)) isEmpty"));
+  EXPECT_EQ("true", printOf(b, "^(1 to: 0) isEmpty"));
+}
+
+// review-agy R4 F2 / SPEC §3.6: isEmpty fails when size answers no Integer, instead of answering a
+// Boolean for it.
+TEST(CollectionDo, IsEmptyWithNonIntegerSizeFails) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Collection subclass: #NilSized\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'R4-Test'!\n"
+                               "!NilSized methodsFor: 'accessing'!\n"
+                               "size\n"
+                               "  ^nil! !\n"
+                               "!Collection subclass: #StringSized\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'R4-Test'!\n"
+                               "!StringSized methodsFor: 'accessing'!\n"
+                               "size\n"
+                               "  ^'0'! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  EXPECT_EQ("<abort: failed: #isEmpty>", printOf(b, "^NilSized new isEmpty"));
+  EXPECT_EQ("<abort: failed: #isEmpty>", printOf(b, "^StringSized new isEmpty"));
+}
+
+// review-agy M12 / SPEC §3.6: ArrayedCollection>>do: fails when size is not a SmallInteger,
+// instead of answering the size.
+TEST(CollectionDo, ArrayedDoWithNonSmallIntegerSizeFails) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Array subclass: #BigSizedArray\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'M12-Test'!\n"
+                               "!BigSizedArray methodsFor: 'accessing'!\n"
+                               "size\n"
+                               "  ^1 bitShift: 100! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  EXPECT_EQ("<abort: failed: #do:>", printOf(b, "^(BigSizedArray new: 2) do: [:x | x]"));
+}
+
 // B9 review (Low): 作業領域（ブロックのスロットの Array と件数）が壊れていても、述語を呼んでから
 // 失敗していた。SPEC §3.6: 述語を呼ぶ前にも確かめ、壊れていれば述語を呼ばずに失敗する。
 TEST(CollectionDo, SelectChecksItsBufferBeforeThePredicate) {

@@ -59,6 +59,11 @@ void clearUnwinding(CallContext& ctx);
 // Sends value, value:, ... (n up to 4) to blk with the rooted args. False when the frames are
 // unwinding afterwards (SPEC §3.4): the caller must stop and answer the empty Oop.
 bool callBlock(CallContext& ctx, Oop blk, const Oop* args, std::uint32_t n, Oop* out);
+// Sends do: with thunk (a native's block) to receiver. False when the frames are unwinding
+// afterwards, or when do: answered the empty Oop: that failure aborts with "failed: #do:" (or
+// "out of memory"), SPEC §3.3. The caller then answers the empty Oop. May collect: the caller
+// reads receiver and thunk again from their rooted slots.
+bool sendDo(CallContext& ctx, Oop receiver, Oop thunk);
 // The truth of a branch or loop condition (SPEC §3.5). A non-Boolean gets mustBeBoolean, whose
 // answer must be a Boolean, or the evaluation aborts. False when the frames are unwinding.
 bool truthOf(CallContext& ctx, Oop value, bool* truth);
