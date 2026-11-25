@@ -219,7 +219,7 @@ TEST(Bootstrap, CycleImmediateClassOf) {
 }
 
 TEST(Bootstrap, CycleSurvivesNurseryGc) {
-  // Nursery must fit all skeletons + name byte objects; allocate() does not GC.
+  // The skeletons and names go to old when the nursery is full (allocateNoGc); the GC keeps them.
   ao::Heap heap(1 << 20, 1 << 18);
   ao::Roots roots;
   ao::WellKnown wk(heap, roots);

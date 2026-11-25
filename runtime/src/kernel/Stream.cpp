@@ -23,11 +23,6 @@ constexpr std::uint32_t kStreamPosition   = 1;
 constexpr std::uint32_t kStreamReadLimit  = 2;
 constexpr std::uint32_t kStreamWriteLimit = 3;
 
-// SPEC §3.6 Kernel-Classes: OrderedCollection's `array firstIndex lastIndex`.
-constexpr std::uint32_t kOcArray = 0;
-constexpr std::uint32_t kOcFirst = 1;
-constexpr std::uint32_t kOcLast = 2;
-
 // receiver はルート済みスロット。メッセージの割り当てで GC が走っても正しい。
 Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
   Oop s = Str::fromUtf8(ctx, msg);

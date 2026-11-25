@@ -224,6 +224,7 @@ static Oop makeSlotNames(Heap& heap, WellKnown& wk, std::string_view names) {
   }
   const Oop arr = heap.allocateNoGc(wk.arrayClass, static_cast<std::uint32_t>(parts.size()), 0);
   if (!arr.isHeap()) {
+    heap.setOutOfMemory();
     return Oop::nil();
   }
   for (std::uint32_t i = 0; i < parts.size(); ++i) {
