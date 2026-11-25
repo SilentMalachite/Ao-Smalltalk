@@ -2,6 +2,7 @@
 
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
+#include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
@@ -270,8 +271,8 @@ Oop ao_ArrayedCollection_do_(CallContext& ctx, const Oop& receiver, const Oop* a
   Root blk(ctx.roots, args[0]);
   Root elt(ctx.roots);
   const Oop nOop = send(ctx, rcvr.slot, ctx.wk.selSize, nullptr, 0, nullptr);
-  if (!nOop.isSmallInteger()) {
-    return nOop;
+  if (unwinding(ctx) || !nOop.isSmallInteger()) {
+    return Oop{};
   }
   const auto n = nOop.smallIntegerValue();
   Oop ignored;
@@ -406,10 +407,16 @@ Oop ao_Collection_isEmpty(CallContext& ctx, const Oop& receiver, const Oop*, std
     return Oop{};
   }
   const Oop n = send(ctx, receiver, ctx.wk.selSize, nullptr, 0, nullptr);
-  if (!n.isSmallInteger()) {
-    return n;
+  if (unwinding(ctx) || n.isEmpty()) {
+    return Oop{};
   }
-  return n.smallIntegerValue() == 0 ? Oop::true_() : Oop::false_();
+  if (n.isSmallInteger()) {
+    return n.smallIntegerValue() == 0 ? Oop::true_() : Oop::false_();
+  }
+  if (!LargeInteger::isInteger(ctx.wk, n)) {
+    return Oop{};
+  }
+  return LargeInteger::isZero(ctx.heap, ctx.wk, n) ? Oop::true_() : Oop::false_();
 }
 
 namespace kernel {

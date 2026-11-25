@@ -799,6 +799,33 @@ TEST(CollectionDo, IntervalDoFailureIsNotSwallowed) {
   expectFailAbort(b, send1(b, sized.slot, "collect:", predBlk.slot), "failed: #do:");
 }
 
+// review-agy M12 / SPEC §3.6: isEmpty answers whether an Integer size is 0, so a LargeInteger size
+// is not taken for a failure.
+TEST(CollectionDo, IsEmptyOnLargeIntervalAnswersBoolean) {
+  Boot b;
+  EXPECT_EQ("false", printOf(b, "^(1 to: (1 bitShift: 100)) isEmpty"));
+  EXPECT_EQ("true", printOf(b, "^(1 to: 0) isEmpty"));
+}
+
+// review-agy M12 / SPEC §3.6: ArrayedCollection>>do: fails when size is not a SmallInteger,
+// instead of answering the size.
+TEST(CollectionDo, ArrayedDoWithNonSmallIntegerSizeFails) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Array subclass: #BigSizedArray\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'M12-Test'!\n"
+                               "!BigSizedArray methodsFor: 'accessing'!\n"
+                               "size\n"
+                               "  ^1 bitShift: 100! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  EXPECT_EQ("<abort: failed: #do:>", printOf(b, "^(BigSizedArray new: 2) do: [:x | x]"));
+}
+
 // B9 review (Low): 作業領域（ブロックのスロットの Array と件数）が壊れていても、述語を呼んでから
 // 失敗していた。SPEC §3.6: 述語を呼ぶ前にも確かめ、壊れていれば述語を呼ばずに失敗する。
 TEST(CollectionDo, SelectChecksItsBufferBeforeThePredicate) {
