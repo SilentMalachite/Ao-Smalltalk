@@ -96,10 +96,13 @@ Oop doesNotUnderstand(CallContext& ctx, Oop receiver, Oop selector, const Oop* a
     in[i + 2] = args[i];
   }
   // SPEC §3.3: without a Message or a doesNotUnderstand: to send it to, the send aborts as the
-  // default doesNotUnderstand: would. Only out of memory stops the Message, and then the reason
-  // cannot be allocated either: it becomes "out of memory".
+  // default doesNotUnderstand: would. Only out of memory stops the Message, and then that is the
+  // reason, even when the shorter reason string would still fit.
   Root msg(ctx.roots, allocateMessage(ctx, in, argc));
   if (!msg.slot.isHeap()) {
+    if (ctx.heap.outOfMemory()) {
+      return abortEvaluation(ctx, "out of memory");
+    }
     return abortDoesNotUnderstand(ctx, in[1]);
   }
   const Oop dnuSel = Symbol::intern(ctx.wk, "doesNotUnderstand:");

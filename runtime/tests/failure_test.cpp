@@ -207,6 +207,80 @@ TEST(FailureAbortBoot, DefaultDoesNotUnderstandAborts) {
   EXPECT_EQ("doesNotUnderstand: #zork:", takeAbortReason(b));
 }
 
+// SPEC §3.3: a DNU whose Message cannot be made aborts with out of memory, even when the shorter
+// reason string would still fit. old is full of live objects, and the nursery keeps live objects
+// that cannot be promoted: after the GCs, the Message's 200-slot argument Array does not fit, and
+// "doesNotUnderstand: #a:a:..." does.
+TEST_F(FailureAbort, DnuWithoutRoomForMessageIsOutOfMemory) {
+  ao_runtime_shutdown();  // the capped Boot below is the only runtime alive
+  Boot b(1 << 20, 1 << 20, 1 << 20);  // old は 1 MiB で頭打ち
+  b.heap.setGcStress(0);  // the room left in the nursery is counted, so no GC runs on the way
+  constexpr std::uint32_t kArgc = 200;
+  std::string selector;
+  for (std::uint32_t i = 0; i < kArgc; ++i) {
+    selector += "a:";
+  }
+  ao::Root sel(b.roots, b.wk.intern(selector));
+  ASSERT_TRUE(sel.slot.isHeap());
+  ao::Oop args[kArgc];
+  for (std::uint32_t i = 0; i < kArgc; ++i) {
+    args[i] = ao::Oop::fromSmallInteger(i);
+  }
+
+  // Everything young is promoted and old keeps only live objects; then old is filled to its max
+  // with live objects, halving their size until not even an empty one fits.
+  ao::Gc gc(b.heap, b.roots);
+  gc.collectNursery();
+  gc.collectOld();
+  ao::RootedArray old(b.roots, 256);
+  std::uint32_t kept = 0;
+  for (std::uint32_t slots = 1024;; slots /= 2) {
+    while (kept < 256) {
+      const ao::Oop o = b.heap.allocateTenured(ao::Oop::nil(), slots, 0);
+      if (!o.isHeap()) {
+        break;
+      }
+      old[kept++] = o;
+    }
+    if (slots == 0) {
+      break;
+    }
+  }
+  ASSERT_LT(kept, 256u);
+  ASSERT_FALSE(b.heap.allocateTenured(ao::Oop::nil(), 0, 0).isHeap());
+
+  // The nursery keeps live objects until only the Message and the reason fit in what is left.
+  const std::size_t messageBytes = b.heap.objectBytesFor(2, 0);
+  const std::size_t reasonBytes = b.heap.objectBytesFor(
+      static_cast<std::uint32_t>(std::strlen("doesNotUnderstand: #") + selector.size()),
+      ao::kFlagBytes);
+  const std::size_t room = messageBytes + reasonBytes;
+  ASSERT_LT(reasonBytes, b.heap.objectBytesFor(kArgc, 0));
+  constexpr std::size_t kChunk = std::size_t{32} << 10;
+  ao::RootedArray young(b.roots, 64);
+  std::uint32_t youngKept = 0;
+  while (b.heap.nurseryRemaining() > room) {
+    const std::size_t gap = b.heap.nurseryRemaining() - room;
+    ASSERT_GE(gap, 16u);
+    std::size_t bytes = gap;
+    if (gap > kChunk) {
+      bytes = gap - kChunk < 16 ? gap - 16 : kChunk;
+    }
+    ASSERT_LT(youngKept, 64u);
+    const auto slots = static_cast<std::uint32_t>((bytes - 16) / 8);
+    young[youngKept] = b.heap.allocate(ao::Oop::nil(), slots, 0);
+    ASSERT_TRUE(young[youngKept].isHeap());
+    ++youngKept;
+  }
+  ASSERT_EQ(room, b.heap.nurseryRemaining());
+
+  ASSERT_FALSE(b.heap.outOfMemory());
+  EXPECT_TRUE(
+      ao::send(b.ctx, ao::Oop::fromSmallInteger(3), sel.slot, args, kArgc, nullptr).isEmpty());
+  EXPECT_TRUE(b.heap.outOfMemory());
+  EXPECT_EQ("out of memory", takeAbortReason(b));
+}
+
 // 02 High: 空 OOP へ送っても classOf の nil で探索せず、評価を中断する。
 TEST(FailureAbortBoot, SendToEmptyReceiverAborts) {
   Boot b;
