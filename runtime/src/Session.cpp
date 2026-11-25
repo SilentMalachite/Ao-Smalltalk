@@ -2270,7 +2270,7 @@ std::string frameLabel(Session& s, const DebugFrames& f, std::uint32_t i) {
       return "[] in " + methodLabel(methodNameOf(s, method.isEmpty() ? f.method(i) : method));
     default: {
       const std::string selector = byteText(s.heap, f.selector(i));
-      if (!pointerSlots(s.heap, method, kNativeSlotCount)) {
+      if (!NativeMethod::hasSlots(s.heap, method)) {
         return "#" + selector + " (doesNotUnderstand:)";
       }
       const std::string_view sym = NativeMethod::nameBytes(s.heap, method);
@@ -2513,7 +2513,7 @@ int debugFrameSource(int i, char* buf, int len, AoSpan* highlight) {
   // DNU frame take the same shape with their labels.
   const Oop method = labelMethodOf(*s, *f, fi);
   const MethodName name = methodNameOf(*s, method);
-  if (kind == kDebugFrameNative && pointerSlots(s->heap, method, kNativeSlotCount)) {
+  if (kind == kDebugFrameNative && NativeMethod::hasSlots(s->heap, method)) {
     const std::string cls = classNameOf(s->heap, s->heap.slotAt(method, kNativeSlotMethodClass));
     sourceOf(*s, cls, ListedMethod{byteText(s->heap, f->selector(fi)), true, method}, text);
   } else if (kind != kDebugFrameNative && !method.isEmpty() && !name.doIt) {

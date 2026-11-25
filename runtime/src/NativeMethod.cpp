@@ -117,8 +117,13 @@ Oop create(Heap& heap, WellKnown& wk, Oop selector, std::uint32_t argc, std::str
   return meth;
 }
 
+bool hasSlots(const Heap& heap, Oop method) {
+  return method.isHeap() && (heap.flags(method) & kFlagBytes) == 0 &&
+         heap.size(method) >= kNativeSlotCount;
+}
+
 Oop apply(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc) {
-  if (!method.isHeap()) {
+  if (!hasSlots(ctx.heap, method)) {
     return Oop{};
   }
   if (ctx.heap.klass(method) != ctx.wk.nativeMethodClass) {
@@ -152,7 +157,7 @@ Oop invoke(CallContext& ctx, NativeFn fn, Oop receiver, const Oop* args, std::ui
 }
 
 std::string_view nameBytes(Heap& heap, Oop method) {
-  if (!method.isHeap()) {
+  if (!hasSlots(heap, method)) {
     return {};
   }
   const auto name = heap.slotAt(method, kNativeSlotName);
@@ -165,8 +170,7 @@ std::string_view nameBytes(Heap& heap, Oop method) {
 
 
 NativeFn functionOf(const Heap& heap, const WellKnown& wk, Oop method) {
-  if (!method.isHeap() || heap.klass(method) != wk.nativeMethodClass ||
-      heap.size(method) < kNativeSlotCount) {
+  if (!hasSlots(heap, method) || heap.klass(method) != wk.nativeMethodClass) {
     return nullptr;
   }
   const auto idxOop = heap.slotAt(method, kNativeSlotRegistryIndex);

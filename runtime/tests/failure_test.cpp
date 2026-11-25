@@ -6,9 +6,11 @@
 
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
+#include "ao/Bootstrap.hpp"
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
+#include "ao/MethodDictionary.hpp"
 #include "ao/Send.hpp"
 #include "ao/kernel/Install.hpp"
 
@@ -470,4 +472,24 @@ TEST_F(FailureAbort, BasicAtPutRefusesFormatThatDisagreesWithObject) {
   EXPECT_EQ("true", printed("(p at: 1) == Object"));
   EXPECT_EQ("true", printed("(r basicAt: 1) == Object"));
   EXPECT_EQ("7", printed("q at: 8"));
+}
+
+// Low NativeMethod / SPEC §3.6 Kernel-Classes の既知の制約: スロットが kNativeSlotCount に足りない
+// NativeMethod がメソッド辞書にあっても（反射でしか入らない）、その送信はスロットを範囲の外まで
+// 読まずに失敗する。
+TEST_F(FailureAbort, SendOfNativeMethodWithTooFewSlotsFails) {
+  ASSERT_EQ(AO_OK, doIt("Object subclass: #W instanceVariableNames: '' classVariableNames: ''"
+                        " poolDictionaries: '' category: 'R5-Test'"))
+      << err_.message;
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  const ao::Oop cls = s->wk.global(s->wk.intern("W"));
+  ASSERT_TRUE(cls.isHeap());
+  const ao::Oop dict = s->heap.slotAt(cls, ao::kClassSlotMethodDict);
+  const ao::Oop sel = s->wk.intern("zork");
+  const ao::Oop bare = s->heap.allocateNoGc(s->wk.nativeMethodClass, 0, 0);
+  ASSERT_TRUE(bare.isHeap());
+  ASSERT_TRUE(ao::MethodDictionary::atPut(s->heap, dict, sel, bare));
+  EXPECT_EQ(AO_ERR_EVAL, print("W new zork"));
+  EXPECT_STREQ("failed: #zork", err_.message);
 }

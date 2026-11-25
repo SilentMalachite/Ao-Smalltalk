@@ -50,7 +50,8 @@ bool icMatches(CallContext& ctx, InlineCache* ic, Oop klass, Oop selector) {
   const Oop meth = ic->cachedMethod;
   const Oop mk = ctx.heap.klass(meth);
   if (mk == ctx.wk.nativeMethodClass) {
-    return ctx.heap.slotAt(meth, kNativeSlotSelector) == selector;
+    return NativeMethod::hasSlots(ctx.heap, meth) &&
+           ctx.heap.slotAt(meth, kNativeSlotSelector) == selector;
   }
   if (mk == ctx.wk.compiledMethodClass) {
     return ctx.heap.slotAt(meth, kCmSlotSelector) == selector;

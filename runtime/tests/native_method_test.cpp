@@ -36,6 +36,25 @@ TEST(NativeMethod, NameAndApply) {
   EXPECT_TRUE(ao::NativeMethod::apply(ctx, meth, recv, &arg, 1).isTrue());
 }
 
+// 反射で NativeMethod の format を書き換えると、スロットが kNativeSlotCount に足りない NativeMethod
+// ができる。apply、functionOf、nameBytes はスロットを読まずに拒む。
+TEST(NativeMethod, ApplyRefusesTooFewSlots) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  const ao::Oop bare = heap.allocateNoGc(wk.nativeMethodClass, 0, 0);
+  ASSERT_TRUE(bare.isHeap());
+  EXPECT_FALSE(ao::NativeMethod::hasSlots(heap, bare));
+  ao::CallContext ctx{heap, roots, wk, nullptr};
+  EXPECT_TRUE(ao::NativeMethod::apply(ctx, bare, ao::Oop::nil(), nullptr, 0).isEmpty());
+  EXPECT_EQ(nullptr, ao::NativeMethod::functionOf(heap, wk, bare));
+  EXPECT_EQ("", ao::NativeMethod::nameBytes(heap, bare));
+  const ao::Oop full = ao::NativeMethod::create(heap, wk, ao::Symbol::intern(wk, "=="), 1, "n",
+                                                ao::NativeRegistry::add(stubEq), wk.objectClass);
+  EXPECT_TRUE(ao::NativeMethod::hasSlots(heap, full));
+}
+
 TEST(NativeMethod, AddInternsByFunctionPointer) {
   auto idx1 = ao::NativeRegistry::add(stubEq);
   auto idx2 = ao::NativeRegistry::add(stubEq);
