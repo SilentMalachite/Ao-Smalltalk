@@ -1461,17 +1461,25 @@ const Frame* acceptTarget(Session& s, const CallContext& fiber, const LiveFrames
   }
   // A Do it while halted may have rewritten the method's slots and its class's (instVarAt:put:):
   // its methodClass with something that is no class, its metaclass's thisClass with another
-  // class (the Accept would go into that one's metaclass).
+  // class (the Accept would go into that one's metaclass). The class the Accept goes into
+  // (sessionDebugAccept: the thisClass of a metaclass) must be a Behavior, as acceptInto checks:
+  // a class-shaped Array holding the class's dictionary, or a class whose metaclass's superclass
+  // was cut, is none.
   const Oop cls = s.heap.slotAt(m, kCmSlotMethodClass);
   const Oop sel = s.heap.slotAt(m, kCmSlotSelector);
   if (!isClassShaped(s.heap, cls) || !sel.isHeap()) {
     return nullptr;
   }
+  Oop owner = cls;
   if (s.heap.klass(cls) == s.wk.metaclassClass) {
     const Oop thisClass = s.heap.slotAt(cls, kClassSlotThisClass);
     if (!isClassShaped(s.heap, thisClass) || s.heap.klass(thisClass) != cls) {
       return nullptr;
     }
+    owner = thisClass;
+  }
+  if (!isBehaviorObject(*s.ctx, owner)) {
+    return nullptr;
   }
   const Oop dict = s.heap.slotAt(cls, kClassSlotMethodDict);
   if (!dict.isHeap() || MethodDictionary::at(s.heap, dict, sel) != m) {

@@ -2536,6 +2536,57 @@ TEST_F(LiveAccept, AcceptRefusesThisClassRewrittenWhileHalted) {
   EXPECT_EQ(1, ao_debug_halted_count());
 }
 
+// review-agy R5-T5 B / SPEC §3.10: the class an Accept goes into (the methodClass, or the
+// thisClass of a metaclass) must be a Behavior, as the Accept itself checks. A Do it while halted
+// may put a class-shaped object that is none into the methodClass (an Array new: 8 holding the
+// class's method dictionary), or cut the metaclass's superclass so that the class is none:
+// ao_debug_can_accept answers 0 and the Accept is refused like the other rewrites, installing
+// nothing.
+TEST_F(LiveAccept, AcceptOnNonBehaviorMethodClassIsRefused) {
+  defineClass("DbgAccNb");
+  accept("DbgAccNb", 0, "bar\n  self halt.\n  ^1");
+  accept("DbgAccNb", 1, "make\n  self halt.\n  ^1");
+  struct Case {
+    const char* name;
+    const char* eval;
+    const char* frame;
+    const char* rewrite;
+    const char* source;
+    const char* restore;
+    const char* unchanged;
+  };
+  const Case cases[] = {
+      {"methodClass an Array", "DbgAccNb new bar", "DbgAccNb>>bar",
+       "m := DbgAccNb compiledMethodAt: #bar. fake := Array new: 8. "
+       "fake at: 2 put: (DbgAccNb instVarAt: 2). m instVarAt: 6 put: fake",
+       "bar\n  ^3", "m instVarAt: 6 put: DbgAccNb", "(DbgAccNb compiledMethodAt: #bar) == m"},
+      {"metaclass without a superclass", "DbgAccNb make", "DbgAccNb class>>make",
+       "m := DbgAccNb class compiledMethodAt: #make. mc := DbgAccNb class. "
+       "mc instVarAt: 1 put: nil",
+       "make\n  ^3", "mc instVarAt: 1 put: Object class",
+       "(DbgAccNb class compiledMethodAt: #make) == m"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    ASSERT_EQ(AO_ERR_HALT, printIt(c.eval));
+    const std::int64_t pid = selectHalted();
+    ASSERT_EQ(c.frame, label(1));
+    ASSERT_EQ(1, ao_debug_can_accept(pid, 1));
+    ASSERT_EQ(AO_OK, doIt(c.rewrite)) << err_.message;
+    EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+    EXPECT_EQ(AO_ERR, acceptIn(pid, 1, c.source));
+    EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+    EXPECT_EQ(0u, err_.start);
+    EXPECT_EQ(0u, err_.end);
+    EXPECT_STREQ("", out_);
+    EXPECT_EQ(pid, ao_debug_halted_pid());
+    ASSERT_EQ(AO_OK, doIt(c.restore)) << err_.message;
+    ASSERT_EQ(AO_OK, printIt(c.unchanged)) << err_.message;
+    EXPECT_STREQ("true", out_);
+  }
+  EXPECT_EQ(2, ao_debug_halted_count());
+}
+
 TEST_F(LiveAccept, AcceptUnknownPidFails) {
   EXPECT_EQ(AO_ERR, acceptIn(424242, 1, "bar\n  ^1"));
   EXPECT_STREQ("", err_.message);
