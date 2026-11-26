@@ -413,7 +413,10 @@ bool applyMethodsFor(CallContext& ctx, const compiler::ChunkAction& action,
         continue;
       }
     }
-    Root kept(ctx.roots, installMethod(ctx, tgt.slot, cr.image));
+    // SPEC §3.10: registered before the install, as acceptInto's, so a slot that cannot be
+    // registered fails with the method dictionary as it was.
+    Root kept(ctx.roots, Oop::nil());
+    kept.slot = installMethod(ctx, tgt.slot, cr.image);
     if (!kept.slot.isHeap()) {
       addError(errors, {m.span, "install failed"}, methodKey(action, cr.image.selector));
       continue;
