@@ -2212,8 +2212,8 @@ TEST(ImageSaveLoad, FreshSessionAndVendorImagesHaveNoEmptyWords) {
 
 // review-agy H5 / SPEC §3.11: 失敗シナリオ。ロードは bits 0（空 OOP）を即値として、タグが Character の語を
 // 値によらず受け入れていた。空 OOP は値でなく、Character は Unicode スカラー値を持つ。ポインタのオブジェクト
-// のスロット（Smalltalk の配列の空きの項目）とレコード（transcript）のどちらにあっても damaged image で拒む。
-// スカラー値の隣（U+D7FF、U+E000、U+10FFFF）は読む。
+// のスロット（Smalltalk の配列の空きの項目）とレコード（well-known の transcript、最初のグローバル）のどこに
+// あっても、ヒープを載せる前に damaged image で拒む。スカラー値の隣（U+D7FF、U+E000、U+10FFFF）は読む。
 TEST(ImageLoadChecks, RefusesEmptyOopInSlotOrRecord) {
   const auto good = std::filesystem::path(testing::TempDir()) / "h5-empty-good.aoimage";
   const auto bad = std::filesystem::path(testing::TempDir()) / "h5-empty-bad.aoimage";
@@ -2234,20 +2234,30 @@ TEST(ImageLoadChecks, RefusesEmptyOopInSlotOrRecord) {
   ASSERT_NE(0u, slotAt);
   const std::size_t recordAt = image.recordPos("transcript");
   ASSERT_NE(0u, recordAt);
+  // The first global record follows the well-known ones (there are no extra records). The load
+  // matches it against the dictionary after it adopts the heap, so before H5 a bad word there was
+  // refused only after the heap was adopted.
+  std::size_t globalAt = 0;
+  ASSERT_NE(0u, wellKnownBitsAt(image.bytes, "transcript", &globalAt));
+  std::uint32_t nameBytes = 0;
+  std::memcpy(&nameBytes, image.bytes.data() + globalAt, sizeof nameBytes);
+  globalAt += sizeof nameBytes + nameBytes + (4u - nameBytes % 4u) % 4u;
+  ASSERT_LT(globalAt + 8, image.bytes.size());
   const auto character = [](std::uint64_t cp) { return (cp << 2) | ao::Oop::kCharTag; };
   auto loadWith = [&](std::size_t at, std::uint64_t word) {
     ImageSurgery damaged = image;
     damaged.setWord(at, word);
     EXPECT_TRUE(damaged.write(bad));
   };
-  for (std::size_t at : {slotAt, recordAt}) {
-    SCOPED_TRACE(at == slotAt ? "slot" : "record");
+  for (std::size_t at : {slotAt, recordAt, globalAt}) {
+    SCOPED_TRACE(at == slotAt ? "slot" : at == recordAt ? "record" : "global record");
     for (std::uint64_t word : {std::uint64_t{0}, character(0xD800), character(0xDFFF),
                                character(0x110000), character((std::uint64_t{1} << 32) | 0x41)}) {
       SCOPED_TRACE(word);
       loadWith(at, word);
       expectRefused(bad, "damaged image");
     }
+    if (at == globalAt) continue;  // a global record must also match the dictionary
     for (std::uint64_t cp : {0xD7FFu, 0xE000u, 0x10FFFFu}) {
       SCOPED_TRACE(cp);
       loadWith(at, character(cp));
