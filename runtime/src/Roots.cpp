@@ -243,19 +243,28 @@ void Roots::Stack::visit(VisitFn fn, void* ctx) {
 }
 
 void Roots::Stack::enterNextFrameBlock(std::size_t n) {
+  // Allocate before changing any state: a failure leaves the Stack as it was.
+  const std::size_t next = frameBase_ != nullptr ? frameBlock_ + 1 : frameBlock_;
+  if (next == frameBlocks_.size()) {
+    const std::size_t cap = n > kFrameBlockSlots ? n : kFrameBlockSlots;
+    if (failBlockAlloc_) {
+      failBlockAlloc_ = false;
+      throw std::bad_alloc();
+    }
+    frameBlocks_.push_back(FrameBlock{std::make_unique<Oop[]>(cap), cap, 0});
+  } else if (frameBlocks_[next].capacity < n) {
+    // Blocks past the current one are empty, so a too-small one can be replaced.
+    if (failBlockAlloc_) {
+      failBlockAlloc_ = false;
+      throw std::bad_alloc();
+    }
+    frameBlocks_[next] = FrameBlock{std::make_unique<Oop[]>(n), n, 0};
+  }
   if (frameBase_ != nullptr) {
     // Leave the current block with its frames in place.
     frameBlocks_[frameBlock_].used = frameUsed_;
-    ++frameBlock_;
   }
-  // Blocks past the current one are empty, so a too-small one can be replaced.
-  if (frameBlock_ < frameBlocks_.size() && frameBlocks_[frameBlock_].capacity < n) {
-    frameBlocks_.resize(frameBlock_);
-  }
-  if (frameBlock_ == frameBlocks_.size()) {
-    const std::size_t cap = n > kFrameBlockSlots ? n : kFrameBlockSlots;
-    frameBlocks_.push_back(FrameBlock{std::make_unique<Oop[]>(cap), cap, 0});
-  }
+  frameBlock_ = next;
   FrameBlock& block = frameBlocks_[frameBlock_];
   frameBase_ = block.slots.get();
   frameCap_ = block.capacity;

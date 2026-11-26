@@ -57,6 +57,7 @@ class Roots {
     Oop* frameBase_ = nullptr;
     std::size_t frameUsed_ = 0;
     std::size_t frameCap_ = 0;
+    bool failBlockAlloc_ = false;  // test seam, see Roots::failFrameBlockGrowthForTesting
   };
 
   // add throws std::bad_alloc when the slot table cannot grow. remove never throws.
@@ -68,6 +69,8 @@ class Roots {
   // Test seam: the slot table cannot grow once, after `adds` more adds succeed. That add throws
   // std::bad_alloc, or a reserveSlots whose room covers it does.
   void failSlotGrowthForTesting(std::size_t adds) { failAfter_ = adds; }
+  // Test seam: the next frame block the running Stack allocates throws std::bad_alloc, once.
+  void failFrameBlockGrowthForTesting() { stack_.failBlockAlloc_ = true; }
 
   // Registers n contiguous slots as one pinned range: rooted until unpinRange, released in any
   // order, and kept apart from the LIFO slots and the Stacks (a debug snapshot's; SPEC §3.13).

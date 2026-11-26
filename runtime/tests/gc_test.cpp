@@ -1390,3 +1390,31 @@ TEST(GcRoots, WellKnownDestructorRemovesItsRoots) {
   roots.remove(&kept);
   EXPECT_EQ(0u, roots.counts().slots);
 }
+
+// 次のフレームブロックの確保に失敗しても、Roots の状態は失敗の前のまま残る。失敗した pushFrame の
+// あとも、元のフレームは読め、普通の push / pop が動く。
+TEST(GcRoots, FrameBlockGrowthFailureLeavesRootsConsistent) {
+  ao::Roots roots;
+  const ao::Oop arg = ao::Oop::fromSmallInteger(7);
+  ao::Oop* first = roots.pushFrame(ao::Oop::fromSmallInteger(5), &arg, 1);
+  ASSERT_EQ(2u, roots.counts().frameSlots);
+
+  roots.failFrameBlockGrowthForTesting();
+  const std::uint32_t bigArgc = 4096;  // 4097 slots: does not fit the first block
+  std::vector<ao::Oop> bigArgs(bigArgc, ao::Oop::fromSmallInteger(1));
+  EXPECT_THROW(roots.pushFrame(ao::Oop::fromSmallInteger(9), bigArgs.data(), bigArgc), std::bad_alloc);
+  EXPECT_EQ(2u, roots.counts().frameSlots);
+  EXPECT_EQ(2u, roots.runningStack().frameSlotCount());
+  EXPECT_EQ(5, first[0].smallIntegerValue());
+  EXPECT_EQ(7, first[1].smallIntegerValue());
+
+  ao::Oop* big = roots.pushFrame(ao::Oop::fromSmallInteger(9), bigArgs.data(), bigArgc);
+  EXPECT_EQ(2u + bigArgc + 1, roots.counts().frameSlots);
+  roots.popFrame(big, bigArgc);
+  EXPECT_EQ(2u, roots.counts().frameSlots);
+  ao::Oop* again = roots.pushFrame(ao::Oop::fromSmallInteger(3), nullptr, 0);
+  roots.popFrame(again, 0);
+  roots.popFrame(first, 1);
+  EXPECT_EQ(0u, roots.counts().frameSlots);
+  EXPECT_TRUE(roots.runningStack().empty());
+}
