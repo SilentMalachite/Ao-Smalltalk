@@ -1701,3 +1701,16 @@ void sweepFailedRootAdds(const char* src, const char* answer) {
 TEST_F(SessionAbi, FailedRootAddInsideAnEvalLeavesNoRootBehind) {
   sweepFailedRootAdds("| a | a := 0. #(1 2 3) do: [:x | a := a + x]. a", "6");
 }
+
+// SPEC §3.2 (O1): the same on the evaluation's own process (live mode, SPEC §3.13), which
+// forkEval makes through rootRecord.
+TEST_F(SessionAbi, FailedRootAddInsideALiveEvalLeavesNoRootBehind) {
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  sweepFailedRootAdds("| a | a := 0. #(1 2 3) do: [:x | a := a + x]. a", "6");
+}
+
+// SPEC §3.2, §3.4 (O1): the same inside fork (the process's record) and Processor yield (the ready
+// queue): a failure leaves neither a record's slots nor a ready entry for a record that is gone.
+TEST_F(SessionAbi, FailedRootAddInsideAForkLeavesNoRootBehind) {
+  sweepFailedRootAdds("| p | p := [3 + 4] fork. Processor yield. 5", "5");
+}
