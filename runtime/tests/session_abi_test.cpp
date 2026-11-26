@@ -1629,3 +1629,75 @@ TEST_F(SessionAbi, DebugModeSurvivesBootAndLoad) {
   EXPECT_STREQ("false", out);
   std::remove(path);
 }
+
+namespace {
+
+// SPEC §3.2 (O1): the roots of every kind, outside the session's source and class ID tables (an
+// evaluation changes those on purpose: the doIt's entry, a dropped source entry).
+struct RootShape {
+  std::size_t slots;
+  std::size_t pinned;
+  std::size_t ranges;
+  std::size_t frames;
+  std::size_t handles;
+  std::size_t stacks;
+  bool operator==(const RootShape&) const = default;
+};
+
+RootShape rootShape(ao::Session& s) {
+  const ao::Roots::Counts c = s.roots.counts();
+  return {c.slots - ao::methodSourceRootSlots(false).size() - ao::classIdRootSlots().size(),
+          c.pinnedSlots, c.ranges, c.frameSlots, c.handles, c.attachedStacks};
+}
+
+// SPEC §3.2 (O1): the k-th root slot registration inside an evaluation of src fails, for each k up
+// to the first one the evaluation no longer reaches. Before any GC, no root is left behind and the
+// active context is empty again. A process the evaluation forked may outlive it (its record holds
+// 4 slots and one stack); the next evaluation ends it, and then every count is back.
+void sweepFailedRootAdds(const char* src, const char* answer) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const auto eval = [src](std::string* out) {
+    char buf[64] = "";
+    AoSpan e{};
+    const int rc = ao_eval(src, std::strlen(src), AO_EVAL_PRINTIT, buf, 64, &e);
+    *out = buf;
+    return rc;
+  };
+  std::string out;
+  ASSERT_EQ(AO_OK, eval(&out));
+  ASSERT_EQ(answer, out);
+  std::size_t k = 0;
+  for (;; ++k) {
+    SCOPED_TRACE(k);
+    ao::Session& s = *ao::session();
+    const RootShape before = rootShape(s);
+    s.roots.failSlotGrowthForTesting(k);
+    eval(&out);
+    const bool fired = !s.roots.slotGrowthFailurePending();
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    RootShape after = rootShape(s);
+    const std::size_t live = s.scheduler != nullptr ? s.scheduler->liveFibers() : 0;
+    after.slots -= 4 * live;
+    after.stacks -= live;
+    ASSERT_TRUE(before == after);
+    ASSERT_TRUE(s.ctx->activeContext.isEmpty());
+    ao::Gc gc(s.heap, s.roots);
+    gc.collectNursery();
+    gc.collectOld();
+    ASSERT_EQ(AO_OK, eval(&out));
+    ASSERT_EQ(answer, out);
+    ASSERT_TRUE(before == rootShape(s));
+    if (!fired) {
+      break;
+    }
+  }
+  EXPECT_GT(k, 0u);
+}
+
+}  // namespace
+
+// SPEC §3.2 (O1): a failed registration inside method and block activations (FieldRoots,
+// ActiveGuard, NonlocalGuard, Temps) leaves no root behind.
+TEST_F(SessionAbi, FailedRootAddInsideAnEvalLeavesNoRootBehind) {
+  sweepFailedRootAdds("| a | a := 0. #(1 2 3) do: [:x | a := a + x]. a", "6");
+}

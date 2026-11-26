@@ -3624,3 +3624,70 @@ TEST(AcceptAbi, RemovedMethodAfterLoadIsNotSaved) {
   EXPECT_EQ(std::string::npos, bytes.find("P18Gone"));
   std::remove("p18-remove.aoimage");
 }
+
+namespace {
+
+// SPEC §3.2 (O1): the roots of every kind, outside the session's source and class ID tables (an
+// Accept changes those on purpose: its source entry).
+struct RootShape {
+  std::size_t slots;
+  std::size_t pinned;
+  std::size_t ranges;
+  std::size_t frames;
+  std::size_t handles;
+  std::size_t stacks;
+  bool operator==(const RootShape&) const = default;
+};
+
+RootShape rootShape(ao::Session& s) {
+  const ao::Roots::Counts c = s.roots.counts();
+  return {c.slots - ao::methodSourceRootSlots(false).size() - ao::classIdRootSlots().size(),
+          c.pinnedSlots, c.ranges, c.frameSlots, c.handles, c.attachedStacks};
+}
+
+}  // namespace
+
+// SPEC §3.2 (O1): the k-th root slot registration of an Accept fails, through the install and the
+// change-set record's sends to the model (whose exception noteMethodChange swallows), for each k
+// up to the first one the Accept no longer reaches. Before any GC, no root is left behind and the
+// active context is empty again; the method answers what the Accept's answer says it installed.
+TEST(AcceptAbi, FailedRootAddInsideTheRecordLeavesNoRootBehind) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_filein_load_order(AO_SOURCE_DIR "/image/Tools-model/LOAD_ORDER"));
+  AoSpan err{};
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "O1Accept", "", "O1-Test").c_str(), &err))
+      << err.message;
+  // One set for the whole sweep: a new one per row makes each record slower under GC stress.
+  std::int64_t set = 0;
+  ASSERT_EQ(AO_OK, ao_changes_new("O1-Test", &set, &err)) << err.message;
+  const auto printBar = [] {
+    char out[64] = "";
+    AoSpan e{};
+    const int rc = ao_eval("O1Accept new bar", 16, AO_EVAL_PRINTIT, out, 64, &e);
+    return rc == AO_OK ? std::string(out) : "rc " + std::to_string(rc) + ": " + e.message;
+  };
+  std::size_t k = 0;
+  for (;; ++k) {
+    SCOPED_TRACE(k);
+    ASSERT_EQ(AO_OK, ao_accept_method("O1Accept", 0, "bar\n  ^1", &err)) << err.message;
+    ao::Session& s = *ao::session();
+    const RootShape before = rootShape(s);
+    s.roots.failSlotGrowthForTesting(k);
+    const int rc = ao_accept_method("O1Accept", 0, "bar\n  ^2", &err);
+    const bool fired = !s.roots.slotGrowthFailurePending();
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    ASSERT_TRUE(rc == AO_OK || rc == AO_ERR) << rc;
+    ASSERT_TRUE(before == rootShape(s));
+    ASSERT_TRUE(s.ctx->activeContext.isEmpty());
+    ao::Gc gc(s.heap, s.roots);
+    gc.collectNursery();
+    gc.collectOld();
+    ASSERT_EQ(rc == AO_OK ? "2" : "1", printBar());
+    if (!fired) {
+      break;
+    }
+  }
+  EXPECT_GT(k, 0u);
+  ao_runtime_shutdown();
+}
