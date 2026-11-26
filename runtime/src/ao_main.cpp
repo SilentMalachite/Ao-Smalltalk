@@ -4,6 +4,7 @@
 #include "ao/Compile.hpp"
 #include "ao/Heap.hpp"
 #include "ao/Image.hpp"
+#include "ao/kernel/Install.hpp"
 #include "ao/NativeMethod.hpp"
 #include "ao/Roots.hpp"
 #include "ao/Scheduler.hpp"
@@ -307,6 +308,8 @@ int runImage(int argc, char** argv) {
     return 1;
   }
   scheduler.adoptImage();
+  // SPEC §3.10: add the Kernel natives the image lacks, as ao_image_load does.
+  ao::kernel::installMissing(heap, roots, wk, &cache);
   ao::Oop arg = ao::Oop::fromSmallInteger(2);
   auto sel = wk.intern("+");
   auto three = ao::send(ctx, ao::Oop::fromSmallInteger(1), sel, &arg, 1, nullptr);
@@ -344,6 +347,10 @@ int main(int argc, char** argv) {
     return runImage(argc, argv);
   }
   if (argc >= 2 && std::strcmp(argv[1], "--test") == 0) {
+    if (argc > 3) {
+      std::fputs("ao: usage: ao --test [<dir>]\n", stderr);
+      return 2;
+    }
     std::string dir;
     if (argc >= 3) {
       dir = argv[2];

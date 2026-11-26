@@ -214,6 +214,9 @@ case "$CASE" in
     stderr_is 'ao: image load failed: not an Ao image'
     run 1 "$AO" image load none.aoimage
     stderr_is 'ao: image load failed: cannot read image file'
+    # SPEC §3.12: an extra argument is refused with the usage lines and exit 2; the image is not read.
+    run 2 "$AO" image load deferred.aoimage extra
+    [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for image load extra"
     ;;
   test)
     mkdir -p tests empty pass
@@ -239,6 +242,9 @@ ao --test: tests/e_fork.st: process failed: doesNotUnderstand: #bar'
     stderr_is 'ao --test: empty: no .st files'
     run 1 "$AO" --test no-such-dir
     stderr_is 'ao --test: no-such-dir: cannot read directory'
+    # SPEC §3.12: an extra argument is refused with the usage line and exit 2; nothing runs.
+    run 2 "$AO" --test pass extra
+    stderr_is 'ao: usage: ao --test [<dir>]'
     ;;
   *)
     fail "unknown case: $CASE"
