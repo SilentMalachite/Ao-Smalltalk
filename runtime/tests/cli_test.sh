@@ -127,6 +127,33 @@ subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p c
   category: 'Cli-Test'!
 EOF
   printf 'm8.st\n' >m8/LOAD_ORDER
+  # SPEC §3.11 ロード: defining CliInmSub runs CliInm's class-side subclass:..., which gives
+  # UndefinedObject (slot 2 of a class = its method dictionary) an empty MethodDictionary. The saved
+  # image then lacks `nil isNil`, which only the natives ao image load supplies after loading.
+  mkdir -p inm
+  cat >inm/inm.st <<'EOF'
+!Object subclass: #CliInm
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+
+!CliInm class methodsFor: 'definition'!
+subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p category: k
+  | made d |
+  made := super subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p category: k.
+  d := MethodDictionary new.
+  d instVarAt: 1 put: 0; instVarAt: 2 put: (Array new: 16).
+  UndefinedObject instVarAt: 2 put: d.
+  ^made! !
+
+!CliInm subclass: #CliInmSub
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+EOF
+  printf 'inm.st\n' >inm/LOAD_ORDER
 }
 
 # bad.st の `^1 +` は `+`（ファイル本文の 166-167 バイト目）の後に式が無い。
@@ -196,6 +223,12 @@ case "$CASE" in
     run 0 "$AO" image save --load-order m8/LOAD_ORDER m8.aoimage
     stderr_is ''
     run 0 "$AO" image load m8.aoimage
+    stderr_is ''
+    # SPEC §3.11: ao image load supplies the natives the image lacks; its `nil isNil` probe passes
+    # on an image whose UndefinedObject has an empty method dictionary.
+    run 0 "$AO" image save --load-order inm/LOAD_ORDER inm.aoimage
+    stderr_is ''
+    run 0 "$AO" image load inm.aoimage
     stderr_is ''
     run 0 "$AO" image load deferred.aoimage
     stderr_is ''
