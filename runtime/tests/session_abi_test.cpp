@@ -1653,7 +1653,8 @@ RootShape rootShape(ao::Session& s) {
 // SPEC §3.2 (O1): the k-th root slot registration inside an evaluation of src fails, for each k up
 // to the first one the evaluation no longer reaches. Before any GC, no root is left behind and the
 // base's active context is empty again (a live-mode doIt runs on its own process, whose context
-// goes with it). A failed evaluation that answers AO_OK while no process failed answers correctly.
+// goes with it). A failed evaluation that answers AO_OK with no more process failures than a clean
+// one answers correctly.
 // A process the evaluation forked may outlive it (its record holds 4 slots and one stack); the
 // next evaluation ends it, and then every count is back.
 void sweepFailedRootAdds(const char* src, const char* answer) {
@@ -1666,8 +1667,15 @@ void sweepFailedRootAdds(const char* src, const char* answer) {
     return rc;
   };
   std::string out;
+  // The process failures a clean evaluation of src records (a fork that aborts on purpose).
+  const std::uint64_t failuresBeforeClean = ao::session()->scheduler->processFailures();
   ASSERT_EQ(AO_OK, eval(&out));
   ASSERT_EQ(answer, out);
+  const std::uint64_t cleanFailures =
+      ao::session()->scheduler->processFailures() - failuresBeforeClean;
+  // Rows whose failed evaluation answered AO_OK and had its answer checked: at least one, so the
+  // check is not vacuous.
+  std::size_t answersChecked = 0;
   std::size_t k = 0;
   for (;; ++k) {
     SCOPED_TRACE(k);
@@ -1684,10 +1692,12 @@ void sweepFailedRootAdds(const char* src, const char* answer) {
     after.stacks -= live;
     ASSERT_TRUE(before == after);
     ASSERT_TRUE(s.ctx->activeContext.isEmpty());
-    // A forked process may fail on its own (SPEC §3.4) and the evaluation still answers, perhaps
-    // differently; without such a failure an AO_OK answer is the right one.
-    const bool processFailed = s.scheduler->processFailures() != failuresBefore;
-    ASSERT_TRUE(failedRc != AO_OK || processFailed || out == answer) << out;
+    // A forked process the failure hit fails on its own (SPEC §3.4) and the evaluation still
+    // answers, perhaps differently. Without a process failure beyond a clean evaluation's, an
+    // AO_OK answer is the right one.
+    const bool extraFailure = s.scheduler->processFailures() - failuresBefore != cleanFailures;
+    ASSERT_TRUE(failedRc != AO_OK || extraFailure || out == answer) << out;
+    answersChecked += failedRc == AO_OK && !extraFailure ? 1 : 0;
     ao::Gc gc(s.heap, s.roots);
     gc.collectNursery();
     gc.collectOld();
@@ -1699,6 +1709,7 @@ void sweepFailedRootAdds(const char* src, const char* answer) {
     }
   }
   EXPECT_GT(k, 0u);
+  EXPECT_GT(answersChecked, 0u);
 }
 
 }  // namespace
