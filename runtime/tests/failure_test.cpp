@@ -481,6 +481,9 @@ TEST_F(FailureAbort, SendOfNativeMethodWithTooFewSlotsFails) {
   ASSERT_EQ(AO_OK, doIt("Object subclass: #W instanceVariableNames: '' classVariableNames: ''"
                         " poolDictionaries: '' category: 'R5-Test'"))
       << err_.message;
+  // Accepted before the raw Oops below are taken: the accept may collect.
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_method("W", 0, "callZork\n  ^self zork\n", &err)) << err.message;
   ao::Session* s = ao::session();
   ASSERT_NE(nullptr, s);
   const ao::Oop cls = s->wk.global(s->wk.intern("W"));
@@ -492,4 +495,11 @@ TEST_F(FailureAbort, SendOfNativeMethodWithTooFewSlotsFails) {
   ASSERT_TRUE(ao::MethodDictionary::atPut(s->heap, dict, sel, bare));
   EXPECT_EQ(AO_ERR_EVAL, print("W new zork"));
   EXPECT_STREQ("failed: #zork", err_.message);
+  // review-agy R5 F7: a send from an accepted method fails the same way on each evaluation, the
+  // second one too. The interpreter passes no inline cache, so icMatches is not reached from here.
+  for (int i = 0; i < 2; ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_EQ(AO_ERR_EVAL, print("W new callZork"));
+    EXPECT_STREQ("failed: #zork", err_.message);
+  }
 }

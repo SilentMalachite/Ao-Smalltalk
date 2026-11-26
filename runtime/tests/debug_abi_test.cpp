@@ -1595,13 +1595,13 @@ TEST_F(LiveDebug, OverridingHaltedNativeKeepsItsFrame) {
   EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
 }
 
-// review-agy R5-T5 A / SPEC §3.13: whether the frame synthesized at the stop is a DNU or a native
-// is decided at the stop, like the count. A DNU whose lookup found a value that is no method (3,
-// put into the receiver class's dictionary with instVarAt:put:) is a DNU, though Object has a
-// native for the selector, and stays one when the selector is defined while halted (the
-// definition replaces the 3). A frame that halted in Object's native keeps that native when a
-// subclass's dictionary gets a 3 for the selector while halted.
-TEST_F(LiveDebug, HaltedNativeStopsAtFirstNonNilValue) {
+// review-agy R5-T5 A, R5 F4, F8 / SPEC §3.13: a frame synthesized at the stop for a DNU stays a
+// DNU, as the count stays. A DNU whose lookup found a value that is no method (3, put into the
+// receiver class's dictionary with instVarAt:put:) is a DNU, though Object has a native for the
+// selector, and stays one when the selector is defined while halted (the definition replaces the
+// 3). A frame that halted in Object's native keeps that native's label when a subclass's
+// dictionary gets a 3 for the selector while halted: the chain still reaches the native.
+TEST_F(LiveDebug, HaltedFrameLabelIsDecidedAtTheStop) {
   defineClass("PrbHn");
   ASSERT_EQ(AO_OK, doIt("(PrbHn instVarAt: 2) instVarAt: 2 put: "
                         "((Array new: 2) at: 1 put: #halt; at: 2 put: 3; yourself)"))
