@@ -1,3 +1,4 @@
+#include "ao/Compiler.hpp"
 #include "ao/Scanner.hpp"
 #include <chrono>
 #include <cmath>
@@ -272,4 +273,44 @@ TEST(Scanner, IntegerMantissaWithExponentIsInteger) {
   auto radixFl = scan("2r1e-2");
   EXPECT_TRUE(radixFl.isFloat);
   EXPECT_EQ(0.25, radixFl.number);
+}
+
+// SPEC §3.8: `$` takes one well-formed UTF-8 scalar; anything else is "invalid character literal"
+// and the scanner does not eat a byte that is not a continuation byte.
+TEST(Scanner, CharacterLiteralNeedsWellFormedUtf8) {
+  {
+    Scanner s("$\xC3x");
+    auto t = s.next();
+    EXPECT_EQ(Tok::Error, t.kind);
+    EXPECT_EQ("invalid character literal", t.text);
+    EXPECT_EQ(0u, t.span.start);
+    EXPECT_EQ(2u, t.span.end);
+    auto after = s.next();
+    EXPECT_EQ(Tok::Ident, after.kind);
+    EXPECT_EQ("x", after.text);
+  }
+  {
+    Scanner s("$\xC3\xA9");
+    auto t = s.next();
+    EXPECT_EQ(Tok::Character, t.kind);
+    EXPECT_EQ("\xC3\xA9", t.text);
+  }
+  const char* bad[] = {"$\xF4\x90\x80\x80", "$\xC0\x80", "$\xED\xA0\x80", "$\x80", "$\xFF",
+                       "$\xE3\x81",         "$\xC1\xBF", "$\xE0\x80\x80", "$\xF0\x80\x80\x80"};
+  for (const char* src : bad) {
+    Scanner s(src);
+    auto t = s.next();
+    EXPECT_EQ(Tok::Error, t.kind) << src;
+    EXPECT_EQ("invalid character literal", t.text) << src;
+  }
+  for (const char* src :
+       {"$\xEF\xBF\xBF", "$\xF4\x8F\xBF\xBF", "$\xED\x9F\xBF", "$\xEE\x80\x80", "$\xC2\x80", "$a"}) {
+    Scanner s(src);
+    EXPECT_EQ(Tok::Character, s.next().kind) << src;
+  }
+  auto r = ao::compiler::compileMethod(std::string("foo ^$\xF4\x90\x80\x80"));
+  EXPECT_FALSE(r.ok);
+  EXPECT_EQ("invalid character literal", r.error.message);
+  EXPECT_EQ(5u, r.error.span.start);
+  EXPECT_EQ(10u, r.error.span.end);
 }
