@@ -1,5 +1,5 @@
 "changeset — SPEC §3.9 種類の規則、§3.10 チェンジセット（P17）。ChangeSet を参照する唯一のテストファイルなので、始まりは遅延の初期化の直後。"
-| first work other entry sels out fo expect base sub cached target |
+| first work other entry sels out fo expect base sub cached target good |
 "遅延の初期化: 最初の参照で空の Unnamed1 が current になる"
 first := ChangeSet current.
 self assert: first name equals: 'Unnamed1'.
@@ -208,3 +208,22 @@ out := ChangeSet superclassOrder: (OrderedCollection new add: #R6NilSub; add: #R
 self assert: out size equals: 2.
 self assert: (out at: 1) equals: #R6NilSub.
 self assert: (out at: 2) equals: #R6NilBase.
+"File Out の定義が書けないクラス: 自分の名前が nil のクラスと、スーパークラスの名前が nil のクラスは、subclass: の定義を書かず、セットが持つ名前で definition not available のコメントのチャンクを書く。名前は、あとの行のために戻す"
+base := Object subclass: #R8LostA instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
+sub := base subclass: #R8LostB instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
+good := Object subclass: #R8Good instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
+out := ChangeSet newNamed: 'R8 Lost'.
+ChangeSet noteClassChange: #R8LostA existed: false.
+ChangeSet noteClassChange: #R8LostB existed: false.
+ChangeSet noteClassChange: #R8Good existed: false.
+base instVarAt: 4 put: nil.
+fo := out fileOutStringDate: '2026-11-26' version: '9.9.9'.
+base instVarAt: 4 put: #R8LostA.
+expect := WriteStream on: String new.
+expect nextPutAll: '"Change Set: R8 Lost'; cr;
+	nextPutAll: 'Date: 2026-11-26'; cr;
+	nextPutAll: 'Ao 9.9.9"!'; cr; cr;
+	nextPutAll: good definition; nextPutAll: '!'; cr; cr;
+	nextPutAll: '"R8LostA definition not available"!'; cr;
+	nextPutAll: '"R8LostB definition not available"!'; cr.
+self assert: fo equals: expect contents.
