@@ -290,6 +290,13 @@ ao --test: tests/e_fork.st: process failed: doesNotUnderstand: #bar'
     stderr_is 'ao: usage: ao --test [<dir>]'
     # SPEC §3.12 / §4.4: with no argument, it runs the image/tests found above the executable.
     run 0 "$AO" --test
+    # SPEC §4.4: with no argument and no image/tests above the executable, it says so and exits 1.
+    # A copy of ao in a directory outside the repository has none above it.
+    OUTSIDE="$(mktemp -d "${TMPDIR:-/tmp}/ao-cli-notfound.XXXXXX")" || fail "no temp directory"
+    cp "$AO" "$OUTSIDE/ao" || fail "cannot copy ao"
+    run 1 "$OUTSIDE/ao" --test
+    stderr_is 'ao: image/tests not found'
+    rm -rf "$OUTSIDE"
     ;;
   *)
     fail "unknown case: $CASE"

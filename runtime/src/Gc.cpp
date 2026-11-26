@@ -198,15 +198,24 @@ void Gc::clearWeakAfterNursery(const std::unordered_set<std::uintptr_t>& traced)
   fixWeak(heap_->toStart_, heap_->toBump_);  // old に入らず to-space に残った弱オブジェクト
 }
 
-void Gc::clearWeakAfterOldMark() {
-  auto clearUnmarkedOldSlots = [&](ObjectHeader* h) {
+void Gc::clearWeakAfterOldMark(const std::unordered_set<std::uintptr_t>& nurserySeen) {
+  // 弱スロットが指す old のうちマークの無いもの、nursery のうちマークがたどらなかったものは、弱参照でしか
+  // 届かない（死んでいる）。たどらなかった nursery の object は、回収する old を指しうるので nil にする。
+  auto clearUnmarkedSlots = [&](ObjectHeader* h) {
     auto* slots = reinterpret_cast<Oop*>(h + 1);
     for (std::uint32_t i = 0; i < h->size; ++i) {
       Oop s = slots[i];
-      if (!s.isHeap() || !heap_->inOld(s)) {
+      if (!s.isHeap()) {
         continue;
       }
-      if ((heap_->header(s)->flags & kFlagMarked) == 0) {
+      if (heap_->inOld(s)) {
+        if ((heap_->header(s)->flags & kFlagMarked) == 0) {
+          slots[i] = Oop::nil();
+        }
+        continue;
+      }
+      if (heap_->inNursery(s) &&
+          nurserySeen.count(reinterpret_cast<std::uintptr_t>(s.heapPointer())) == 0) {
         slots[i] = Oop::nil();
       }
     }
@@ -218,7 +227,7 @@ void Gc::clearWeakAfterOldMark() {
     const std::size_t n = heap_->objectBytes(h);
     if ((h->flags & kFlagMarked) && (h->flags & kFlagWeak) &&
         (h->flags & kFlagBytes) == 0) {
-      clearUnmarkedOldSlots(h);
+      clearUnmarkedSlots(h);
     }
     scan += n;
   }
@@ -228,7 +237,7 @@ void Gc::clearWeakAfterOldMark() {
     auto* h = reinterpret_cast<ObjectHeader*>(scan);
     const std::size_t n = heap_->objectBytes(h);
     if ((h->flags & kFlagWeak) != 0 && (h->flags & kFlagBytes) == 0) {
-      clearUnmarkedOldSlots(h);
+      clearUnmarkedSlots(h);
     }
     scan += n;
   }
@@ -285,7 +294,7 @@ void Gc::collectOld() {
     }
   }
 
-  clearWeakAfterOldMark();
+  clearWeakAfterOldMark(nurserySeen);
 
   std::vector<std::pair<std::byte*, std::byte*>> pins;
   std::byte* scan = heap_->oldStart_;

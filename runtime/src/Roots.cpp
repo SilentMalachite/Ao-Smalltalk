@@ -49,6 +49,13 @@ void Roots::pinRange(Oop* first, std::size_t n) {
   if (first == nullptr || n == 0) {
     return;
   }
+  if (pinFailAfter_ != kNoFailure) {
+    if (pinFailAfter_ == 0) {
+      pinFailAfter_ = kNoFailure;
+      throw std::bad_alloc();
+    }
+    --pinFailAfter_;
+  }
   pinned_.push_back(Stack::Range{first, n});
 }
 
@@ -96,6 +103,15 @@ std::uint32_t Roots::pushHandle(Oop obj) {
     return i;
   }
   const auto i = static_cast<std::uint32_t>(handles_.size());
+  // 片方だけ伸びて長さがずれないよう、どちらかが満杯なら両方を先に同じ倍の容量にする。
+  // free_ も、ほかより先に同じ容量にする。free_ は落とした番号を高々 1 つずつ持つので、
+  // dropHandle（デストラクタからも呼ぶ）は割り当てない。
+  if (handles_.size() == handles_.capacity() || live_.size() == live_.capacity()) {
+    const std::size_t grown = std::max<std::size_t>(16, handles_.capacity() * 2);
+    free_.reserve(grown);
+    handles_.reserve(grown);
+    live_.reserve(grown);
+  }
   handles_.push_back(obj);
   live_.push_back(1);
   return i;
@@ -237,19 +253,28 @@ void Roots::Stack::visit(VisitFn fn, void* ctx) {
 }
 
 void Roots::Stack::enterNextFrameBlock(std::size_t n) {
+  // Allocate before changing any state: a failure leaves the Stack as it was.
+  const std::size_t next = frameBase_ != nullptr ? frameBlock_ + 1 : frameBlock_;
+  if (next == frameBlocks_.size()) {
+    const std::size_t cap = n > kFrameBlockSlots ? n : kFrameBlockSlots;
+    if (failBlockAlloc_) {
+      failBlockAlloc_ = false;
+      throw std::bad_alloc();
+    }
+    frameBlocks_.push_back(FrameBlock{std::make_unique<Oop[]>(cap), cap, 0});
+  } else if (frameBlocks_[next].capacity < n) {
+    // Blocks past the current one are empty, so a too-small one can be replaced.
+    if (failBlockAlloc_) {
+      failBlockAlloc_ = false;
+      throw std::bad_alloc();
+    }
+    frameBlocks_[next] = FrameBlock{std::make_unique<Oop[]>(n), n, 0};
+  }
   if (frameBase_ != nullptr) {
     // Leave the current block with its frames in place.
     frameBlocks_[frameBlock_].used = frameUsed_;
-    ++frameBlock_;
   }
-  // Blocks past the current one are empty, so a too-small one can be replaced.
-  if (frameBlock_ < frameBlocks_.size() && frameBlocks_[frameBlock_].capacity < n) {
-    frameBlocks_.resize(frameBlock_);
-  }
-  if (frameBlock_ == frameBlocks_.size()) {
-    const std::size_t cap = n > kFrameBlockSlots ? n : kFrameBlockSlots;
-    frameBlocks_.push_back(FrameBlock{std::make_unique<Oop[]>(cap), cap, 0});
-  }
+  frameBlock_ = next;
   FrameBlock& block = frameBlocks_[frameBlock_];
   frameBase_ = block.slots.get();
   frameCap_ = block.capacity;

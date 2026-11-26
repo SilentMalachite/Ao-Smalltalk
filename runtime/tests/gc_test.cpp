@@ -3,6 +3,7 @@
 #include "ao/Heap.hpp"
 #include "ao/Oop.hpp"
 #include "ao/Roots.hpp"
+#include "ao/WellKnown.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -230,6 +231,19 @@ TEST(GcNursery, NoIdentitySplitWhenOldAtMax) {
   roots.remove(&n2);
   roots.remove(&n1);
   roots.remove(&cls);
+}
+
+TEST(GcNursery, UnalignedNurserySizeStillAllocatesHeapObjects) {
+  ao::Heap heap(1001, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto keep = heap.allocate(ao::Oop::nil(), 1, 0);
+  ASSERT_TRUE(keep.isHeap());
+  roots.add(&keep);
+  gc.collectNursery();
+  ASSERT_TRUE(keep.isHeap());
+  auto fresh = heap.allocate(ao::Oop::nil(), 1, 0);
+  EXPECT_TRUE(fresh.isHeap());
 }
 
 TEST(GcNursery, SharedChildCopiedOnce) {
@@ -576,6 +590,50 @@ TEST(GcWeak, NurseryWeakSlotNilsUnmarkedOldReferent) {
   ASSERT_TRUE(weak.isHeap());
   EXPECT_TRUE(heap.inNursery(weak));
   EXPECT_TRUE(heap.slotAt(weak, 0).isNil());
+}
+
+// old の O、nursery の X{O}、弱いスロットだけが指す X。old のマークは X に届かないので O を回収する。
+// 弱いスロットに X が残ると、X から回収した O の番地へ届いてしまう。nursery の弱い W と old の弱い V の
+// どちらでも、X を指すスロットは nil になる。ルートした old の P{Y} を通って届く Y と、ルートした R を
+// 指すスロットは残る。
+TEST(GcWeak, NurseryWeakSlotToUnseenNurseryObjectIsCleared) {
+  ao::Heap heap(512, 8192);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto o = heap.allocateTenured(ao::Oop::nil(), 0, 0);
+  auto p = heap.allocateTenured(ao::Oop::nil(), 1, 0);
+  auto v = heap.allocateTenured(ao::Oop::nil(), 2, ao::kFlagWeak);
+  auto x = heap.allocate(ao::Oop::nil(), 1, 0);
+  auto y = heap.allocate(ao::Oop::nil(), 0, 0);
+  auto r = heap.allocate(ao::Oop::nil(), 0, 0);
+  auto w = heap.allocate(ao::Oop::nil(), 2, ao::kFlagWeak);
+  ASSERT_TRUE(heap.inOld(o));
+  ASSERT_TRUE(heap.inOld(p));
+  ASSERT_TRUE(heap.inOld(v));
+  ASSERT_TRUE(heap.inNursery(x));
+  ASSERT_TRUE(heap.inNursery(y));
+  ASSERT_TRUE(heap.inNursery(r));
+  ASSERT_TRUE(heap.inNursery(w));
+  heap.slotAtPut(x, 0, o);
+  heap.slotAtPut(p, 0, y);
+  heap.slotAtPut(w, 0, x);
+  heap.slotAtPut(w, 1, y);
+  heap.slotAtPut(v, 0, x);
+  heap.slotAtPut(v, 1, r);
+  roots.add(&p);
+  roots.add(&v);
+  roots.add(&r);
+  roots.add(&w);
+
+  gc.collectOld();
+
+  ASSERT_TRUE(heap.inNursery(w));
+  ASSERT_TRUE(heap.inOld(v));
+  EXPECT_TRUE(heap.slotAt(w, 0).isNil());
+  EXPECT_TRUE(heap.slotAt(v, 0).isNil());
+  EXPECT_EQ(heap.slotAt(p, 0), heap.slotAt(w, 1));
+  EXPECT_EQ(y, heap.slotAt(w, 1));
+  EXPECT_EQ(r, heap.slotAt(v, 1));
 }
 
 TEST(GcWeak, LiveOldReferentRewrittenAcrossCompact) {
@@ -1310,4 +1368,53 @@ TEST(GcRoots, CountsFollowEveryKindOfRoot) {
   roots.popFrame(frame, 2);
   roots.remove(&x);
   expectCounts(0, 0, 0, 0, 0);
+}
+
+// WellKnown は作るときに自分のスロットを Roots に登録し、intern でも表の項目を登録する。壊したあとに
+// 登録が残ると、GC が解放済みのスロットを読み書きする。前から登録されていたスロットは残る。
+TEST(GcRoots, WellKnownDestructorRemovesItsRoots) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::Oop kept = ao::Oop::nil();
+  roots.add(&kept);
+  const std::size_t before = roots.counts().slots;
+  {
+    ao::WellKnown wk(heap, roots);
+    const std::size_t fixed = roots.counts().slots;
+    ASSERT_GT(fixed, before);
+    ASSERT_TRUE(wk.intern("foo").isHeap());
+    ASSERT_TRUE(wk.intern("bar").isHeap());
+    ASSERT_EQ(fixed + 2, roots.counts().slots);
+  }
+  EXPECT_EQ(before, roots.counts().slots);
+  roots.remove(&kept);
+  EXPECT_EQ(0u, roots.counts().slots);
+}
+
+// 次のフレームブロックの確保に失敗しても、Roots の状態は失敗の前のまま残る。失敗した pushFrame の
+// あとも、元のフレームは読め、普通の push / pop が動く。
+TEST(GcRoots, FrameBlockGrowthFailureLeavesRootsConsistent) {
+  ao::Roots roots;
+  const ao::Oop arg = ao::Oop::fromSmallInteger(7);
+  ao::Oop* first = roots.pushFrame(ao::Oop::fromSmallInteger(5), &arg, 1);
+  ASSERT_EQ(2u, roots.counts().frameSlots);
+
+  roots.failFrameBlockGrowthForTesting();
+  const std::uint32_t bigArgc = 4096;  // 4097 slots: does not fit the first block
+  std::vector<ao::Oop> bigArgs(bigArgc, ao::Oop::fromSmallInteger(1));
+  EXPECT_THROW(roots.pushFrame(ao::Oop::fromSmallInteger(9), bigArgs.data(), bigArgc), std::bad_alloc);
+  EXPECT_EQ(2u, roots.counts().frameSlots);
+  EXPECT_EQ(2u, roots.runningStack().frameSlotCount());
+  EXPECT_EQ(5, first[0].smallIntegerValue());
+  EXPECT_EQ(7, first[1].smallIntegerValue());
+
+  ao::Oop* big = roots.pushFrame(ao::Oop::fromSmallInteger(9), bigArgs.data(), bigArgc);
+  EXPECT_EQ(2u + bigArgc + 1, roots.counts().frameSlots);
+  roots.popFrame(big, bigArgc);
+  EXPECT_EQ(2u, roots.counts().frameSlots);
+  ao::Oop* again = roots.pushFrame(ao::Oop::fromSmallInteger(3), nullptr, 0);
+  roots.popFrame(again, 0);
+  roots.popFrame(first, 1);
+  EXPECT_EQ(0u, roots.counts().frameSlots);
+  EXPECT_TRUE(roots.runningStack().empty());
 }

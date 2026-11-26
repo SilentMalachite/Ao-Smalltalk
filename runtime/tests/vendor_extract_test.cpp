@@ -206,6 +206,43 @@ TEST(VendorExtract, PatchesHostWordInMethodBody) {
   EXPECT_NE(std::string::npos, r.files[0].chunkText.find("<primitive: 94>"));
 }
 
+TEST(VendorExtract, HostWordInCommentOrStringIsNotPatched) {
+  const char* src =
+      "!Object subclass: #FileStream\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Files'!\n"
+      "!FileStream methodsFor: 'notes'!\n"
+      "inComment\n"
+      "  \"open the World first\"\n"
+      "  ^1!\n"
+      "!FileStream methodsFor: 'notes'!\n"
+      "inString\n"
+      "  ^'it''s a Form'!\n"
+      "!FileStream methodsFor: 'notes'!\n"
+      "inBoth\n"
+      "  \"no Canvas\" ^'BitBlt ''Morph'' ' , 'x'!\n"
+      "!FileStream methodsFor: 'open/close'!\n"
+      "open\n"
+      "  \"Form\" ^'ok' , StandardFileStream new!\n";
+  auto r = ao::extractVendor(src, {"FileStream"});
+  ASSERT_EQ(1u, r.files.size());
+  const std::string& text = r.files[0].chunkText;
+  EXPECT_NE(std::string::npos, text.find("open the World first"));
+  EXPECT_NE(std::string::npos, text.find("it''s a Form"));
+  EXPECT_NE(std::string::npos, text.find("no Canvas"));
+  EXPECT_NE(std::string::npos, text.find("BitBlt ''Morph''"));
+  EXPECT_EQ(std::string::npos, text.find("StandardFileStream"));
+  EXPECT_NE(std::string::npos, text.find("host file stream is not connected"));
+  std::size_t patches = 0;
+  for (std::size_t at = text.find("ao-host-patch"); at != std::string::npos;
+       at = text.find("ao-host-patch", at + 1)) {
+    ++patches;
+  }
+  EXPECT_EQ(1u, patches);
+}
+
 // B7 review / SPEC §3.8 チャンク形式: the reader turns `!!` into `!` in strings, comments and `$!!`,
 // so render doubles every `!` again. Reading the rendered chunk gives the same method source.
 TEST(VendorExtract, RenderDoublesBangs) {

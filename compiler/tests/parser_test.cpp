@@ -1,3 +1,4 @@
+#include "ao/Bytecode.hpp"
 #include "ao/Compiler.hpp"
 #include "ao/Parser.hpp"
 #include <gtest/gtest.h>
@@ -393,7 +394,18 @@ TEST(Parser, SendWithMoreThan255ArgumentsIsRejected) {
     EXPECT_EQ(at, bad.error.span.start) << c.what;
     EXPECT_EQ(at + 5, bad.error.span.end) << c.what;
   }
-  // A 255-argument send also compiles: the bytecode carries argc 255.
+  // A 255-argument send also compiles: the bytecode carries argc 255 (the Send's second operand).
   auto compiled = ao::compiler::compileMethod(head + "self" + keywords(255));
-  EXPECT_TRUE(compiled.ok) << compiled.error.message;
+  ASSERT_TRUE(compiled.ok) << compiled.error.message;
+  const std::vector<std::uint8_t>& code = compiled.image.bytes;
+  int sendArgc = -1;
+  for (std::size_t pc = 0; pc < code.size();) {
+    const auto op = static_cast<ao::compiler::Op>(code[pc]);
+    if (op == ao::compiler::Op::Send) {
+      sendArgc = code[pc + 2];
+      break;
+    }
+    pc += 1 + ao::compiler::operandBytes(op);
+  }
+  EXPECT_EQ(255, sendArgc);
 }

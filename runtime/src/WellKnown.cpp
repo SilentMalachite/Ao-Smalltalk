@@ -154,7 +154,32 @@ WellKnown::WellKnown(Heap& heap, Roots& roots)
   addRoots(roots);
 }
 
-WellKnown::~WellKnown() = default;
+WellKnown::~WellKnown() {
+  // addRoots と intern 表が登録したスロットを外す。Roots はこの WellKnown より先に作られ、後で壊れる。
+  // Roots::remove は新しい登録から探すので、登録の逆順に外す。
+  for (auto it = intern_->table.rbegin(); it != intern_->table.rend(); ++it) {
+    roots_->remove(&*it);
+  }
+  roots_->remove(&selIdentityEquals);
+  roots_->remove(&selClass);
+  roots_->remove(&selError_);
+  roots_->remove(&selDo_);
+  roots_->remove(&selAt_put_);
+  roots_->remove(&selAt_);
+  roots_->remove(&selSize);
+  roots_->remove(&selBasicNew_);
+  roots_->remove(&selBasicNew);
+  roots_->remove(&selNew);
+  roots_->remove(&selValue_);
+  roots_->remove(&selValue);
+  roots_->remove(&transcript);
+  roots_->remove(&processor);
+  roots_->remove(&smalltalk);
+  for (auto it = std::rbegin(kNamedClasses); it != std::rend(kNamedClasses); ++it) {
+    roots_->remove(&(this->*it->meta));
+    roots_->remove(&(this->*it->cls));
+  }
+}
 
 void WellKnown::addRoots(Roots& roots) {
   for (const auto& e : kNamedClasses) {

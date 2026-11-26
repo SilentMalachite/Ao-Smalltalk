@@ -3237,6 +3237,159 @@ TEST(AcceptAbi, MoveSourceWithoutMemoryKeepsTextOnly) {
   ao_runtime_shutdown();
 }
 
+// SPEC §3.10 (review-agy R8-T7): an Accept that cannot register a root slot before the install
+// answers AO_ERR and leaves the old method, its source and no record in the current change set.
+// The failing add moves through the Accept's adds up to the first one past its source entry; an
+// AO_OK has installed the new method (its source entry may be missing, never the old source).
+// Failures inside the record are §3.9 記録's (the Accept stands) and are not swept here.
+TEST(AcceptAbi, FailedAcceptWithoutRootSlotsKeepsTheOldMethod) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_filein_load_order(AO_SOURCE_DIR "/image/Tools-model/LOAD_ORDER"));
+  AoSpan err{};
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "T7Accept", "", "T7-Test").c_str(), &err))
+      << err.message;
+  const std::string oldSrc = "bar\n  ^1";
+  const std::string newSrc = "bar\n  ^2";
+  const auto sourceOf = [] {
+    char buf[64] = "";
+    const int rc = ao_browser_source(ao_browser_class_id("T7Accept"), 0, "bar", buf, 64);
+    return rc == AO_OK ? std::string(buf) : "rc " + std::to_string(rc);
+  };
+  const auto printBar = [] {
+    char out[64] = "";
+    AoSpan e{};
+    const int rc = ao_eval("T7Accept new bar", 16, AO_EVAL_PRINTIT, out, 64, &e);
+    return rc == AO_OK ? std::string(out) : "rc " + std::to_string(rc) + ": " + e.message;
+  };
+  int refused = 0;
+  bool pastTheEntry = false;
+  for (std::size_t k = 0; k <= 64 && !pastTheEntry; ++k) {
+    SCOPED_TRACE(k);
+    ASSERT_EQ(AO_OK, ao_accept_method("T7Accept", 0, oldSrc.c_str(), &err)) << err.message;
+    std::int64_t set = 0;
+    ASSERT_EQ(AO_OK, ao_changes_new(("T7-" + std::to_string(k)).c_str(), &set, &err))
+        << err.message;
+    int rc = AO_OK;
+    bool kept = false;
+    {
+      ao::Session& s = *ao::session();
+      ao::Root old(s.roots, p10Method("T7Accept", "bar"));
+      s.roots.failSlotGrowthForTesting(k);
+      rc = ao_accept_method("T7Accept", 0, newSrc.c_str(), &err);
+      s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+      kept = p10Method("T7Accept", "bar") == old.slot;
+    }
+    if (rc == AO_OK) {
+      EXPECT_FALSE(kept);
+      EXPECT_NE(oldSrc, sourceOf());
+      EXPECT_EQ("2", printBar());
+      pastTheEntry = sourceOf() == newSrc;
+    } else {
+      ++refused;
+      EXPECT_EQ(AO_ERR, rc) << err.message;
+      EXPECT_TRUE(kept);
+      EXPECT_EQ(oldSrc, sourceOf());
+      EXPECT_EQ(0, ao_changes_method_count(set, "T7Accept", 0));
+      EXPECT_EQ("1", printBar());
+    }
+  }
+  EXPECT_GT(refused, 0);
+  EXPECT_TRUE(pastTheEntry);
+  // Without a failure the same Accept is recorded, so the count above could see a record.
+  ASSERT_EQ(AO_OK, ao_accept_method("T7Accept", 0, oldSrc.c_str(), &err)) << err.message;
+  std::int64_t set = 0;
+  ASSERT_EQ(AO_OK, ao_changes_new("T7-control", &set, &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("T7Accept", 0, newSrc.c_str(), &err)) << err.message;
+  EXPECT_EQ(1, ao_changes_method_count(set, "T7Accept", 0));
+  ao_runtime_shutdown();
+}
+
+// SPEC §3.10 (review-agy R8-T7): a methodsFor: chunk's method (ao_accept_class, and File In...
+// through ao_filein_file) registers its root slot before the install too, so a chunk whose slot
+// cannot be registered answers AO_ERR (File In...: file-in failed) and leaves that method, its
+// source and no record in the current change set. The failing add moves through the chunk's adds
+// up to the first AO_OK, whose failure came after the install.
+TEST(AcceptAbi, FailedChunkMethodWithoutRootSlotsKeepsTheOldMethod) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_filein_load_order(AO_SOURCE_DIR "/image/Tools-model/LOAD_ORDER"));
+  AoSpan err{};
+  ASSERT_EQ(AO_OK,
+            ao_accept_class(b5Definition("Object", "T7Chunk", "", "T7-Test").c_str(), &err))
+      << err.message;
+  const std::string oldSrc = "bar\n  ^1";
+  const std::string chunk = "!T7Chunk methodsFor: 'x'!\nbar\n  ^2! !\n";
+  const char* path = "t7-chunk.st";
+  {
+    std::ofstream file(path, std::ios::binary);
+    file << chunk;
+  }
+  const auto sourceOf = [] {
+    char buf[64] = "";
+    const int rc = ao_browser_source(ao_browser_class_id("T7Chunk"), 0, "bar", buf, 64);
+    return rc == AO_OK ? std::string(buf) : "rc " + std::to_string(rc);
+  };
+  const auto printBar = [] {
+    char out[64] = "";
+    AoSpan e{};
+    const int rc = ao_eval("T7Chunk new bar", 15, AO_EVAL_PRINTIT, out, 64, &e);
+    return rc == AO_OK ? std::string(out) : "rc " + std::to_string(rc) + ": " + e.message;
+  };
+  // entry 0: ao_accept_class of the chunk; entry 1: ao_filein_file of a file holding it.
+  const auto run = [&](int entry) {
+    return entry == 0 ? ao_accept_class(chunk.c_str(), &err) : ao_filein_file(path, &err);
+  };
+  for (int entry = 0; entry < 2; ++entry) {
+    SCOPED_TRACE(entry == 0 ? "ao_accept_class" : "ao_filein_file");
+    int refused = 0;
+    bool installed = false;
+    for (std::size_t k = 0; k <= 64 && !installed; ++k) {
+      SCOPED_TRACE(k);
+      ASSERT_EQ(AO_OK, ao_accept_method("T7Chunk", 0, oldSrc.c_str(), &err)) << err.message;
+      std::int64_t set = 0;
+      const std::string name = "T7-" + std::to_string(entry) + "-" + std::to_string(k);
+      ASSERT_EQ(AO_OK, ao_changes_new(name.c_str(), &set, &err)) << err.message;
+      int rc = AO_OK;
+      bool kept = false;
+      {
+        ao::Session& s = *ao::session();
+        ao::Root old(s.roots, p10Method("T7Chunk", "bar"));
+        s.roots.failSlotGrowthForTesting(k);
+        rc = run(entry);
+        s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+        kept = p10Method("T7Chunk", "bar") == old.slot;
+      }
+      if (rc == AO_OK) {
+        EXPECT_FALSE(kept);
+        EXPECT_NE(oldSrc, sourceOf());
+        EXPECT_EQ("2", printBar());
+        installed = true;
+      } else {
+        ++refused;
+        EXPECT_EQ(AO_ERR, rc) << err.message;
+        if (entry == 1) {
+          EXPECT_STREQ("file-in failed", err.message);
+        }
+        EXPECT_TRUE(kept);
+        EXPECT_EQ(oldSrc, sourceOf());
+        EXPECT_EQ(0, ao_changes_method_count(set, "T7Chunk", 0));
+        EXPECT_EQ("1", printBar());
+      }
+    }
+    EXPECT_GT(refused, 0);
+    EXPECT_TRUE(installed);
+    // Without a failure the same chunk is recorded, so the count above could see a record.
+    ASSERT_EQ(AO_OK, ao_accept_method("T7Chunk", 0, oldSrc.c_str(), &err)) << err.message;
+    std::int64_t set = 0;
+    const std::string name = "T7-control-" + std::to_string(entry);
+    ASSERT_EQ(AO_OK, ao_changes_new(name.c_str(), &set, &err)) << err.message;
+    ASSERT_EQ(AO_OK, run(entry)) << err.message;
+    EXPECT_EQ(1, ao_changes_method_count(set, "T7Chunk", 0));
+  }
+  ao_runtime_shutdown();
+  std::remove(path);
+}
+
 // SPEC §3.9 クラス定義の再 Accept, §3.10 クラス ID: a subclass only the class ID table still holds
 // (unbound after the Browser listed it) is not alive, so the superclass's shape can change.
 TEST(AcceptAbi, ClassIdTableDoesNotKeepSubclassesAlive) {

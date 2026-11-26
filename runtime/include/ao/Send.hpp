@@ -12,6 +12,8 @@ struct InlineCache {
   Oop cachedMethod{};
 };
 
+// 契約: 本番の呼び出し元はすべて ic に nullptr を渡す。非 null の ic は、メソッドの差し替えで
+// 無効化されず、GC をまたいで持てない（native_send_test の 1 段キャッシュの単体試験だけが使う）。
 Oop send(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uint32_t argc,
          InlineCache* ic);
 Oop sendSuper(CallContext& ctx, Oop receiver, Oop selector, const Oop* args, std::uint32_t argc,

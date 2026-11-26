@@ -339,6 +339,86 @@ TEST_F(BrowserAbi, UnknownClassIdIsRefusedByEveryRead) {
   }
 }
 
+// SPEC §3.10 の文字列バッファ: a refused browser read leaves each string buffer it was given ending
+// in NUL (empty), whatever the reason (no session, an unknown ID, a bad meta, a NULL argument, an
+// index out of range).
+TEST_F(BrowserAbi, RefusedReadsLeaveTheBufferEndingInNul) {
+  constexpr int kLen = 64;
+  char a[kLen];
+  char b[kLen];
+  const auto dirty = [&] {
+    std::memset(a, 'X', kLen);
+    std::memset(b, 'X', kLen);
+  };
+  const auto blank = [&](const char* what) { EXPECT_EQ('\0', a[0]) << what; };
+  const auto classAtRefused = [&](int index, const char* what) {
+    dirty();
+    EXPECT_EQ(AO_ERR, ao_browser_class_at(index, nullptr, a, kLen, b, kLen)) << what;
+    EXPECT_EQ('\0', a[0]) << what;
+    EXPECT_EQ('\0', b[0]) << what;
+  };
+  const auto allRefused = [&](std::int64_t id, int meta, const char* word, int index,
+                              bool idKnown) {
+    std::int64_t out = -7;
+    dirty();
+    EXPECT_EQ(AO_ERR, ao_browser_protocol_at(id, meta, index, a, kLen));
+    blank("protocol_at");
+    dirty();
+    EXPECT_EQ(AO_ERR, ao_browser_selector_at(id, meta, word, index, a, kLen));
+    blank("selector_at");
+    dirty();
+    EXPECT_EQ(AO_ERR, ao_browser_source(id, meta, word, a, kLen));
+    blank("source");
+    dirty();
+    EXPECT_EQ(AO_ERR, ao_browser_superclass(id, meta, &out, a, kLen));
+    blank("superclass");
+    if (!idKnown) {  // meta is not an input of these two.
+      dirty();
+      EXPECT_EQ(AO_ERR, ao_browser_class_definition(id, a, kLen));
+      blank("class_definition");
+      dirty();
+      EXPECT_EQ(AO_ERR, ao_browser_subclass_at(id, index, &out, a, kLen));
+      blank("subclass_at");
+    }
+  };
+  // No session.
+  classAtRefused(0, "no session class_at");
+  allRefused(1, 0, "printString", 0, false);
+
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const std::int64_t object = ao_browser_class_id("Object");
+  ASSERT_GT(object, 0);
+  classAtRefused(ao_browser_class_count(), "class_at out of range");
+  classAtRefused(-1, "class_at negative");
+  // Unknown ID.
+  allRefused(std::numeric_limits<std::int64_t>::max(), 0, "printString", 0, false);
+  // meta 2.
+  allRefused(object, 2, "printString", 0, true);
+  // Index out of range.
+  dirty();
+  EXPECT_EQ(AO_ERR, ao_browser_protocol_at(object, 0, 9999, a, kLen));
+  blank("protocol_at range");
+  dirty();
+  EXPECT_EQ(AO_ERR, ao_browser_selector_at(object, 0, "user", 9999, a, kLen));
+  blank("selector_at range");
+  dirty();
+  EXPECT_EQ(AO_ERR, ao_browser_subclass_at(object, 9999, nullptr, a, kLen));
+  blank("subclass_at range");
+  // NULL arguments.
+  dirty();
+  EXPECT_EQ(AO_ERR, ao_browser_selector_at(object, 0, nullptr, 0, a, kLen));
+  blank("selector_at NULL protocol");
+  dirty();
+  EXPECT_EQ(AO_ERR, ao_browser_source(object, 0, nullptr, a, kLen));
+  blank("source NULL selector");
+  // A NULL buffer or a length below 1 is still refused, and writes nothing.
+  EXPECT_EQ(AO_ERR, ao_browser_protocol_at(object, 0, 0, nullptr, kLen));
+  dirty();
+  EXPECT_EQ(AO_ERR, ao_browser_protocol_at(object, 0, 0, a, 0));
+  EXPECT_EQ('X', a[0]);
+  EXPECT_EQ(AO_ERR, ao_browser_class_at(0, nullptr, nullptr, kLen, nullptr, kLen));
+}
+
 // SPEC §3.10 クラス ID: a new session (a load, a boot) starts an empty table. IDs from before are
 // unknown there, and the same class gets a new, larger ID.
 TEST_F(BrowserAbi, ClassIdsDoNotSurviveBootOrImageLoad) {

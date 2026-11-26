@@ -393,6 +393,52 @@ TEST(Process, NextOnDamagedContentsFails) {
   EXPECT_EQ(smi(1), send1(b, read.slot, "instVarAt:", smi(1)));
 }
 
+// SPEC §3.4: a nextPut: onto contents that are an OrderedCollection itself and damaged fails with
+// `damaged ordered collection` and changes nothing: lastIndex stays, the element is not added and
+// readSynch is not signalled.
+TEST(Process, NextPutOnDamagedContentsFails) {
+  Boot b;
+  const ao::Oop max = ao::Oop::fromSmallInteger(ao::kSmiMax);
+  ao::Root q(b.roots, send0(b, b.wk.sharedQueueClass, "new"));
+  ASSERT_TRUE(q.slot.isHeap());
+  ASSERT_EQ(smi(1), send1(b, q.slot, "nextPut:", smi(1)));
+  ao::Root contents(b.roots, send1(b, q.slot, "instVarAt:", smi(1)));
+  ASSERT_TRUE(contents.slot.isHeap());
+  ao::Root read(b.roots, send1(b, q.slot, "instVarAt:", smi(2)));
+  ASSERT_TRUE(read.slot.isHeap());
+  ASSERT_EQ(smi(1), send1(b, read.slot, "instVarAt:", smi(1)));
+  ASSERT_EQ(max, send2(b, contents.slot, "instVarAt:put:", smi(3), max));
+  EXPECT_TRUE(send1(b, q.slot, "nextPut:", smi(2)).isEmpty());
+  EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+  EXPECT_EQ(smi(1), send1(b, contents.slot, "instVarAt:", smi(2)));
+  EXPECT_EQ(max, send1(b, contents.slot, "instVarAt:", smi(3)));
+  EXPECT_EQ(smi(1), send1(b, read.slot, "instVarAt:", smi(1)));
+}
+
+// SPEC §3.4 / §3.6: the list condition is 1 <= firstIndex <= lastIndex + 1 <= size + 1, so a
+// firstIndex of 0 and a lastIndex below firstIndex - 1 are damaged too: signal fails and changes
+// nothing.
+TEST(Process, SignalOnLinkedListWithIndexesBelowRangeFails) {
+  Boot b;
+  struct Damage {
+    const char* name;
+    int slot;
+    std::int64_t value;
+  };
+  for (const Damage& d : {Damage{"firstIndex 0", 2, 0}, Damage{"lastIndex -1", 3, -1}}) {
+    SCOPED_TRACE(d.name);
+    ao::Root sem(b.roots, send0(b, b.wk.semaphoreClass, "new"));
+    ASSERT_TRUE(sem.slot.isHeap());
+    ao::Root list(b.roots, send1(b, sem.slot, "instVarAt:", smi(2)));
+    ASSERT_TRUE(list.slot.isHeap());
+    ASSERT_EQ(smi(d.value), send2(b, list.slot, "instVarAt:put:", smi(d.slot), smi(d.value)));
+    EXPECT_TRUE(send0(b, sem.slot, "signal").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    EXPECT_EQ(smi(0), send1(b, sem.slot, "instVarAt:", smi(1)));
+    EXPECT_EQ(smi(d.value), send1(b, list.slot, "instVarAt:", smi(d.slot)));
+  }
+}
+
 // review-agy M6 (fix round 1): wait with excessSignals of 1 or more returned without reading the
 // linkedList, so it succeeded on a damaged one. SPEC §3.4: wait fails with `damaged ordered
 // collection` whatever excessSignals holds, and changes nothing.
@@ -710,7 +756,8 @@ TEST(Process, NonOrderedCollectionListIsReadByShape) {
     EXPECT_NE(other.slot, queue.slot);
     EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(queue.slot));
     EXPECT_EQ(queue.slot, myList(b, p.slot));
-    // suspend and terminate read the queue the ready process is in.
+    // suspend and terminate of a ready process read Processor's quiescentProcesses slot (what
+    // listsDamaged reads), not the process's own myList, which still names the old queue.
     ASSERT_EQ(other.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), other.slot));
     for (const char* sel : {"suspend", "terminate"}) {
       SCOPED_TRACE(sel);

@@ -196,6 +196,40 @@ TEST(MethodDictionary, AtPutGrowsWhenTallyLies) {
   EXPECT_EQ(three, ao::MethodDictionary::at(b.heap, dict.slot, d.slot));
 }
 
+// SPEC §3.6 M17: the leftover slot of an odd-length array is no pair. Growth copies it, puts the
+// new pair at the leftover index and the next one, and the value that was in the leftover slot is
+// gone.
+TEST(MethodDictionary, AtPutGrowthPutsTheNewPairAtTheLeftoverIndex) {
+  Boot b;
+  ao::Root dict(b.roots, ao::MethodDictionary::create(b.heap, b.wk, 1));
+  ASSERT_TRUE(dict.slot.isHeap());
+  ao::Root odd(b.roots, b.heap.allocateNoGc(ao::Oop::nil(), 3, 0));
+  ASSERT_TRUE(odd.slot.isHeap());
+  const ao::Oop stale = ao::Oop::fromSmallInteger(99);
+  b.heap.slotAtPut(odd.slot, 0, ao::Oop::nil());
+  b.heap.slotAtPut(odd.slot, 1, ao::Oop::nil());
+  b.heap.slotAtPut(odd.slot, 2, stale);  // the leftover slot
+  b.heap.slotAtPut(dict.slot, ao::kDictSlotArray, odd.slot);
+  ao::Root a(b.roots, b.wk.intern("leftA"));
+  ao::Root c(b.roots, b.wk.intern("leftB"));
+  const ao::Oop one = ao::Oop::fromSmallInteger(1);
+  const ao::Oop two = ao::Oop::fromSmallInteger(2);
+
+  ASSERT_TRUE(ao::MethodDictionary::atPut(b.heap, dict.slot, a.slot, one));
+  EXPECT_EQ(stale, b.heap.slotAt(odd.slot, 2));  // the first pair took pair 0, not the leftover
+  ASSERT_TRUE(ao::MethodDictionary::atPut(b.heap, dict.slot, c.slot, two));
+  const ao::Oop grown = b.heap.slotAt(dict.slot, ao::kDictSlotArray);
+  ASSERT_TRUE(grown.isHeap());
+  ASSERT_GE(b.heap.size(grown), 4u);
+  EXPECT_EQ(a.slot, b.heap.slotAt(grown, 0));
+  EXPECT_EQ(one, b.heap.slotAt(grown, 1));
+  EXPECT_EQ(c.slot, b.heap.slotAt(grown, 2));
+  EXPECT_EQ(two, b.heap.slotAt(grown, 3));
+  for (std::uint32_t i = 0; i < b.heap.size(grown); ++i) {
+    EXPECT_NE(stale, b.heap.slotAt(grown, i)) << "slot " << i;
+  }
+}
+
 // セレクタはヒープの Symbol に限る。空 Oop（intern の失敗）や nil（空きスロットの印）、即値をキーに
 // しても登録せず、false を返す。
 TEST(MethodDictionary, AtPutRejectsNonHeapKey) {

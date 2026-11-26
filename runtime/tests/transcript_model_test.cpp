@@ -1,11 +1,13 @@
 #include "test_support.hpp"
 
+#include "ao_abi.h"
 #include "ao/Globals.hpp"
 #include "ao/HandleScope.hpp"
 
 #include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 TEST(TranscriptModel, ShowInvokesHook) {
   Boot b;
@@ -200,4 +202,105 @@ TEST(TranscriptModel, NextPutAtSmiMaxPositionFails) {
   EXPECT_TRUE(send1(b, ws.slot, "nextPut:", ao::Oop::fromSmallInteger(1)).isEmpty());
   EXPECT_EQ("nextPut: position out of range", takeAbortReason(b));
   EXPECT_EQ(max, send0(b, ws.slot, "position"));
+}
+
+namespace ao {
+void forEachTranscriptChunk(const char* bytes, std::size_t n, std::size_t limit,
+                            void (*emit)(const char*, std::size_t, void*), void* user);
+void deliverTranscriptChunks(const char* bytes, std::size_t n, std::size_t limit);
+}
+
+namespace {
+std::vector<std::string> chunksOf(const std::string& s, std::size_t limit) {
+  std::vector<std::string> out;
+  ao::forEachTranscriptChunk(
+      s.data(), s.size(), limit,
+      [](const char* p, std::size_t len, void* u) {
+        static_cast<std::vector<std::string>*>(u)->emplace_back(p, len);
+      },
+      &out);
+  return out;
+}
+
+bool wellFormedUtf8(const std::string& s) {
+  std::size_t i = 0;
+  while (i < s.size()) {
+    const unsigned char c = static_cast<unsigned char>(s[i]);
+    const std::size_t len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 0;
+    if (len == 0 || i + len > s.size()) return false;
+    for (std::size_t k = 1; k < len; ++k) {
+      if ((static_cast<unsigned char>(s[i + k]) & 0xC0) != 0x80) return false;
+    }
+    i += len;
+  }
+  return true;
+}
+
+std::string joined(const std::vector<std::string>& v) {
+  std::string r;
+  for (const auto& c : v) r += c;
+  return r;
+}
+}  // namespace
+
+TEST(TranscriptModel, LongTextIsSplitOnUtf8Boundaries) {
+  const std::string text = "ab\xE3\x81\x82\xE3\x81\x82" "c";  // ab あ あ c
+  for (std::size_t limit : {3u, 4u, 5u, 6u, 7u}) {
+    const auto chunks = chunksOf(text, limit);
+    ASSERT_GT(chunks.size(), 1u) << limit;
+    for (const auto& c : chunks) {
+      EXPECT_LE(c.size(), limit) << limit;
+      EXPECT_TRUE(wellFormedUtf8(c)) << limit;
+    }
+    EXPECT_EQ(text, joined(chunks)) << limit;
+  }
+  // limit 4 falls inside the first あ (bytes 2..4): the cut backs off to 2.
+  const auto four = chunksOf(text, 4);
+  ASSERT_GE(four.size(), 2u);
+  EXPECT_EQ("ab", four[0]);
+}
+
+TEST(TranscriptModel, LongTextSplitAlwaysMakesProgress) {
+  const std::string kana = "\xE3\x81\x82\xE3\x81\x82";
+  const auto small = chunksOf(kana, 2);  // smaller than one character
+  EXPECT_EQ(kana, joined(small));
+  EXPECT_EQ(4u, small.size());  // 2 + 1 | 2 + 1: cut at the limit, then back to a boundary
+  for (const auto& c : small) EXPECT_LE(c.size(), 2u);
+
+  const std::string bad(7, '\x80');  // continuation bytes only
+  const auto cut = chunksOf(bad, 3);
+  EXPECT_EQ(bad, joined(cut));
+  EXPECT_EQ(3u, cut.size());
+
+  const auto zero = chunksOf("abc", 0);  // limit 0 is treated as 1
+  EXPECT_EQ("abc", joined(zero));
+  EXPECT_EQ(3u, zero.size());
+
+  const auto empty = chunksOf("", 4);
+  ASSERT_EQ(1u, empty.size());
+  EXPECT_EQ("", empty[0]);
+}
+
+// SPEC §3.10: the hook gets the chunks in order; a hook that unsets itself
+// (ao_set_transcript_hook(NULL, …)) while it takes a chunk gets no more chunks of that text.
+TEST(TranscriptModel, LongTextStopsWhenTheHookUnsetsItself) {
+  static std::vector<std::string> seen;
+  seen.clear();
+  ao_set_transcript_hook(
+      [](const char* utf8, int len, int, void*) {
+        seen.emplace_back(utf8, static_cast<std::size_t>(len));
+      },
+      nullptr);
+  ao::deliverTranscriptChunks("abcdef", 6, 2);
+  EXPECT_EQ((std::vector<std::string>{"ab", "cd", "ef"}), seen);
+  seen.clear();
+  ao_set_transcript_hook(
+      [](const char* utf8, int len, int, void*) {
+        seen.emplace_back(utf8, static_cast<std::size_t>(len));
+        ao_set_transcript_hook(nullptr, nullptr);
+      },
+      nullptr);
+  ao::deliverTranscriptChunks("abcdef", 6, 2);
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ((std::vector<std::string>{"ab"}), seen);
 }
