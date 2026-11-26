@@ -1367,6 +1367,33 @@ TEST_F(SessionAbi, ImageSaveDoesNotTraceClassIdSlots) {
                                      s.heap.size(name)));
 }
 
+// SPEC §3.11 保存: the image does not hold what only the method cache reaches. A `Behavior new`
+// class that only a workspace binding held (its category is the marker) gets one send to its
+// instance, the binding is dropped, and its methodDict is broken: traced, it would fail the save.
+TEST_F(SessionAbi, ImageSaveDoesNotTraceMethodCache) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, evalDoIt("m8b := Behavior new. m8b instVarAt: 1 put: Object.\n"
+                            "m8b instVarAt: 6 put: 'M8CacheOnlyMarker'.\n"
+                            "m8b basicNew yourself. m8b := nil"));
+  ao::Session& s = *ao::session();
+  // Only the cache holds the class now: the send's entry is keyed on it.
+  ao::ClassMethodCache::Entry* held = nullptr;
+  for (auto& entry : s.cache->entries) {
+    if (entry.klass.isHeap() && s.heap.klass(entry.klass) == s.wk.behaviorClass) {
+      held = &entry;
+    }
+  }
+  ASSERT_NE(nullptr, held);
+  s.heap.slotAtPut(held->klass, ao::kClassSlotMethodDict, ao::Oop::fromSmallInteger(7));
+  const char* path = "session-abi-m8-cache.aoimage";
+  EXPECT_EQ(AO_OK, ao_image_save(path));
+  std::ifstream in(path, std::ios::binary);
+  const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  in.close();
+  std::remove(path);
+  EXPECT_EQ(std::string::npos, bytes.find("M8CacheOnlyMarker"));
+}
+
 // SPEC §3.10: the doIt's entry is the user's text; its spans read in that text (kDoItPrefix taken
 // off), as the captured frame's pc does.
 TEST_F(SessionAbi, DoItDebugInfoDropsPrefix) {

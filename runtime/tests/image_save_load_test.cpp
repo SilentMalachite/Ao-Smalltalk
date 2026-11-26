@@ -2120,3 +2120,217 @@ TEST(ImageSaveLoad, RefusesSourcesBytesThatDisagreeWithTheFile) {
   expectDamaged(path, image.bytes);
   std::filesystem::remove(path);
 }
+
+namespace {
+
+// review-agy H5 / SPEC §3.11: a word the load refuses in a slot or a record: an empty OOP (bits 0),
+// or a Character that holds no Unicode scalar value. The value is read from all 62 bits, not
+// through characterValue(), which keeps 32 of them.
+bool emptyOrNoScalar(std::uint64_t bits) {
+  if (bits == 0) return true;
+  if ((bits & 0x3u) != ao::Oop::kCharTag) return false;
+  const std::uint64_t cp = bits >> 2;
+  return cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu);
+}
+
+// The words of the saved image at path that emptyOrNoScalar flags: the class word and the slots of
+// every object, and every record. One line each; empty when there is none.
+std::string emptyOrNoScalarWords(const std::filesystem::path& path) {
+  const ImageSurgery image(path);
+  std::string found;
+  for (std::uint64_t off : image.objects()) {
+    const ao::ObjectHeader h = image.object(off);
+    const std::string where = "the object at offset " + std::to_string(off) + " (klass bits " +
+                              std::to_string(h.klass.bits()) + ")";
+    if (emptyOrNoScalar(h.klass.bits())) found += "the class word of " + where + "\n";
+    if ((h.flags & ao::kFlagBytes) != 0) continue;
+    for (std::uint32_t i = 0; i < h.size; ++i) {
+      const std::uint64_t w = image.word(image.slotPos(off, i));
+      if (emptyOrNoScalar(w)) {
+        found += "slot " + std::to_string(i + 1) + " of " + where + ": " + std::to_string(w) + "\n";
+      }
+    }
+  }
+  std::size_t cursor = ImageSurgery::kHeap + image.header.heapBytes;
+  const std::uint64_t records = std::uint64_t{image.header.wellKnownCount} +
+                                image.header.extraCount + image.header.globalCount;
+  for (std::uint64_t r = 0; r < records; ++r) {
+    std::uint32_t n = 0;
+    if (cursor + sizeof n > image.bytes.size()) return found + "the records do not parse\n";
+    std::memcpy(&n, image.bytes.data() + cursor, sizeof n);
+    if (cursor + sizeof n + n > image.bytes.size()) return found + "the records do not parse\n";
+    const std::string name(image.bytes.data() + cursor + sizeof n, n);
+    cursor += sizeof n + n + (4u - n % 4u) % 4u;
+    if (cursor + 8 > image.bytes.size()) return found + "the records do not parse\n";
+    const std::uint64_t w = image.word(cursor);
+    if (emptyOrNoScalar(w)) found += "the record " + name + ": " + std::to_string(w) + "\n";
+    cursor += 8;
+  }
+  return found;
+}
+
+void expectLoads(const std::filesystem::path& path) {
+  Loaded image;
+  std::string reason;
+  EXPECT_TRUE(ao::Image::load(image.heap, image.roots, image.wk, path.string(), &reason)) << reason;
+}
+
+}  // namespace
+
+// review-agy Review Focus 1 / SPEC §3.11: after H5 an image that holds an empty OOP no longer loads.
+// The images the runtime saves (a fresh boot, a session, a boot with the vendor LOAD_ORDER filed in,
+// as `ao image save --load-order image/vendor/LOAD_ORDER` does) hold none, nor a Character that is
+// no Unicode scalar value, and load.
+TEST(ImageSaveLoad, FreshSessionAndVendorImagesHaveNoEmptyWords) {
+  const auto dir = freshDir("h5-saved-images");
+  const auto fresh = dir / "fresh.aoimage";
+  const auto session = dir / "session.aoimage";
+  const auto vendor = dir / "vendor.aoimage";
+  {
+    Boot b;
+    ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, fresh.string()));
+  }
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const int saved = ao_image_save(session.string().c_str());
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, saved);
+  {
+    Boot b;
+    std::vector<ao::FileInError> errs;
+    ASSERT_TRUE(ao::fileInLoadOrder(b.ctx, AO_SOURCE_DIR "/image/vendor/LOAD_ORDER", errs))
+        << (errs.empty() ? "" : errs[0].error.message);
+    ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, vendor.string()));
+  }
+  for (const auto& path : {fresh, session, vendor}) {
+    SCOPED_TRACE(path.filename().string());
+    EXPECT_EQ("", emptyOrNoScalarWords(path));
+    expectLoads(path);
+  }
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// review-agy H5 / SPEC §3.11: 失敗シナリオ。ロードは bits 0（空 OOP）を即値として、タグが Character の語を
+// 値によらず受け入れていた。空 OOP は値でなく、Character は Unicode スカラー値を持つ。ポインタのオブジェクト
+// のスロット（Smalltalk の配列の空きの項目）とレコード（well-known の transcript、最初のグローバル）のどこに
+// あっても、ヒープを載せる前に damaged image で拒む。スカラー値の隣（U+D7FF、U+E000、U+10FFFF）は読む。
+TEST(ImageLoadChecks, RefusesEmptyOopInSlotOrRecord) {
+  const auto good = std::filesystem::path(testing::TempDir()) / "h5-empty-good.aoimage";
+  const auto bad = std::filesystem::path(testing::TempDir()) / "h5-empty-bad.aoimage";
+  saveFreshImage(good);
+  const ImageSurgery image(good);
+  const std::uint64_t smalltalk = image.record("Smalltalk");
+  ASSERT_NE(0u, smalltalk);
+  const std::uint64_t pairs = image.word(image.slotPos(smalltalk, ao::Globals::kSmalltalkSlotArray));
+  const std::uint64_t nilBits = ao::Oop::nil().bits();
+  std::size_t slotAt = 0;
+  for (std::uint32_t i = 0; i + 1 < image.object(pairs).size; i += 2) {
+    if (image.word(image.slotPos(pairs, i)) == nilBits &&
+        image.word(image.slotPos(pairs, i + 1)) == nilBits) {
+      slotAt = image.slotPos(pairs, i);
+      break;
+    }
+  }
+  ASSERT_NE(0u, slotAt);
+  const std::size_t recordAt = image.recordPos("transcript");
+  ASSERT_NE(0u, recordAt);
+  // The first global record follows the well-known ones (there are no extra records). The load
+  // matches it against the dictionary after it adopts the heap, so before H5 a bad word there was
+  // refused only after the heap was adopted.
+  std::size_t globalAt = 0;
+  ASSERT_NE(0u, wellKnownBitsAt(image.bytes, "transcript", &globalAt));
+  std::uint32_t nameBytes = 0;
+  std::memcpy(&nameBytes, image.bytes.data() + globalAt, sizeof nameBytes);
+  globalAt += sizeof nameBytes + nameBytes + (4u - nameBytes % 4u) % 4u;
+  ASSERT_LT(globalAt + 8, image.bytes.size());
+  const auto character = [](std::uint64_t cp) { return (cp << 2) | ao::Oop::kCharTag; };
+  auto loadWith = [&](std::size_t at, std::uint64_t word) {
+    ImageSurgery damaged = image;
+    damaged.setWord(at, word);
+    EXPECT_TRUE(damaged.write(bad));
+  };
+  for (std::size_t at : {slotAt, recordAt, globalAt}) {
+    SCOPED_TRACE(at == slotAt ? "slot" : at == recordAt ? "record" : "global record");
+    for (std::uint64_t word : {std::uint64_t{0}, character(0xD800), character(0xDFFF),
+                               character(0x110000), character((std::uint64_t{1} << 32) | 0x41)}) {
+      SCOPED_TRACE(word);
+      loadWith(at, word);
+      expectRefused(bad, "damaged image");
+    }
+    if (at == globalAt) continue;  // a global record must also match the dictionary
+    for (std::uint64_t cp : {0xD7FFu, 0xE000u, 0x10FFFFu}) {
+      SCOPED_TRACE(cp);
+      loadWith(at, character(cp));
+      expectLoads(bad);
+    }
+  }
+  std::filesystem::remove(good);
+  std::filesystem::remove(bad);
+}
+
+// review-agy H5 / SPEC §3.11: 失敗シナリオ。空 OOP をスロットに持つヒープの保存は成功し、そのイメージは H5 の
+// あとロードできない。保存は書く前にロードの検査を当てるので、何も書かずに失敗し、理由はスロットの番号、
+// クラスの名前（クラスの語が nil なら no class）、反した規則を言う。Unicode スカラー値でない Character も同じ。
+// スロットを nil に戻すと保存できる。
+TEST(ImageSaveChecks, SaveRefusesEmptySlot) {
+  const auto dir = freshDir("h5-save-empty");
+  const auto path = dir / "empty.aoimage";
+  Boot b;
+  ao::Root name(b.roots, b.wk.intern("H5Holder"));
+  ao::Root array(b.roots, send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(3)));
+  ASSERT_TRUE(array.slot.isHeap());
+  b.heap.slotAtPut(array.slot, 0, ao::Oop::fromSmallInteger(7));
+  b.heap.slotAtPut(array.slot, 2, ao::Oop::fromSmallInteger(9));
+  ASSERT_TRUE(ao::Globals::bind(b.wk, name.slot, array.slot));
+  // An internal object: its class word is nil, like a method dictionary's array.
+  ao::Root internal(b.roots, b.heap.allocate(ao::Oop::nil(), 1, 0));
+  ASSERT_TRUE(internal.slot.isHeap());
+  auto refusal = [&] {
+    std::string reason;
+    EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason));
+    EXPECT_TRUE(fileNames(dir).empty());
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    return reason;
+  };
+  b.heap.slotAtPut(array.slot, 1, ao::Oop{});
+  EXPECT_EQ("slot 2 of an instance of Array is an empty OOP", refusal());
+  b.heap.slotAtPut(array.slot, 1, ao::Oop::fromCharacter(0xD800));
+  EXPECT_EQ("slot 2 of an instance of Array holds a Character that is not a Unicode scalar value",
+            refusal());
+  b.heap.slotAtPut(array.slot, 1, internal.slot);
+  b.heap.slotAtPut(internal.slot, 0, ao::Oop{});
+  EXPECT_EQ("slot 1 of an object with no class is an empty OOP", refusal());
+  b.heap.slotAtPut(internal.slot, 0, ao::Oop::nil());
+  b.heap.slotAtPut(array.slot, 1, ao::Oop::nil());
+  std::string reason = "unchanged";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason)) << reason;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// review-agy H5 / SPEC §3.11: 失敗シナリオ。well-known かグローバルのレコードの語が空 OOP か Unicode スカラー値
+// でない Character なら、保存は何も書かずに失敗し、理由はレコードの名前と反した規則を言う。空 OOP に束縛した
+// グローバルは、この検査の前に未束縛として拒むので、その行は無い。
+TEST(ImageSaveChecks, SaveRefusesEmptyRecord) {
+  const auto dir = freshDir("h5-save-record");
+  const auto path = dir / "record.aoimage";
+  Boot b;
+  ao::Root transcript(b.roots, b.wk.transcript);
+  auto refusal = [&] {
+    std::string reason;
+    EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason));
+    EXPECT_TRUE(fileNames(dir).empty());
+    return reason;
+  };
+  b.wk.transcript = ao::Oop{};
+  EXPECT_EQ("the well-known transcript is an empty OOP", refusal());
+  b.wk.transcript = ao::Oop::fromCharacter(0xD800);
+  EXPECT_EQ("the well-known transcript holds a Character that is not a Unicode scalar value",
+            refusal());
+  b.wk.transcript = transcript.slot;
+  ASSERT_TRUE(ao::Globals::bind(b.wk, b.wk.intern("Processor"), ao::Oop::fromCharacter(0xD800)));
+  EXPECT_EQ("the global Processor holds a Character that is not a Unicode scalar value", refusal());
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}

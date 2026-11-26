@@ -100,6 +100,60 @@ four
   ^self three + 1! !
 EOF
   printf 'sub.st\n' >second/LOAD_ORDER
+  # SPEC §3.11 保存: defining CliM8Sub runs CliM8's class-side subclass:..., which then makes a
+  # `Behavior new` class no one holds, breaks its methodDict and sends once to its instance. When
+  # the file-in ends, only the method cache reaches that class.
+  mkdir -p m8
+  cat >m8/m8.st <<'EOF'
+!Object subclass: #CliM8
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+
+!CliM8 class methodsFor: 'definition'!
+subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p category: k
+  | made b |
+  made := super subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p category: k.
+  b := Behavior new.
+  b instVarAt: 1 put: Object; instVarAt: 2 put: 7.
+  b basicNew yourself.
+  ^made! !
+
+!CliM8 subclass: #CliM8Sub
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+EOF
+  printf 'm8.st\n' >m8/LOAD_ORDER
+  # SPEC §3.11 ロード: defining CliInmSub runs CliInm's class-side subclass:..., which gives
+  # UndefinedObject (slot 2 of a class = its method dictionary) an empty MethodDictionary. The saved
+  # image then lacks `nil isNil`, which only the natives ao image load supplies after loading.
+  mkdir -p inm
+  cat >inm/inm.st <<'EOF'
+!Object subclass: #CliInm
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+
+!CliInm class methodsFor: 'definition'!
+subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p category: k
+  | made d |
+  made := super subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p category: k.
+  d := MethodDictionary new.
+  d instVarAt: 1 put: 0; instVarAt: 2 put: (Array new: 16).
+  UndefinedObject instVarAt: 2 put: d.
+  ^made! !
+
+!CliInm subclass: #CliInmSub
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+EOF
+  printf 'inm.st\n' >inm/LOAD_ORDER
 }
 
 # bad.st の `^1 +` は `+`（ファイル本文の 166-167 バイト目）の後に式が無い。
@@ -164,6 +218,18 @@ case "$CASE" in
     run 1 "$AO" image save --load-order first/LOAD_ORDER --load-order plain/LOAD_ORDER three.aoimage
     stderr_is "plain/$BAD_LINE"
     [ ! -e three.aoimage ] || fail "image written after a failed second file-in"
+    # SPEC §3.11 保存: ao image save drops the method cache first, so the class only the cache
+    # reaches is neither written nor checked.
+    run 0 "$AO" image save --load-order m8/LOAD_ORDER m8.aoimage
+    stderr_is ''
+    run 0 "$AO" image load m8.aoimage
+    stderr_is ''
+    # SPEC §3.11: ao image load supplies the natives the image lacks; its `nil isNil` probe passes
+    # on an image whose UndefinedObject has an empty method dictionary.
+    run 0 "$AO" image save --load-order inm/LOAD_ORDER inm.aoimage
+    stderr_is ''
+    run 0 "$AO" image load inm.aoimage
+    stderr_is ''
     run 0 "$AO" image load deferred.aoimage
     stderr_is ''
     # SPEC §3.11: a version 1 image (before B4) is refused at the header, with its reason.
@@ -181,6 +247,19 @@ case "$CASE" in
     stderr_is 'ao: image load failed: not an Ao image'
     run 1 "$AO" image load none.aoimage
     stderr_is 'ao: image load failed: cannot read image file'
+    # SPEC §3.12: an extra argument is refused with the usage lines and exit 2; the image is not read.
+    run 2 "$AO" image load deferred.aoimage extra
+    [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for image load extra"
+    # SPEC §3.12: so is a missing path.
+    run 2 "$AO" image load
+    [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for image load without a path"
+    # SPEC §3.12: a trailing --load-order is no path; nothing is written under that name.
+    run 2 "$AO" image save --load-order
+    [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for image save --load-order"
+    [ ! -e ./--load-order ] || fail "image written to --load-order"
+    run 2 "$AO" image save --load-order first/LOAD_ORDER --load-order
+    [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for a trailing --load-order"
+    [ ! -e ./--load-order ] || fail "image written to --load-order"
     ;;
   test)
     mkdir -p tests empty pass
@@ -206,6 +285,11 @@ ao --test: tests/e_fork.st: process failed: doesNotUnderstand: #bar'
     stderr_is 'ao --test: empty: no .st files'
     run 1 "$AO" --test no-such-dir
     stderr_is 'ao --test: no-such-dir: cannot read directory'
+    # SPEC §3.12: an extra argument is refused with the usage line and exit 2; nothing runs.
+    run 2 "$AO" --test pass extra
+    stderr_is 'ao: usage: ao --test [<dir>]'
+    # SPEC §3.12 / §4.4: with no argument, it runs the image/tests found above the executable.
+    run 0 "$AO" --test
     ;;
   *)
     fail "unknown case: $CASE"
