@@ -1887,7 +1887,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 
 - `oop_tag_test`: SmallInteger / Character / 即値 / ヒープのタグ往復
 - `heap_alloc_test`: 割り当て、サイズ、クラススロット
-- `gc_test`: nursery 回収、旧世代昇格、ルート保護、内部ポインタ更新。old の GC（`collectOld`）のあと、弱いスロットが、ルートからたどって届かなかった nursery のオブジェクトを指していれば nil になる。弱いオブジェクトが nursery にあっても old にあっても同じである。ルートから、またはルートした old を通って届く nursery のオブジェクトを指すスロットは残る（`GcWeak.NurseryWeakSlotToUnseenNurseryObjectIsCleared`）。`WellKnown` を壊すと、それが `Roots` に登録したスロットは、intern 表の分も含めて外れる（`GcRoots.WellKnownDestructorRemovesItsRoots`）。nursery のバイト数が 8 の倍数でなくても、`Heap` は 8 の倍数に切り下げて使い、nursery GC のあとの割り当てもヒープのオブジェクトを返す（`GcNursery.UnalignedNurserySizeStillAllocatesHeapObjects`）
+- `gc_test`: nursery 回収、旧世代昇格、ルート保護、内部ポインタ更新。old の GC（`collectOld`）のあと、弱いスロットが、ルートからたどって届かなかった nursery のオブジェクトを指していれば nil になる。弱いオブジェクトが nursery にあっても old にあっても同じである。ルートから、またはルートした old を通って届く nursery のオブジェクトを指すスロットは残る（`GcWeak.NurseryWeakSlotToUnseenNurseryObjectIsCleared`）。`WellKnown` を壊すと、それが `Roots` に登録したスロットは、intern 表の分も含めて外れる（`GcRoots.WellKnownDestructorRemovesItsRoots`）。nursery のバイト数が 8 の倍数でなくても、`Heap` は 8 の倍数に切り下げて使い、nursery GC のあとの割り当てもヒープのオブジェクトを返す（`GcNursery.UnalignedNurserySizeStillAllocatesHeapObjects`）。ネイティブのフレームブロックの確保に失敗（`std::bad_alloc`）しても、`Roots` のルートの数は失敗の前のままで、そのあとの `pushFrame` / `popFrame` は普通に動く（`GcRoots.FrameBlockGrowthFailureLeavesRootsConsistent`）
 - `bootstrap_test`: メタクラス循環の不変条件 10 項目
 - `lookup_test`: 継承、super、doesNotUnderstand
 - `native_send_test`: `1 + 2`、`true ifTrue: []`、`#==`
