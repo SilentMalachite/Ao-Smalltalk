@@ -313,4 +313,23 @@ TEST(Scanner, CharacterLiteralNeedsWellFormedUtf8) {
   EXPECT_EQ("invalid character literal", r.error.message);
   EXPECT_EQ(5u, r.error.span.start);
   EXPECT_EQ(10u, r.error.span.end);
+  // The span takes the continuation bytes the lead byte promises (C0 promises one), and ends at
+  // EOF when they run out.
+  {
+    Scanner s("$\xC0\x80");
+    auto t = s.next();
+    EXPECT_EQ(Tok::Error, t.kind);
+    EXPECT_EQ(0u, t.span.start);
+    EXPECT_EQ(3u, t.span.end);
+  }
+  {
+    Scanner s("$\xE3\x81");
+    auto t = s.next();
+    EXPECT_EQ(Tok::Error, t.kind);
+    EXPECT_EQ(0u, t.span.start);
+    EXPECT_EQ(3u, t.span.end);
+  }
+  // A string literal is as before: its bytes are not checked.
+  auto str = ao::compiler::compileMethod(std::string("foo ^'\xFF'"));
+  EXPECT_TRUE(str.ok) << str.error.message;
 }

@@ -1,3 +1,4 @@
+#include "ao/Compiler.hpp"
 #include "ao/Parser.hpp"
 #include <gtest/gtest.h>
 
@@ -373,6 +374,7 @@ TEST(Parser, SendWithMoreThan255ArgumentsIsRejected) {
   };
   const std::vector<Case> cases{
       {"plain send", "self"},
+      {"plain super send", "super"},
       {"cascade part", "self yourself; "},
       {"super cascade part", "super yourself; "},
   };
@@ -391,4 +393,7 @@ TEST(Parser, SendWithMoreThan255ArgumentsIsRejected) {
     EXPECT_EQ(at, bad.error.span.start) << c.what;
     EXPECT_EQ(at + 5, bad.error.span.end) << c.what;
   }
+  // A 255-argument send also compiles: the bytecode carries argc 255.
+  auto compiled = ao::compiler::compileMethod(head + "self" + keywords(255));
+  EXPECT_TRUE(compiled.ok) << compiled.error.message;
 }
