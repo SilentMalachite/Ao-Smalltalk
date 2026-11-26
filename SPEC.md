@@ -876,6 +876,8 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 捕捉解析: コードを生成する前に、変数ごとに、宣言したスコープ、展開しないブロックからの捕捉、代入の有無を調べ、temp ベクタに置く temp を決める（§3.4）。
 - インライン展開（§3.5）
 - 引数（メソッドとブロック）と `to:do:` のループ変数への代入は、コンパイルエラー `cannot assign to argument` にする。
+- 1 つの送信の引数は 255 個までである（カスケードのパートも、`super` 送信のパートも同じ）。256 個目のキーワードを読んだ時点でコンパイルエラー `too many arguments` にする。区間はその 256 番目のキーワード（`k256:`）である。
+- 文字リテラル `$x` の後ろは、整った UTF-8 の 1 文字（Unicode スカラー値）である。過長な符号、サロゲート（U+D800-U+DFFF）、0x10FFFF を超える値、先頭バイトだけで終わるもの、先頭バイトにならないバイトは、コンパイルエラー `invalid character literal` にする。区間は `$` から、先頭バイトと、それに続く継続バイト（先頭バイトの示す長さまで）の終わりまでで、継続バイトでないバイトは食べない。文字列リテラルは今までどおりで、中身のバイトを検査しない。
 - temp の上限は 255 である。引数、temp、持ち上げた temp（展開したブロックの temp、`to:do:` のループ変数と上限）、temp ベクタを入れるスロット、コピーした値を合わせて数える。
 - 名前の解決順は、ローカル（メソッドとブロックの引数と temp）→ インスタンス変数 → 擬変数 → クラス変数（§3.6）→ グローバル（`Smalltalk` の辞書。§3.6）である。前のものが、後ろの同じ名前を隠す。ワークスペース（§3.10）の解決順は §3.10 に書く。ワークスペースのレシーバは nil なので、クラス変数は無い。
   - クラス変数は、メソッドのクラスから見えるもの（§3.6）である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar` で、リテラルは classPool の束縛（Association）である。束縛は、メソッドを作るとき（リテラルを箱に入れるとき）に、メソッドのクラス（クラス側ならその thisClass）からスーパークラス鎖をたどって引く。
@@ -919,6 +921,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - `methodsFor:` のヘッダ（`!Foo methodsFor: 'x'!` のように、前に `!` が付くチャンク）は、どこにあってもヘッダである。
 - セクションの中（ヘッダのあと、閉じる前）のチャンクは、ヘッダでなければメソッドである。パターンが `subclass: x` や `methodsFor: x` のメソッドもメソッドである。
 - セクションの外のチャンクは、クラス定義メッセージ（`X subclass: #Y …`）ならクラス定義、`X methodsFor: 'y'` なら前に `!` が無くてもヘッダ（Browser の accept に渡すソースの先頭など）、それ以外は式である。セクションを閉じたあとの式を、直前のクラスのメソッドにしない。
+- クラスコメントの prose になるのは、セクションの外で、トークンが `Ident [class] commentStamp:` で始まるチャンクのあとの 1 チャンクだけである（間にある空白だけのチャンクは読み飛ばし、そのあとの 1 チャンクが prose になる。セクションの外なので、セクションは閉じない）。prose の中の `"` はコードのコメントを開かない。セクションの中のメソッドは、`commentStamp:` を含んでいてもメソッドで、次のチャンクを prose にしない。
 
 ### 3.9 ホスト GUI（AppKit）
 
@@ -1166,7 +1169,7 @@ File メニュー:
 File Out の形式（チャンク形式。§3.8）:
 
 1. 見出しのコメント `"Change Set: <name>` 改行 `Date: <YYYY-MM-DD>` 改行 `Ao <版>"`（ローカルの日付。版は `ao_version`。名前の中の `"` は `""`）
-2. 定義の種類が Added か Changed のクラスの定義（`ao_browser_class_definition` と同じ本文）。セットの中にスーパークラスがあれば、それを先に書く。ほかはセットの順。
+2. 定義の種類が Added か Changed のクラスの定義（`ao_browser_class_definition` と同じ本文）。セットの中にスーパークラスがあれば、それを先に書く。スーパークラスの名前が nil のクラス（`instVarAt:put:` で名前を nil にした場合）は、スーパークラスがセットに無いものとして扱う。ほかはセットの順。
 3. クラスごと（セットの順）に、インスタンス側、クラス側の順で、`!<Class> methodsFor: 'user'!`（クラス側は `!<Class> class methodsFor: 'user'!`）と、種類が Added か Changed のメソッドのソースをセレクタのバイト順に、`!` と空行で区切って並べ、最後のメソッドを ` !` で閉じる。ソースのあるメソッドが無い側は書かない。
 4. コメントのチャンク。Removed のメソッド `"Removed: <Class>>><selector>"`、Removed のクラス `"Removed class: <Class>"`、ソースの無いメソッド `"<Class>>><selector> source not available"`、名前がクラスを指さない定義 `"<Class> definition not available"` の順（それぞれセットの順、側、セレクタの順）。
 
@@ -1901,7 +1904,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 - チェンジセット（§3.9「Change Sorter（P16）」、§3.10「チェンジセット（P16）」）: `changes_abi_test` に、種類の規則（P17 で `image/tests/changeset.st` に移した。下の P17 の項）、新しいセッションの空の `Unnamed1`（`NewSessionHasOneEmptyCurrentSet`）、セッションが無いときの答え（`NoSessionAnswersFailure`）、New と Make Current（`NewSetBecomesCurrent`、`NewSetRefusesEmptyAndTakenNames`、`UnknownSetIdIsRefused`）、バッファの規則（`ReadsFollowBufferRule`、`RefusedReadsLeaveTheBufferEndingInNul`）、boot とロードで始め直し、失敗したロードでは残る（`BootAndImageLoadStartOver`）、記録（`AcceptRecordsAddedThenChangedInANewSet`、`ClassSideAcceptIsRecordedOnTheClassSide`、`ClassDefinitionAcceptIsChangedForAnExistingClass`、`RemoveMethodFollowsTheKindRules`、`RemoveClassFollowsTheKindRules`、`MethodsForChunkAcceptIsRecordedWithoutSource`、`DebuggerAcceptIsRecorded`、`RefusedAcceptAndRemovalRecordNothing`、`LoadOrderFileInRecordsNothing`）、忘れると移す（`DropForgetsTheEntryAndKeepsTheMethod`、`DropRefusesWhatTheSetDoesNotHold`、`MoveMethodEntryKeepsItsKind`、`MoveClassEntryMergesIntoTheTarget`、`MoveRefusesSameOrUnknownSet`）、File Out（`FileOutWritesHeaderDefinitionsMethodsAndRemovals`、`FileOutDefinesSuperclassesFirst`、`FileOutDoublesBangsAndQuotes`、`FileOutWritesACommentForAMethodWithoutSource`、`FileOutWritesMissingSourcesBeforeMissingDefinitions`、`FileOutResolvesNamesLikeTheBrowser`、`FileOutWritesAClassRemovalAsAComment`、`FileOutRefusesUnknownSetAndUnwritablePath`）、File In（`FileInKeepsSourcesAndRecordsInTheCurrentSet`、`FileInKeepsTheMethodsOfAnExistingClass`、`FileInErrorAnswersTheFirstErrorAndKeepsEarlierChunks`、`FileInRefusesAnUnreadablePath`、`FiledOutSetFilesBackInAfterBoot`、`FiledOutKernelExtensionFilesBackIn`、`FileInRefusesNativeOverwriteOnKernelClassWithoutStopping`）、busy の拒否（`WritesAndReadsAreRefusedWhileBusy`、`DropAndMoveAreRefusedWhileBusy`、`FileOutIsRefusedWhileBusy`、`FileInIsRefusedWhileBusy`）。`chunk_filein_test` に File Out のコメントのチャンクを読み飛ばす（`FiledOutCommentChunksAreSkipped`）
 - Smalltalk のチェンジセット（§3.9「Change Sorter（P16）」、§3.10「チェンジセット（P16）」。P17）:
   - `source_natives_test` に、`Behavior>>sourceCodeAt:` が Accept したソースを答える（`SourceNatives.SourceCodeAtAnswersTheAcceptedSource`）、ソースが無ければ nil（`SourceCodeAtAnswersNilWithoutASource`）、`Class>>definition` が Browser の本文を答える（`ClassDefinitionAnswersTheBrowserText`）、メタクラスは `definition` を理解しない（`DefinitionIsNotUnderstoodByAMetaclass`）。`KernelScan.*` は緑のまま（2 つのネイティブは NativeMethod の一覧に載る）
-  - `image/tests/changeset.st`（`ao --test` と、`block_test` の Smalltalk テスト）に、遅延の初期化、種類の合成、`newNamed:` の拒否と `reasonTo…` の文言、Remove と Move、`selectorsMeta:` のバイト順と、追加・削除・消去・Move to のあとの取り直し、`fileOutStringDate:version:` の書式（ソースが無いときは `source not available` の行）。種類の規則（P16 の C++ のテストは、規則ごと消えて、このファイルに移した）
+  - `image/tests/changeset.st`（`ao --test` と、`block_test` の Smalltalk テスト）に、遅延の初期化、種類の合成、`newNamed:` の拒否と `reasonTo…` の文言、Remove と Move、`selectorsMeta:` のバイト順と、追加・削除・消去・Move to のあとの取り直し、`fileOutStringDate:version:` の書式（ソースが無いときは `source not available` の行）、スーパークラスの名前が nil のクラスを含む `superclassOrder:` が、そのクラスをセットの順に置いて答える（`image/tests/changeset.st` の「スーパークラスの名前が nil」の行）。種類の規則（P16 の C++ のテストは、規則ごと消えて、このファイルに移した）
   - `changes_abi_test` は P16 の `ChangesAbi.*` を新しい実装の仕様として残す。フィクスチャは boot のあとに Tools-model を file-in する。P16 の New と Make Current の busy の拒否のテストは、読み出しも拒む形にして `WritesAndReadsAreRefusedWhileBusy` に改め、`BootAndImageLoadStartOver` は boot の始め直しだけにする。足すもの: 保存して開き直すとセットと current と ID が戻り、開いたあとに作るセットの ID が重ならない（`SavedImageKeepsSetsCurrentAndIds`）、`ChangeSet` が無いとき記録せず読み出しと書き込みが決まった答え（`WithoutTheModelRecordsNothingAndWritesAreUnavailable`）、モデルが壊れていても Accept と削除の答えは変わらない（`BrokenModelLeavesAcceptAndRemovalAnswers`）、ABI からの送信でライブデバッガが止まらずスナップショットも動かない（`ModelSendsNeitherHaltNorCapture`）、送信の間に変えた捕捉の設定が失敗を捕捉させず、終わりに適用される（`ModelSendFollowsTheCaptureSettingAtItsEnd`）、メソッドの並びがバイト順（`MethodReadsAreInByteOrder`）、200 件のメソッドの行がバイト順に読め、変更のあとも正しい（`ManyMethodRowsReadBackInByteOrderAfterChanges`）、ワークスペースの `newNamed:` が理由で拒む（`WorkspaceNewNamedRefusesWithTheReason`）、記録がプロセスを終わらせた Debugger の Accept は起動し直さずに拒む（`DebuggerAcceptRefusesWhenTheRecordTerminatesTheProcess`）
   - CLI: `cli_test.sh` の `filein` に、`--load-order` を 2 つ渡して両方が読まれる場合。`gcstress_vendor` は vendor に続けて Tools-model も file-in する（`ao filein --load-order <vendor> --load-order <Tools-model>`）
 - Kernel の保護とクラス定義（§3.6、§3.9、§3.10、§3.12。review-agy R1）:
@@ -1936,6 +1939,10 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 
 - パース成功 / 失敗区間
 - カスケード、キーワード、ブロックの AST
+- 1 つの送信の引数が 255 個を超えたらコンパイルエラー（`Parser.SendWithMoreThan255ArgumentsIsRejected`。通常の送信、カスケードのパート、`super` のカスケードのパート）
+- 文字リテラルの後ろが整った UTF-8 の 1 文字でなければコンパイルエラー `invalid character literal`（`Scanner.CharacterLiteralNeedsWellFormedUtf8`。切れた先頭バイト、過長、サロゲート、0x10FFFF 超、孤立した継続バイトと、そのエラーの区間）
+- 擬変数と同じ名前のインスタンス変数が擬変数を隠す（§3.8 の名前の解決順）。`^nil` は `PushInstVar` / `ReturnTop`、`super foo` は `Send`（`Codegen.InstVarNamedLikePseudoVariableShadowsReturn`）
+- チャンクのクラスコメント（§3.8 チャンク形式）: セクションの中のメソッドは、`commentStamp:` を含んでいても、トークンが `Foo commentStamp:` で始まっていても、次のチャンクを prose にしない（`Chunk.CommentStampMethodInSectionDoesNotMakeNextChunkProse`）。ヘッダは `Ident [class] commentStamp:` で、`Foo class commentStamp:` のあとのチャンクも prose になる（`Chunk.ClassSideCommentStampHeaderMakesNextChunkProse`）。prose になるのはヘッダのあとの 1 チャンクだけで、その次のチャンクでは `"` がコードのコメントを開く（`Chunk.OnlyOneChunkAfterCommentStampHeaderIsProse`）。prose の中の `"` はコードのコメントを開かず、次のクラス定義を飲み込まない（`Chunk.CommentStampQuoteDoesNotSwallowClassDef`）。`commentStamp:` のヘッダと prose のあいだの空白だけのチャンクは読み飛ばす（`Chunk.WhitespaceChunkAfterCommentStampHeaderIsSkippedAndNextChunkIsProse`）
 - 生成バイトコードのスナップショットテスト（安定したら固定）
 - `pc_map_test`: pc→ソース表と temp 名（§3.8）。Send の区間（`SendPcMapsToSendSpan`）、展開した条件のレシーバ（`InlinedConditionJumpMapsToReceiverSpan`）、ブロックの `^`（`ReturnBlockMapsToReturnStatement`）、ブロックの表が外側のソースの座標（`BlockMethodHasItsOwnMapInMethodCoordinates`）、temp 名の宣言順（`TempNamesListArgsTempsAndLoopVars`）、temp ベクタ（`RemoteTempNamesVectorSlotAndIndex`）、コピーした外側変数（`CopiedOuterTempIsNamedInBlockScope`）。バイトコードのスナップショット（`Codegen.*`）はバイト一致のまま
 - `pc_map_test`（P11）: 文の先頭表（§3.8）が、メソッド、ブロック、展開したブロックの各文の先頭を昇順に並べる（`StatementPcsListEveryStatementStart`）

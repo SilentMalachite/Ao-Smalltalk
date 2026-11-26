@@ -1,3 +1,4 @@
+#include "ao/Compiler.hpp"
 #include "ao/Parser.hpp"
 #include <gtest/gtest.h>
 
@@ -355,4 +356,44 @@ TEST(Parser, DeclarationsAreCheckedPerScope) {
     auto p = parseMethod(src);
     EXPECT_TRUE(p.ok) << src << ": " << p.error.message;
   }
+}
+
+// SPEC §3.8: a send takes at most 255 arguments; the parser refuses at the 256th keyword.
+TEST(Parser, SendWithMoreThan255ArgumentsIsRejected) {
+  const auto keywords = [](int n) {
+    std::string s;
+    for (int i = 1; i <= n; ++i) {
+      s += " k" + std::to_string(i) + ": " + std::to_string(i);
+    }
+    return s;
+  };
+  const std::string head = "foo\n  ^";
+  struct Case {
+    const char* what;
+    std::string prefix;
+  };
+  const std::vector<Case> cases{
+      {"plain send", "self"},
+      {"plain super send", "super"},
+      {"cascade part", "self yourself; "},
+      {"super cascade part", "super yourself; "},
+  };
+  for (const Case& c : cases) {
+    const auto source = [&](int n) { return head + c.prefix + keywords(n); };
+    auto ok = parseMethod(source(255));
+    EXPECT_TRUE(ok.ok) << c.what << ": " << ok.error.message;
+    auto bad = parseMethod(source(256));
+    EXPECT_FALSE(bad.ok) << c.what;
+    if (bad.ok) {
+      continue;
+    }
+    EXPECT_EQ("too many arguments", bad.error.message) << c.what;
+    const std::string src = source(256);
+    const std::size_t at = src.find(" k256:") + 1;
+    EXPECT_EQ(at, bad.error.span.start) << c.what;
+    EXPECT_EQ(at + 5, bad.error.span.end) << c.what;
+  }
+  // A 255-argument send also compiles: the bytecode carries argc 255.
+  auto compiled = ao::compiler::compileMethod(head + "self" + keywords(255));
+  EXPECT_TRUE(compiled.ok) << compiled.error.message;
 }

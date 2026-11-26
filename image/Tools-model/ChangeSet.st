@@ -203,7 +203,7 @@ superclassOrder: classNames
 		[at notNil and: [(classNames includes: at) and: [(placed includes: at) not and: [(chain includes: at) not]]]] whileTrue: [
 			chain add: at.
 			cls := self classNamed: at.
-			at := (cls isNil or: [cls superclass isNil]) ifTrue: [nil] ifFalse: [cls superclass name asSymbol]].
+			at := (cls isNil or: [cls superclass isNil or: [cls superclass name isNil]]) ifTrue: [nil] ifFalse: [cls superclass name asSymbol]].
 		i := chain size.
 		[i > 0] whileTrue: [
 			placed add: (chain at: i).

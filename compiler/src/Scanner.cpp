@@ -467,13 +467,29 @@ Token Scanner::lexCharacter(std::uint32_t start) {
   if (i_ >= src_.size()) {
     return make(Tok::Error, start);
   }
-  const auto len = utf8Len(static_cast<unsigned char>(src_[i_]));
-  if (i_ + len > src_.size()) {
-    i_ = static_cast<std::uint32_t>(src_.size());
-    return make(Tok::Error, start);
+  // SPEC §3.8: one well-formed UTF-8 scalar. The error span takes the lead byte and the
+  // continuation bytes the lead promises, never a byte that is not a continuation byte.
+  const auto lead = static_cast<unsigned char>(src_[i_]);
+  const auto len = utf8Len(lead);
+  const std::uint32_t first = i_;
+  i_++;
+  bool wellFormed = (lead < 0x80) || (lead >= 0xC2 && lead <= 0xF4);
+  for (std::uint32_t k = 1; k < len; k++) {
+    if (i_ >= src_.size() || (static_cast<unsigned char>(src_[i_]) & 0xC0) != 0x80) {
+      wellFormed = false;
+      break;
+    }
+    const auto b = static_cast<unsigned char>(src_[i_]);
+    if (k == 1 && ((lead == 0xE0 && b < 0xA0) || (lead == 0xED && b > 0x9F) ||
+                   (lead == 0xF0 && b < 0x90) || (lead == 0xF4 && b > 0x8F))) {
+      wellFormed = false;  // overlong, surrogate, or above U+10FFFF
+    }
+    i_++;
   }
-  std::string text(src_.substr(i_, len));
-  i_ += len;
+  if (!wellFormed) {
+    return make(Tok::Error, start, "invalid character literal");
+  }
+  std::string text(src_.substr(first, i_ - first));
   return make(Tok::Character, start, std::move(text));
 }
 

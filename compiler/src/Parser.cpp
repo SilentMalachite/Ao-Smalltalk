@@ -48,6 +48,7 @@ class Parser {
   // the parser itself recurses on.
   static constexpr std::uint32_t kMaxNesting = 256;
   static constexpr std::uint32_t kMaxDepth = 1024;
+  static constexpr std::size_t kMaxSendArgs = 255;  // SPEC §3.8
   std::uint32_t nesting_ = 0;
   std::uint32_t depth_ = 0;
 
@@ -402,6 +403,10 @@ class Parser {
       const SourceSpan at = cur_.span;
       SourceSpan end = recv.span;
       while (check(Tok::Keyword)) {
+        if (args.size() == kMaxSendArgs) {
+          fail("too many arguments");
+          break;
+        }
         selector += cur_.text;
         advance();
         Ast arg = parseBinary(parsePrimaryFromStart());
@@ -456,6 +461,10 @@ class Parser {
       SourceSpan start = cur_.span;
       SourceSpan end = start;
       while (check(Tok::Keyword)) {
+        if (args.size() == kMaxSendArgs) {
+          fail("too many arguments");
+          break;
+        }
         selector += cur_.text;
         advance();
         Ast arg = parseBinary(parsePrimaryFromStart());
