@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <climits>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -182,6 +183,44 @@ void setMessage(AoSpan* err, std::string_view text) {
   err->message[n] = '\0';
 }
 
+}  // namespace
+
+namespace ao {
+
+// Passes bytes to emit in chunks of at most `limit` bytes (0 counts as 1), each cut on a UTF-8
+// character boundary (the next chunk does not start with a continuation byte). Where no boundary
+// lies within the limit the chunk is cut at the limit, so every call advances and no byte is
+// dropped. Empty input emits one empty chunk.
+void forEachTranscriptChunk(const char* bytes, std::size_t n, std::size_t limit,
+                            void (*emit)(const char*, std::size_t, void*), void* user) {
+  if (n == 0) {
+    emit("", 0, user);
+    return;
+  }
+  if (limit == 0) {
+    limit = 1;
+  }
+  std::size_t pos = 0;
+  while (pos < n) {
+    std::size_t end = n - pos <= limit ? n : pos + limit;
+    if (end < n) {
+      std::size_t cut = end;
+      while (cut > pos && (static_cast<unsigned char>(bytes[cut]) & 0xC0) == 0x80) {
+        --cut;
+      }
+      if (cut > pos) {
+        end = cut;
+      }
+    }
+    emit(bytes + pos, end - pos, user);
+    pos = end;
+  }
+}
+
+}  // namespace ao
+
+namespace {
+
 void deliverTranscript(ao::CallContext& ctx, ao::Oop value) {
   if (g_transcriptFn == nullptr) {
     return;
@@ -205,7 +244,12 @@ void deliverTranscript(ao::CallContext& ctx, ao::Oop value) {
     if (n != 0) {
       bytes = reinterpret_cast<const char*>(ctx.heap.bytes(value));
     }
-    g_transcriptFn(bytes, static_cast<int>(n), 0, g_transcriptUser);
+    ao::forEachTranscriptChunk(
+        bytes, n, static_cast<std::size_t>(INT_MAX),
+        [](const char* p, std::size_t len, void*) {
+          g_transcriptFn(p, static_cast<int>(len), 0, g_transcriptUser);
+        },
+        nullptr);
   }
 }
 
