@@ -1571,7 +1571,10 @@ bool acceptInto(CallContext& ctx, Oop target, bool meta, std::string_view source
     assignError(error, "method source allocation failed");
     return false;
   }
-  Root kept(ctx.roots, installMethod(ctx, tgt.slot, cr.image));
+  // SPEC §3.10: registered before the install, so a slot that cannot be registered fails with the
+  // method dictionary as it was.
+  Root kept(ctx.roots, Oop::nil());
+  kept.slot = installMethod(ctx, tgt.slot, cr.image);
   if (!kept.slot.isHeap()) {
     assignError(error, "install failed");
     return false;

@@ -2413,6 +2413,79 @@ TEST_F(LiveAccept, AcceptWithoutRootSlotsLeavesNoPin) {
   EXPECT_GT(ended, 0);
 }
 
+// SPEC §3.10 (review-agy R8-T7): the Accept installs through ao_accept_method's path, so one that
+// cannot register a root slot before the install answers AO_ERR and leaves the old method, its
+// source, no record in the current change set and the process halted. The failing add moves
+// through the Accept's adds up to the first one past its source entry; any other answer has
+// installed the new method. Failures inside the record are not swept here.
+TEST_F(LiveAccept, FailedAcceptWithoutRootSlotsKeepsTheOldMethod) {
+  ASSERT_EQ(AO_OK, ao_filein_load_order(AO_SOURCE_DIR "/image/Tools-model/LOAD_ORDER"));
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  defineClass("DbgAccKeep");
+  const std::string oldSrc = "bar\n  self halt.\n  ^1";
+  const std::string newSrc = "bar\n  ^2";
+  const auto method = [s] {
+    const ao::Oop cls = s->wk.named("DbgAccKeep");
+    return ao::MethodDictionary::at(s->heap, s->heap.slotAt(cls, ao::kClassSlotMethodDict),
+                                    s->wk.intern("bar"));
+  };
+  const auto sourceOf = [] {
+    char buf[64] = "";
+    const int rc = ao_browser_source(ao_browser_class_id("DbgAccKeep"), 0, "bar", buf, 64);
+    return rc == AO_OK ? std::string(buf) : "rc " + std::to_string(rc);
+  };
+  // A halted DbgAccKeep>>bar of oldSrc, with a new change set current. Answers the pid.
+  const auto haltInOld = [&](const std::string& setName) {
+    accept("DbgAccKeep", 0, oldSrc.c_str());
+    EXPECT_EQ(AO_ERR_HALT, printIt("DbgAccKeep new bar"));
+    const std::int64_t pid = selectHalted();
+    std::int64_t set = 0;
+    AoSpan err{};
+    EXPECT_EQ(AO_OK, ao_changes_new(setName.c_str(), &set, &err)) << err.message;
+    return std::make_pair(pid, set);
+  };
+  int refused = 0;
+  bool pastTheEntry = false;
+  for (std::size_t k = 0; k <= 64 && !pastTheEntry; ++k) {
+    SCOPED_TRACE(k);
+    const auto [pid, set] = haltInOld("T7-" + std::to_string(k));
+    int rc = AO_OK;
+    bool kept = false;
+    {
+      ao::Root old(s->roots, method());
+      s->roots.failSlotGrowthForTesting(k);
+      rc = acceptIn(pid, 1, newSrc.c_str());
+      s->roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+      kept = method() == old.slot;
+    }
+    if (rc == AO_ERR || rc == AO_ERR_COMPILE) {
+      ++refused;
+      EXPECT_EQ(AO_ERR, rc) << err_.message;
+      EXPECT_TRUE(kept);
+      EXPECT_EQ(oldSrc, sourceOf());
+      EXPECT_EQ(0, ao_changes_method_count(set, "DbgAccKeep", 0));
+      EXPECT_EQ(1, ao_debug_halted_count());
+    } else {
+      EXPECT_FALSE(kept) << rc << ": " << err_.message;
+      EXPECT_NE(oldSrc, sourceOf());
+      pastTheEntry = sourceOf() == newSrc;
+    }
+    if (ao_debug_halted_count() != 0) {
+      ASSERT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+    }
+    ASSERT_EQ(AO_OK, ao_debug_clear());
+  }
+  EXPECT_GT(refused, 0);
+  EXPECT_TRUE(pastTheEntry);
+  // Without a failure the same Accept is recorded, so the count above could see a record.
+  const auto [pid, set] = haltInOld("T7-control");
+  ASSERT_EQ(AO_ERR_HALT, acceptIn(pid, 1, newSrc.c_str())) << err_.message;
+  EXPECT_EQ(1, ao_changes_method_count(set, "DbgAccKeep", 0));
+  ASSERT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+  ASSERT_EQ(AO_OK, ao_debug_clear());
+}
+
 TEST_F(LiveAccept, AcceptSelectorChangeIsRefused) {
   defineClass("DbgAccSel");
   accept("DbgAccSel", 0, "bar\n  self halt.\n  ^1");
