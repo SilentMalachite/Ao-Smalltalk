@@ -104,6 +104,17 @@ bool acceptWord(std::uint64_t bits, const std::unordered_set<std::uint64_t>& sta
   if (heapShaped(bits)) {
     return (bits % 8u) == 0 && starts.find(bits) != starts.end();
   }
+  // SPEC §3.11: an empty OOP (bits 0) is no value, and a Character holds a Unicode scalar value,
+  // read from every bit above the tag (characterValue() would keep only 32 of them).
+  if (bits == 0) {
+    return false;
+  }
+  if ((bits & 0x3u) == Oop::kCharTag) {
+    const std::uint64_t cp = bits >> 2;
+    if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+      return false;
+    }
+  }
   Oop decoded;
   return ImageFormat::decodeNonHeap(bits, &decoded);
 }
