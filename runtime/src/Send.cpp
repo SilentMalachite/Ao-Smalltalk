@@ -22,6 +22,9 @@ struct IcGuard {
   InlineCache* ic;
   IcGuard(Roots& r, InlineCache* i) : roots(r), ic(i) {
     if (ic != nullptr) {
+      // SPEC §3.2 (O1): all or nothing. A throw half way would leave cachedClass registered, since
+      // no destructor runs.
+      roots.reserveSlots(2);
       roots.add(&ic->cachedClass);
       roots.add(&ic->cachedMethod);
     }
