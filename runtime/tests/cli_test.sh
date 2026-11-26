@@ -253,6 +253,13 @@ case "$CASE" in
     # SPEC §3.12: so is a missing path.
     run 2 "$AO" image load
     [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for image load without a path"
+    # SPEC §3.12: a trailing --load-order is no path; nothing is written under that name.
+    run 2 "$AO" image save --load-order
+    [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for image save --load-order"
+    [ ! -e ./--load-order ] || fail "image written to --load-order"
+    run 2 "$AO" image save --load-order first/LOAD_ORDER --load-order
+    [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for a trailing --load-order"
+    [ ! -e ./--load-order ] || fail "image written to --load-order"
     ;;
   test)
     mkdir -p tests empty pass

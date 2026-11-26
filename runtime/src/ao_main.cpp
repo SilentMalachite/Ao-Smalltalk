@@ -260,8 +260,10 @@ int runImage(int argc, char** argv) {
     path = argv[3];
   } else if (argc == 4 && std::strcmp(argv[3], "--load-order") != 0) {
     path = argv[3];
-  } else if (argc >= 6 && collectLoadOrders(argc, argv, 3, argc - 1, loadOrders)) {
-    // SPEC §3.12 (P17): `--load-order <LOAD_ORDER>` pairs (one or more), then the path.
+  } else if (argc >= 6 && std::strcmp(argv[argc - 1], "--load-order") != 0 &&
+             collectLoadOrders(argc, argv, 3, argc - 1, loadOrders)) {
+    // SPEC §3.12 (P17): `--load-order <LOAD_ORDER>` pairs (one or more), then the path, which is
+    // not a trailing `--load-order`.
     path = argv[argc - 1];
   } else {
     return imageUsage();
