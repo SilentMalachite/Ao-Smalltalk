@@ -1652,6 +1652,7 @@ int ao_request_interrupt(void);
 
 - ロードの検査の old の上限には、保存するヒープの old の上限を使う（セッションでは 4 GiB − 1 MiB。§3.2）。生存データは nursery と old の両方にあり、ロードはそれを 1 つの old に並べるので、old の上限より小さい old に収まっていたセッションでも超えることがある。
 - 名前の無い thunk（上）がヒープに逃げていれば、NativeMethod の名前の規則に反する。
+- ポインタのオブジェクトのスロットに、空 OOP か Unicode スカラー値でない Character があれば（下の「ロードの検査」）、失敗する。この理由はクラスの名前を言わず、書こうとするファイルのヒープ内オフセットでオブジェクトを示す。`slot <番号> of the object at offset <オフセット> is neither an object nor an immediate` である（番号はスロットを 1 から数えた位置）。
 - `Smalltalk` がグローバル辞書でないときも失敗する（今までどおり）。
 - 止まったプロセス（§3.13）があるときは、何も書かずに失敗する。理由は `halted processes` である。止まったプロセスはファイバの C++ スタックを持ち、イメージに書けないからである。呼び出し元（`ao_image_save`）が止まったプロセスの数を渡す。`ao_image_save` は `AO_ERR` を返す。
 
@@ -1673,6 +1674,7 @@ int ao_request_interrupt(void);
 以下で「Behavior のオブジェクト」とは、klass から親（superclass）をたどると Behavior に着くオブジェクトをいう。クラス、メタクラス、`Behavior new` で作った無名のクラスがこれに当たる。親は lookup（§3.3）と同じく 1024 段までたどる。循環もそこで止まるので、循環そのものは拒否しない。
 
 - オブジェクトヘッダの flags は、`Bytes` と `Weak` のほかを立てない（保存はこの 2 つだけを書く。`Marked` などが残ると GC が壊れる）。先頭の詰め物は、klass が nil、大きさが 0、flags が `Bytes` だけである。
+- ポインタのオブジェクトのスロットとレコード（well-known とグローバル）の語は、空 OOP（bits 0。§3.3 の失敗の印で、値ではない）でない。Character の語は Unicode スカラー値（0 以上 0x10FFFF 以下で、サロゲート U+D800–U+DFFF を除く）を持つ。値は、タグの 2 ビットを除いた残りのビットすべてで読む（下位 32 ビットだけで読まない）。
 - klass は、nil か Behavior のオブジェクトである。klass が nil なのは、メソッド辞書の中の配列や NativeMethod の名前などの内部のオブジェクトである。
 - klass が nil でないオブジェクトは、klass の format（§3.6。instSize、可変長か、バイト列か）に合う形をしている。format はランタイムと同じに読む。SmallInteger でない format は 0（名前付きのスロットが 0 個、固定長、ポインタ）とみなす。
   - `Bytes` は、format がバイト列のクラスのインスタンスにだけ立つ。`Weak` は klass が nil のオブジェクトにだけ立つ（弱参照を持つクラスは無い）。
@@ -1929,6 +1931,8 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
   - `failure_test` に、枠の数が `kNativeSlotCount` に足りない `NativeMethod` をメソッド辞書に入れた送信が `failed: #<セレクタ>` で中断し、そのセレクタを送るメソッド（`W>>callZork ^self zork`）を 2 回評価しても、どちらも同じ理由で中断する（`FailureAbort.SendOfNativeMethodWithTooFewSlotsFails`）。`native_method_test` に、その `NativeMethod` への `apply` が空の Oop を答え、`functionOf` が nullptr、`nameBytes` が空を答える（`NativeMethod.ApplyRefusesTooFewSlots`）
   - `method_dictionary_test` に、内側の配列が奇数長で `tally` が実際の数と違うメソッド辞書へ、続けて 3 つの登録が入り（2 つ目で配列を拡張する）、`tally` が実際の数になり、3 つとも引ける（`MethodDictionary.AtPutGrowsWhenTallyLies`）。`tally` を SmallInteger の最大値にしても登録が入り、`tally` が実際の数になる（`MethodDictionary.AtPutWithTallyAtSmiMaxRecountsAndInstalls`）。
   - `behavior_test` に、format をバイト列にしたメタクラスが作ったバイト列のオブジェクトへの `instSize`、`isVariable`、`isBytes`、`isPointers`、`sourceCodeAt:`、`superclass`、`methodDict`、`selectors`、`includesSelector:`、`compiledMethodAt:`、`name`、`category`、`classPool` がどれも `failed: #<セレクタ>` で中断し、format を instSize 2 のポインタにしたメタクラスが作ったポインタのオブジェクトへの `sourceCodeAt:` も、セッションの外で `failed: #sourceCodeAt:` で中断する（`Behavior.NativesOnNonClassShapedReceiverFail`）。format を 0 にした `Metaclass` の `basicNew` が作ったオブジェクトへの `thisClass` が `failed: #thisClass` で中断する（`Behavior.MetaclassThisClassOnNonClassShapedReceiverFails`）。クラス名が空のポインタオブジェクト（`Object new`）の `subclass:instanceVariableNames:…` が `failed: #subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` で中断し、名前 `''` のクラスを作らない（`Behavior.SubclassWithNonByteClassNameFails`）
+- イメージの保存と読み込み（§3.11。review-agy R7）:
+  - `image_save_load_test` に、ポインタのオブジェクトのスロット（`Smalltalk` の配列の空きの項目）とレコード（`transcript`）の語を、空 OOP（bits 0）か Unicode スカラー値でない Character（U+D800、U+DFFF、U+110000、2^32 + 0x41）にしたイメージを `damaged image` で拒み、隣の U+D7FF、U+E000、U+10FFFF は読む（`ImageLoadChecks.RefusesEmptyOopInSlotOrRecord`）、Array のスロットを空 OOP か U+D800 の Character にしたヒープの保存が、何も書かずに `slot 2 of the object at offset <オフセット> is neither an object nor an immediate` で失敗し、スロットを nil に戻すと保存できる（`ImageSaveChecks.SaveRefusesEmptySlot`）、新規の boot、セッション（`ao_runtime_boot`）、vendor の LOAD_ORDER を file-in した boot（`ao image save --load-order image/vendor/LOAD_ORDER` と同じ手順）を保存したイメージが、空 OOP も Unicode スカラー値でない Character も持たず、ロードできる（`ImageSaveLoad.FreshSessionAndVendorImagesHaveNoEmptyWords`）
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
 - `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
 - `transcript_model_test`: コールバックが呼ばれる
