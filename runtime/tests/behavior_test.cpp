@@ -348,6 +348,36 @@ TEST(Behavior, NativesOnNonClassShapedReceiverFail) {
   EXPECT_EQ("failed: #sourceCodeAt:", run("  ^AoP8Small sourceCodeAt: #foo"));
 }
 
+// review-agy R5 F6 / SPEC §3.6: Metaclass forbids new but not basicNew. With Metaclass's format
+// rewritten to no slots, basicNew makes a Metaclass instance that is not class-shaped; thisClass
+// fails on it instead of reading past its slots. The format is restored in the same doIt.
+TEST(Behavior, MetaclassThisClassOnNonClassShapedReceiverFails) {
+  Boot b;
+  auto run = [&](const std::string& body) {
+    auto img = ao::compiler::compileMethod("doIt\n" + body);
+    EXPECT_TRUE(img.ok) << img.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+    const ao::Oop r =
+        ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+    return r.isEmpty() ? takeAbortReason(b) : std::string("<answered>");
+  };
+  const ao::Oop fmt = b.heap.slotAt(b.wk.metaclassClass, ao::kClassSlotFormat);
+  ASSERT_EQ("<answered>", run("  | fmt |\n"
+                              "  fmt := Metaclass instVarAt: 3.\n"
+                              "  Metaclass instVarAt: 3 put: 0.\n"
+                              "  Smalltalk at: #AoBareMeta put: Metaclass basicNew.\n"
+                              "  Metaclass instVarAt: 3 put: fmt.\n"
+                              "  ^fmt"));
+  EXPECT_EQ(fmt, b.heap.slotAt(b.wk.metaclassClass, ao::kClassSlotFormat));
+  const ao::Oop bare = b.wk.named("AoBareMeta");
+  ASSERT_TRUE(bare.isHeap());
+  EXPECT_EQ(b.wk.metaclassClass, b.heap.klass(bare));
+  EXPECT_EQ(0u, b.heap.size(bare));
+  EXPECT_EQ("failed: #thisClass", run("  ^AoBareMeta thisClass"));
+  // A metaclass still answers its class.
+  EXPECT_EQ(b.wk.objectClass, send0(b, b.heap.klass(b.wk.objectClass), "thisClass"));
+}
+
 // SPEC §3.6: the class name, like instanceVariableNames, is a byte object. An empty pointer object
 // is no name: the send fails and no class is bound to ''.
 TEST(Behavior, SubclassWithNonByteClassNameFails) {

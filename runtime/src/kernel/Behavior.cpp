@@ -393,7 +393,7 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
 }
 
 Oop ao_Metaclass_thisClass(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotThisClass);
 }
 
