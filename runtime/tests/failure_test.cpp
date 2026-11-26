@@ -503,3 +503,30 @@ TEST_F(FailureAbort, SendOfNativeMethodWithTooFewSlotsFails) {
     EXPECT_STREQ("failed: #zork", err_.message);
   }
 }
+
+// SPEC §3.6 Kernel-Classes, known constraint: the example as written. `NativeMethod instVarAt: 3
+// put: 0` and then `basicNew` run through Smalltalk and make a NativeMethod with no slots (the
+// format is put back afterwards). Put in a class's method dictionary (the dictionary's array has
+// no Smalltalk class, so this step is C++), the send fails with `failed: #zork`.
+TEST_F(FailureAbort, ExampleNativeMethodFormatZeroBasicNewInDictionaryFailsTheSend) {
+  ASSERT_EQ(AO_OK, doIt("Object subclass: #W2 instanceVariableNames: '' classVariableNames: ''"
+                        " poolDictionaries: '' category: 'R8-Test'"))
+      << err_.message;
+  ASSERT_EQ(AO_OK, doIt("| saved |\n"
+                        "saved := NativeMethod instVarAt: 3.\n"
+                        "NativeMethod instVarAt: 3 put: 0.\n"
+                        "Smalltalk at: #AoBareNative put: NativeMethod basicNew.\n"
+                        "NativeMethod instVarAt: 3 put: saved"))
+      << err_.message;
+  EXPECT_EQ("0", printed("AoBareNative basicSize"));
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  const ao::Oop bare = s->wk.global(s->wk.intern("AoBareNative"));
+  ASSERT_TRUE(bare.isHeap());
+  const ao::Oop cls = s->wk.global(s->wk.intern("W2"));
+  ASSERT_TRUE(cls.isHeap());
+  ASSERT_TRUE(ao::MethodDictionary::atPut(s->heap, s->heap.slotAt(cls, ao::kClassSlotMethodDict),
+                                          s->wk.intern("zork"), bare));
+  EXPECT_EQ(AO_ERR_EVAL, print("W2 new zork"));
+  EXPECT_STREQ("failed: #zork", err_.message);
+}
