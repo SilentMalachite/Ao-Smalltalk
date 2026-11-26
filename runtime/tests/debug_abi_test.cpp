@@ -249,6 +249,34 @@ TEST_F(DebugAbi, DoItFrameSourceDropsPrefix) {
   EXPECT_EQ("nil foo", doItSrc.highlighted());
 }
 
+// SPEC §3.13「フレームの種類とラベル」: a NativeMethod with too few slots (put into a dictionary by
+// reflection only) is found by the lookup, so the innermost frame is synthesized, but it has no
+// class or symbol to name: the label is the DNU's form, and the source is its placeholder.
+TEST_F(DebugAbi, NativeMethodWithTooFewSlotsLabelsTheDnuForm) {
+  ASSERT_EQ(AO_OK, doIt("Object subclass: #DbgBare instanceVariableNames: '' classVariableNames: ''"
+                        " poolDictionaries: '' category: 'R8-Test'"))
+      << err_.message;
+  {
+    ao::Session* s = ao::session();
+    ASSERT_NE(nullptr, s);
+    const ao::Oop cls = s->wk.global(s->wk.intern("DbgBare"));
+    ASSERT_TRUE(cls.isHeap());
+    const ao::Oop dict = s->heap.slotAt(cls, ao::kClassSlotMethodDict);
+    const ao::Oop sel = s->wk.intern("zork");
+    const ao::Oop bare = s->heap.allocateNoGc(s->wk.nativeMethodClass, 0, 0);
+    ASSERT_TRUE(bare.isHeap());
+    ASSERT_TRUE(ao::MethodDictionary::atPut(s->heap, dict, sel, bare));
+  }
+  ASSERT_EQ(AO_ERR_EVAL, doIt("DbgBare new zork"));
+  ASSERT_EQ(2, ao_debug_frame_count());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("#zork (doesNotUnderstand:)", label(0));
+  const Source bareSource = source(0);
+  EXPECT_EQ(AO_ERR_NOSOURCE, bareSource.rc);
+  EXPECT_EQ("\"#zork (doesNotUnderstand:) source not available\"", bareSource.text);
+  EXPECT_EQ("doIt", label(1));
+}
+
 // SPEC §3.13: a block frame is labelled with its home method; its temps are its args, its temps
 // and the outer variables it copied. The class side is "<Name> class".
 TEST_F(DebugAbi, BlockFrameLabelIsBracketsIn) {

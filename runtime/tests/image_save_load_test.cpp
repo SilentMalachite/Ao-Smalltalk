@@ -1570,6 +1570,32 @@ TEST(ImageSaveChecks, SaveReasonNamesTheClassAndTheRule) {
   std::filesystem::remove_all(dir, ec);
 }
 
+// SPEC §3.11: a reason shared with the load's checks names the object's offset in the file being
+// written, not a class: an object whose class word is an empty OOP breaks the class-word rule.
+TEST(ImageSaveChecks, SaveReasonNamesTheOffsetOfAnObjectWithABadClassWord) {
+  const auto dir = freshDir("r8-save-class-word");
+  const auto path = dir / "classword.aoimage";
+  Boot b;
+  ao::Root name(b.roots, b.wk.intern("R8BadClassWord"));
+  ao::Root bad(b.roots, b.heap.allocate(ao::Oop{}, 1, 0));
+  ASSERT_TRUE(bad.slot.isHeap());
+  b.heap.slotAtPut(bad.slot, 0, ao::Oop::nil());
+  ASSERT_TRUE(ao::Globals::bind(b.wk, name.slot, bad.slot));
+  std::string reason;
+  EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason));
+  EXPECT_TRUE(fileNames(dir).empty());
+  const std::string head = "the class word of the object at offset ";
+  const std::string tail = " is neither an object nor an immediate";
+  ASSERT_GT(reason.size(), head.size() + tail.size()) << reason;
+  EXPECT_EQ(head, reason.substr(0, head.size())) << reason;
+  EXPECT_EQ(tail, reason.substr(reason.size() - tail.size())) << reason;
+  const std::string offset = reason.substr(head.size(), reason.size() - head.size() - tail.size());
+  EXPECT_FALSE(offset.empty()) << reason;
+  EXPECT_EQ(std::string::npos, offset.find_first_not_of("0123456789")) << reason;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
 // SPEC §3.11: a class of the runtime's reading. `Behavior new` makes a class whose format is nil,
 // which the runtime reads as no named slots: its instance saves and loads.
 TEST(ImageSaveChecks, AnonymousBehaviorInstanceSavesAndLoads) {

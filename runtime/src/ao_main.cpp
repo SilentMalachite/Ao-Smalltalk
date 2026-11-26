@@ -310,7 +310,8 @@ int runImage(int argc, char** argv) {
     return 1;
   }
   scheduler.adoptImage();
-  // SPEC §3.10: add the Kernel natives the image lacks, as ao_image_load does.
+  // SPEC §3.10: add the Kernel natives the image lacks (installMissing only; ao_image_load runs
+  // all of ensureKernelNatives).
   ao::kernel::installMissing(heap, roots, wk, &cache);
   ao::Oop arg = ao::Oop::fromSmallInteger(2);
   auto sel = wk.intern("+");

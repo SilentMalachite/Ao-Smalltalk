@@ -710,7 +710,8 @@ TEST(Process, NonOrderedCollectionListIsReadByShape) {
     EXPECT_NE(other.slot, queue.slot);
     EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(queue.slot));
     EXPECT_EQ(queue.slot, myList(b, p.slot));
-    // suspend and terminate read the queue the ready process is in.
+    // suspend and terminate of a ready process read Processor's quiescentProcesses slot (what
+    // listsDamaged reads), not the process's own myList, which still names the old queue.
     ASSERT_EQ(other.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), other.slot));
     for (const char* sel : {"suspend", "terminate"}) {
       SCOPED_TRACE(sel);
