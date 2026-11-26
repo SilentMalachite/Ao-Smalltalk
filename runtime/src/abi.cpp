@@ -217,6 +217,20 @@ void forEachTranscriptChunk(const char* bytes, std::size_t n, std::size_t limit,
   }
 }
 
+// Passes bytes to the transcript hook in chunks of at most `limit` bytes (forEachTranscriptChunk).
+// deliverTranscript passes INT_MAX; a test passes a small limit. The hook is read for each chunk:
+// one that unset itself (ao_set_transcript_hook is not busy-gated) gets none of the rest.
+void deliverTranscriptChunks(const char* bytes, std::size_t n, std::size_t limit) {
+  forEachTranscriptChunk(
+      bytes, n, limit,
+      [](const char* p, std::size_t len, void*) {
+        if (g_transcriptFn != nullptr) {
+          g_transcriptFn(p, static_cast<int>(len), 0, g_transcriptUser);
+        }
+      },
+      nullptr);
+}
+
 }  // namespace ao
 
 namespace {
@@ -244,12 +258,7 @@ void deliverTranscript(ao::CallContext& ctx, ao::Oop value) {
     if (n != 0) {
       bytes = reinterpret_cast<const char*>(ctx.heap.bytes(value));
     }
-    ao::forEachTranscriptChunk(
-        bytes, n, static_cast<std::size_t>(INT_MAX),
-        [](const char* p, std::size_t len, void*) {
-          g_transcriptFn(p, static_cast<int>(len), 0, g_transcriptUser);
-        },
-        nullptr);
+    ao::deliverTranscriptChunks(bytes, n, static_cast<std::size_t>(INT_MAX));
   }
 }
 

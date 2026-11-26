@@ -1,5 +1,6 @@
 #include "test_support.hpp"
 
+#include "ao_abi.h"
 #include "ao/Globals.hpp"
 #include "ao/HandleScope.hpp"
 
@@ -206,6 +207,7 @@ TEST(TranscriptModel, NextPutAtSmiMaxPositionFails) {
 namespace ao {
 void forEachTranscriptChunk(const char* bytes, std::size_t n, std::size_t limit,
                             void (*emit)(const char*, std::size_t, void*), void* user);
+void deliverTranscriptChunks(const char* bytes, std::size_t n, std::size_t limit);
 }
 
 namespace {
@@ -277,4 +279,28 @@ TEST(TranscriptModel, LongTextSplitAlwaysMakesProgress) {
   const auto empty = chunksOf("", 4);
   ASSERT_EQ(1u, empty.size());
   EXPECT_EQ("", empty[0]);
+}
+
+// SPEC §3.10: the hook gets the chunks in order; a hook that unsets itself
+// (ao_set_transcript_hook(NULL, …)) while it takes a chunk gets no more chunks of that text.
+TEST(TranscriptModel, LongTextStopsWhenTheHookUnsetsItself) {
+  static std::vector<std::string> seen;
+  seen.clear();
+  ao_set_transcript_hook(
+      [](const char* utf8, int len, int, void*) {
+        seen.emplace_back(utf8, static_cast<std::size_t>(len));
+      },
+      nullptr);
+  ao::deliverTranscriptChunks("abcdef", 6, 2);
+  EXPECT_EQ((std::vector<std::string>{"ab", "cd", "ef"}), seen);
+  seen.clear();
+  ao_set_transcript_hook(
+      [](const char* utf8, int len, int, void*) {
+        seen.emplace_back(utf8, static_cast<std::size_t>(len));
+        ao_set_transcript_hook(nullptr, nullptr);
+      },
+      nullptr);
+  ao::deliverTranscriptChunks("abcdef", 6, 2);
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ((std::vector<std::string>{"ab"}), seen);
 }
