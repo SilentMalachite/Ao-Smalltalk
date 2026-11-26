@@ -876,6 +876,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - 捕捉解析: コードを生成する前に、変数ごとに、宣言したスコープ、展開しないブロックからの捕捉、代入の有無を調べ、temp ベクタに置く temp を決める（§3.4）。
 - インライン展開（§3.5）
 - 引数（メソッドとブロック）と `to:do:` のループ変数への代入は、コンパイルエラー `cannot assign to argument` にする。
+- 1 つの送信の引数は 255 個までである（カスケードのパートも、`super` 送信のパートも同じ）。256 個目のキーワードを読んだ時点でコンパイルエラー `too many arguments` にする。区間はその 256 番目のキーワード（`k256:`）である。
 - temp の上限は 255 である。引数、temp、持ち上げた temp（展開したブロックの temp、`to:do:` のループ変数と上限）、temp ベクタを入れるスロット、コピーした値を合わせて数える。
 - 名前の解決順は、ローカル（メソッドとブロックの引数と temp）→ インスタンス変数 → 擬変数 → クラス変数（§3.6）→ グローバル（`Smalltalk` の辞書。§3.6）である。前のものが、後ろの同じ名前を隠す。ワークスペース（§3.10）の解決順は §3.10 に書く。ワークスペースのレシーバは nil なので、クラス変数は無い。
   - クラス変数は、メソッドのクラスから見えるもの（§3.6）である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar` で、リテラルは classPool の束縛（Association）である。束縛は、メソッドを作るとき（リテラルを箱に入れるとき）に、メソッドのクラス（クラス側ならその thisClass）からスーパークラス鎖をたどって引く。
@@ -1936,6 +1937,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 
 - パース成功 / 失敗区間
 - カスケード、キーワード、ブロックの AST
+- 1 つの送信の引数が 255 個を超えたらコンパイルエラー（`Parser.SendWithMoreThan255ArgumentsIsRejected`。通常の送信、カスケードのパート、`super` のカスケードのパート）
 - 生成バイトコードのスナップショットテスト（安定したら固定）
 - `pc_map_test`: pc→ソース表と temp 名（§3.8）。Send の区間（`SendPcMapsToSendSpan`）、展開した条件のレシーバ（`InlinedConditionJumpMapsToReceiverSpan`）、ブロックの `^`（`ReturnBlockMapsToReturnStatement`）、ブロックの表が外側のソースの座標（`BlockMethodHasItsOwnMapInMethodCoordinates`）、temp 名の宣言順（`TempNamesListArgsTempsAndLoopVars`）、temp ベクタ（`RemoteTempNamesVectorSlotAndIndex`）、コピーした外側変数（`CopiedOuterTempIsNamedInBlockScope`）。バイトコードのスナップショット（`Codegen.*`）はバイト一致のまま
 - `pc_map_test`（P11）: 文の先頭表（§3.8）が、メソッド、ブロック、展開したブロックの各文の先頭を昇順に並べる（`StatementPcsListEveryStatementStart`）
