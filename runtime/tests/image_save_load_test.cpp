@@ -1570,8 +1570,8 @@ TEST(ImageSaveChecks, SaveReasonNamesTheClassAndTheRule) {
   std::filesystem::remove_all(dir, ec);
 }
 
-// SPEC §3.11: a reason shared with the load's checks names the object's offset in the file being
-// written, not a class: an object whose class word is an empty OOP breaks the class-word rule.
+// SPEC §3.11: the class-word rule names the object by its offset in the file being written (it
+// has no class to name): an object whose class word is an empty OOP breaks that rule.
 TEST(ImageSaveChecks, SaveReasonNamesTheOffsetOfAnObjectWithABadClassWord) {
   const auto dir = freshDir("r8-save-class-word");
   const auto path = dir / "classword.aoimage";
@@ -1592,6 +1592,39 @@ TEST(ImageSaveChecks, SaveReasonNamesTheOffsetOfAnObjectWithABadClassWord) {
   const std::string offset = reason.substr(head.size(), reason.size() - head.size() - tail.size());
   EXPECT_FALSE(offset.empty()) << reason;
   EXPECT_EQ(std::string::npos, offset.find_first_not_of("0123456789")) << reason;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// SPEC §3.11: a reason names a class by its name. A class whose name is nil (`Behavior new`) is
+// "an unnamed class"; a class word that points at an object with too few slots for a class (an
+// Array of 1) is "an object that is no class".
+TEST(ImageSaveChecks, SaveReasonNamesAnUnnamedClassAndAnObjectThatIsNoClass) {
+  const auto dir = freshDir("r8-save-unnamed");
+  const auto path = dir / "unnamed.aoimage";
+  Boot b;
+  ao::Root name(b.roots, b.wk.intern("R8Unnamed"));
+  ao::Root unnamed(b.roots, send0(b, b.wk.behaviorClass, "new"));
+  ASSERT_TRUE(unnamed.slot.isHeap());
+  ao::Root instance(b.roots, b.heap.allocate(unnamed.slot, 1, 0));
+  ASSERT_TRUE(instance.slot.isHeap());
+  ao::Root array(b.roots, send1(b, b.wk.arrayClass, "new:", ao::Oop::fromSmallInteger(1)));
+  ASSERT_TRUE(array.slot.isHeap());
+  ao::Root odd(b.roots, b.heap.allocate(array.slot, 1, 0));
+  ASSERT_TRUE(odd.slot.isHeap());
+  auto refusal = [&] {
+    std::string reason;
+    EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason));
+    EXPECT_TRUE(fileNames(dir).empty());
+    return reason;
+  };
+  b.heap.slotAtPut(instance.slot, 0, ao::Oop{});
+  ASSERT_TRUE(ao::Globals::bind(b.wk, name.slot, instance.slot));
+  EXPECT_EQ("slot 1 of an instance of an unnamed class is an empty OOP", refusal());
+  b.heap.slotAtPut(instance.slot, 0, ao::Oop::nil());
+  b.heap.slotAtPut(odd.slot, 0, ao::Oop{});
+  ASSERT_TRUE(ao::Globals::bind(b.wk, name.slot, odd.slot));
+  EXPECT_EQ("slot 1 of an instance of an object that is no class is an empty OOP", refusal());
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
 }
