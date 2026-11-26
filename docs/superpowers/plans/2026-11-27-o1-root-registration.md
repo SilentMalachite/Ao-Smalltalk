@@ -90,9 +90,11 @@
 
 - [ ] **Step 1: 口を足す（`Roots.hpp`）。テストより先に、コンパイルを通すため**
 
-- [ ] **Step 2: `sweepFailedRootAdds` と、それを使う 2 本の赤のテストを書く**
+- [ ] **Step 2: `sweepFailedRootAdds` と、それを使う赤のテストを書く**
 
-テストは `SessionAbi.FailedRootAddInsideAnEvalLeavesNoRootBehind` と `SessionAbi.FailedRootAddInsideALiveEvalLeavesNoRootBehind` である。後者は `ao_set_debug_mode(AO_DEBUG_LIVE)` を先に呼ぶ。どちらも式は `| a | a := 0. #(1 2 3) do: [:x | a := a + x]. a`、答えは `"6"` とする。
+テストは `SessionAbi.FailedRootAddInsideAnEvalLeavesNoRootBehind` である。式は `| a | a := 0. #(1 2 3) do: [:x | a := a + x]. a`、答えは `"6"` とする。
+
+ライブモードのテスト（`SessionAbi.FailedRootAddInsideALiveEvalLeavesNoRootBehind`）は Task 2 で足す。評価のプロセスを作る `forkEval` が `rootRecord` を通るので、Task 1 の修正だけでは緑にならない（実装のときに、修正の前と同じ k=30 で落ちるのを見た）。
 
 `sweepFailedRootAdds` の中身は次のとおり。
 
@@ -132,9 +134,9 @@ k ごとに次を行う。
 
 - [ ] **Step 4: 赤を見る**
 
-Run: `ninja -C build ao_runtime_tests && build/runtime/ao_runtime_tests --gtest_filter='SessionAbi.FailedRootAddInsideAnEval*:SessionAbi.FailedRootAddInsideALiveEval*:AcceptAbi.FailedRootAddInsideTheRecord*'`
+Run: `ninja -C build ao_runtime_tests && build/runtime/ao_runtime_tests --gtest_filter='SessionAbi.FailedRootAddInsideAnEval*:AcceptAbi.FailedRootAddInsideTheRecord*'`
 
-Expected: 3 本とも FAIL する。ルートの数が合わない k がある。
+Expected: 2 本とも FAIL する。ルートの数が合わない k がある。
 
 - [ ] **Step 5: 4 つのコンストラクタで、登録の前に `reserveSlots` を呼ぶ**
 
@@ -150,7 +152,7 @@ Expected: 3 本とも FAIL する。ルートの数が合わない k がある�
 - [ ] **Step 6: 緑を見る**
 
 1. Step 4 と同じコマンドで PASS する。
-2. `AO_GC_STRESS=1` で同じ 3 本を流し、時間を測る。どれかが 60 秒を超えたら、`changes_abi_test.cpp:480` と同じく、ストレスのときだけ k の刻みを広げる。
+2. `AO_GC_STRESS=1` で同じ 2 本を流し、時間を測る。どれかが 60 秒を超えたら、`changes_abi_test.cpp:480` と同じく、ストレスのときだけ k の刻みを広げる。
 
 - [ ] **Step 7: KernelBench の前後を比べる**
 
@@ -158,7 +160,7 @@ Expected: 3 本とも FAIL する。ルートの数が合わない k がある�
 2. それぞれで `--gtest_filter='KernelBench.*'` を 3 回ずつ流す。
 3. テストごとの中央値の ms を表にする。
 
-- [ ] **Step 8: ASan で 3 本を流す**
+- [ ] **Step 8: ASan で 2 本を流す**
 
 Run: `scripts/build.sh --asan && build-asan/runtime/ao_runtime_tests --gtest_filter='SessionAbi.FailedRootAdd*:AcceptAbi.FailedRootAdd*'`
 
@@ -175,9 +177,12 @@ Expected: PASS し、ASan のエラーは 0 件。
 **Interfaces:**
 - Consumes: Task 1 の `slotGrowthFailurePending()`、`rootShape`、`sweepFailedRootAdds`。
 
-- [ ] **Step 1: 赤のテストを書く: `SessionAbi.FailedRootAddInsideAForkLeavesNoRootBehind`**
+- [ ] **Step 1: 赤のテストを 2 本書く**
 
-`sweepFailedRootAdds("| p | p := [3 + 4] fork. Processor yield. 5", "5")` とする。
+| テスト | 中身 |
+|---|---|
+| `SessionAbi.FailedRootAddInsideAForkLeavesNoRootBehind` | `sweepFailedRootAdds("\| p \| p := [3 + 4] fork. Processor yield. 5", "5")` |
+| `SessionAbi.FailedRootAddInsideALiveEvalLeavesNoRootBehind` | `ao_set_debug_mode(AO_DEBUG_LIVE)` のあと、Task 1 と同じ式と答えで `sweepFailedRootAdds` |
 
 - [ ] **Step 2: 赤を見る**（Task 1 の修正の上で流す）
 
