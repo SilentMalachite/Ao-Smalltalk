@@ -329,21 +329,55 @@ constexpr std::string_view kHostWords[] = {
 };
 
 bool containsHostWord(std::string_view text) {
-  for (const std::string_view word : kHostWords) {
-    std::size_t pos = 0;
-    while (pos < text.size()) {
-      const std::size_t found = text.find(word, pos);
-      if (found == std::string_view::npos) {
-        break;
+  // Same lexing as scanShapes: comments, strings and `$c` literals are not code.
+  enum class Lex { Code, Comment, String };
+  Lex lex = Lex::Code;
+  for (std::size_t i = 0; i < text.size();) {
+    const char c = text[i];
+    if (lex == Lex::Comment) {
+      if (c == '"') {
+        lex = Lex::Code;
       }
-      const bool left = found == 0 || !isHostWordChar(text[found - 1]);
-      const std::size_t after = found + word.size();
-      const bool right = after >= text.size() || !isHostWordChar(text[after]);
-      if (left && right) {
-        return true;
-      }
-      pos = found + 1;
+      ++i;
+      continue;
     }
+    if (lex == Lex::String) {
+      if (c == '\'') {
+        if (i + 1 < text.size() && text[i + 1] == '\'') {
+          i += 2;
+          continue;
+        }
+        lex = Lex::Code;
+      }
+      ++i;
+      continue;
+    }
+    if (c == '"') {
+      lex = Lex::Comment;
+      ++i;
+      continue;
+    }
+    if (c == '\'') {
+      lex = Lex::String;
+      ++i;
+      continue;
+    }
+    if (c == '$' && i + 1 < text.size()) {
+      i += 2;
+      continue;
+    }
+    if (i == 0 || !isHostWordChar(text[i - 1])) {
+      for (const std::string_view word : kHostWords) {
+        if (!text.substr(i).starts_with(word)) {
+          continue;
+        }
+        const std::size_t after = i + word.size();
+        if (after >= text.size() || !isHostWordChar(text[after])) {
+          return true;
+        }
+      }
+    }
+    ++i;
   }
   return false;
 }
