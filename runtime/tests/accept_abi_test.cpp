@@ -3668,6 +3668,8 @@ TEST(AcceptAbi, FailedRootAddInsideTheRecordLeavesNoRootBehind) {
     return rc == AO_OK ? std::string(out) : "rc " + std::to_string(rc) + ": " + e.message;
   };
   std::size_t k = 0;
+  // A failure the Accept swallowed (inside its source entry or the record) answers AO_OK.
+  bool swallowed = false;
   for (;; ++k) {
     SCOPED_TRACE(k);
     ASSERT_EQ(AO_OK, ao_accept_method("O1Accept", 0, "bar\n  ^1", &err)) << err.message;
@@ -3684,10 +3686,12 @@ TEST(AcceptAbi, FailedRootAddInsideTheRecordLeavesNoRootBehind) {
     gc.collectNursery();
     gc.collectOld();
     ASSERT_EQ(rc == AO_OK ? "2" : "1", printBar());
+    swallowed = swallowed || (fired && rc == AO_OK);
     if (!fired) {
       break;
     }
   }
   EXPECT_GT(k, 0u);
+  EXPECT_TRUE(swallowed);
   ao_runtime_shutdown();
 }

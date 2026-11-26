@@ -1652,8 +1652,10 @@ RootShape rootShape(ao::Session& s) {
 
 // SPEC §3.2 (O1): the k-th root slot registration inside an evaluation of src fails, for each k up
 // to the first one the evaluation no longer reaches. Before any GC, no root is left behind and the
-// active context is empty again. A process the evaluation forked may outlive it (its record holds
-// 4 slots and one stack); the next evaluation ends it, and then every count is back.
+// base's active context is empty again (a live-mode doIt runs on its own process, whose context
+// goes with it). A failed evaluation that answers AO_OK while no process failed answers correctly.
+// A process the evaluation forked may outlive it (its record holds 4 slots and one stack); the
+// next evaluation ends it, and then every count is back.
 void sweepFailedRootAdds(const char* src, const char* answer) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   const auto eval = [src](std::string* out) {
@@ -1671,8 +1673,9 @@ void sweepFailedRootAdds(const char* src, const char* answer) {
     SCOPED_TRACE(k);
     ao::Session& s = *ao::session();
     const RootShape before = rootShape(s);
+    const std::uint64_t failuresBefore = s.scheduler->processFailures();
     s.roots.failSlotGrowthForTesting(k);
-    eval(&out);
+    const int failedRc = eval(&out);
     const bool fired = !s.roots.slotGrowthFailurePending();
     s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
     RootShape after = rootShape(s);
@@ -1681,6 +1684,10 @@ void sweepFailedRootAdds(const char* src, const char* answer) {
     after.stacks -= live;
     ASSERT_TRUE(before == after);
     ASSERT_TRUE(s.ctx->activeContext.isEmpty());
+    // A forked process may fail on its own (SPEC §3.4) and the evaluation still answers, perhaps
+    // differently; without such a failure an AO_OK answer is the right one.
+    const bool processFailed = s.scheduler->processFailures() != failuresBefore;
+    ASSERT_TRUE(failedRc != AO_OK || processFailed || out == answer) << out;
     ao::Gc gc(s.heap, s.roots);
     gc.collectNursery();
     gc.collectOld();
@@ -1713,4 +1720,17 @@ TEST_F(SessionAbi, FailedRootAddInsideALiveEvalLeavesNoRootBehind) {
 // queue): a failure leaves neither a record's slots nor a ready entry for a record that is gone.
 TEST_F(SessionAbi, FailedRootAddInsideAForkLeavesNoRootBehind) {
   sweepFailedRootAdds("| p | p := [3 + 4] fork. Processor yield. 5", "5");
+}
+
+// SPEC §3.2, §3.4 (O1): the same inside wait and signal (the base blocks, the fork's signal
+// enqueues it). A fork that fails after its signal leaves r at 0, which is a process failure the
+// evaluation survives (SPEC §3.4), so this row pins the root counts, not the answer.
+TEST_F(SessionAbi, FailedRootAddInsideASignalLeavesNoRootBehind) {
+  sweepFailedRootAdds("| s r | s := Semaphore new. r := 0. [s signal. r := 1] fork. s wait. r", "1");
+}
+
+// SPEC §3.2, §3.4 (O1): the same inside the ensure: cleanup of a process that aborts with a reason
+// built at run time (the DNU's), which the cleanup sets aside in the handle table.
+TEST_F(SessionAbi, FailedRootAddInsideAnEnsureCleanupLeavesNoRootBehind) {
+  sweepFailedRootAdds("[[nil foo] ensure: [3 + 4]] fork. Processor yield. 5", "5");
 }
