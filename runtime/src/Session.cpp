@@ -1639,18 +1639,14 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
     Pin& operator=(const Pin&) = delete;
   } pin(ctx.roots, slots);
   // SPEC §3.10: the process's accept slots are armed and pinned before the install too, so
-  // nothing after it allocates for them. Unarmed on every way out but the hand-over to proceed.
+  // nothing after it allocates for them. Unarmed on every way out. After the hand-over to proceed
+  // that does nothing: the process has left the halt, or reactivateAccepted disarmed them.
   s->scheduler->armAccept(id, slots.data(), slots.size());
   struct Armed {
     Scheduler& scheduler;
     std::uint64_t id;
-    bool handed = false;
     Armed(Scheduler& sc, std::uint64_t pid) : scheduler(sc), id(pid) {}
-    ~Armed() {
-      if (!handed) {
-        scheduler.unarmAccept(id);
-      }
-    }
+    ~Armed() { scheduler.unarmAccept(id); }
     Armed(const Armed&) = delete;
     Armed& operator=(const Armed&) = delete;
   } armed(*s->scheduler, id);
@@ -1679,7 +1675,6 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
     blankOut(out, outLen);
     return AO_ERR;
   }
-  armed.handed = true;
   return resumeHalted(*s, id, StepMode::None, target, slots.data(), slots.size(), out, outLen, err,
                       inspect, inspectUser);
 }
