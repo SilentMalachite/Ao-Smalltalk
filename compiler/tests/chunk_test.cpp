@@ -361,6 +361,24 @@ TEST(Chunk, ClassificationNeedsTheMessageShape) {
   EXPECT_EQ(1u, acts[4].methods.size());
 }
 
+// SPEC §3.8 チャンク形式: outside a section, a whitespace-only chunk after a commentStamp: header is
+// skipped and the chunk after it is the prose, so its `"` opens no code comment.
+TEST(Chunk, WhitespaceChunkAfterCommentStampHeaderIsSkippedAndNextChunkIsProse) {
+  const char* src =
+      "!Foo commentStamp: 'x' prior: 0!\n"
+      "!\n"
+      "Prose with a \" quote.!\n"
+      "!Object subclass: #Foo\n"
+      "  category: 'T'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(3u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("Prose with a \" quote.", acts[1].source);
+  ASSERT_EQ(ao::compiler::ChunkKind::ClassDef, acts[2].kind);
+  EXPECT_EQ("Foo", acts[2].className);
+}
+
 // SPEC §3.8 チャンク形式: `!!` is one `!` in class-comment prose too, so a doubled bang at line end
 // does not split the prose, and its next line is not read as a class definition.
 TEST(Chunk, CommentProseUndoublesBangs) {
