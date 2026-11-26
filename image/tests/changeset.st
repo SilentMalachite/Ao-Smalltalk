@@ -200,3 +200,10 @@ self assert: (ChangeSet classNamed: #NoSuchGlobal) equals: nil.
 "スーパークラスは記録の順に関わらず先"
 self assert: (ChangeSet superclassOrder: (OrderedCollection new add: #P17Sub; add: #Missing; add: #P17Base; yourself)) size equals: 3.
 self assert: ((ChangeSet superclassOrder: (OrderedCollection new add: #P17Sub; add: #Missing; add: #P17Base; yourself)) at: 1) equals: #P17Base.
+"スーパークラスの名前が nil のクラス（instVarAt:put: で壊した）は、スーパークラスがセットに無いものとして扱う"
+base := Object subclass: #R6NilBase instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R6-Test'.
+sub := base subclass: #R6NilSub instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R6-Test'.
+base instVarAt: 4 put: nil.
+out := ChangeSet superclassOrder: (OrderedCollection new add: #R6NilSub; yourself).
+self assert: out size equals: 1.
+self assert: (out at: 1) equals: #R6NilSub.
