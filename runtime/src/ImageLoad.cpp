@@ -100,18 +100,26 @@ bool parseRecords(const std::vector<std::byte>& file, std::size_t* off, std::uin
 
 bool heapShaped(std::uint64_t bits) { return bits != 0 && (bits & Oop::kLow3) == 0; }
 
-bool acceptWord(std::uint64_t bits, const std::unordered_set<std::uint64_t>& starts) {
+bool acceptWord(std::uint64_t bits, const std::unordered_set<std::uint64_t>& starts,
+                const char** rule = nullptr) {
   if (heapShaped(bits)) {
     return (bits % 8u) == 0 && starts.find(bits) != starts.end();
   }
   // SPEC §3.11: an empty OOP (bits 0) is no value, and a Character holds a Unicode scalar value,
-  // read from every bit above the tag (characterValue() would keep only 32 of them).
+  // read from every bit above the tag (characterValue() would keep only 32 of them). rule, when
+  // given, gets the rule such a word breaks, for the save's reason.
   if (bits == 0) {
+    if (rule != nullptr) {
+      *rule = "is an empty OOP";
+    }
     return false;
   }
   if ((bits & 0x3u) == Oop::kCharTag) {
     const std::uint64_t cp = bits >> 2;
     if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+      if (rule != nullptr) {
+        *rule = "holds a Character that is not a Unicode scalar value";
+      }
       return false;
     }
   }
@@ -166,21 +174,28 @@ const ImageRecord* findRecord(const std::vector<ImageRecord>& recs, std::string_
   return nullptr;
 }
 
-bool recordsOk(const std::vector<ImageRecord>& recs, const std::unordered_set<std::uint64_t>& starts) {
-  for (const ImageRecord& rec : recs) {
-    if (!acceptWord(rec.bits, starts)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 // Records why a check failed, for the save's reason (SPEC §3.11). Always false.
 bool fail(std::string* detail, std::string text) {
   if (detail != nullptr) {
     *detail = std::move(text);
   }
   return false;
+}
+
+// SPEC §3.11: a record word that breaks an H5 rule is named by its record, after kind ("the
+// well-known ", "the global ").
+bool recordsOk(const std::vector<ImageRecord>& recs, const std::unordered_set<std::uint64_t>& starts,
+               const char* kind, std::string* detail) {
+  for (const ImageRecord& rec : recs) {
+    const char* rule = nullptr;
+    if (!acceptWord(rec.bits, starts, &rule)) {
+      if (rule != nullptr) {
+        return fail(detail, std::string(kind) + rec.name + " " + rule);
+      }
+      return fail(detail, "a record holds a word that is neither an object nor an immediate");
+    }
+  }
+  return true;
 }
 
 std::string atOffset(std::uint64_t off) { return "the object at offset " + std::to_string(off); }
@@ -230,12 +245,18 @@ bool payloadFits(std::size_t heapBytes, std::uint64_t off, std::uint32_t size) {
   return size <= heapBytes - static_cast<std::size_t>(off) - sizeof(ObjectHeader);
 }
 
+// SPEC §3.11: how a save reason names the object at off: "an instance of <class name>", or "an
+// object with no class" when its class word is nil. Defined after ObjectRules, whose nameOf it uses.
+std::string objectName(const std::byte* section, const std::unordered_set<std::uint64_t>& starts,
+                       std::uint64_t off);
+
 bool precheck(const std::byte* section, std::size_t heapBytes,
               const std::unordered_set<std::uint64_t>& starts, const std::vector<std::uint64_t>& offsets,
               const std::vector<ImageRecord>& wellKnown, const std::vector<ImageRecord>& globals,
               std::string* detail) {
-  if (!recordsOk(wellKnown, starts) || !recordsOk(globals, starts)) {
-    return fail(detail, "a record holds a word that is neither an object nor an immediate");
+  if (!recordsOk(wellKnown, starts, "the well-known ", detail) ||
+      !recordsOk(globals, starts, "the global ", detail)) {
+    return false;
   }
   const ImageRecord* symbolRec = findRecord(wellKnown, "Symbol");
   const ImageRecord* nativeRec = findRecord(wellKnown, "NativeMethod");
@@ -260,7 +281,12 @@ bool precheck(const std::byte* section, std::size_t heapBytes,
         if (slotAt > heapBytes || heapBytes - slotAt < 8u) {
           return fail(detail, atOffset(off) + " runs past the heap");
         }
-        if (!acceptWord(readU64(section + static_cast<std::size_t>(slotAt)), starts)) {
+        const char* rule = nullptr;
+        if (!acceptWord(readU64(section + static_cast<std::size_t>(slotAt)), starts, &rule)) {
+          if (rule != nullptr) {
+            return fail(detail, "slot " + std::to_string(i + 1) + " of " +
+                                    objectName(section, starts, off) + " " + rule);
+          }
           return fail(detail, "slot " + std::to_string(i + 1) + " of " + atOffset(off) +
                                   " is neither an object nor an immediate");
         }
@@ -413,7 +439,9 @@ class ObjectRules {
     return klass != Oop::nil().bits() && inheritsBehavior(klass);
   }
 
-  // The bytes of the name slot of the class-shaped object at off, for a reason.
+ public:
+  // The bytes of the name slot of the class-shaped object at off, for a reason. Reads only what
+  // walkObjects bounded, so precheck can use it too (objectName).
   std::string nameOf(std::uint64_t off) const {
     if (!classShaped(off)) {
       return "an object that is no class";
@@ -431,6 +459,7 @@ class ObjectRules {
     return std::string(bytes, std::min<std::size_t>(h.size, 128));
   }
 
+ private:
   bool objectOk(std::uint64_t off, std::uint64_t methodClass, std::string* detail) {
     const std::uint64_t nilBits = Oop::nil().bits();
     const ObjectHeader h = headerAt(section_, off);
@@ -501,6 +530,15 @@ class ObjectRules {
   std::uint64_t dict_ = 0;
   std::unordered_map<std::uint64_t, bool> inherits_;
 };
+
+std::string objectName(const std::byte* section, const std::unordered_set<std::uint64_t>& starts,
+                       std::uint64_t off) {
+  const std::uint64_t klass = headerAt(section, off).klass.bits();
+  if (klass == Oop::nil().bits()) {
+    return "an object with no class";
+  }
+  return "an instance of " + ObjectRules(section, starts).nameOf(klass);
+}
 
 void relocateWord(std::byte* base, Oop* slot) {
   const std::uint64_t bits = slot->bits();

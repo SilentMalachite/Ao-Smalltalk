@@ -2269,8 +2269,9 @@ TEST(ImageLoadChecks, RefusesEmptyOopInSlotOrRecord) {
 }
 
 // review-agy H5 / SPEC §3.11: 失敗シナリオ。空 OOP をスロットに持つヒープの保存は成功し、そのイメージは H5 の
-// あとロードできない。保存は書く前にロードの検査を当てるので、何も書かずに失敗し、理由はそのスロットと
-// オブジェクトの位置を言う。Unicode スカラー値でない Character も同じ。スロットを nil に戻すと保存できる。
+// あとロードできない。保存は書く前にロードの検査を当てるので、何も書かずに失敗し、理由はスロットの番号、
+// クラスの名前（クラスの語が nil なら no class）、反した規則を言う。Unicode スカラー値でない Character も同じ。
+// スロットを nil に戻すと保存できる。
 TEST(ImageSaveChecks, SaveRefusesEmptySlot) {
   const auto dir = freshDir("h5-save-empty");
   const auto path = dir / "empty.aoimage";
@@ -2281,38 +2282,55 @@ TEST(ImageSaveChecks, SaveRefusesEmptySlot) {
   b.heap.slotAtPut(array.slot, 0, ao::Oop::fromSmallInteger(7));
   b.heap.slotAtPut(array.slot, 2, ao::Oop::fromSmallInteger(9));
   ASSERT_TRUE(ao::Globals::bind(b.wk, name.slot, array.slot));
-  std::vector<std::string> reasons;
-  for (ao::Oop word : {ao::Oop{}, ao::Oop::fromCharacter(0xD800)}) {
-    SCOPED_TRACE(word.bits());
-    b.heap.slotAtPut(array.slot, 1, word);
+  // An internal object: its class word is nil, like a method dictionary's array.
+  ao::Root internal(b.roots, b.heap.allocate(ao::Oop::nil(), 1, 0));
+  ASSERT_TRUE(internal.slot.isHeap());
+  auto refusal = [&] {
     std::string reason;
     EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason));
     EXPECT_TRUE(fileNames(dir).empty());
-    reasons.push_back(reason);
     std::error_code ec;
     std::filesystem::remove(path, ec);
-  }
+    return reason;
+  };
+  b.heap.slotAtPut(array.slot, 1, ao::Oop{});
+  EXPECT_EQ("slot 2 of an instance of Array is an empty OOP", refusal());
+  b.heap.slotAtPut(array.slot, 1, ao::Oop::fromCharacter(0xD800));
+  EXPECT_EQ("slot 2 of an instance of Array holds a Character that is not a Unicode scalar value",
+            refusal());
+  b.heap.slotAtPut(array.slot, 1, internal.slot);
+  b.heap.slotAtPut(internal.slot, 0, ao::Oop{});
+  EXPECT_EQ("slot 1 of an object with no class is an empty OOP", refusal());
+  b.heap.slotAtPut(internal.slot, 0, ao::Oop::nil());
   b.heap.slotAtPut(array.slot, 1, ao::Oop::nil());
   std::string reason = "unchanged";
   ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason)) << reason;
-  // The array's offset in the file; the failed saves laid the same heap out the same way.
-  const ImageSurgery image(path);
-  const std::uint64_t arrayClass = image.record("Array");
-  std::uint64_t at = 0;
-  for (std::uint64_t off : image.objects()) {
-    const ao::ObjectHeader h = image.object(off);
-    if (h.klass.bits() == arrayClass && h.size == 3 &&
-        image.word(image.slotPos(off, 0)) == ao::Oop::fromSmallInteger(7).bits() &&
-        image.word(image.slotPos(off, 2)) == ao::Oop::fromSmallInteger(9).bits()) {
-      at = off;
-    }
-  }
-  ASSERT_NE(0u, at);
-  const std::string want = "slot 2 of the object at offset " + std::to_string(at) +
-                           " is neither an object nor an immediate";
-  for (const std::string& got : reasons) {
-    EXPECT_EQ(want, got);
-  }
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// review-agy H5 / SPEC §3.11: 失敗シナリオ。well-known かグローバルのレコードの語が空 OOP か Unicode スカラー値
+// でない Character なら、保存は何も書かずに失敗し、理由はレコードの名前と反した規則を言う。空 OOP に束縛した
+// グローバルは、この検査の前に未束縛として拒むので、その行は無い。
+TEST(ImageSaveChecks, SaveRefusesEmptyRecord) {
+  const auto dir = freshDir("h5-save-record");
+  const auto path = dir / "record.aoimage";
+  Boot b;
+  ao::Root transcript(b.roots, b.wk.transcript);
+  auto refusal = [&] {
+    std::string reason;
+    EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, path.string(), &reason));
+    EXPECT_TRUE(fileNames(dir).empty());
+    return reason;
+  };
+  b.wk.transcript = ao::Oop{};
+  EXPECT_EQ("the well-known transcript is an empty OOP", refusal());
+  b.wk.transcript = ao::Oop::fromCharacter(0xD800);
+  EXPECT_EQ("the well-known transcript holds a Character that is not a Unicode scalar value",
+            refusal());
+  b.wk.transcript = transcript.slot;
+  ASSERT_TRUE(ao::Globals::bind(b.wk, b.wk.intern("Processor"), ao::Oop::fromCharacter(0xD800)));
+  EXPECT_EQ("the global Processor holds a Character that is not a Unicode scalar value", refusal());
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
 }
