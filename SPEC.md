@@ -1938,6 +1938,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - パース成功 / 失敗区間
 - カスケード、キーワード、ブロックの AST
 - 1 つの送信の引数が 255 個を超えたらコンパイルエラー（`Parser.SendWithMoreThan255ArgumentsIsRejected`。通常の送信、カスケードのパート、`super` のカスケードのパート）
+- 擬変数と同じ名前のインスタンス変数が擬変数を隠す（§3.8 の名前の解決順）。`^nil` は `PushInstVar` / `ReturnTop`、`super foo` は `Send`（`Codegen.InstVarNamedLikePseudoVariableShadowsReturn`）
 - 生成バイトコードのスナップショットテスト（安定したら固定）
 - `pc_map_test`: pc→ソース表と temp 名（§3.8）。Send の区間（`SendPcMapsToSendSpan`）、展開した条件のレシーバ（`InlinedConditionJumpMapsToReceiverSpan`）、ブロックの `^`（`ReturnBlockMapsToReturnStatement`）、ブロックの表が外側のソースの座標（`BlockMethodHasItsOwnMapInMethodCoordinates`）、temp 名の宣言順（`TempNamesListArgsTempsAndLoopVars`）、temp ベクタ（`RemoteTempNamesVectorSlotAndIndex`）、コピーした外側変数（`CopiedOuterTempIsNamedInBlockScope`）。バイトコードのスナップショット（`Codegen.*`）はバイト一致のまま
 - `pc_map_test`（P11）: 文の先頭表（§3.8）が、メソッド、ブロック、展開したブロックの各文の先頭を昇順に並べる（`StatementPcsListEveryStatementStart`）

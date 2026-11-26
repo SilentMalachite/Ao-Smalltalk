@@ -2,6 +2,7 @@
 
 #include "ao/Bytecode.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -169,6 +170,14 @@ bool negativeNumber(const Ast& n) {
     return n.floatValue < 0;
   }
   return n.largeInt.empty() ? n.intValue < 0 : n.largeInt[0] == '-';
+}
+
+// Every send in the tree is an ordinary send (an instance variable named super hides `super`).
+void clearSuperMarks(Ast& node) {
+  node.isSuper = false;
+  for (Ast& kid : node.kids) {
+    clearSuperMarks(kid);
+  }
 }
 
 // The one decision on inlining: the analysis and the code generator both ask it, so they agree
@@ -993,6 +1002,10 @@ class Emitter {
     if (expr.kind != Ast::Kind::Variable) {
       return false;
     }
+    // SPEC §3.8: an instance variable named like a pseudo-variable hides it.
+    if (instVarIndex(expr.name) >= 0) {
+      return false;
+    }
     if (expr.name == "self") {
       *op = Op::ReturnReceiver;
       return true;
@@ -1584,15 +1597,25 @@ std::string formatLit(const Literal& lit) {
 
 }  // namespace
 
-void codegen(const Ast& method, const CompileEnv& env, CompileResult& out) {
+void codegen(const Ast& parsed, const CompileEnv& env, CompileResult& out) {
   out.ok = false;
   out.image = MethodImage{};
   out.error = CompileError{};
-  if (method.kind != Ast::Kind::Method) {
-    out.error.span = method.span;
+  if (parsed.kind != Ast::Kind::Method) {
+    out.error.span = parsed.span;
     out.error.message = "expected method";
     return;
   }
+  // SPEC §3.8: the parser marks `super` sends by name, but an instance variable named super
+  // hides the pseudo-variable, so those sends are ordinary sends to that variable.
+  Ast shadowed;
+  const bool superIsInstVar = std::find(env.instVarNames.begin(), env.instVarNames.end(),
+                                        "super") != env.instVarNames.end();
+  if (superIsInstVar) {
+    shadowed = parsed;
+    clearSuperMarks(shadowed);
+  }
+  const Ast& method = superIsInstVar ? shadowed : parsed;
   Analysis an;
   Analyzer(an).method(method);
   if (an.failed) {

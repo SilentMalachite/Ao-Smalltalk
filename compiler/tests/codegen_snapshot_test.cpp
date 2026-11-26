@@ -601,6 +601,37 @@ TEST(KernelInstanceVariable, LeadingSlotsAreReadOnly) {
   EXPECT_EQ(1, countOp(ok.image, Op::PopStoreInstVar)) << disassemble(ok.image);
 }
 
+// SPEC §3.8 (名前の解決順: インスタンス変数 → 擬変数): 擬変数と同じ名前のインスタンス変数は、
+// `^name` の短い戻り（ReturnNil など）にも、`super` の送信にもならず、変数として読む。
+TEST(Codegen, InstVarNamedLikePseudoVariableShadowsReturn) {
+  ao::compiler::CompileEnv env;
+  env.instVarNames = {"nil", "true", "false", "self"};
+  const char* const sources[] = {"foo ^nil", "foo ^true", "foo ^false", "foo ^self"};
+  for (const char* source : sources) {
+    SCOPED_TRACE(source);
+    auto r = compileMethod(source, env);
+    ASSERT_TRUE(r.ok) << r.error.message;
+    EXPECT_EQ(1, countOp(r.image, Op::PushInstVar)) << disassemble(r.image);
+    EXPECT_EQ(1, countOp(r.image, Op::ReturnTop)) << disassemble(r.image);
+    EXPECT_EQ(0, countOp(r.image, Op::ReturnNil) + countOp(r.image, Op::ReturnTrue) +
+                     countOp(r.image, Op::ReturnFalse) + countOp(r.image, Op::ReturnReceiver))
+        << disassemble(r.image);
+  }
+  ao::compiler::CompileEnv superEnv;
+  superEnv.instVarNames = {"super"};
+  auto s = compileMethod("foo ^super foo", superEnv);
+  ASSERT_TRUE(s.ok) << s.error.message;
+  EXPECT_EQ(0, countOp(s.image, Op::SendSuper)) << disassemble(s.image);
+  EXPECT_EQ(1, countOp(s.image, Op::Send)) << disassemble(s.image);
+  EXPECT_EQ(1, countOp(s.image, Op::PushInstVar)) << disassemble(s.image);
+  auto c = compileMethod("foo super bar; baz", superEnv);
+  ASSERT_TRUE(c.ok) << c.error.message;
+  EXPECT_EQ(0, countOp(c.image, Op::SendSuper)) << disassemble(c.image);
+  auto plain = compileMethod("foo ^super foo");
+  ASSERT_TRUE(plain.ok) << plain.error.message;
+  EXPECT_EQ(1, countOp(plain.image, Op::SendSuper)) << disassemble(plain.image);
+}
+
 // SPEC §3.8: an Int literal outside int64 carries its digits in text. Two such literals are two
 // literals (they used to share intValue 0), and 0 is not pushed with PushZero for one.
 TEST(Codegen, IntegerBeyondInt64KeepsItsDigits) {
