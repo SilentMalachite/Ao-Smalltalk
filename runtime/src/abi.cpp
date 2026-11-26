@@ -639,6 +639,8 @@ extern "C" int64_t ao_browser_class_id(const char* name) {
 
 extern "C" int ao_browser_class_at(int index, int64_t* class_id, char* name, int name_len,
                                     char* category, int category_len) {
+  blankBuf(name, name_len);
+  blankBuf(category, category_len);
   if (class_id != nullptr) {
     *class_id = 0;
   }
@@ -652,6 +654,7 @@ extern "C" int ao_browser_protocol_count(int64_t class_id, int meta) {
 }
 
 extern "C" int ao_browser_protocol_at(int64_t class_id, int meta, int index, char* buf, int len) {
+  blankBuf(buf, len);
   return guarded(AO_ERR, [&] { return ao::browserProtocolAt(class_id, meta, index, buf, len); });
 }
 
@@ -661,6 +664,7 @@ extern "C" int ao_browser_selector_count(int64_t class_id, int meta, const char*
 
 extern "C" int ao_browser_selector_at(int64_t class_id, int meta, const char* protocol, int index,
                                       char* buf, int len) {
+  blankBuf(buf, len);
   return guarded(AO_ERR, [&] {
     return ao::browserSelectorAt(class_id, meta, protocol, index, buf, len);
   });
@@ -668,15 +672,18 @@ extern "C" int ao_browser_selector_at(int64_t class_id, int meta, const char* pr
 
 extern "C" int ao_browser_source(int64_t class_id, int meta, const char* selector, char* buf,
                                  int len) {
+  blankBuf(buf, len);
   return guarded(AO_ERR, [&] { return ao::browserSource(class_id, meta, selector, buf, len); });
 }
 
 extern "C" int ao_browser_class_definition(int64_t class_id, char* buf, int len) {
+  blankBuf(buf, len);
   return guarded(AO_ERR, [&] { return ao::browserClassDefinition(class_id, buf, len); });
 }
 
 extern "C" int ao_browser_superclass(int64_t class_id, int meta, int64_t* superclass_id, char* buf,
                                      int len) {
+  blankBuf(buf, len);
   if (superclass_id != nullptr) {
     *superclass_id = 0;
   }
@@ -691,6 +698,7 @@ extern "C" int ao_browser_subclass_count(int64_t class_id) {
 
 extern "C" int ao_browser_subclass_at(int64_t class_id, int index, int64_t* subclass_id, char* buf,
                                       int len) {
+  blankBuf(buf, len);
   if (subclass_id != nullptr) {
     *subclass_id = 0;
   }
