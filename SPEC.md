@@ -877,6 +877,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - インライン展開（§3.5）
 - 引数（メソッドとブロック）と `to:do:` のループ変数への代入は、コンパイルエラー `cannot assign to argument` にする。
 - 1 つの送信の引数は 255 個までである（カスケードのパートも、`super` 送信のパートも同じ）。256 個目のキーワードを読んだ時点でコンパイルエラー `too many arguments` にする。区間はその 256 番目のキーワード（`k256:`）である。
+- 文字リテラル `$x` の後ろは、整った UTF-8 の 1 文字（Unicode スカラー値）である。過長な符号、サロゲート（U+D800-U+DFFF）、0x10FFFF を超える値、先頭バイトだけで終わるもの、先頭バイトにならないバイトは、コンパイルエラー `invalid character literal` にする。区間は `$` から、先頭バイトと、それに続く継続バイト（先頭バイトの示す長さまで）の終わりまでで、継続バイトでないバイトは食べない。文字列リテラルは今までどおりで、中身のバイトを検査しない。
 - temp の上限は 255 である。引数、temp、持ち上げた temp（展開したブロックの temp、`to:do:` のループ変数と上限）、temp ベクタを入れるスロット、コピーした値を合わせて数える。
 - 名前の解決順は、ローカル（メソッドとブロックの引数と temp）→ インスタンス変数 → 擬変数 → クラス変数（§3.6）→ グローバル（`Smalltalk` の辞書。§3.6）である。前のものが、後ろの同じ名前を隠す。ワークスペース（§3.10）の解決順は §3.10 に書く。ワークスペースのレシーバは nil なので、クラス変数は無い。
   - クラス変数は、メソッドのクラスから見えるもの（§3.6）である。読みは `PushLitVar`、代入は `StoreLitVar` / `PopStoreLitVar` で、リテラルは classPool の束縛（Association）である。束縛は、メソッドを作るとき（リテラルを箱に入れるとき）に、メソッドのクラス（クラス側ならその thisClass）からスーパークラス鎖をたどって引く。
@@ -1939,6 +1940,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - パース成功 / 失敗区間
 - カスケード、キーワード、ブロックの AST
 - 1 つの送信の引数が 255 個を超えたらコンパイルエラー（`Parser.SendWithMoreThan255ArgumentsIsRejected`。通常の送信、カスケードのパート、`super` のカスケードのパート）
+- 文字リテラルの後ろが整った UTF-8 の 1 文字でなければコンパイルエラー `invalid character literal`（`Scanner.CharacterLiteralNeedsWellFormedUtf8`。切れた先頭バイト、過長、サロゲート、0x10FFFF 超、孤立した継続バイトと、そのエラーの区間）
 - 擬変数と同じ名前のインスタンス変数が擬変数を隠す（§3.8 の名前の解決順）。`^nil` は `PushInstVar` / `ReturnTop`、`super foo` は `Send`（`Codegen.InstVarNamedLikePseudoVariableShadowsReturn`）
 - チャンクのクラスコメント（§3.8 チャンク形式）: セクションの中の `commentStamp:` を含むメソッドは、次のチャンクを prose にしない（`Chunk.CommentStampMethodInSectionDoesNotMakeNextChunkProse`）
 - 生成バイトコードのスナップショットテスト（安定したら固定）
