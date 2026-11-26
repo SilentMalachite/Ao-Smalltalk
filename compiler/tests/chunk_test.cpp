@@ -501,4 +501,49 @@ TEST(Chunk, CommentStampMethodInSectionDoesNotMakeNextChunkProse) {
   ASSERT_EQ(1u, acts.size());
   ASSERT_EQ(3u, acts[0].methods.size());
   EXPECT_EQ("answer\n\t\"the users' number\"\n\t^42", acts[0].methods[1].source);
+  // Inside a section even a chunk whose tokens begin `Ident commentStamp:` is a method: the
+  // section decides, not the tokens.
+  const std::string stamped =
+      "!Foo methodsFor: 'x'!\n"
+      "bar ^1!\n"
+      "Foo commentStamp: 'x' prior: 0!\n"
+      "answer\n"
+      "\t\"the users' number\"\n"
+      "\t^42!\n"
+      "other\n"
+      "\t^7! !\n";
+  std::vector<ao::compiler::CompileError> stampedErrs;
+  auto stampedActs = ao::compiler::parseChunks(stamped, stampedErrs);
+  ASSERT_EQ(1u, stampedActs.size());
+  ASSERT_EQ(4u, stampedActs[0].methods.size());
+  EXPECT_EQ("answer\n\t\"the users' number\"\n\t^42", stampedActs[0].methods[2].source);
+}
+
+// SPEC §3.8 チャンク形式: the header is `Ident [class] commentStamp:`, so the chunk after
+// `Foo class commentStamp:` is prose too and its `"` does not swallow the class definition.
+TEST(Chunk, ClassSideCommentStampHeaderMakesNextChunkProse) {
+  const char* src =
+      "!Foo class commentStamp: 'x' prior: 0!\n"
+      "Prose \" q.!\n"
+      "!Object subclass: #Foo\n"
+      "  category: 'T'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(3u, acts.size());
+  ASSERT_EQ(ao::compiler::ChunkKind::ClassDef, acts[2].kind);
+  EXPECT_EQ("Foo", acts[2].className);
+}
+
+// SPEC §3.8 チャンク形式: only the one chunk after a commentStamp: header is prose. In the chunk
+// after the prose, `"` opens a code comment again, so the `!` inside it does not end the chunk.
+TEST(Chunk, OnlyOneChunkAfterCommentStampHeaderIsProse) {
+  const char* src =
+      "!Foo commentStamp: 'x' prior: 0!\n"
+      "Prose.!\n"
+      "Foo bar. \"a ! b\"!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(3u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[2].kind);
+  EXPECT_EQ("Foo bar. \"a ! b\"", acts[2].source);
 }

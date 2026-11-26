@@ -71,9 +71,9 @@ bool beginsWithHeaderKeyword(std::string_view text, std::string_view keyword) {
 // SPEC §3.8 チャンク形式: a chunk ends at a single `!` outside strings and comments, wherever it
 // is, and `!!` is one `!` everywhere. An empty chunk ends the methodsFor: section of the chunk
 // before it: the second bang of `! !`, or a bang that leads a chunk (`!Foo methodsFor: 'x'!`).
-// The chunk after a `commentStamp:` header is class-comment prose. A `"` in
-// that prose must not open a code comment, or the next class definition is
-// swallowed.
+// Outside a section, the chunk after one whose tokens begin `Ident [class] commentStamp:` is
+// class-comment prose. A `"` in that prose must not open a code comment, or the next class
+// definition is swallowed.
 std::vector<RawChunk> splitChunks(std::string_view src) {
   std::vector<RawChunk> out;
   const auto n = static_cast<std::uint32_t>(src.size());
