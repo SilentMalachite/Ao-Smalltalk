@@ -495,7 +495,8 @@ TEST(Process, SuspendAndTerminateOnDamagedListFail) {
 
 // review-agy R4 F3 / SPEC §3.4, §3.11: adoption (what a load and a boot end with) resets a damaged
 // ready queue to the empty form, so fork, resume, yield and signal work afterwards. A ready queue
-// that is no OrderedCollection stays as it was; the next fork replaces it.
+// that is no instance of OrderedCollection itself (a subclass instance too) stays as it was; the
+// next fork replaces it.
 TEST(Process, AdoptionResetsDamagedReadyQueue) {
   Boot b;
   ao::Root queue(b.roots, readyList(b));
@@ -546,6 +547,42 @@ TEST(Process, AdoptionResetsDamagedReadyQueue) {
   EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(readyList(b)));
   EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
   EXPECT_EQ(0u, b.scheduler.liveFibers());
+
+  // review-agy R5 F2: an instance of an OrderedCollection subclass is no instance of
+  // OrderedCollection itself, so adoption leaves a damaged one as it was too.
+  {
+    SCOPED_TRACE("a damaged OrderedCollection subclass instance");
+    ao::compiler::CompileError err;
+    ASSERT_TRUE(ao::acceptClassSource(b.ctx,
+                                      "OrderedCollection subclass: #R5AdoptOcSub\n"
+                                      "  instanceVariableNames: ''\n  classVariableNames: ''\n"
+                                      "  poolDictionaries: ''\n  category: 'R5-Test'",
+                                      &err))
+        << err.message;
+    ao::Root sub(b.roots, run(b, "doIt\n  ^R5AdoptOcSub new"));
+    ASSERT_TRUE(sub.slot.isHeap());
+    ASSERT_EQ(abc.slot, send2(b, sub.slot, "instVarAt:put:", smi(1), abc.slot));
+    EXPECT_TRUE(send0(b, sub.slot, "size").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    ao::Root first(b.roots, send1(b, sub.slot, "instVarAt:", smi(2)));
+    ao::Root last(b.roots, send1(b, sub.slot, "instVarAt:", smi(3)));
+    ASSERT_EQ(sub.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), sub.slot));
+    b.scheduler.adoptImage();
+    EXPECT_EQ(sub.slot, readyList(b));
+    EXPECT_EQ(abc.slot, send1(b, sub.slot, "instVarAt:", smi(1)));
+    EXPECT_EQ(first.slot, send1(b, sub.slot, "instVarAt:", smi(2)));
+    EXPECT_EQ(last.slot, send1(b, sub.slot, "instVarAt:", smi(3)));
+    EXPECT_TRUE(send0(b, sub.slot, "size").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    ao::Root again(b.roots, run(b, "doIt\n  ^[nil] fork"));
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+    ASSERT_TRUE(again.slot.isHeap());
+    EXPECT_EQ(b.wk.processClass, b.heap.klass(again.slot));
+    EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(readyList(b)));
+    EXPECT_EQ(abc.slot, send1(b, sub.slot, "instVarAt:", smi(1)));
+    EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+  }
 }
 
 // review-agy R4 F4 / SPEC §3.4: terminateAll is no send. A process signalled and then suspended
