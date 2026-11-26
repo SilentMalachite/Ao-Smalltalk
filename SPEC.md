@@ -920,6 +920,7 @@ well-known 表は `include/ao/WellKnown.hpp` に列挙し、テストから名�
 - `methodsFor:` のヘッダ（`!Foo methodsFor: 'x'!` のように、前に `!` が付くチャンク）は、どこにあってもヘッダである。
 - セクションの中（ヘッダのあと、閉じる前）のチャンクは、ヘッダでなければメソッドである。パターンが `subclass: x` や `methodsFor: x` のメソッドもメソッドである。
 - セクションの外のチャンクは、クラス定義メッセージ（`X subclass: #Y …`）ならクラス定義、`X methodsFor: 'y'` なら前に `!` が無くてもヘッダ（Browser の accept に渡すソースの先頭など）、それ以外は式である。セクションを閉じたあとの式を、直前のクラスのメソッドにしない。
+- クラスコメントの prose になるのは、セクションの外で、トークンが `Ident [class] commentStamp:` で始まるチャンクのすぐあとの 1 チャンクだけである。prose の中の `"` はコードのコメントを開かない。セクションの中のメソッドは、`commentStamp:` を含んでいてもメソッドで、次のチャンクを prose にしない。
 
 ### 3.9 ホスト GUI（AppKit）
 
@@ -1939,6 +1940,7 @@ GC ストレス実行: 環境変数 `AO_GC_STRESS=n` を付けると、`allocate
 - カスケード、キーワード、ブロックの AST
 - 1 つの送信の引数が 255 個を超えたらコンパイルエラー（`Parser.SendWithMoreThan255ArgumentsIsRejected`。通常の送信、カスケードのパート、`super` のカスケードのパート）
 - 擬変数と同じ名前のインスタンス変数が擬変数を隠す（§3.8 の名前の解決順）。`^nil` は `PushInstVar` / `ReturnTop`、`super foo` は `Send`（`Codegen.InstVarNamedLikePseudoVariableShadowsReturn`）
+- チャンクのクラスコメント（§3.8 チャンク形式）: セクションの中の `commentStamp:` を含むメソッドは、次のチャンクを prose にしない（`Chunk.CommentStampMethodInSectionDoesNotMakeNextChunkProse`）
 - 生成バイトコードのスナップショットテスト（安定したら固定）
 - `pc_map_test`: pc→ソース表と temp 名（§3.8）。Send の区間（`SendPcMapsToSendSpan`）、展開した条件のレシーバ（`InlinedConditionJumpMapsToReceiverSpan`）、ブロックの `^`（`ReturnBlockMapsToReturnStatement`）、ブロックの表が外側のソースの座標（`BlockMethodHasItsOwnMapInMethodCoordinates`）、temp 名の宣言順（`TempNamesListArgsTempsAndLoopVars`）、temp ベクタ（`RemoteTempNamesVectorSlotAndIndex`）、コピーした外側変数（`CopiedOuterTempIsNamedInBlockScope`）。バイトコードのスナップショット（`Codegen.*`）はバイト一致のまま
 - `pc_map_test`（P11）: 文の先頭表（§3.8）が、メソッド、ブロック、展開したブロックの各文の先頭を昇順に並べる（`StatementPcsListEveryStatementStart`）
