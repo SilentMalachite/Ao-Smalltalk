@@ -100,6 +100,33 @@ four
   ^self three + 1! !
 EOF
   printf 'sub.st\n' >second/LOAD_ORDER
+  # SPEC §3.11 保存: defining CliM8Sub runs CliM8's class-side subclass:..., which then makes a
+  # `Behavior new` class no one holds, breaks its methodDict and sends once to its instance. When
+  # the file-in ends, only the method cache reaches that class.
+  mkdir -p m8
+  cat >m8/m8.st <<'EOF'
+!Object subclass: #CliM8
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+
+!CliM8 class methodsFor: 'definition'!
+subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p category: k
+  | made b |
+  made := super subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p category: k.
+  b := Behavior new.
+  b instVarAt: 1 put: Object; instVarAt: 2 put: 7.
+  b basicNew yourself.
+  ^made! !
+
+!CliM8 subclass: #CliM8Sub
+  instanceVariableNames: ''
+  classVariableNames: ''
+  poolDictionaries: ''
+  category: 'Cli-Test'!
+EOF
+  printf 'm8.st\n' >m8/LOAD_ORDER
 }
 
 # bad.st の `^1 +` は `+`（ファイル本文の 166-167 バイト目）の後に式が無い。
@@ -164,6 +191,12 @@ case "$CASE" in
     run 1 "$AO" image save --load-order first/LOAD_ORDER --load-order plain/LOAD_ORDER three.aoimage
     stderr_is "plain/$BAD_LINE"
     [ ! -e three.aoimage ] || fail "image written after a failed second file-in"
+    # SPEC §3.11 保存: ao image save drops the method cache first, so the class only the cache
+    # reaches is neither written nor checked.
+    run 0 "$AO" image save --load-order m8/LOAD_ORDER m8.aoimage
+    stderr_is ''
+    run 0 "$AO" image load m8.aoimage
+    stderr_is ''
     run 0 "$AO" image load deferred.aoimage
     stderr_is ''
     # SPEC §3.11: a version 1 image (before B4) is refused at the header, with its reason.

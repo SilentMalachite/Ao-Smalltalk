@@ -532,6 +532,9 @@ int sessionImageSave(const char* path) {
   } catch (const std::bad_alloc&) {
     return 1;
   }
+  // SPEC §3.11 保存: the method cache's entries are roots, and session state. Drop them so
+  // Image::save does not trace what only the cache reaches. Does not GC.
+  g_session->cache->flushAll();
   return Image::save(g_session->heap, g_session->roots, g_session->wk, path, nullptr, halted,
                      &sources)
              ? 0

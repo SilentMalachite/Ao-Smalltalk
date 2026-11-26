@@ -288,6 +288,9 @@ int runImage(int argc, char** argv) {
         return 1;
       }
     }
+    // SPEC §3.11 保存: the file-in's sends filled the method cache, whose entries are roots. Drop
+    // them so Image::save does not trace what only the cache reaches.
+    cache.flushAll();
     // SPEC §3.11: the reason names what broke which rule.
     std::string why;
     if (!ao::Image::save(heap, roots, wk, path, &why)) {
