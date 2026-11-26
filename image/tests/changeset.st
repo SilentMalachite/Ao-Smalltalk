@@ -1,5 +1,5 @@
 "changeset — SPEC §3.9 種類の規則、§3.10 チェンジセット（P17）。ChangeSet を参照する唯一のテストファイルなので、始まりは遅延の初期化の直後。"
-| first work other entry sels out fo expect base sub cached target good |
+| first work other entry sels out fo expect base sub cached target good leaf |
 "遅延の初期化: 最初の参照で空の Unnamed1 が current になる"
 first := ChangeSet current.
 self assert: first name equals: 'Unnamed1'.
@@ -226,4 +226,40 @@ expect nextPutAll: '"Change Set: R8 Lost'; cr;
 	nextPutAll: good definition; nextPutAll: '!'; cr; cr;
 	nextPutAll: '"R8LostA definition not available"!'; cr;
 	nextPutAll: '"R8LostB definition not available"!'; cr.
+self assert: fo equals: expect contents.
+"File Out のルートクラス（スーパークラスが nil）: 定義（nil subclass:）を書き、definition not available のコメントのチャンクは書かない。スーパークラスは戻す"
+base := Object subclass: #R8Root instanceVariableNames: 'a' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
+out := ChangeSet newNamed: 'R8 Root'.
+ChangeSet noteClassChange: #R8Root existed: false.
+base instVarAt: 1 put: nil.
+fo := out fileOutStringDate: '2026-11-26' version: '9.9.9'.
+base instVarAt: 1 put: Object.
+expect := WriteStream on: String new.
+expect nextPutAll: '"Change Set: R8 Root'; cr;
+	nextPutAll: 'Date: 2026-11-26'; cr;
+	nextPutAll: 'Ao 9.9.9"!'; cr; cr;
+	nextPutAll: 'nil subclass: #R8Root'; cr;
+	nextPutAll: '  instanceVariableNames: ''a'''; cr;
+	nextPutAll: '  classVariableNames: '''''; cr;
+	nextPutAll: '  poolDictionaries: '''''; cr;
+	nextPutAll: '  category: ''R8-Test''!'; cr; cr.
+self assert: fo equals: expect contents.
+"File Out の定義のコメントは 2. の順（セットの中のスーパークラスを先にした順）で、セットの順ではない: 名前が nil の R8OrdA より、そのスーパークラスでスーパークラスの名前が nil の R8OrdB が先。名前は戻す"
+base := Object subclass: #R8OrdC instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
+sub := base subclass: #R8OrdB instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
+leaf := sub subclass: #R8OrdA instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
+out := ChangeSet newNamed: 'R8 Order'.
+ChangeSet noteClassChange: #R8OrdA existed: false.
+ChangeSet noteClassChange: #R8OrdB existed: false.
+base instVarAt: 4 put: nil.
+leaf instVarAt: 4 put: nil.
+fo := out fileOutStringDate: '2026-11-26' version: '9.9.9'.
+base instVarAt: 4 put: #R8OrdC.
+leaf instVarAt: 4 put: #R8OrdA.
+expect := WriteStream on: String new.
+expect nextPutAll: '"Change Set: R8 Order'; cr;
+	nextPutAll: 'Date: 2026-11-26'; cr;
+	nextPutAll: 'Ao 9.9.9"!'; cr; cr;
+	nextPutAll: '"R8OrdB definition not available"!'; cr;
+	nextPutAll: '"R8OrdA definition not available"!'; cr.
 self assert: fo equals: expect contents.
