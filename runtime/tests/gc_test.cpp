@@ -233,6 +233,19 @@ TEST(GcNursery, NoIdentitySplitWhenOldAtMax) {
   roots.remove(&cls);
 }
 
+TEST(GcNursery, UnalignedNurserySizeStillAllocatesHeapObjects) {
+  ao::Heap heap(1001, 4096);
+  ao::Roots roots;
+  ao::Gc gc(heap, roots);
+  auto keep = heap.allocate(ao::Oop::nil(), 1, 0);
+  ASSERT_TRUE(keep.isHeap());
+  roots.add(&keep);
+  gc.collectNursery();
+  ASSERT_TRUE(keep.isHeap());
+  auto fresh = heap.allocate(ao::Oop::nil(), 1, 0);
+  EXPECT_TRUE(fresh.isHeap());
+}
+
 TEST(GcNursery, SharedChildCopiedOnce) {
   ao::Heap heap(512, 4096);
   ao::Roots roots;

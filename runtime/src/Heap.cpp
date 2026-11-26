@@ -30,12 +30,14 @@ static std::uint32_t gcStressFromEnv() {
   return n;
 }
 
+// nurseryBytes は 8 の倍数に切り下げる。to-space の先頭が 8 バイト境界に乗らないと、確保が失敗する。
 Heap::Heap(std::size_t nurseryBytes, std::size_t oldBytes, std::size_t oldMaxBytes)
-    : nursery_(std::make_unique<std::byte[]>(2 * nurseryBytes)),
+    : nursery_(std::make_unique<std::byte[]>(2 * (nurseryBytes & ~std::size_t{7}))),
       old_(std::make_unique<VirtualRegion>()),
       oldInitial_(std::min(oldBytes, oldMaxBytes)),
       oldMax_(oldMaxBytes),
-      nurseryHalf_(nurseryBytes) {
+      nurseryHalf_(nurseryBytes & ~std::size_t{7}) {
+  nurseryBytes = nurseryHalf_;
   fromStart_ = nursery_.get();
   fromEnd_ = fromStart_ + nurseryBytes;
   fromBump_ = fromStart_;
