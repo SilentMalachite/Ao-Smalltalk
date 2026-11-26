@@ -104,8 +104,11 @@ std::uint32_t Roots::pushHandle(Oop obj) {
   }
   const auto i = static_cast<std::uint32_t>(handles_.size());
   // 片方だけ伸びて長さがずれないよう、どちらかが満杯なら両方を先に同じ倍の容量にする。
+  // free_ も、ほかより先に同じ容量にする。free_ は落とした番号を高々 1 つずつ持つので、
+  // dropHandle（デストラクタからも呼ぶ）は割り当てない。
   if (handles_.size() == handles_.capacity() || live_.size() == live_.capacity()) {
     const std::size_t grown = std::max<std::size_t>(16, handles_.capacity() * 2);
+    free_.reserve(grown);
     handles_.reserve(grown);
     live_.reserve(grown);
   }
