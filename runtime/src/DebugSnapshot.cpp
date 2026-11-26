@@ -62,10 +62,11 @@ Oop sendTarget(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
   return lookup(ctx.heap, sendStart(ctx, f, pc), *f.sendSelector);
 }
 
-// SPEC §3.13: the native a frame synthesized at the stop halted in: the first NativeMethod on the
-// chain the send looks up, past any CompiledMethod (a class below the native's that defined the
-// selector while halted; a Kernel native is neither overridden in its own class nor removed).
-// nil when there is none, the DNU's form, so a DNU stays one. lookup's chain step (SuperclassWalk);
+// SPEC §3.13: the native a frame synthesized at the stop halted in, for a frame that was no DNU
+// then (Scheduler::halt keeps which). The first NativeMethod on the chain the send looks up, past
+// any other value: a CompiledMethod (a class below the native's that defined the selector while
+// halted; a Kernel native is neither overridden in its own class nor removed) or a value that is
+// no method (instVarAt:put:). nil when there is none. lookup's chain step (SuperclassWalk);
 // allocates nothing.
 Oop haltedNative(const CallContext& ctx, const Frame& f, std::uint32_t pc) {
   SuperclassWalk walk(ctx.heap, sendStart(ctx, f, pc));
@@ -254,9 +255,12 @@ Oop DebugSnapshot::process() const { return held_ ? slots_[slotCount_ - 1] : Oop
 LiveFrames::LiveFrames(const CallContext& ctx, const std::string& reason)
     : ctx_(ctx), reason_(reason) {
   const Frame* const top = ctx.topFrame;
-  // SPEC §3.13: decided at the stop (Scheduler::halt), not by looking the selector up again.
+  // SPEC §3.13: decided at the stop (Scheduler::halt), not by looking the selector up again;
+  // whether it is a DNU too.
+  bool dnu = false;
   synth_ = top != nullptr && hasSendInFlight(*top) && ctx.scheduler != nullptr &&
-           ctx.scheduler->haltSynthesizes(ctx);
+           ctx.scheduler->haltSynthesizes(ctx, &dnu);
+  synthDnu_ = synth_ && dnu;
   std::uint64_t all = synth_ ? 1 : 0;
   for (const Frame* f = top; f != nullptr; f = f->prev) {
     ++all;
@@ -269,9 +273,11 @@ LiveFrames::LiveFrames(const CallContext& ctx, const std::string& reason)
       std::min<std::uint64_t>(all, std::numeric_limits<std::uint32_t>::max()));
 }
 
-bool LiveFrames::synthesizes(const CallContext& ctx) {
-  Oop ignored;
-  return synthesizesNative(ctx, ctx.topFrame, &ignored);
+bool LiveFrames::synthesizes(const CallContext& ctx, bool* dnu) {
+  Oop method;
+  const bool synth = synthesizesNative(ctx, ctx.topFrame, &method);
+  *dnu = synth && method.isNil();
+  return synth;
 }
 
 const Frame* LiveFrames::frameAt(std::uint32_t i) const {
@@ -293,8 +299,10 @@ int LiveFrames::kind(std::uint32_t i) const {
 
 Oop LiveFrames::method(std::uint32_t i) const {
   if (synthesized(i)) {
-    // The native it halted in, even if a class below defines the selector now; nil for a DNU.
-    return haltedNative(ctx_, *ctx_.topFrame, contextPc(ctx_, *ctx_.topFrame));
+    // nil for a DNU at the stop, whatever is defined meanwhile; else the native it halted in,
+    // even if a class below defines the selector now.
+    return synthDnu_ ? Oop::nil()
+                     : haltedNative(ctx_, *ctx_.topFrame, contextPc(ctx_, *ctx_.topFrame));
   }
   const Frame* f = frameAt(i);
   return f != nullptr ? f->method : Oop{};

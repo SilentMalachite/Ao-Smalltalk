@@ -170,6 +170,10 @@ namespace NativeMethod {
 // Does not GC (allocateNoGc). With old at its max: sets the out-of-memory flag, empty Oop.
 Oop create(Heap& heap, WellKnown& wk, Oop selector, std::uint32_t argc, std::string_view name,
            std::uint32_t registryIndex, Oop methodClass);
+// True when method is a pointer object with at least kNativeSlotCount slots, so every NativeMethod
+// slot can be read. Reflection (instVarAt:put: on NativeMethod's format) can make a NativeMethod
+// with fewer; apply, functionOf, nameBytes and the readers of its slots check this first.
+bool hasSlots(const Heap& heap, Oop method);
 Oop apply(CallContext& ctx, Oop method, Oop receiver, const Oop* args, std::uint32_t argc);
 // Calls fn with receiver and args copied into rooted slots. Use it for native-to-native calls
 // whose receiver or arguments are locals of the caller.

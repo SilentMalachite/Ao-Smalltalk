@@ -1595,6 +1595,53 @@ TEST_F(LiveDebug, OverridingHaltedNativeKeepsItsFrame) {
   EXPECT_EQ(1, ao_debug_can_accept(pid, 1));
 }
 
+// review-agy R5-T5 A, R5 F4, F8 / SPEC §3.13: a frame synthesized at the stop for a DNU stays a
+// DNU, as the count stays. A DNU whose lookup found a value that is no method (3, put into the
+// receiver class's dictionary with instVarAt:put:) is a DNU, though Object has a native for the
+// selector, and stays one when the selector is defined while halted (the definition replaces the
+// 3). A frame that halted in Object's native keeps that native's label when a subclass's
+// dictionary gets a 3 for the selector while halted: the chain still reaches the native.
+TEST_F(LiveDebug, HaltedFrameLabelIsDecidedAtTheStop) {
+  defineClass("PrbHn");
+  ASSERT_EQ(AO_OK, doIt("(PrbHn instVarAt: 2) instVarAt: 2 put: "
+                        "((Array new: 2) at: 1 put: #halt; at: 2 put: 3; yourself)"))
+      << err_.message;
+  ASSERT_EQ(AO_ERR_HALT, doIt("PrbHn new halt"));
+  EXPECT_STREQ("doesNotUnderstand: #halt", err_.message);
+  const std::int64_t dnu = selectHalted();
+  ASSERT_EQ(2, ao_debug_frame_count());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("#halt (doesNotUnderstand:)", label(0));
+  EXPECT_EQ("doIt", label(1));
+  accept("PrbHn", 0, "halt\n  ^7");
+  ASSERT_EQ(AO_OK, ao_debug_select(dnu));
+  ASSERT_EQ(2, ao_debug_frame_count());
+  EXPECT_EQ("#halt (doesNotUnderstand:)", label(0));
+
+  defineClass("PrbHnSup");
+  accept("PrbHnSup", 0, "callHalt\n  self halt.\n  ^1");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class("PrbHnSup subclass: #PrbHnSub\n  instanceVariableNames: ''\n"
+                                   "  classVariableNames: ''\n  poolDictionaries: ''\n"
+                                   "  category: 'P10-Test'\n",
+                                   &err))
+      << err.message;
+  ASSERT_EQ(AO_ERR_HALT, printIt("PrbHnSub new callHalt"));
+  EXPECT_STREQ("halt", err_.message);
+  const std::int64_t native = selectHalted();
+  ASSERT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  ASSERT_EQ(AO_OK, doIt("(PrbHnSub instVarAt: 2) instVarAt: 2 put: "
+                        "((Array new: 2) at: 1 put: #halt; at: 2 put: 3; yourself)"))
+      << err_.message;
+  ASSERT_EQ(AO_OK, ao_debug_select(native));
+  ASSERT_EQ(3, ao_debug_frame_count());
+  EXPECT_EQ(2, ao_debug_frame_kind(0));
+  EXPECT_EQ("Object>>halt native ao_Object_halt", label(0));
+  EXPECT_EQ("PrbHnSup>>callHalt", label(1));
+  EXPECT_EQ("doIt", label(2));
+}
+
 // SPEC §3.13: a proceeded halt deeper down (in an interpreted method) does not turn a later,
 // unrelated failure of the native into nil.
 TEST_F(LiveProceed, ProceededHaltDeeperDoesNotHideLaterFailure) {
@@ -2516,6 +2563,57 @@ TEST_F(LiveAccept, AcceptRefusesThisClassRewrittenWhileHalted) {
   ASSERT_EQ(AO_OK, printIt("DbgAccOther class includesSelector: #make")) << err_.message;
   EXPECT_STREQ("false", out_);
   EXPECT_EQ(1, ao_debug_halted_count());
+}
+
+// review-agy R5-T5 B / SPEC §3.10: the class an Accept goes into (the methodClass, or the
+// thisClass of a metaclass) must be a Behavior, as the Accept itself checks. A Do it while halted
+// may put a class-shaped object that is none into the methodClass (an Array new: 8 holding the
+// class's method dictionary), or cut the metaclass's superclass so that the class is none:
+// ao_debug_can_accept answers 0 and the Accept is refused like the other rewrites, installing
+// nothing.
+TEST_F(LiveAccept, AcceptOnNonBehaviorMethodClassIsRefused) {
+  defineClass("DbgAccNb");
+  accept("DbgAccNb", 0, "bar\n  self halt.\n  ^1");
+  accept("DbgAccNb", 1, "make\n  self halt.\n  ^1");
+  struct Case {
+    const char* name;
+    const char* eval;
+    const char* frame;
+    const char* rewrite;
+    const char* source;
+    const char* restore;
+    const char* unchanged;
+  };
+  const Case cases[] = {
+      {"methodClass an Array", "DbgAccNb new bar", "DbgAccNb>>bar",
+       "m := DbgAccNb compiledMethodAt: #bar. fake := Array new: 8. "
+       "fake at: 2 put: (DbgAccNb instVarAt: 2). m instVarAt: 6 put: fake",
+       "bar\n  ^3", "m instVarAt: 6 put: DbgAccNb", "(DbgAccNb compiledMethodAt: #bar) == m"},
+      {"metaclass without a superclass", "DbgAccNb make", "DbgAccNb class>>make",
+       "m := DbgAccNb class compiledMethodAt: #make. mc := DbgAccNb class. "
+       "mc instVarAt: 1 put: nil",
+       "make\n  ^3", "mc instVarAt: 1 put: Object class",
+       "(DbgAccNb class compiledMethodAt: #make) == m"},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    ASSERT_EQ(AO_ERR_HALT, printIt(c.eval));
+    const std::int64_t pid = selectHalted();
+    ASSERT_EQ(c.frame, label(1));
+    ASSERT_EQ(1, ao_debug_can_accept(pid, 1));
+    ASSERT_EQ(AO_OK, doIt(c.rewrite)) << err_.message;
+    EXPECT_EQ(0, ao_debug_can_accept(pid, 1));
+    EXPECT_EQ(AO_ERR, acceptIn(pid, 1, c.source));
+    EXPECT_STREQ("debugger accept refused: not an accepted method", err_.message);
+    EXPECT_EQ(0u, err_.start);
+    EXPECT_EQ(0u, err_.end);
+    EXPECT_STREQ("", out_);
+    EXPECT_EQ(pid, ao_debug_halted_pid());
+    ASSERT_EQ(AO_OK, doIt(c.restore)) << err_.message;
+    ASSERT_EQ(AO_OK, printIt(c.unchanged)) << err_.message;
+    EXPECT_STREQ("true", out_);
+  }
+  EXPECT_EQ(2, ao_debug_halted_count());
 }
 
 TEST_F(LiveAccept, AcceptUnknownPidFails) {

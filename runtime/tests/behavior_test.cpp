@@ -290,3 +290,107 @@ TEST(Behavior, BasicNewOnByteObjectWithMetaclassClassFails) {
   EXPECT_TRUE(seen.sawClass);
   EXPECT_FALSE(seen.sawBytes);
 }
+
+// SPEC §3.6: the byte object of the test above is not class-shaped. The Behavior and Class natives
+// that read a class's slots fail on it instead of reading its bytes as slots (memory safety only),
+// and instSize, isVariable, isBytes and isPointers fail too instead of answering a format of 0.
+TEST(Behavior, NativesOnNonClassShapedReceiverFail) {
+  Boot b;
+  ASSERT_TRUE(makeSubclass(b, "AoP8").isHeap());
+  auto run = [&](const std::string& body) {
+    auto img = ao::compiler::compileMethod("doIt\n" + body);
+    EXPECT_TRUE(img.ok) << img.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+    const ao::Oop r =
+        ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+    return r.isEmpty() ? takeAbortReason(b) : std::string("<answered>");
+  };
+  ASSERT_EQ("<answered>", run("  AoP8 class instVarAt: 3 put: 196608.\n"
+                              "  ^Smalltalk at: #AoP8Bytes put: (AoP8 class basicNew: 16)"));
+  struct Row {
+    const char* send;
+    const char* reason;
+  };
+  const Row rows[] = {
+      {"instSize", "failed: #instSize"},
+      {"isVariable", "failed: #isVariable"},
+      {"isBytes", "failed: #isBytes"},
+      {"isPointers", "failed: #isPointers"},
+      {"sourceCodeAt: #foo", "failed: #sourceCodeAt:"},
+      {"superclass", "failed: #superclass"},
+      {"methodDict", "failed: #methodDict"},
+      {"selectors", "failed: #selectors"},
+      {"includesSelector: #foo", "failed: #includesSelector:"},
+      {"compiledMethodAt: #foo", "failed: #compiledMethodAt:"},
+      {"name", "failed: #name"},
+      {"category", "failed: #category"},
+      {"classPool", "failed: #classPool"},
+  };
+  for (const Row& row : rows) {
+    EXPECT_EQ(row.reason, run(std::string("  ^AoP8Bytes ") + row.send)) << row.send;
+  }
+  // review-agy R5 F3: a pointer object with fewer slots than a class is not class-shaped either,
+  // so sourceCodeAt: fails on it outside a session too instead of answering nil. The format is
+  // restored in the same doIt.
+  const ao::Oop meta = b.heap.klass(b.wk.named("AoP8"));
+  const ao::Oop fmt = b.heap.slotAt(meta, ao::kClassSlotFormat);
+  ASSERT_EQ("<answered>", run("  | fmt |\n"
+                              "  fmt := AoP8 class instVarAt: 3.\n"
+                              "  AoP8 class instVarAt: 3 put: 2.\n"
+                              "  Smalltalk at: #AoP8Small put: AoP8 class basicNew.\n"
+                              "  AoP8 class instVarAt: 3 put: fmt.\n"
+                              "  ^fmt"));
+  EXPECT_EQ(fmt, b.heap.slotAt(b.heap.klass(b.wk.named("AoP8")), ao::kClassSlotFormat));
+  const ao::Oop small = b.wk.named("AoP8Small");
+  ASSERT_TRUE(small.isHeap());
+  EXPECT_EQ(2u, b.heap.size(small));
+  EXPECT_EQ(0, b.heap.flags(small) & ao::kFlagBytes);
+  EXPECT_EQ("failed: #sourceCodeAt:", run("  ^AoP8Small sourceCodeAt: #foo"));
+}
+
+// review-agy R5 F6 / SPEC §3.6: Metaclass forbids new but not basicNew. With Metaclass's format
+// rewritten to no slots, basicNew makes a Metaclass instance that is not class-shaped; thisClass
+// fails on it instead of reading past its slots. The format is restored in the same doIt.
+TEST(Behavior, MetaclassThisClassOnNonClassShapedReceiverFails) {
+  Boot b;
+  auto run = [&](const std::string& body) {
+    auto img = ao::compiler::compileMethod("doIt\n" + body);
+    EXPECT_TRUE(img.ok) << img.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+    const ao::Oop r =
+        ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+    return r.isEmpty() ? takeAbortReason(b) : std::string("<answered>");
+  };
+  const ao::Oop fmt = b.heap.slotAt(b.wk.metaclassClass, ao::kClassSlotFormat);
+  ASSERT_EQ("<answered>", run("  | fmt |\n"
+                              "  fmt := Metaclass instVarAt: 3.\n"
+                              "  Metaclass instVarAt: 3 put: 0.\n"
+                              "  Smalltalk at: #AoBareMeta put: Metaclass basicNew.\n"
+                              "  Metaclass instVarAt: 3 put: fmt.\n"
+                              "  ^fmt"));
+  EXPECT_EQ(fmt, b.heap.slotAt(b.wk.metaclassClass, ao::kClassSlotFormat));
+  const ao::Oop bare = b.wk.named("AoBareMeta");
+  ASSERT_TRUE(bare.isHeap());
+  EXPECT_EQ(b.wk.metaclassClass, b.heap.klass(bare));
+  EXPECT_EQ(0u, b.heap.size(bare));
+  EXPECT_EQ("failed: #thisClass", run("  ^AoBareMeta thisClass"));
+  // A metaclass still answers its class.
+  EXPECT_EQ(b.wk.objectClass, send0(b, b.heap.klass(b.wk.objectClass), "thisClass"));
+}
+
+// SPEC §3.6: the class name, like instanceVariableNames, is a byte object. An empty pointer object
+// is no name: the send fails and no class is bound to ''.
+TEST(Behavior, SubclassWithNonByteClassNameFails) {
+  Boot b;
+  auto img = ao::compiler::compileMethod(
+      "doIt\n  ^Object subclass: Object new instanceVariableNames: '' classVariableNames: ''\n"
+      "    poolDictionaries: '' category: ''");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, img.image, b.wk.objectClass));
+  const ao::Oop r =
+      ao::Interpreter::run(b.ctx, cm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil());
+  EXPECT_TRUE(r.isEmpty());
+  EXPECT_EQ("failed: #subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:",
+            takeAbortReason(b));
+  EXPECT_TRUE(b.wk.named("").isNil());
+}

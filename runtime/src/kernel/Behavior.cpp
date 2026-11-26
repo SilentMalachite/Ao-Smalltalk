@@ -131,17 +131,17 @@ Oop ao_Behavior_new(CallContext& ctx, const Oop& receiver, const Oop*, std::uint
 }
 
 Oop ao_Behavior_superclass(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotSuperclass);
 }
 
 Oop ao_Behavior_methodDict(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotMethodDict);
 }
 
 Oop ao_Behavior_selectors(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   // SPEC §3.3: a slot that is no method dictionary (instVarAt:put:) holds no selector.
   const Oop pairs =
       MethodDictionary::pairArray(ctx.heap, ctx.heap.slotAt(receiver, kClassSlotMethodDict));
@@ -172,13 +172,13 @@ Oop ao_Behavior_selectors(CallContext& ctx, const Oop& receiver, const Oop*, std
 
 Oop ao_Behavior_compiledMethodAt_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                   std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) return Oop{};
+  if (argc != 1 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return MethodDictionary::at(ctx.heap, ctx.heap.slotAt(receiver, kClassSlotMethodDict), args[0]);
 }
 
 Oop ao_Behavior_includesSelector_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                   std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) return Oop{};
+  if (argc != 1 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   const Oop meth =
       MethodDictionary::at(ctx.heap, ctx.heap.slotAt(receiver, kClassSlotMethodDict), args[0]);
   return meth.isNil() ? Oop::false_() : Oop::true_();
@@ -192,42 +192,43 @@ Oop ao_Behavior_inheritsFrom_(CallContext& ctx, const Oop& receiver, const Oop* 
 }
 
 Oop ao_Behavior_instSize(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return Oop::fromSmallInteger(Format::instSize(classFormat(ctx, receiver)));
 }
 
 Oop ao_Behavior_isVariable(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return Format::isIndexable(classFormat(ctx, receiver)) ? Oop::true_() : Oop::false_();
 }
 
 Oop ao_Behavior_isBytes(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return Format::isBytes(classFormat(ctx, receiver)) ? Oop::true_() : Oop::false_();
 }
 
 Oop ao_Behavior_isPointers(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return Format::isPointers(classFormat(ctx, receiver)) ? Oop::true_() : Oop::false_();
 }
 
 Oop ao_Class_name(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotName);
 }
 
 Oop ao_Class_category(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotCategory);
 }
 
 // SPEC §3.10 Behavior>>sourceCodeAt: (P17): the source-table text of the method aSelector names in
 // the receiver's own dictionary (a metaclass's is the class side). nil when there is none, it is a
 // NativeMethod, it has no source, or the receiver's heap is not the session's (the source table is
-// the session's). The selector is looked up, never interned.
+// the session's). The selector is looked up, never interned. A receiver that is not class-shaped
+// (§3.6) fails, in a session or not.
 Oop ao_Behavior_sourceCodeAt_(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1 || !isClassShaped(ctx.heap, receiver)) {
     return Oop{};
   }
   Session* s = session();
@@ -236,7 +237,7 @@ Oop ao_Behavior_sourceCodeAt_(CallContext& ctx, const Oop& receiver, const Oop* 
     return Oop::nil();
   }
   const Oop sel = ctx.wk.findSymbol(Str::toUtf8(ctx.heap, args[0]));
-  if (!sel.isHeap() || ctx.heap.size(receiver) <= kClassSlotMethodDict) {
+  if (!sel.isHeap()) {
     return Oop::nil();
   }
   const Oop method =
@@ -262,7 +263,7 @@ Oop ao_Class_definition(CallContext& ctx, const Oop& receiver, const Oop*, std::
 // SPEC §3.6: a copy of the Dictionary from each class variable's name to its binding (ClassPool).
 // nil for a Kernel class and for a metaclass.
 Oop ao_Class_classPool(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   // SPEC §3.6: a copy that shares the bindings. Methods hold the bindings themselves and the
   // re-accept checks count on that, so at:put: on the answer must not reach the class's pool.
   return ClassPool::copy(ctx, ctx.heap.slotAt(receiver, kClassSlotClassPool));
@@ -273,10 +274,12 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
   if (argc != 5 || !receiver.isHeap()) return Oop{};
   // receiver と args[i] は NativeMethod::invoke がルートしたスロットを指し、GC のあとも正しい。
   // ヒープの値はローカルにコピーして GC をまたがず、使う箇所ごとにそこから読み直す。
-  const std::string nameBytes = Str::toUtf8(ctx.heap, args[0]);
-  if (nameBytes.empty() && !(args[0].isHeap() && ctx.heap.size(args[0]) == 0)) {
+  // SPEC §3.6: the name, like instanceVariableNames below, is a byte object. A pointer object,
+  // even one without slots, is no name.
+  if (!args[0].isHeap() || (ctx.heap.flags(args[0]) & kFlagBytes) == 0) {
     return Oop{};
   }
+  const std::string nameBytes = Str::toUtf8(ctx.heap, args[0]);
   // format は SmallInteger（即値）なので、GC をまたいでも変わらない。
   const Oop superFmt = classFormat(ctx, receiver);
   const auto superInst = Format::instSize(superFmt);
@@ -390,7 +393,7 @@ Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_
 }
 
 Oop ao_Metaclass_thisClass(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) return Oop{};
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   return ctx.heap.slotAt(receiver, kClassSlotThisClass);
 }
 

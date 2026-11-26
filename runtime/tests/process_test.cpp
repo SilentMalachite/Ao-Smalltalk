@@ -495,7 +495,8 @@ TEST(Process, SuspendAndTerminateOnDamagedListFail) {
 
 // review-agy R4 F3 / SPEC §3.4, §3.11: adoption (what a load and a boot end with) resets a damaged
 // ready queue to the empty form, so fork, resume, yield and signal work afterwards. A ready queue
-// that is no OrderedCollection stays as it was; the next fork replaces it.
+// that is no instance of OrderedCollection itself (a subclass instance too) stays as it was; the
+// next fork replaces it.
 TEST(Process, AdoptionResetsDamagedReadyQueue) {
   Boot b;
   ao::Root queue(b.roots, readyList(b));
@@ -546,6 +547,42 @@ TEST(Process, AdoptionResetsDamagedReadyQueue) {
   EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(readyList(b)));
   EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
   EXPECT_EQ(0u, b.scheduler.liveFibers());
+
+  // review-agy R5 F2: an instance of an OrderedCollection subclass is no instance of
+  // OrderedCollection itself, so adoption leaves a damaged one as it was too.
+  {
+    SCOPED_TRACE("a damaged OrderedCollection subclass instance");
+    ao::compiler::CompileError err;
+    ASSERT_TRUE(ao::acceptClassSource(b.ctx,
+                                      "OrderedCollection subclass: #R5AdoptOcSub\n"
+                                      "  instanceVariableNames: ''\n  classVariableNames: ''\n"
+                                      "  poolDictionaries: ''\n  category: 'R5-Test'",
+                                      &err))
+        << err.message;
+    ao::Root sub(b.roots, run(b, "doIt\n  ^R5AdoptOcSub new"));
+    ASSERT_TRUE(sub.slot.isHeap());
+    ASSERT_EQ(abc.slot, send2(b, sub.slot, "instVarAt:put:", smi(1), abc.slot));
+    EXPECT_TRUE(send0(b, sub.slot, "size").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    ao::Root first(b.roots, send1(b, sub.slot, "instVarAt:", smi(2)));
+    ao::Root last(b.roots, send1(b, sub.slot, "instVarAt:", smi(3)));
+    ASSERT_EQ(sub.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), sub.slot));
+    b.scheduler.adoptImage();
+    EXPECT_EQ(sub.slot, readyList(b));
+    EXPECT_EQ(abc.slot, send1(b, sub.slot, "instVarAt:", smi(1)));
+    EXPECT_EQ(first.slot, send1(b, sub.slot, "instVarAt:", smi(2)));
+    EXPECT_EQ(last.slot, send1(b, sub.slot, "instVarAt:", smi(3)));
+    EXPECT_TRUE(send0(b, sub.slot, "size").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    ao::Root again(b.roots, run(b, "doIt\n  ^[nil] fork"));
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+    ASSERT_TRUE(again.slot.isHeap());
+    EXPECT_EQ(b.wk.processClass, b.heap.klass(again.slot));
+    EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(readyList(b)));
+    EXPECT_EQ(abc.slot, send1(b, sub.slot, "instVarAt:", smi(1)));
+    EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+  }
 }
 
 // review-agy R4 F4 / SPEC §3.4: terminateAll is no send. A process signalled and then suspended
@@ -586,6 +623,206 @@ TEST(Process, TerminateAllEndsSignaledProcessOnDamagedLinkedList) {
   // The signal was dropped: no excess signal, and the list is as it was.
   EXPECT_EQ(smi(0), send1(b, sem.slot, "instVarAt:", smi(1)));
   EXPECT_EQ(abc.slot, send1(b, list.slot, "instVarAt:", smi(1)));
+}
+
+// review-agy R5-T5 C / SPEC §3.4: the Scheduler reads its lists by slot shape, not by class. Fewer
+// than three pointer slots is a list with no elements; three slots that are no §3.6 triple, as in
+// #(7 8 9), are a damaged list, and signal, wait, next, suspend and terminate fail on it. Adding to
+// a list (wait, nextPut:, and fork, resume, signal and yield through the ready queue) first puts
+// OrderedCollection new in the slot when it holds anything but an instance of OrderedCollection
+// itself, and leaves that thing as it was.
+TEST(Process, NonOrderedCollectionListIsReadByShape) {
+  Boot b;
+  ao::compiler::CompileError err;
+  ASSERT_TRUE(ao::acceptClassSource(b.ctx,
+                                    "OrderedCollection subclass: #R5OcSub\n"
+                                    "  instanceVariableNames: ''\n  classVariableNames: ''\n"
+                                    "  poolDictionaries: ''\n  category: 'R5-Test'",
+                                    &err))
+      << err.message;
+  ao::Root other(b.roots, run(b, "doIt\n  ^#(7 8 9)"));
+  ASSERT_TRUE(other.slot.isHeap());
+  {
+    SCOPED_TRACE("linkedList with fewer than three slots");
+    ao::Root none(b.roots, ao::Oop::nil());
+    ao::Root pair(b.roots, run(b, "doIt\n  ^#(7 8)"));
+    ao::Root bytes(b.roots, run(b, "doIt\n  ^'abcdefgh'"));
+    for (const ao::Root* list : {&none, &pair, &bytes}) {
+      ao::Root sem(b.roots, send0(b, b.wk.semaphoreClass, "new"));
+      ASSERT_EQ(list->slot, send2(b, sem.slot, "instVarAt:put:", smi(2), list->slot));
+      EXPECT_EQ(sem.slot, send0(b, sem.slot, "signal"));
+      EXPECT_EQ(smi(1), send1(b, sem.slot, "instVarAt:", smi(1)));
+      EXPECT_EQ(sem.slot, send0(b, sem.slot, "wait"));
+      EXPECT_EQ(smi(0), send1(b, sem.slot, "instVarAt:", smi(1)));
+      EXPECT_EQ("<no abort>", takeAbortReason(b));
+      EXPECT_EQ(list->slot, send1(b, sem.slot, "instVarAt:", smi(2)));
+    }
+  }
+  {
+    SCOPED_TRACE("linkedList #(7 8 9)");
+    ao::Root sem(b.roots, send0(b, b.wk.semaphoreClass, "new"));
+    ASSERT_EQ(other.slot, send2(b, sem.slot, "instVarAt:put:", smi(2), other.slot));
+    // wait fails before it would replace the list.
+    for (const char* sel : {"signal", "wait"}) {
+      SCOPED_TRACE(sel);
+      EXPECT_TRUE(send0(b, sem.slot, sel).isEmpty());
+      EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+      EXPECT_EQ(smi(0), send1(b, sem.slot, "instVarAt:", smi(1)));
+      EXPECT_EQ(other.slot, send1(b, sem.slot, "instVarAt:", smi(2)));
+    }
+  }
+  {
+    SCOPED_TRACE("contents #(7 8 9)");
+    ao::Root q(b.roots, send0(b, b.wk.sharedQueueClass, "new"));
+    ASSERT_EQ(other.slot, send2(b, q.slot, "instVarAt:put:", smi(1), other.slot));
+    EXPECT_TRUE(send0(b, q.slot, "next").isEmpty());
+    EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+    EXPECT_EQ(other.slot, send1(b, q.slot, "instVarAt:", smi(1)));
+    EXPECT_EQ(smi(5), send1(b, q.slot, "nextPut:", smi(5)));
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+    ao::Root contents(b.roots, send1(b, q.slot, "instVarAt:", smi(1)));
+    ASSERT_TRUE(contents.slot.isHeap());
+    EXPECT_NE(other.slot, contents.slot);
+    EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(contents.slot));
+    EXPECT_EQ(smi(5), send0(b, q.slot, "next"));
+  }
+  {
+    SCOPED_TRACE("ready queue #(7 8 9)");
+    ao::Root env(b.roots, newEnv(b, 4));
+    run(b,
+        "doIt: env\n"
+        "  | sem |\n"
+        "  sem := Semaphore new.\n"
+        "  env at: 1 put: sem.\n"
+        "  [sem wait. env at: 3 put: #woke] fork.\n"
+        "  Processor yield",
+        env.slot);
+    ASSERT_EQ("<no abort>", takeAbortReason(b));
+    ao::Root sem(b.roots, at(b, env.slot, 1));
+    // fork
+    ASSERT_EQ(other.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), other.slot));
+    ao::Root p(b.roots, run(b, "doIt: env\n  ^[env at: 4 put: #ran] fork", env.slot));
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+    ASSERT_TRUE(p.slot.isHeap());
+    EXPECT_EQ(b.wk.processClass, b.heap.klass(p.slot));
+    ao::Root queue(b.roots, readyList(b));
+    ASSERT_TRUE(queue.slot.isHeap());
+    EXPECT_NE(other.slot, queue.slot);
+    EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(queue.slot));
+    EXPECT_EQ(queue.slot, myList(b, p.slot));
+    // suspend and terminate read the queue the ready process is in.
+    ASSERT_EQ(other.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), other.slot));
+    for (const char* sel : {"suspend", "terminate"}) {
+      SCOPED_TRACE(sel);
+      EXPECT_TRUE(send0(b, p.slot, sel).isEmpty());
+      EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+      EXPECT_EQ(queue.slot, myList(b, p.slot));
+    }
+    ASSERT_EQ(queue.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), queue.slot));
+    EXPECT_EQ(p.slot, send0(b, p.slot, "suspend"));
+    EXPECT_TRUE(myList(b, p.slot).isNil());
+    // resume, signal and yield
+    struct Step {
+      const char* name;
+      const ao::Root* receiver;
+      const char* sel;
+    };
+    const ao::Root processor(b.roots, b.wk.processor);
+    for (const Step& s : {Step{"resume", &p, "resume"}, Step{"signal", &sem, "signal"},
+                          Step{"yield", &processor, "yield"}}) {
+      SCOPED_TRACE(s.name);
+      ASSERT_EQ(other.slot, send2(b, b.wk.processor, "instVarAt:put:", smi(1), other.slot));
+      EXPECT_EQ(s.receiver->slot, send0(b, s.receiver->slot, s.sel));
+      EXPECT_EQ("<no abort>", takeAbortReason(b));
+      ao::Root now(b.roots, readyList(b));
+      ASSERT_TRUE(now.slot.isHeap());
+      EXPECT_NE(other.slot, now.slot);
+      EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(now.slot));
+    }
+    ao::Root woke(b.roots, b.wk.intern("woke"));
+    ao::Root ran(b.roots, b.wk.intern("ran"));
+    EXPECT_EQ(woke.slot, at(b, env.slot, 3));
+    EXPECT_EQ(ran.slot, at(b, env.slot, 4));
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+  }
+  {
+    SCOPED_TRACE("linkedList an OrderedCollection subclass instance");
+    ao::Root env(b.roots, newEnv(b, 2));
+    run(b,
+        "doIt: env\n"
+        "  | sem sub |\n"
+        "  sub := R5OcSub new.\n"
+        "  sem := Semaphore new.\n"
+        "  sem instVarAt: 2 put: sub.\n"
+        "  env at: 1 put: sem.\n"
+        "  env at: 2 put: sub.\n"
+        "  [sem signal] fork.\n"
+        "  sem wait",
+        env.slot);
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+    ao::Root sem(b.roots, at(b, env.slot, 1));
+    ao::Root sub(b.roots, at(b, env.slot, 2));
+    ao::Root list(b.roots, send1(b, sem.slot, "instVarAt:", smi(2)));
+    ASSERT_TRUE(list.slot.isHeap());
+    EXPECT_NE(sub.slot, list.slot);
+    EXPECT_EQ(b.wk.orderedCollectionClass, b.heap.klass(list.slot));
+    EXPECT_EQ(0, sizeOf(b, sub.slot));
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+  }
+  EXPECT_EQ("7 8 9", itemsOf(b, other.slot));
+}
+
+// review-agy R5-T5 E / SPEC §3.4: Processor yield puts the running process at the end of the ready
+// queue, so a damaged OrderedCollection there fails it with `damaged ordered collection`, changing
+// nothing. With no other ready process it returns without reading the queue.
+TEST(Process, YieldOnDamagedReadyQueueFails) {
+  Boot b;
+  ao::Root env(b.roots, newEnv(b, 1));
+  run(b, "doIt: env\n  [env at: 1 put: #ran] fork", env.slot);
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  ao::Root queue(b.roots, readyList(b));
+  ao::Root last(b.roots, send1(b, queue.slot, "instVarAt:", smi(3)));
+  const ao::Oop max = smi(ao::kSmiMax);
+  ASSERT_EQ(max, send2(b, queue.slot, "instVarAt:put:", smi(3), max));
+  EXPECT_TRUE(send0(b, b.wk.processor, "yield").isEmpty());
+  EXPECT_EQ("damaged ordered collection", takeAbortReason(b));
+  EXPECT_EQ(max, send1(b, queue.slot, "instVarAt:", smi(3)));
+  EXPECT_TRUE(at(b, env.slot, 1).isNil());
+  EXPECT_EQ(1u, b.scheduler.liveFibers());
+  // Repaired, the yield switches to the forked process.
+  ASSERT_EQ(last.slot, send2(b, queue.slot, "instVarAt:put:", smi(3), last.slot));
+  EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+  ao::Root ran(b.roots, b.wk.intern("ran"));
+  EXPECT_EQ(ran.slot, at(b, env.slot, 1));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  // No other ready process: yield returns, the queue damaged or not.
+  ASSERT_EQ(max, send2(b, queue.slot, "instVarAt:put:", smi(3), max));
+  EXPECT_EQ(b.wk.processor, send0(b, b.wk.processor, "yield"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(max, send1(b, queue.slot, "instVarAt:", smi(3)));
+}
+
+// review-agy R5-T5 E / SPEC §3.4: a wait that blocks switches to the next ready process without
+// failing on a damaged ready queue, and leaves the queue as it was: the forked process sees
+// lastIndex still at the maximum. It then repairs the queue, so its signal can put the base back.
+TEST(Process, BlockingWaitSwitchesPastDamagedReadyQueue) {
+  Boot b;
+  ao::Root env(b.roots, newEnv(b, 2));
+  run(b,
+      "doIt: env\n"
+      "  | sem q |\n"
+      "  sem := Semaphore new.\n"
+      "  q := Processor instVarAt: 1.\n"
+      "  [env at: 1 put: (q instVarAt: 3). q instVarAt: 3 put: 0. sem signal] fork.\n"
+      "  q instVarAt: 3 put: 4611686018427387903.\n"
+      "  sem wait.\n"
+      "  env at: 2 put: #back",
+      env.slot);
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(smi(ao::kSmiMax), at(b, env.slot, 1));
+  ao::Root back(b.roots, b.wk.intern("back"));
+  EXPECT_EQ(back.slot, at(b, env.slot, 2));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
 }
 
 // ---- fork と yield ----

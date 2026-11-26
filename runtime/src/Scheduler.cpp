@@ -22,9 +22,13 @@ namespace ao {
 namespace {
 
 // What a Scheduler list (a linkedList, the ready queue, a SharedQueue's contents) says, read
-// without a send. One without the three slots (a linkedList slot holding nil) has no elements;
-// otherwise as ocRead (SPEC §3.6). Damaged: the natives fail, the send-less walks see none, and
-// adoption resets a damaged ready queue (§3.4).
+// without a send by its slots; its class is not consulted (SPEC §3.4). One with fewer than three
+// pointer slots (nil, a String, #(7 8)) has no elements; otherwise as ocRead (SPEC §3.6), so
+// #(7 8 9) is damaged. Damaged: the natives that read the list fail (signal and wait on their
+// linkedList, next on its contents, suspend and terminate of a process that is not running), but
+// a running process that waits or stops switches past a damaged ready queue, and Processor yield
+// with no other ready process returns without reading it; the send-less walks see no elements;
+// adoption resets a damaged ready queue that is an instance of OrderedCollection itself (§3.4).
 OcShape listShape(const Heap& heap, const WellKnown& wk, Oop oc, OcSlots* out) {
   if (!hasSlots(heap, oc, kOcLast)) {
     return OcShape::Empty;
@@ -204,11 +208,13 @@ struct Scheduler::Record {
   bool outOfMemory = false;         // its out-of-memory mark while it does not run (SPEC §3.4)
   bool isEval = false;              // an evaluating process (SPEC §3.13): block is the doIt
   int evalMode = 0;                 // the ao_eval mode it answers for
-  // While Halted (SPEC §3.13): why, whether Proceed and Step may go on, and whether the innermost
-  // send in flight is a synthesized frame (decided at the stop).
+  // While Halted (SPEC §3.13): why, whether Proceed and Step may go on, whether the innermost
+  // send in flight is a synthesized frame, and whether that frame is a DNU (both decided at the
+  // stop).
   std::string haltReason;
   bool proceedable = false;
   bool haltSynthesizes = false;
+  bool haltSynthesizesDnu = false;
   Record* resumeTo = nullptr;       // who it goes back to when it next switches away
   bool isBase() const { return ownCtx == nullptr; }
 };;
@@ -293,7 +299,9 @@ void Scheduler::adoptImage() {
     heap.slotAtPut(sched.slot, kSchedulerSlotActive, b.process);
     // SPEC §3.11: the ready queue starts empty; what the image had there cannot run. A damaged
     // OrderedCollection there is reset to the empty form without allocating, so the natives can
-    // use it again; anything else is left alone, and the next enqueue replaces it (SPEC §3.4).
+    // use it again. Whatever the object's class, the walk below then takes out what its slots
+    // read as (ocRemoveFirst); a damaged object of another class keeps its slots. The next enqueue
+    // replaces anything that is not an instance of OrderedCollection itself (SPEC §3.4).
     const Oop q = heap.slotAt(sched.slot, kSchedulerSlotQuiescent);
     OcSlots slots;
     if (ctx.wk.classOf(q) == ctx.wk.orderedCollectionClass &&
@@ -476,7 +484,7 @@ bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   ctx.stepSkipOnce = false;
   me.haltReason = std::move(reason);
   me.proceedable = proceedable;
-  me.haltSynthesizes = LiveFrames::synthesizes(ctx);
+  me.haltSynthesizes = LiveFrames::synthesizes(ctx, &me.haltSynthesizesDnu);
   me.state = State::Halted;
   me.resumeTo = nullptr;
   lastHalted_ = me.id;
@@ -487,6 +495,7 @@ bool Scheduler::halt(CallContext& ctx, std::string reason, bool proceedable) {
   me.haltReason.clear();
   me.proceedable = false;
   me.haltSynthesizes = false;
+  me.haltSynthesizesDnu = false;
   if (!afterResume(ctx, me)) {
     ctx.restartFrame = nullptr;
     ctx.restarting = false;
@@ -525,9 +534,11 @@ const CallContext* Scheduler::haltedContext(std::uint64_t pid, const std::string
   return r->ctx;
 }
 
-bool Scheduler::haltSynthesizes(const CallContext& ctx) const {
+bool Scheduler::haltSynthesizes(const CallContext& ctx, bool* dnu) const {
+  *dnu = false;
   for (const auto& r : records_) {
     if (r->ctx == &ctx && r->state == State::Halted) {
+      *dnu = r->haltSynthesizesDnu;
       return r->haltSynthesizes;
     }
   }
