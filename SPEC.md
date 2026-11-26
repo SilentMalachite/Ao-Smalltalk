@@ -1887,7 +1887,7 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
 
 - `oop_tag_test`: SmallInteger / Character / 即値 / ヒープのタグ往復
 - `heap_alloc_test`: 割り当て、サイズ、クラススロット
-- `gc_test`: nursery 回収、旧世代昇格、ルート保護、内部ポインタ更新
+- `gc_test`: nursery 回収、旧世代昇格、ルート保護、内部ポインタ更新。old の GC（`collectOld`）のあと、弱いスロットが、ルートからたどって届かなかった nursery のオブジェクトを指していれば nil になる。弱いオブジェクトが nursery にあっても old にあっても同じである。ルートから、またはルートした old を通って届く nursery のオブジェクトを指すスロットは残る（`GcWeak.NurseryWeakSlotToUnseenNurseryObjectIsCleared`）。`WellKnown` を壊すと、それが `Roots` に登録したスロットは、intern 表の分も含めて外れる（`GcRoots.WellKnownDestructorRemovesItsRoots`）
 - `bootstrap_test`: メタクラス循環の不変条件 10 項目
 - `lookup_test`: 継承、super、doesNotUnderstand
 - `native_send_test`: `1 + 2`、`true ifTrue: []`、`#==`
