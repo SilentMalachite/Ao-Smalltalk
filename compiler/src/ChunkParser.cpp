@@ -54,12 +54,18 @@ bool isProseApostrophe(std::string_view src, std::uint32_t i) {
   return isLetter(src[i - 1]) && isLetter(src[i + 1]);
 }
 
-bool firstLineHas(std::string_view text, std::string_view needle) {
-  std::size_t n = 0;
-  while (n < text.size() && text[n] != '\n' && text[n] != '\r') {
-    ++n;
+// True when the chunk's tokens begin `Ident [class] <keyword>`: a header message sent to a name
+// or to `Name class`.
+bool beginsWithHeaderKeyword(std::string_view text, std::string_view keyword) {
+  Scanner s(text);
+  if (s.next().kind != Tok::Ident) {
+    return false;
   }
-  return text.substr(0, n).find(needle) != std::string_view::npos;
+  Token t = s.next();
+  if (t.kind == Tok::Ident && t.text == "class") {
+    t = s.next();
+  }
+  return t.kind == Tok::Keyword && t.text == keyword;
 }
 
 // SPEC §3.8 チャンク形式: a chunk ends at a single `!` outside strings and comments, wherever it
@@ -73,6 +79,8 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
   const auto n = static_cast<std::uint32_t>(src.size());
   std::uint32_t i = 0;
   bool proseNext = false;
+  // True from a `methodsFor:` header to the empty chunk that ends its section.
+  bool inSection = false;
   while (i < n) {
     while (i < n && isWs(src[i])) {
       i++;
@@ -146,9 +154,16 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
       if (!out.empty()) {
         out.back().endsSection = true;
       }
+      inSection = false;
       continue;
     }
-    proseNext = firstLineHas(text, "commentStamp:");
+    // Only outside a section: a header opens one, and a chunk inside one is a method whatever
+    // it contains.
+    proseNext = false;
+    if (!inSection) {
+      inSection = beginsWithHeaderKeyword(text, "methodsFor:");
+      proseNext = beginsWithHeaderKeyword(text, "commentStamp:");
+    }
     RawChunk raw;
     raw.text = std::move(text);
     raw.span.start = start;

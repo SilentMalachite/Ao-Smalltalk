@@ -465,3 +465,22 @@ TEST(Chunk, ActionsCarryTheirChunkSpan) {
   EXPECT_EQ("Foo initialize", text(acts[2].span));
   EXPECT_EQ("Foo methodsFor: 'y'", text(acts[3].span));
 }
+
+// SPEC §3.8 チャンク形式: a method inside a methodsFor: section is a method even when it contains
+// `commentStamp:`; the next chunk is not class-comment prose, so its `"` opens a code comment.
+TEST(Chunk, CommentStampMethodInSectionDoesNotMakeNextChunkProse) {
+  const std::string src =
+      "!Foo methodsFor: 'x'!\n"
+      "commentStamp: s\n"
+      "\t^s!\n"
+      "answer\n"
+      "\t\"the users' number\"\n"
+      "\t^42!\n"
+      "other\n"
+      "\t^7! !\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(1u, acts.size());
+  ASSERT_EQ(3u, acts[0].methods.size());
+  EXPECT_EQ("answer\n\t\"the users' number\"\n\t^42", acts[0].methods[1].source);
+}
