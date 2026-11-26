@@ -1638,6 +1638,22 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
     Pin(const Pin&) = delete;
     Pin& operator=(const Pin&) = delete;
   } pin(ctx.roots, slots);
+  // SPEC §3.10: the process's accept slots are armed and pinned before the install too, so
+  // nothing after it allocates for them. Unarmed on every way out but the hand-over to proceed.
+  s->scheduler->armAccept(id, slots.data(), slots.size());
+  struct Armed {
+    Scheduler& scheduler;
+    std::uint64_t id;
+    bool handed = false;
+    Armed(Scheduler& sc, std::uint64_t pid) : scheduler(sc), id(pid) {}
+    ~Armed() {
+      if (!handed) {
+        scheduler.unarmAccept(id);
+      }
+    }
+    Armed(const Armed&) = delete;
+    Armed& operator=(const Armed&) = delete;
+  } armed(*s->scheduler, id);
   Oop cls = s->heap.slotAt(old, kCmSlotMethodClass);
   bool meta = false;
   if (s->heap.klass(cls) == s->wk.metaclassClass) {
@@ -1663,6 +1679,7 @@ int sessionDebugAccept(std::int64_t pid, int frameIndex, const char* source, cha
     blankOut(out, outLen);
     return AO_ERR;
   }
+  armed.handed = true;
   return resumeHalted(*s, id, StepMode::None, target, slots.data(), slots.size(), out, outLen, err,
                       inspect, inspectUser);
 }

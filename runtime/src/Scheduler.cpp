@@ -569,21 +569,40 @@ Scheduler::EvalEnd Scheduler::proceed(std::uint64_t pid, const Frame* restartFra
          (r->proceedable || restartFrame != nullptr) && "proceed needs canProceed or a restart");
   assert((acceptCount == 0 || restartFrame != nullptr) && "an Accept is a restart");
   if (acceptCount > 0) {
-    // assign may throw before anything below changes; no GC runs between it and the pin. pinRange
-    // can throw too (its push_back); then the slots are cleared so none stays armed but unpinned.
-    r->ctx->acceptSlots.assign(acceptSlots, acceptSlots + acceptCount);
-    try {
-      r->ctx->roots.pinRange(r->ctx->acceptSlots.data(), acceptCount);
-    } catch (...) {
-      r->ctx->acceptSlots.clear();
-      throw;
-    }
+    // SPEC §3.10: armAccept armed and pinned the slots before the install; writing the accepted
+    // method into them allocates nothing.
+    assert(r->ctx->acceptSlots.size() == acceptCount && "an Accept is armed first");
+    std::copy_n(acceptSlots, std::min(acceptCount, r->ctx->acceptSlots.size()),
+                r->ctx->acceptSlots.begin());
   }
   // Set only now, so a refused or failed entry before this never leaves a restart armed.
   r->ctx->restartFrame = restartFrame;
   // In no list: awaitEval switches to it, and its halt returns (true, or false to restart).
   r->state = State::Suspended;
   return awaitEval(pid);
+}
+
+void Scheduler::armAccept(std::uint64_t pid, const Oop* slots, std::size_t count) {
+  Record* r = findId(pid);
+  assert(r != nullptr && r->state == State::Halted && r->ctx->acceptSlots.empty() &&
+         "an Accept arms a halted process once");
+  // assign may throw before anything changes; no GC runs between it and the pin. pinRange can
+  // throw too (its push_back); then the slots are cleared so none stays armed but unpinned.
+  r->ctx->acceptSlots.assign(slots, slots + count);
+  try {
+    r->ctx->roots.pinRange(r->ctx->acceptSlots.data(), count);
+  } catch (...) {
+    r->ctx->acceptSlots.clear();
+    throw;
+  }
+}
+
+void Scheduler::unarmAccept(std::uint64_t pid) {
+  // A process that has left the halt disarmed its slots itself (review-agy H7).
+  Record* r = findId(pid);
+  if (r != nullptr && r->state == State::Halted) {
+    disarmAccept(*r->ctx);
+  }
 }
 
 Scheduler::EvalEnd Scheduler::step(std::uint64_t pid, StepMode mode) {

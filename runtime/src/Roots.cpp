@@ -49,6 +49,13 @@ void Roots::pinRange(Oop* first, std::size_t n) {
   if (first == nullptr || n == 0) {
     return;
   }
+  if (pinFailAfter_ != kNoFailure) {
+    if (pinFailAfter_ == 0) {
+      pinFailAfter_ = kNoFailure;
+      throw std::bad_alloc();
+    }
+    --pinFailAfter_;
+  }
   pinned_.push_back(Stack::Range{first, n});
 }
 

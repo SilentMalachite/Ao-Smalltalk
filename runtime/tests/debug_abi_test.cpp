@@ -2514,6 +2514,70 @@ TEST_F(LiveAccept, FailedAcceptWithoutRootSlotsKeepsTheOldMethod) {
   ASSERT_EQ(AO_OK, ao_debug_clear());
 }
 
+// SPEC §3.10 (review-agy R8-T7): the slots the Accept hands the process (the new method, the
+// receiver, the arguments) are pinned before the install too, so an Accept whose pinned range
+// cannot be registered answers AO_ERR and leaves the old method, its source, no record in the
+// current change set and the process halted. The failing pin moves through the Accept's pins
+// until one is past them; that Accept halts at accepted with the new method and its source.
+TEST_F(LiveAccept, FailedPinOfAcceptSlotsKeepsTheOldMethod) {
+  ASSERT_EQ(AO_OK, ao_filein_load_order(AO_SOURCE_DIR "/image/Tools-model/LOAD_ORDER"));
+  ao::Session* s = ao::session();
+  ASSERT_NE(nullptr, s);
+  defineClass("DbgAccPinKeep");
+  const std::string oldSrc = "bar\n  self halt.\n  ^1";
+  const std::string newSrc = "bar\n  ^2";
+  const auto method = [s] {
+    const ao::Oop cls = s->wk.named("DbgAccPinKeep");
+    return ao::MethodDictionary::at(s->heap, s->heap.slotAt(cls, ao::kClassSlotMethodDict),
+                                    s->wk.intern("bar"));
+  };
+  const auto sourceOf = [] {
+    char buf[64] = "";
+    const int rc = ao_browser_source(ao_browser_class_id("DbgAccPinKeep"), 0, "bar", buf, 64);
+    return rc == AO_OK ? std::string(buf) : "rc " + std::to_string(rc);
+  };
+  int refused = 0;
+  bool installed = false;
+  for (std::size_t k = 0; k <= 8 && !installed; ++k) {
+    SCOPED_TRACE(k);
+    accept("DbgAccPinKeep", 0, oldSrc.c_str());
+    ASSERT_EQ(AO_ERR_HALT, printIt("DbgAccPinKeep new bar"));
+    const std::int64_t pid = selectHalted();
+    std::int64_t set = 0;
+    AoSpan err{};
+    ASSERT_EQ(AO_OK, ao_changes_new(("T7pin-" + std::to_string(k)).c_str(), &set, &err))
+        << err.message;
+    int rc = AO_OK;
+    bool kept = false;
+    {
+      ao::Root old(s->roots, method());
+      s->roots.failPinGrowthForTesting(k);
+      rc = acceptIn(pid, 1, newSrc.c_str());
+      s->roots.failPinGrowthForTesting(static_cast<std::size_t>(-1));
+      kept = method() == old.slot;
+    }
+    if (rc == AO_ERR || rc == AO_ERR_COMPILE) {
+      ++refused;
+      EXPECT_EQ(AO_ERR, rc) << err_.message;
+      EXPECT_TRUE(kept);
+      EXPECT_EQ(oldSrc, sourceOf());
+      EXPECT_EQ(0, ao_changes_method_count(set, "DbgAccPinKeep", 0));
+      EXPECT_EQ(1, ao_debug_halted_count());
+    } else {
+      EXPECT_EQ(AO_ERR_HALT, rc) << err_.message;
+      EXPECT_FALSE(kept);
+      EXPECT_EQ(newSrc, sourceOf());
+      installed = true;
+    }
+    if (ao_debug_halted_count() != 0) {
+      ASSERT_EQ(AO_OK, ao_debug_abort(ao_debug_halted_pid()));
+    }
+    ASSERT_EQ(AO_OK, ao_debug_clear());
+  }
+  EXPECT_GT(refused, 0);
+  EXPECT_TRUE(installed);
+}
+
 TEST_F(LiveAccept, AcceptSelectorChangeIsRefused) {
   defineClass("DbgAccSel");
   accept("DbgAccSel", 0, "bar\n  self halt.\n  ^1");

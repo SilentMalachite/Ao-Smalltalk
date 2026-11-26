@@ -144,9 +144,15 @@ class Scheduler {
   // when pid is not halted. Both leave the base not unwinding. Restart proceeds with
   // restartFrame (an interpreted frame of pid): that process need not be canProceed, and its
   // halt reruns the frame. Accept (P15) also hands acceptCount slots (the accepted method, the
-  // receiver, the arguments), copied into pid's acceptSlots and pinned.
+  // receiver, the arguments), written into the acceptSlots armAccept armed for pid; this
+  // allocates nothing.
   EvalEnd proceed(std::uint64_t pid, const Frame* restartFrame = nullptr,
                   const Oop* acceptSlots = nullptr, std::size_t acceptCount = 0);
+  // SPEC §3.10, §3.13 Accept: arms the halted process pid's acceptSlots with count slots and pins
+  // them, before the Accept installs anything. Throws std::bad_alloc with nothing armed.
+  // unarmAccept unpins and clears them again while pid is halted (nothing otherwise).
+  void armAccept(std::uint64_t pid, const Oop* slots, std::size_t count);
+  void unarmAccept(std::uint64_t pid);
   // Step: proceed with the step mark set (SPEC §3.13 Step); the depth is its innermost frame's.
   EvalEnd step(std::uint64_t pid, StepMode mode);
   bool abortHalted(std::uint64_t pid);
