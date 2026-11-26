@@ -36,7 +36,8 @@ class Gc {
   // もう一度スキャベンジしても同じ生存物を残すだけである（SPEC §3.2）。
   bool scavengeCanProgress() const;
   void clearWeakAfterNursery(const std::unordered_set<std::uintptr_t>& traced);
-  void clearWeakAfterOldMark();
+  // nurserySeen には、old のマークがたどった nursery の object の番地が入る。
+  void clearWeakAfterOldMark(const std::unordered_set<std::uintptr_t>& nurserySeen);
   Heap* heap_;
   Roots* roots_;
 };
