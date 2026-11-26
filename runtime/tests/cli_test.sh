@@ -250,6 +250,9 @@ case "$CASE" in
     # SPEC §3.12: an extra argument is refused with the usage lines and exit 2; the image is not read.
     run 2 "$AO" image load deferred.aoimage extra
     [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for image load extra"
+    # SPEC §3.12: so is a missing path.
+    run 2 "$AO" image load
+    [ "$(head -n 1 err.txt)" = 'ao: usage: ao image save <path>' ] || fail "no usage line for image load without a path"
     ;;
   test)
     mkdir -p tests empty pass
@@ -278,6 +281,8 @@ ao --test: tests/e_fork.st: process failed: doesNotUnderstand: #bar'
     # SPEC §3.12: an extra argument is refused with the usage line and exit 2; nothing runs.
     run 2 "$AO" --test pass extra
     stderr_is 'ao: usage: ao --test [<dir>]'
+    # SPEC §3.12 / §4.4: with no argument, it runs the image/tests found above the executable.
+    run 0 "$AO" --test
     ;;
   *)
     fail "unknown case: $CASE"

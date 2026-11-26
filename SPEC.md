@@ -1620,7 +1620,7 @@ int ao_request_interrupt(void);
 - ソース節（P18。版 4）: レコードの直後に置く。`u32 count`、`u32 0`、続けて `count` 回、`u64 method`（ヒープ内オフセット。ポインタと同じ符号化）、`u32 length`、`u32 0`、ソースの UTF-8 の `length` バイト、0 で 8 バイト境界まで詰めたもの。ヘッダの最後の 8 バイト（版 3 の予約欄）が節のバイト数 `sourcesBytes` で、版 4 では 8 以上の 8 の倍数、版 3 では 0 である。書く項目は §3.10「ソースはイメージのソース節に書く」。CLI の `ao image save` はセッションを持たないので `count` 0 の節を書き、`ao image load` は節を検査して捨てる
 - 起動時に再配置し、NativeMethod の関数ポインタは **ロード時にシンボル名で結び直す**（ポインタをファイルに書かない）
 
-`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。CLI の `ao image load` も、`adoptImage` のあと `installMissing` を 1 回呼んで同じように補ってから、探針（`1 + 2`、`nil isNil`）を送る。
+`NativeMethod` は安定したシンボル名（例: `ao_Object_identityEquals`）を持つ。オペコードやネイティブを追記しても版は変えない。ロードのあと `ensureKernelNatives`（§3.10）で足りないネイティブを補う。CLI の `ao image load` は、`adoptImage` のあと `installMissing` を呼んで足りないネイティブを補ってから、探針（`1 + 2`、`nil isNil`）を送る。`ensureKernelNatives` のほかの手順は行わない。
 
 ネイティブのブロック（`makeNativeBlock` が作る thunk。`nextPutAll:` や `collect:` などのネイティブが、内部で `do:` に渡す BlockContext）も、NativeMethod を 1 つ持つ。その名前は、thunk の関数を Kernel のインストールで登録した名前（例: `ao_Stream_nextPutAll_each`、`ao_Collection_collect_fill`）である。thunk が捕捉する状態（ストリーム、数え上げ、結果の配列など）はすべてブロックのスロットにあり、関数はランタイムの静的な関数なので、ヒープに逃げた thunk（利用者の `do:` がブロックを保持した場合）は、ロードで名前から結び直せば保存したときと同じに動く。名前を登録していない関数の thunk（テストの関数など）の名前は `ao_NativeBlock_thunk` で、これは結び直せない。
 
@@ -1656,7 +1656,7 @@ int ao_request_interrupt(void);
 - `Smalltalk` がグローバル辞書でないときも失敗する（今までどおり）。
 - 止まったプロセス（§3.13）があるときは、何も書かずに失敗する。理由は `halted processes` である。止まったプロセスはファイバの C++ スタックを持ち、イメージに書けないからである。呼び出し元（`ao_image_save`）が止まったプロセスの数を渡す。`ao_image_save` は `AO_ERR` を返す。
 
-`ao_image_save` と `ao image save` は、`Image::save` を呼ぶ前にメソッドのキャッシュ（§3.3）を全部捨てる。キャッシュのエントリはルートなので、捨てなければ、キャッシュからしか届かないオブジェクト（束縛を捨てた `Behavior new` のクラスなど）までたどってしまう。キャッシュからしか届かないオブジェクトは、イメージに書かず、上の検査にもかけない（そのメソッド辞書が壊れていても保存できる）。
+`ao_image_save` と `ao image save` は、`Image::save` を呼ぶ前にメソッドのキャッシュ（§3.3）を全部捨てる。キャッシュのエントリは GC のルートで、保存はルートからたどるので、捨てなければ、キャッシュからしか届かないオブジェクト（束縛を捨てた `Behavior new` のクラスなど）までたどってしまう。キャッシュからしか届かないオブジェクトは、イメージに書かず、上の検査にもかけない（そのメソッド辞書が壊れていても保存できる）。
 
 書き方は次のとおりである。
 
@@ -1729,7 +1729,7 @@ file-in のエラー:
 - `ao filein <file.st>` と `ao filein --load-order <LOAD_ORDER>` は、数えるエラーを 1 行に 1 件、`<ファイル名>:<start>-<end>: <メッセージ>` の形式で stderr に出す。位置の無いエラー（ファイルが読めない）は `0-0` である。失敗なら exit 1、成功なら exit 0。
 - `ao image save --load-order <LOAD_ORDER> <path>` は、file-in が失敗したら、同じ形式でエラーを stderr に出し、イメージを書かずに exit 1 で終わる。
 - `--load-order` は繰り返せる（P17）。`ao filein --load-order A --load-order B` と `ao image save --load-order A --load-order B <path>` は、A、B の順に file-in する（vendor と Tools-model を続けて読むときに使う）。どれかが失敗したら、残りは読まない。
-- `ao --test` は引数を 0 個か 1 個（`<dir>`）しか取らず、`ao image load` は `<path>` をちょうど 1 個取る。余分な引数があれば、実行せずに使い方（`ao: usage: ` で始まる行）を stderr に出して exit 2 で終わる（`ao --test <dir> extra`、`ao image load <path> extra`）。
+- `ao --test` は引数を 0 個か 1 個（`<dir>`）しか取らず、`ao image load` は `<path>` をちょうど 1 個取る。余分な引数があるか、`ao image load` に `<path>` が無ければ、実行せずに使い方（`ao: usage: ` で始まる行）を stderr に出して exit 2 で終わる（`ao --test <dir> extra`、`ao image load <path> extra`、`ao image load`）。
 - `ao_filein_load_order` は、file-in が失敗したら `AO_ERR` を返す（§3.10）。
 - `vendor_filein_test` は、`image/vendor/LOAD_ORDER` の file-in で起きるメソッド単位のエラーの集合（`Class>>selector`）が、`DEFERRED.md` に列挙した集合と一致することを確かめる。列挙したのに成功するメソッドも、列挙していないのに失敗するメソッドも、テストの失敗である。
 
@@ -1935,8 +1935,8 @@ P11 で実装する。ホストが `ao_set_debug_mode(AO_DEBUG_LIVE)`（§3.10 �
   - `method_dictionary_test` に、内側の配列が奇数長で `tally` が実際の数と違うメソッド辞書へ、続けて 3 つの登録が入り（2 つ目で配列を拡張する）、`tally` が実際の数になり、3 つとも引ける（`MethodDictionary.AtPutGrowsWhenTallyLies`）。`tally` を SmallInteger の最大値にしても登録が入り、`tally` が実際の数になる（`MethodDictionary.AtPutWithTallyAtSmiMaxRecountsAndInstalls`）。
   - `behavior_test` に、format をバイト列にしたメタクラスが作ったバイト列のオブジェクトへの `instSize`、`isVariable`、`isBytes`、`isPointers`、`sourceCodeAt:`、`superclass`、`methodDict`、`selectors`、`includesSelector:`、`compiledMethodAt:`、`name`、`category`、`classPool` がどれも `failed: #<セレクタ>` で中断し、format を instSize 2 のポインタにしたメタクラスが作ったポインタのオブジェクトへの `sourceCodeAt:` も、セッションの外で `failed: #sourceCodeAt:` で中断する（`Behavior.NativesOnNonClassShapedReceiverFail`）。format を 0 にした `Metaclass` の `basicNew` が作ったオブジェクトへの `thisClass` が `failed: #thisClass` で中断する（`Behavior.MetaclassThisClassOnNonClassShapedReceiverFails`）。クラス名が空のポインタオブジェクト（`Object new`）の `subclass:instanceVariableNames:…` が `failed: #subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` で中断し、名前 `''` のクラスを作らない（`Behavior.SubclassWithNonByteClassNameFails`）
 - イメージの保存と読み込み（§3.11。review-agy R7）:
-  - `image_save_load_test` に、ポインタのオブジェクトのスロット（`Smalltalk` の配列の空きの項目）とレコード（well-known の `transcript` と最初のグローバル）の語を、空 OOP（bits 0）か Unicode スカラー値でない Character（U+D800、U+DFFF、U+110000、2^32 + 0x41）にしたイメージを、ヒープを載せる前に `damaged image` で拒み、スロットと `transcript` の隣の U+D7FF、U+E000、U+10FFFF は読む（`ImageLoadChecks.RefusesEmptyOopInSlotOrRecord`）、Array のスロットを空 OOP か U+D800 の Character にしたヒープの保存が、何も書かずに `slot 2 of the object at offset <オフセット> is neither an object nor an immediate` で失敗し、スロットを nil に戻すと保存できる（`ImageSaveChecks.SaveRefusesEmptySlot`）、新規の boot、セッション（`ao_runtime_boot`）、vendor の LOAD_ORDER を file-in した boot（`ao image save --load-order image/vendor/LOAD_ORDER` と同じ手順）を保存したイメージが、空 OOP も Unicode スカラー値でない Character も持たず、ロードできる（`ImageSaveLoad.FreshSessionAndVendorImagesHaveNoEmptyWords`）
-  - CLI: `cli_test.sh` の `test` に、`ao --test <dir> extra` が使い方を出して exit 2（`test` の `extra` の行）。`image_save` に、`ao image load <path> extra` が使い方を出して exit 2（`image_save` の `load extra` の行）、`UndefinedObject` のメソッド辞書を空の辞書に差し替えて保存したイメージ（`inm`）を `ao image load` が読める（`nil isNil` の探針が通る。`image_save` の `inm.aoimage` の行）
+  - `image_save_load_test` に、ポインタのオブジェクトのスロット（`Smalltalk` の配列の空きの項目）とレコード（well-known の `transcript` と最初のグローバル）の語を、空 OOP（bits 0）か Unicode スカラー値でない Character（U+D800、U+DFFF、U+110000、2^32 + 0x41）にしたイメージを、ヒープを載せる前に `damaged image` で拒み、スロットと `transcript` の語を、拒む範囲のすぐ外の U+D7FF、U+E000、U+10FFFF にしたイメージは読む（`ImageLoadChecks.RefusesEmptyOopInSlotOrRecord`）、Array のスロットを空 OOP か U+D800 の Character にしたヒープの保存が、何も書かずに `slot 2 of the object at offset <オフセット> is neither an object nor an immediate` で失敗し、スロットを nil に戻すと保存できる（`ImageSaveChecks.SaveRefusesEmptySlot`）、新規の boot、セッション（`ao_runtime_boot`）、vendor の LOAD_ORDER を file-in した boot（`ao image save --load-order image/vendor/LOAD_ORDER` と同じ手順）を保存したイメージが、空 OOP も Unicode スカラー値でない Character も持たず、ロードできる（`ImageSaveLoad.FreshSessionAndVendorImagesHaveNoEmptyWords`）
+  - CLI: `cli_test.sh` の `test` に、`ao --test <dir> extra` が使い方を出して exit 2（`test` の `extra` の行）、引数の無い `ao --test` が exit 0（`test` の最後の行）。`image_save` に、`ao image load <path> extra` が使い方を出して exit 2（`image_save` の `load extra` の行）、`<path>` の無い `ao image load` が使い方を出して exit 2（`image_save` の `load` だけの行）、`UndefinedObject` のメソッド辞書を空の辞書に差し替えて保存したイメージ（`inm`）を `ao image load` が読める（`nil isNil` の探針が通る。`image_save` の `inm.aoimage` の行）
   - `session_abi_test` に、ワークスペースの束縛だけが持っていた `Behavior new` のクラス（category が目印の文字列）のインスタンスに 1 度送信し、束縛を捨て、キャッシュにだけ残ったそのクラスのメソッド辞書を SmallInteger に壊しても、`ao_image_save` が `AO_OK` を返し、保存したイメージに目印が無い（`SessionAbi.ImageSaveDoesNotTraceMethodCache`）。`cli_test.sh` の `image_save` に、クラス側の `subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:` を上書きしたクラスのサブクラスの定義が、file-in の中で同じように壊れたクラスをキャッシュにだけ残しても、`ao image save --load-order` が成功し、そのイメージを `ao image load` が読む
 - `fiber_test`: 1 万回の往復の切り替えで整数と浮動小数点のローカルが保たれる、スタックの下端のガードページが読み書きできない、返したスタックを再利用する
 - `process_test`: 協調スケジューラ（§3.4）。fork は切り替えるまで走らない、fork の中の `activeProcess`、FIFO の順、空のキューの `yield`（`ForkRunsOnlyAfterYield`、`ActiveProcessInsideForkIsForked`、`ForkFifoOrder`、`YieldEmptyReturns`）。resume・suspend・wait・signal の状態遷移と myList。ブロックする `wait` と SharedQueue、ベースのデッドロック（`WaitBlocksUntilSignal`、`BaseDeadlockIsFailureActiveStaysBase`、`SharedQueueProducerConsumer`、`SharedQueueEmptyNextDeadlock`）。プロセスの失敗と `terminate`（`ForkDnuTerminatesOnlyFork`、`ForkNlrToBaseHomeTerminates`、`TerminateWaiterRunsEnsure`、`RecursionInForkFailsNoCrash`）。signal を受けてまだ `wait` から戻っていないプロセスを `terminate` すると signal を返す（`TerminateSignaledWaiterGivesSignalBack`）。50 本のプロセスを待たせたままの GC ストレスと old の GC。プロセスごとのルートとスタックの範囲、FIFO に使う OrderedCollection の `array` が伸び続けないこと。同じ意味論の Smalltalk 側のゴールデンは `image/tests/process.st`（§4.4。fork の順序、セマフォのピンポン、SharedQueue、`activeProcess` の同一性）
@@ -2013,7 +2013,7 @@ self assert: (Object new class) equals: Object.
 - 1 ファイルの評価のあと、drain（§3.4）し、残ったベース以外のプロセスを `terminate` で終わらせる（後始末を走らせる）。`terminate` のあとにもう一度 drain して、後始末が切り替えて実行可能のまま残ったプロセスに、後始末を続けさせる。後始末が fork したプロセスなど、まだ `terminate` を送っていないプロセスが残れば、`terminate` と drain を繰り返す。新しく `terminate` したプロセスが無く、生きているプロセスも減らなかった回か、1000 回目で繰り返しをやめる。そのとき残ったプロセス（後始末がブロックしたまま終わらなかったものなど）は abandon する（§3.4。残りの後始末は走らせない）。プロセスを次のファイルに持ち越さない。
 - そのファイルの評価、drain、`terminate` の間にプロセスの失敗（§3.4）が 1 件でもあれば、そのファイルの失敗である。`terminate` で終わったプロセスは数えない。
 - 失敗ごとに 1 行を stderr に出す。形式は `ao --test: <ファイル名>: <理由>`。コンパイルエラーは `ao --test: <ファイル名>:<start>-<end>: <メッセージ>`（位置はファイル本文のバイト位置）。プロセスの失敗は、件数によらずファイルごとに 1 行で、`ao --test: <ファイル名>: process failed: <最後の失敗の理由>` である。
-- 終了コードは、1 つでも失敗があれば 1、`.st` が 0 件か `<dir>` が読めなければ 1、それ以外は 0。
+- 終了コードは、1 つでも失敗があれば 1、`.st` が 0 件か `<dir>` が読めなければ 1、引数が多すぎれば、何も走らせずに使い方を出して 2（§3.12）、それ以外は 0。
 
 ### 4.5 CI
 
