@@ -392,7 +392,7 @@ fileOutDefinitionsOn: out lost: lost
 			ifTrue: [defined add: each className]].
 	(ChangeSet superclassOrder: defined) do: [:each |
 		cls := ChangeSet classNamed: each.
-		(cls isNil or: [cls name isNil or: [cls superclass notNil and: [cls superclass name isNil]]])
+		(cls isNil or: [cls name isNil or: [cls superclass isNil or: [cls superclass name isNil]]])
 			ifTrue: [lost add: (ChangeSet text: each with: ' definition not available')]
 			ifFalse: [out nextPutAll: cls definition; nextPutAll: '!!'; cr; cr]]!
 

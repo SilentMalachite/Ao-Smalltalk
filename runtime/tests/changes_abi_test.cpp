@@ -1009,6 +1009,27 @@ TEST_F(ChangesAbi, FiledOutKernelExtensionFilesBackIn) {
   std::filesystem::remove(path);
 }
 
+// SPEC §3.9 File Out item 2: a class whose superclass instVarAt:put: made nil has no definition
+// File In can read (`nil subclass:` stops it with missing class: nil). The File Out writes the
+// definition-not-available comment chunk instead, so a File In in a session that has the class
+// skips it, reads the methods and answers AO_OK.
+TEST_F(ChangesAbi, FiledOutRootClassFilesBackIn) {
+  defineClass("R9Root", "Object", "a");
+  accept("R9Root", 0, "a\n  ^a");
+  EXPECT_EQ("nil", printIt("R9Root instVarAt: 1 put: nil. R9Root superclass"));
+  const std::string path = tempPath("root.st");
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_changes_file_out(ao_changes_current(), path.c_str(), &err)) << err.message;
+  EXPECT_EQ("true", printIt("R9Root instVarAt: 1 put: Object. R9Root superclass == Object"));
+  const std::string text = readFile(path);
+  EXPECT_EQ(std::string::npos, text.find("nil subclass:")) << text;
+  EXPECT_NE(std::string::npos, text.find("\"R9Root definition not available\"!")) << text;
+  ASSERT_EQ(AO_OK, accept("R9Root", 0, "a\n  ^0"));
+  EXPECT_EQ(AO_OK, ao_filein_file(path.c_str(), &err)) << err.message;
+  EXPECT_EQ("a\n  ^a", sourceOf("R9Root", 0, "a"));
+  std::filesystem::remove(path);
+}
+
 // SPEC §3.10 File In...: on a Kernel class a selector that finds a native is refused as a method-level
 // error (as Accept refuses it); the file goes on, the other methods and later chunks apply.
 TEST_F(ChangesAbi, FileInRefusesNativeOverwriteOnKernelClassWithoutStopping) {
