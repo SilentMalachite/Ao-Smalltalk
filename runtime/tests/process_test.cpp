@@ -2116,8 +2116,10 @@ TEST(Process, ThrowingQueueingLeavesNoFreedRecord) {
 // alone, with out of memory: it takes its ready entry out again and drops the half-made process,
 // so no process lives and the C++ ready queue is empty. The row with no failure makes the list (an
 // OrderedCollection holding the process), so it allocates the list and the list's Array, and the
-// rows before it failed each of those allocations.
+// rows before it failed each of those allocations. A row whose add failed leaves the new list in
+// the slot, empty.
 TEST(Process, FailedListAllocationLeavesNoFreedRecord) {
+  std::size_t emptyListRows = 0;
   for (std::size_t k = 0;; ++k) {
     SCOPED_TRACE(k);
     Boot b;
@@ -2154,5 +2156,13 @@ TEST(Process, FailedListAllocationLeavesNoFreedRecord) {
     EXPECT_EQ("out of memory", takeAbortReason(b));
     b.heap.clearOutOfMemory();
     EXPECT_EQ(0u, b.scheduler.liveFibers());
+    // SPEC §3.4: the slot holds nil still, or the new list, empty, when adding to it failed.
+    ao::Root list(b.roots, readyList(b));
+    if (!list.slot.isNil()) {
+      EXPECT_EQ(b.wk.orderedCollectionClass, b.wk.classOf(list.slot));
+      EXPECT_EQ(0, sizeOf(b, list.slot));
+      ++emptyListRows;
+    }
   }
+  EXPECT_GT(emptyListRows, 0u);
 }
