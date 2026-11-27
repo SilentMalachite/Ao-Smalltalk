@@ -1836,41 +1836,43 @@ void acceptProbe(Boot& b, bool meta, const std::string& body) {
   ASSERT_TRUE(ao::acceptMethodSource(b.ctx, "AoProbe", meta, body, &err)) << err.message;
 }
 
-// A class side new that counts its runs in AoProbeCalls and, the first time AoProbeArmed is true,
-// clears it and runs action.
-std::string probeNew(const std::string& action) {
-  return "new\n"
+// A class side unary method, selector, that counts its runs in AoProbeCalls and, the first time
+// AoProbeArmed is true, clears it and runs action; then answers super's.
+std::string probeUnary(const std::string& selector, const std::string& action) {
+  return selector +
+         "\n"
          "  Smalltalk at: #AoProbeCalls put: (Smalltalk at: #AoProbeCalls) + 1.\n"
          "  (Smalltalk at: #AoProbeArmed) == true ifTrue: [\n"
          "    Smalltalk at: #AoProbeArmed put: false.\n"
          "    " +
          action +
          "].\n"
-         "  ^super new";
+         "  ^super " +
+         selector;
 }
 
 ao::Oop global(Boot& b, const std::string& name) {
   return run(b, "doIt\n  ^Smalltalk at: #" + name);
 }
 
-}  // namespace
-
-// SPEC §3.4 (A1): OrderedCollection class's method dictionary is swapped for one whose new yields.
-// The fork that makes the ready queue's list (quiescentProcesses is nil) sends nothing, so the
-// override does not run and cannot switch to the half-made process. The new list holds that
-// process (the one forked before is in the list the slot held, SPEC §3.4), and both run once the
-// base yields.
-TEST(Process, YieldInsideSwappedNewDoesNotRunDuringFork) {
+// SPEC §3.4 (A1): OrderedCollection class's method dictionary is swapped for one whose selector
+// (new or basicNew, the dictionary has only that) yields. The fork that makes the ready queue's
+// list (quiescentProcesses is nil) sends nothing, so the override does not run and cannot switch
+// to the half-made process. The new list holds that process, the one forked before is in the list
+// the slot held (SPEC §3.4), and both run once the base yields.
+void expectSwappedClassSideDoesNotRunDuringFork(const std::string& selector) {
   Boot b;
-  acceptProbe(b, true, probeNew("Processor yield"));
-  ASSERT_FALSE(HasFatalFailure());
+  acceptProbe(b, true, probeUnary(selector, "Processor yield"));
+  ASSERT_FALSE(testing::Test::HasFatalFailure());
   ao::Root p(b.roots,
              run(b, "doIt\n"
                     "  Smalltalk at: #AoProbeCalls put: 0.\n"
                     "  Smalltalk at: #AoProbeArmed put: false.\n"
                     "  Smalltalk at: #AoRan put: 0.\n"
                     "  OrderedCollection class instVarAt: 2 put: (AoProbe class instVarAt: 2).\n"
-                    "  [Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 1] fork.\n"
+                    "  Smalltalk at: #AoFirst put:\n"
+                    "    [Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 1] fork.\n"
+                    "  Smalltalk at: #AoOldList put: (Processor instVarAt: 1).\n"
                     "  Smalltalk at: #AoProbeArmed put: true.\n"
                     "  Processor instVarAt: 1 put: nil.\n"
                     "  ^[Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 10] fork"));
@@ -1885,13 +1887,32 @@ TEST(Process, YieldInsideSwappedNewDoesNotRunDuringFork) {
   ASSERT_EQ(1, sizeOf(b, ready.slot));
   EXPECT_EQ(p.slot, at(b, ready.slot, 1));
   EXPECT_EQ(ready.slot, myList(b, p.slot));
+  ao::Root first(b.roots, global(b, "AoFirst"));
+  ao::Root old(b.roots, global(b, "AoOldList"));
+  ASSERT_EQ(1, sizeOf(b, old.slot));
+  EXPECT_EQ(first.slot, at(b, old.slot, 1));
+  EXPECT_EQ(old.slot, myList(b, first.slot));
   EXPECT_EQ(smi(11), run(b, "doIt\n  Processor yield.\n  ^Smalltalk at: #AoRan"));
   EXPECT_EQ("<no abort>", takeAbortReason(b));
   EXPECT_EQ(0u, b.scheduler.liveFibers());
   EXPECT_EQ(smi(1), run(b, "doIt\n"
                            "  Smalltalk at: #AoProbeArmed put: false.\n"
-                           "  OrderedCollection new.\n"
-                           "  ^Smalltalk at: #AoProbeCalls"));
+                           "  OrderedCollection " +
+                               selector +
+                               ".\n"
+                               "  ^Smalltalk at: #AoProbeCalls"));
+}
+
+}  // namespace
+
+TEST(Process, YieldInsideSwappedNewDoesNotRunDuringFork) {
+  expectSwappedClassSideDoesNotRunDuringFork("new");
+}
+
+// The same with basicNew: the list is not made by OrderedCollection's new native either, which
+// sends basicNew.
+TEST(Process, YieldInsideSwappedBasicNewDoesNotRunDuringFork) {
+  expectSwappedClassSideDoesNotRunDuringFork("basicNew");
 }
 
 // SPEC §3.4 (A2): the same swap, with another process ready, when the base's Processor yield makes
@@ -1899,7 +1920,7 @@ TEST(Process, YieldInsideSwappedNewDoesNotRunDuringFork) {
 // yield comes back after the other process ran, and the base is in no list.
 TEST(Process, YieldInsideSwappedNewDoesNotRunDuringYield) {
   Boot b;
-  acceptProbe(b, true, probeNew("Processor yield"));
+  acceptProbe(b, true, probeUnary("new", "Processor yield"));
   ASSERT_FALSE(HasFatalFailure());
   EXPECT_EQ(smi(1),
             run(b, "doIt\n"
@@ -1931,7 +1952,7 @@ TEST(Process, YieldInsideSwappedNewDoesNotRunDuringYield) {
 // quiescentProcesses holds every ready process, here only the forked one.
 TEST(Process, ForkInsideSwappedNewDoesNotRunDuringFork) {
   Boot b;
-  acceptProbe(b, true, probeNew("[Smalltalk at: #AoNestedRan put: true] fork"));
+  acceptProbe(b, true, probeUnary("new", "[Smalltalk at: #AoNestedRan put: true] fork"));
   ASSERT_FALSE(HasFatalFailure());
   ao::Root p(b.roots,
              run(b, "doIt\n"
@@ -2049,11 +2070,12 @@ TEST(Process, FailedSchedulerConstructionLeavesNoRootBehind) {
 
 // SPEC §3.2, §3.4: a C++ exception (a root slot that cannot be registered, at root add k) while a
 // fork makes and fills the ready queue's list (quiescentProcesses is nil) takes the fork's ready
-// entry out again and drops the half-made process. No row leaves a freed record queued: what is
-// left runs to its end.
+// entry out again and drops the half-made process. No row leaves a freed record queued: the C++
+// ready queue holds as many records as there are live processes (each is ready), and what is left
+// runs to its end. Some row threw inside the queueing, after the new list was made (it stays in
+// the slot, empty).
 TEST(Process, ThrowingQueueingLeavesNoFreedRecord) {
-  // Rows that threw: at least one, so the sweep reaches the queueing.
-  std::size_t threwRows = 0;
+  std::size_t threwAfterListRows = 0;
   for (std::size_t k = 0;; ++k) {
     SCOPED_TRACE(k);
     Boot b;
@@ -2070,14 +2092,67 @@ TEST(Process, ThrowingQueueingLeavesNoFreedRecord) {
     const bool fired = !b.roots.slotGrowthFailurePending();
     b.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
     (void)takeAbortReason(b);
+    // Before anything reads the queue: a freed record left there is not to be switched to.
+    ASSERT_EQ(b.scheduler.liveFibers(), b.scheduler.readyCount());
     if (threw) {
-      ++threwRows;
+      ao::Root list(b.roots, readyList(b));
+      if (list.slot.isHeap() && b.wk.classOf(list.slot) == b.wk.orderedCollectionClass &&
+          sizeOf(b, list.slot) == 0) {
+        ++threwAfterListRows;
+      }
     }
     b.scheduler.drain(ao::Scheduler::kDrainRounds);
     EXPECT_EQ(0u, b.scheduler.liveFibers());
+    EXPECT_EQ(0u, b.scheduler.readyCount());
     if (!fired) {
       break;
     }
   }
-  EXPECT_GT(threwRows, 0u);
+  EXPECT_GT(threwAfterListRows, 0u);
+}
+
+// SPEC §3.2, §3.4: allocation k fails (out of memory) in a fork while quiescentProcesses is nil, so
+// that the fork makes the ready queue's list and adds to it. A row that fails fails the fork
+// alone, with out of memory: it takes its ready entry out again and drops the half-made process,
+// so no process lives and the C++ ready queue is empty. The row with no failure makes the list (an
+// OrderedCollection holding the process), so it allocates the list and the list's Array, and the
+// rows before it failed each of those allocations.
+TEST(Process, FailedListAllocationLeavesNoFreedRecord) {
+  for (std::size_t k = 0;; ++k) {
+    SCOPED_TRACE(k);
+    Boot b;
+    // k inspect arms the seam once the block is made: the sweep counts the fork's allocations.
+    b.ctx.inspectHook = [](ao::CallContext& ctx, ao::Oop n) {
+      ctx.heap.failAllocationForTesting(static_cast<std::size_t>(n.smallIntegerValue()));
+    };
+    ao::Root p(b.roots, run(b, "doIt\n"
+                               "  | blk |\n"
+                               "  Processor instVarAt: 1 put: nil.\n"
+                               "  blk := [3 + 4].\n"
+                               "  " +
+                                   std::to_string(k) +
+                                   " inspect.\n"
+                                   "  ^blk fork"));
+    b.ctx.inspectHook = nullptr;
+    const bool fired = !b.heap.allocationFailurePending();
+    b.heap.failAllocationForTesting(static_cast<std::size_t>(-1));
+    // Before anything reads the queue: a freed record left there is not to be switched to.
+    ASSERT_EQ(b.scheduler.liveFibers(), b.scheduler.readyCount());
+    if (!fired) {
+      EXPECT_EQ("<no abort>", takeAbortReason(b));
+      ASSERT_TRUE(p.slot.isHeap());
+      EXPECT_EQ(b.wk.processClass, b.wk.classOf(p.slot));
+      EXPECT_EQ(1u, b.scheduler.liveFibers());
+      ao::Root ready(b.roots, readyList(b));
+      EXPECT_EQ(b.wk.orderedCollectionClass, b.wk.classOf(ready.slot));
+      ASSERT_EQ(1, sizeOf(b, ready.slot));
+      EXPECT_EQ(p.slot, at(b, ready.slot, 1));
+      b.scheduler.drain(ao::Scheduler::kDrainRounds);
+      EXPECT_EQ(0u, b.scheduler.liveFibers());
+      break;
+    }
+    EXPECT_EQ("out of memory", takeAbortReason(b));
+    b.heap.clearOutOfMemory();
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+  }
 }

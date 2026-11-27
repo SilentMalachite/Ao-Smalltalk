@@ -42,7 +42,8 @@ std::int64_t ocSize(Heap& heap, const WellKnown& wk, Oop oc) {
   return listShape(heap, wk, oc, &s) == OcShape::Sound ? s.last - s.first + 1 : 0;
 }
 
-// SPEC §3.13: the scheduler's own sends (its lists) never halt the process that runs them: a
+// SPEC §3.13: the scheduler never halts the running process while it updates its lists. They send
+// nothing (SPEC §3.4), but the add: native's failure on a damaged list goes through error:, and a
 // halt there would leave a list and the C++ queue half updated.
 struct NoHalt {
   CallContext& ctx;
@@ -130,7 +131,6 @@ bool ocRemoveIdentity(Heap& heap, const WellKnown& wk, Oop oc, Oop target) {
 // instance of OrderedCollection itself in the empty form (array nil, firstIndex 1, lastIndex 0),
 // whose first add: makes its Array.
 Oop ensureOc(CallContext& ctx, Root& holder, std::uint32_t slot) {
-  const NoHalt noHalt(ctx);
   if (!hasSlots(ctx.heap, holder.slot, slot)) {
     return Oop{};
   }

@@ -37,6 +37,11 @@ Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t f
   // SPEC §3.2: 諦めるまでに走らせる full GC は 1 回まで。この呼び出しの中で full GC が走ったか
   // （ストレス、大きな object の閾値、スキャベンジ後の閾値）を、入口の回数と比べて判断する。
   const std::uint64_t fullBefore = ctx.heap.oldCollections();
+  // Test seam (Heap::failAllocationForTesting): this call fails as at old's max.
+  if (ctx.heap.allocationFailureDue()) {
+    ctx.heap.setOutOfMemory();
+    return Oop{};
+  }
   if (ctx.heap.gcStress() != 0) {
     Root stressed(ctx.roots, cls);
     Gc(ctx.heap, ctx.roots).stressPoint();

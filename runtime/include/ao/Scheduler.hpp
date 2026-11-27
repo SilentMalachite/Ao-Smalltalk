@@ -94,6 +94,9 @@ class Scheduler {
   bool nonBaseRunning() const;
   // Live processes other than the base: not started, ready, waiting, suspended or running.
   std::size_t liveFibers() const;
+  // The records in the C++ ready queue (tests compare it with liveFibers: a dropped record must
+  // not stay queued).
+  std::size_t readyCount() const { return ready_.size(); }
   // The running process (SPEC §3.4: never nil once adoptImage ran).
   Oop activeProcess() const;
 
