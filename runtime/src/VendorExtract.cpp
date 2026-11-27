@@ -3,6 +3,7 @@
 #include "ao/Chunk.hpp"
 #include "ao/Scanner.hpp"
 
+#include <cassert>
 #include <set>
 #include <string>
 #include <string_view>
@@ -102,7 +103,9 @@ void forEachCodePosition(std::string_view text, Visit visit) {
       i += 2;
       continue;
     }
-    i = visit(i);
+    const std::size_t next = visit(i);
+    assert(next > i);
+    i = next;
   }
 }
 
