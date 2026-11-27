@@ -227,7 +227,7 @@ expect nextPutAll: '"Change Set: R8 Lost'; cr;
 	nextPutAll: '"R8LostA definition not available"!'; cr;
 	nextPutAll: '"R8LostB definition not available"!'; cr.
 self assert: fo equals: expect contents.
-"File Out のルートクラス（スーパークラスが nil）: 定義（nil subclass:）を書き、definition not available のコメントのチャンクは書かない。スーパークラスは戻す"
+"File Out のルートクラス（スーパークラスが nil）: File In が missing class: nil で止まる定義（nil subclass:）を書かず、definition not available のコメントのチャンクを書く。スーパークラスは戻す"
 base := Object subclass: #R8Root instanceVariableNames: 'a' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
 out := ChangeSet newNamed: 'R8 Root'.
 ChangeSet noteClassChange: #R8Root existed: false.
@@ -238,11 +238,7 @@ expect := WriteStream on: String new.
 expect nextPutAll: '"Change Set: R8 Root'; cr;
 	nextPutAll: 'Date: 2026-11-26'; cr;
 	nextPutAll: 'Ao 9.9.9"!'; cr; cr;
-	nextPutAll: 'nil subclass: #R8Root'; cr;
-	nextPutAll: '  instanceVariableNames: ''a'''; cr;
-	nextPutAll: '  classVariableNames: '''''; cr;
-	nextPutAll: '  poolDictionaries: '''''; cr;
-	nextPutAll: '  category: ''R8-Test''!'; cr; cr.
+	nextPutAll: '"R8Root definition not available"!'; cr.
 self assert: fo equals: expect contents.
 "File Out の定義のコメントは 2. の順（セットの中のスーパークラスを先にした順）で、セットの順ではない: 名前が nil の R8OrdA より、そのスーパークラスでスーパークラスの名前が nil の R8OrdB が先。名前は戻す"
 base := Object subclass: #R8OrdC instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'R8-Test'.
