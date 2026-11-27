@@ -9,6 +9,9 @@
 #include "ao/Symbol.hpp"
 #include "ao/WellKnown.hpp"
 
+#include <cstddef>
+#include <new>
+
 #include <gtest/gtest.h>
 
 static ao::Oop stubA(ao::CallContext&, const ao::Oop&, const ao::Oop*, std::uint32_t) {
@@ -59,6 +62,25 @@ TEST(NativeSend, IdentityEqualsAndClass) {
   EXPECT_TRUE(ao::send(ctx, one, eq, &two, 1, &ic).isFalse());
   EXPECT_EQ(wk.smallIntegerClass, ao::send(ctx, one, cls, nullptr, 0, &ic));
   EXPECT_EQ(wk.smallIntegerClass, ic.cachedClass);
+}
+
+// SPEC §3.2 (O1): the inline cache's two slots are registered all or nothing. When the second
+// cannot be, the send throws std::bad_alloc before either is registered.
+TEST(NativeSend, InlineCacheRootsAreAllOrNothing) {
+  ao::Heap heap; ao::Roots roots; ao::WellKnown wk(heap, roots);
+  ao::Bootstrap::run(heap, roots, wk);
+  ao::ClassMethodCache cache; cache.addRoots(roots);
+  ao::CallContext ctx{heap, roots, wk, &cache};
+  ao::InlineCache ic;
+  auto eq = ao::Symbol::intern(wk, "==");
+  ao::Oop one = ao::Oop::fromSmallInteger(1);
+  const std::size_t before = roots.counts().slots;
+  roots.failSlotGrowthForTesting(1);
+  EXPECT_THROW(ao::send(ctx, one, eq, &one, 1, &ic), std::bad_alloc);
+  roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+  EXPECT_EQ(before, roots.counts().slots);
+  EXPECT_TRUE(ao::send(ctx, one, eq, &one, 1, &ic).isTrue());
+  EXPECT_EQ(before, roots.counts().slots);
 }
 
 TEST(NativeSend, StubSmallIntegerAdd) {

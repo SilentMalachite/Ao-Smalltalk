@@ -1629,3 +1629,120 @@ TEST_F(SessionAbi, DebugModeSurvivesBootAndLoad) {
   EXPECT_STREQ("false", out);
   std::remove(path);
 }
+
+namespace {
+
+// SPEC §3.2 (O1): the roots of every kind, outside the session's source and class ID tables (an
+// evaluation changes those on purpose: the doIt's entry, a dropped source entry).
+struct RootShape {
+  std::size_t slots;
+  std::size_t pinned;
+  std::size_t ranges;
+  std::size_t frames;
+  std::size_t handles;
+  std::size_t stacks;
+  bool operator==(const RootShape&) const = default;
+};
+
+RootShape rootShape(ao::Session& s) {
+  const ao::Roots::Counts c = s.roots.counts();
+  return {c.slots - ao::methodSourceRootSlots(false).size() - ao::classIdRootSlots().size(),
+          c.pinnedSlots, c.ranges, c.frameSlots, c.handles, c.attachedStacks};
+}
+
+// SPEC §3.2 (O1): the k-th root slot registration inside an evaluation of src fails, for each k up
+// to the first one the evaluation no longer reaches. Before any GC, no root is left behind and the
+// base's active context is empty again (a live-mode doIt runs on its own process, whose context
+// goes with it). A failed evaluation that answers AO_OK with no more process failures than a clean
+// one answers correctly.
+// A process the evaluation forked may outlive it (its record holds 4 slots and one stack); the
+// next evaluation ends it, and then every count is back.
+void sweepFailedRootAdds(const char* src, const char* answer) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  const auto eval = [src](std::string* out) {
+    char buf[64] = "";
+    AoSpan e{};
+    const int rc = ao_eval(src, std::strlen(src), AO_EVAL_PRINTIT, buf, 64, &e);
+    *out = buf;
+    return rc;
+  };
+  std::string out;
+  // The process failures a clean evaluation of src records (a fork that aborts on purpose).
+  const std::uint64_t failuresBeforeClean = ao::session()->scheduler->processFailures();
+  ASSERT_EQ(AO_OK, eval(&out));
+  ASSERT_EQ(answer, out);
+  const std::uint64_t cleanFailures =
+      ao::session()->scheduler->processFailures() - failuresBeforeClean;
+  // Rows whose injected failure fired, yet the evaluation answered AO_OK and had its answer
+  // checked: at least one, so the check is not vacuous (the last row, which no failure reaches,
+  // does not count).
+  std::size_t answersChecked = 0;
+  std::size_t k = 0;
+  for (;; ++k) {
+    SCOPED_TRACE(k);
+    ao::Session& s = *ao::session();
+    const RootShape before = rootShape(s);
+    const std::uint64_t failuresBefore = s.scheduler->processFailures();
+    s.roots.failSlotGrowthForTesting(k);
+    const int failedRc = eval(&out);
+    const bool fired = !s.roots.slotGrowthFailurePending();
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    RootShape after = rootShape(s);
+    const std::size_t live = s.scheduler != nullptr ? s.scheduler->liveFibers() : 0;
+    after.slots -= 4 * live;
+    after.stacks -= live;
+    ASSERT_TRUE(before == after);
+    ASSERT_TRUE(s.ctx->activeContext.isEmpty());
+    // A forked process the failure hit fails on its own (SPEC §3.4) and the evaluation still
+    // answers, perhaps differently. Without a process failure beyond a clean evaluation's, an
+    // AO_OK answer is the right one.
+    const bool extraFailure = s.scheduler->processFailures() - failuresBefore != cleanFailures;
+    ASSERT_TRUE(failedRc != AO_OK || extraFailure || out == answer) << out;
+    answersChecked += fired && failedRc == AO_OK && !extraFailure ? 1 : 0;
+    ao::Gc gc(s.heap, s.roots);
+    gc.collectNursery();
+    gc.collectOld();
+    ASSERT_EQ(AO_OK, eval(&out));
+    ASSERT_EQ(answer, out);
+    ASSERT_TRUE(before == rootShape(s));
+    if (!fired) {
+      break;
+    }
+  }
+  EXPECT_GT(k, 0u);
+  EXPECT_GT(answersChecked, 0u);
+}
+
+}  // namespace
+
+// SPEC §3.2 (O1): a failed registration inside method and block activations (FieldRoots,
+// ActiveGuard, NonlocalGuard, Temps) leaves no root behind.
+TEST_F(SessionAbi, FailedRootAddInsideAnEvalLeavesNoRootBehind) {
+  sweepFailedRootAdds("| a | a := 0. #(1 2 3) do: [:x | a := a + x]. a", "6");
+}
+
+// SPEC §3.2 (O1): the same on the evaluation's own process (live mode, SPEC §3.13), which
+// forkEval makes through rootRecord.
+TEST_F(SessionAbi, FailedRootAddInsideALiveEvalLeavesNoRootBehind) {
+  ao_set_debug_mode(AO_DEBUG_LIVE);
+  sweepFailedRootAdds("| a | a := 0. #(1 2 3) do: [:x | a := a + x]. a", "6");
+}
+
+// SPEC §3.2, §3.4 (O1): the same inside fork (the process's record) and Processor yield (the ready
+// queue): a failure leaves neither a record's slots nor a ready entry for a record that is gone.
+TEST_F(SessionAbi, FailedRootAddInsideAForkLeavesNoRootBehind) {
+  sweepFailedRootAdds("| p | p := [3 + 4] fork. Processor yield. 5", "5");
+}
+
+// SPEC §3.2, §3.4 (O1): the same inside wait and signal (the base blocks, the fork's signal
+// enqueues it). A fork that fails after its signal leaves r at 0, which is a process failure the
+// evaluation survives (SPEC §3.4), so this row pins the root counts, not the answer.
+TEST_F(SessionAbi, FailedRootAddInsideASignalLeavesNoRootBehind) {
+  sweepFailedRootAdds("| s r | s := Semaphore new. r := 0. [s signal. r := 1] fork. s wait. r", "1");
+}
+
+// SPEC §3.2, §3.4 (O1): the same inside the ensure: cleanup of a process that aborts with a reason
+// built at run time (the DNU's), which the cleanup sets aside in the handle table.
+TEST_F(SessionAbi, FailedRootAddInsideAnEnsureCleanupLeavesNoRootBehind) {
+  sweepFailedRootAdds("[[nil foo] ensure: [3 + 4]] fork. Processor yield. 5", "5");
+}

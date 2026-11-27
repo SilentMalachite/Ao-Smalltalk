@@ -69,6 +69,8 @@ class Roots {
   // Test seam: the slot table cannot grow once, after `adds` more adds succeed. That add throws
   // std::bad_alloc, or a reserveSlots whose room covers it does.
   void failSlotGrowthForTesting(std::size_t adds) { failAfter_ = adds; }
+  // Test seam: true while the failure failSlotGrowthForTesting armed has not happened yet.
+  bool slotGrowthFailurePending() const { return failAfter_ != kNoFailure; }
   // Test seam: the pinned ranges cannot grow once, after `pins` more pinRange calls succeed. That
   // pinRange throws std::bad_alloc and pins nothing.
   void failPinGrowthForTesting(std::size_t pins) { pinFailAfter_ = pins; }

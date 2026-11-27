@@ -26,6 +26,9 @@ struct FieldRoots {
   Roots& roots;
   Frame* frame;
   FieldRoots(Roots& r, Frame* f) : roots(r), frame(f) {
+    // SPEC §3.2 (O1): all or nothing. Without the room it throws before any slot is registered;
+    // a constructor that threw half way would leave slots of the freed frame registered.
+    roots.reserveSlots(3);
     roots.add(&frame->method);
     roots.add(&frame->receiver);
     roots.add(&frame->context);
@@ -73,6 +76,9 @@ struct ActiveGuard {
   // twice by collectOld.
   ActiveGuard(CallContext& c, Oop next, bool rootShared)
       : ctx(c), saved(c.activeContext), rootShared(rootShared) {
+    // SPEC §3.2 (O1): all or nothing, before activeContext changes. A constructor that threw half
+    // way would leave `saved` registered and activeContext unrooted, since no destructor runs.
+    ctx.roots.reserveSlots(rootShared ? 2 : 1);
     ctx.roots.add(&saved);
     ctx.activeContext = next;
     if (rootShared) {
@@ -97,6 +103,8 @@ struct NonlocalGuard {
     if (!rootShared) {
       return;
     }
+    // SPEC §3.2 (O1): all or nothing, so a throw never leaves nonlocalHome registered.
+    ctx.roots.reserveSlots(2);
     ctx.roots.add(&ctx.nonlocalHome);
     ctx.roots.add(&ctx.nonlocalValue);
   }

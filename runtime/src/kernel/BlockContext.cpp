@@ -93,7 +93,16 @@ void runAside(CallContext& ctx, Oop cleanup) {
   bool ran = false;
   {
     const AsideCounts counts(ctx, aborting);
-    ran = callBlock(ctx, blk.slot, nullptr, 0, &ignored);
+    // SPEC §3.2 (O1): a C++ exception leaving the cleanup gives up the set-aside reason, which
+    // nothing would put back or drop otherwise (dropHandle does not allocate).
+    try {
+      ran = callBlock(ctx, blk.slot, nullptr, 0, &ignored);
+    } catch (...) {
+      if (reasonHandle != CallContext::kNoAbortReasonHandle) {
+        ctx.roots.dropHandle(reasonHandle);
+      }
+      throw;
+    }
   }
   // SPEC §3.4: unwinding the cleanup started itself wins over a paused non-local return, but not
   // over a paused abort. Then the cleanup's ^ is dropped, and so is its own abort's reason: the

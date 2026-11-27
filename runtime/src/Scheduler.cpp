@@ -222,6 +222,9 @@ struct Scheduler::Record {
 namespace {
 
 void rootRecord(Roots& roots, Oop* process, Oop* block, Oop* waitingOn, Oop* signaledBy) {
+  // SPEC §3.2 (O1): all or nothing. Without the room it throws before any slot is registered;
+  // a throw half way would leave slots of a record that is then freed.
+  roots.reserveSlots(4);
   roots.add(process);
   roots.add(block);
   roots.add(waitingOn);
@@ -344,7 +347,17 @@ Oop Scheduler::fork(CallContext& ctx, Oop block) {
   if (r == nullptr) {
     return Oop{};
   }
-  if (!enqueue(ctx, *r)) {
+  // SPEC §3.2 (O1): the half-made process goes when enqueue fails, and when it throws too (it has
+  // then taken its ready entry out again).
+  bool queued = false;
+  try {
+    queued = enqueue(ctx, *r);
+  } catch (...) {
+    r->state = State::Dead;
+    reapDead();
+    throw;
+  }
+  if (!queued) {
     r->state = State::Dead;
     reapDead();
     return Oop{};
@@ -377,8 +390,17 @@ Scheduler::Record* Scheduler::addFiber(CallContext& ctx, Oop process, Oop block)
   r.ctx->fiberStackHigh = reinterpret_cast<std::uintptr_t>(r.stack.high());
   r.process = process;
   r.block = block;
+  // SPEC §3.2 (O1): the steps after the record is rooted do not throw (the room in records_ comes
+  // first), or take the roots out again (attachStack), so a throw never leaves a freed record's
+  // slots or stack registered.
+  records_.reserve(records_.size() + 1);
   rootRecord(base_.roots, &r.process, &r.block, &r.waitingOn, &r.signaledBy);
-  base_.roots.attachStack(&r.rootStack);
+  try {
+    base_.roots.attachStack(&r.rootStack);
+  } catch (...) {
+    unrootRecord(base_.roots, &r.process, &r.block, &r.waitingOn, &r.signaledBy);
+    throw;
+  }
   fiberInit(r.regs, r.stack, &Scheduler::fiberEntry, &r);
   records_.push_back(std::move(rec));
   return &r;
@@ -1087,21 +1109,28 @@ bool Scheduler::enqueue(CallContext& ctx, Record& r) {
   Heap& heap = ctx.heap;
   // The C++ queue first: if growing it throws, nothing has changed yet.
   ready_.push_back(&r);
-  Root sched(ctx.roots, ctx.wk.processor);
-  if (hasSlots(heap, sched.slot, kSchedulerSlotActive)) {
-    Root list(ctx.roots, ensureOc(ctx, sched, kSchedulerSlotQuiescent));
-    if (unwinding(ctx)) {
-      ready_.pop_back();
-      return false;
-    }
-    if (list.slot.isHeap()) {
-      ocAdd(ctx, list.slot, r.process);
+  // SPEC §3.2 (O1): a C++ exception from the sends below takes the entry out again, as a failed
+  // send does, so the queue never keeps a record its caller then drops.
+  try {
+    Root sched(ctx.roots, ctx.wk.processor);
+    if (hasSlots(heap, sched.slot, kSchedulerSlotActive)) {
+      Root list(ctx.roots, ensureOc(ctx, sched, kSchedulerSlotQuiescent));
       if (unwinding(ctx)) {
         ready_.pop_back();
         return false;
       }
-      setMyList(heap, r.process, list.slot);
+      if (list.slot.isHeap()) {
+        ocAdd(ctx, list.slot, r.process);
+        if (unwinding(ctx)) {
+          ready_.pop_back();
+          return false;
+        }
+        setMyList(heap, r.process, list.slot);
+      }
     }
+  } catch (...) {
+    ready_.pop_back();
+    throw;
   }
   r.state = State::Ready;
   return true;

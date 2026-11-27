@@ -73,6 +73,9 @@ struct Temps {
       return;
     }
     slots.reset(new Oop[n]);
+    // SPEC §3.2 (O1): all or nothing. A constructor that threw half way would free the array and
+    // leave its first slots registered.
+    roots->reserveSlots(n);
     for (std::uint32_t i = 0; i < n; ++i) {
       slots[i] = Oop::nil();
       roots->add(&slots[i]);
