@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1795774527.6475947,
-    "seen": 1795774593.51439,
-    "ast_hash": "4e3d1d6ec2fa74a5d4c11d898fadf043",
+    "mtime": 1795774755.47696,
+    "seen": 1795774800.903234,
+    "ast_hash": "6b27ebf8a63af545f84e3bdf3dbb1325",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
@@ -1074,8 +1074,8 @@
     "semantic_hash": "d36dc686a1ba492710f5af1b178a15a9"
   },
   "runtime/src/Compile.cpp": {
-    "mtime": 1795774354.8187773,
-    "seen": 1795774593.514304,
+    "mtime": 1795774758.6656716,
+    "seen": 1795774800.903144,
     "ast_hash": "3c40e474e422a674b87bfe4db2aef082",
     "semantic_hash": ""
   },
