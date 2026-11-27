@@ -1085,6 +1085,8 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
   Root metaDict(ctx.roots, Oop{});
   // Set once pool, dict and metaDict hold the answered class's own objects.
   bool holdsOwn = false;
+  // Set once every method is in the answered class. Nothing is put back after that.
+  bool moved = false;
   // Nothing here collects.
   const auto giveBackOwn = [&] {
     ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, pool.slot);
@@ -1200,7 +1202,9 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
       }
       installed[i] = method;
     }
-    // No put-back after this: moveMethodSource catches std::bad_alloc and moves the text only.
+    // Only the sources move from here on; moveMethodSource catches std::bad_alloc and moves the
+    // text only.
+    moved = true;
     for (std::uint32_t i = 0; i < count; ++i) {
       moveMethodSource(oldMethods[i], installed[i], carried[i].image);
     }
@@ -1208,11 +1212,13 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     invalidateMethodCache(ctx.cache, Oop{});
     return true;
   } catch (...) {
-    if (holdsOwn) {
-      giveBackOwn();
-    }
-    if (ctx.wk.named(action.className) != old.slot) {
-      rebindClassName(ctx, action.className, old.slot);
+    if (!moved) {
+      if (holdsOwn) {
+        giveBackOwn();
+      }
+      if (ctx.wk.named(action.className) != old.slot) {
+        rebindClassName(ctx, action.className, old.slot);
+      }
     }
     throw;
   }

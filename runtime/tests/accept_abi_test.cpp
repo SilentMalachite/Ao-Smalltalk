@@ -3697,11 +3697,12 @@ TEST(AcceptAbi, FailedRootAddInsideTheRecordLeavesNoRootBehind) {
 }
 
 // SPEC §3.9 (O2): the k-th root slot registration of a shape change fails, for each k up to the
-// first one the Accept no longer reaches. A shape change that does not answer AO_OK leaves the
-// name on the old class, with its shape, methods, sources and class variable, also when the
-// failure throws after the name was bound to the class the send answered; that class, which the
-// superclass's class-side override keeps in O2Answered, has its own method dictionaries and
-// classPool back. Before any GC, no root is left behind and the active context is empty again.
+// first one the Accept no longer reaches. A failure throws, so the Accept answers AO_ERR (§3.10)
+// or swallows it. One that answers AO_ERR leaves the name on the old class, with its shape,
+// methods, sources and class variable, also when it throws after the send answered and bound the
+// name. The class the send answered, which the superclass's class-side override keeps in
+// O2Answered, then has its own classPool and method dictionaries back (the same objects). Before
+// any GC, no root is left behind and the active context is empty again.
 TEST(AcceptAbi, FailedRootAddInsideAShapeChangePutsTheNameBack) {
   ASSERT_EQ(AO_OK, ao_runtime_boot());
   AoSpan err{};
@@ -3709,25 +3710,39 @@ TEST(AcceptAbi, FailedRootAddInsideAShapeChangePutsTheNameBack) {
   const std::string newDef = b4Definition("O2Sup", "O2Shape", "a b", "Count", "O2-Test");
   const std::string supDef = b4Definition("Object", "O2Sup", "", "", "O2-Test");
   ASSERT_EQ(AO_OK, ao_accept_class(supDef.c_str(), &err)) << err.message;
-  expectPrints({{"Smalltalk at: #O2Answered put: nil. 0", "0"}});
+  expectPrints({{"#(#O2Answered #O2OwnPool #O2OwnDict #O2OwnMetaDict) do: [:n | Smalltalk at: n "
+                 "put: nil]. 0",
+                 "0"}});
+  // The answered class's own objects are kept before the class is.
   acceptMethods("O2Sup", 1,
                 {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
                  "category: k\n  | made |\n  made := super subclass: n instanceVariableNames: i "
                  "classVariableNames: c poolDictionaries: p category: k.\n  Smalltalk at: "
-                 "#O2Answered put: made.\n  ^made\n"});
+                 "#O2OwnPool put: (made instVarNamed: #classPool).\n  Smalltalk at: #O2OwnDict "
+                 "put: made methodDict.\n  Smalltalk at: #O2OwnMetaDict put: made class "
+                 "methodDict.\n  Smalltalk at: #O2Answered put: made.\n  ^made\n"});
   ASSERT_EQ(AO_OK, ao_accept_class(oldDef.c_str(), &err)) << err.message;
   const char* getA = "a\n  ^a\n";
+  const char* make = "make\n  ^self new\n";
   acceptMethods("O2Shape", 0,
                 {getA, "a: v\n  a := v\n", "count\n  ^Count\n", "count: v\n  Count := v\n"});
-  acceptMethods("O2Shape", 1, {"make\n  ^self new\n"});
+  acceptMethods("O2Shape", 1, {make});
   expectPrints({{"O2Shape new count: 3. O2Shape new count", "3"}});
   // The first change to this shape interns #b, which the symbol table roots for good. It is done
   // once here, so that no row counts it as a root left behind.
   ASSERT_EQ(AO_OK, ao_accept_class(newDef.c_str(), &err)) << err.message;
   ASSERT_EQ(AO_OK, ao_accept_class(oldDef.c_str(), &err)) << err.message;
+  const auto printed = [](const char* src) {
+    char out[64] = "";
+    AoSpan e{};
+    const int rc = ao_eval(src, static_cast<int>(std::strlen(src)), AO_EVAL_PRINTIT, out, 64, &e);
+    return rc == AO_OK ? std::string(out) : "rc " + std::to_string(rc) + ": " + e.message;
+  };
   std::size_t k = 0;
-  // Rows whose injected failure fired and failed the shape change.
+  // Rows whose injected failure failed the shape change, and those of them that failed after the
+  // send answered (so after it bound the name to the answered class).
   std::size_t failedRows = 0;
+  std::size_t answeredRows = 0;
   for (;; ++k) {
     SCOPED_TRACE(k);
     expectPrints({{"oldShape := O2Shape. Smalltalk at: #O2Answered put: nil. 0", "0"}});
@@ -3737,7 +3752,7 @@ TEST(AcceptAbi, FailedRootAddInsideAShapeChangePutsTheNameBack) {
     const int rc = ao_accept_class(newDef.c_str(), &err);
     const bool fired = !s.roots.slotGrowthFailurePending();
     s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
-    ASSERT_TRUE(rc == AO_OK || rc == AO_ERR || rc == AO_ERR_COMPILE) << rc;
+    ASSERT_TRUE(rc == AO_OK || rc == AO_ERR) << rc << ": " << err.message;
     ASSERT_TRUE(fired || rc == AO_OK) << rc << ": " << err.message;
     const RootShape after = rootShape(s);
     ASSERT_TRUE(before == after) << "rc " << rc << " " << err.message << ": slots "
@@ -3758,21 +3773,29 @@ TEST(AcceptAbi, FailedRootAddInsideAShapeChangePutsTheNameBack) {
       ++failedRows;
       expectPrints({{"oldShape == O2Shape", "true"},
                     {"(O2Shape make a: 6) a", "6"},
-                    {"O2Shape new count", "3"},
-                    {"O2Answered isNil or: [O2Answered selectors isEmpty and: [O2Answered class "
-                     "selectors isEmpty and: [(O2Answered classPool at: #Count) ~~ (O2Shape "
-                     "classPool at: #Count)]]]",
-                     "true"}});
+                    {"O2Shape new count", "3"}});
+      if (printed("O2Answered notNil") == "true") {
+        ++answeredRows;
+        expectPrints({{"(O2Answered instVarNamed: #classPool) == O2OwnPool", "true"},
+                      {"O2Answered methodDict == O2OwnDict", "true"},
+                      {"O2Answered class methodDict == O2OwnMetaDict", "true"},
+                      {"O2Answered selectors isEmpty & O2Answered class selectors isEmpty", "true"}});
+      }
       EXPECT_NE(b5ClassDefinition("O2Shape").find("instanceVariableNames: 'a'\n"),
                 std::string::npos);
-      char source[64];
-      ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("O2Shape"), 0, "a", source, 64));
+      const std::int64_t id = ao_browser_class_id("O2Shape");
+      char source[64] = "";
+      EXPECT_EQ(AO_OK, ao_browser_source(id, 0, "a", source, 64));
       EXPECT_STREQ(getA, source);
+      char classSource[64] = "";
+      EXPECT_EQ(AO_OK, ao_browser_source(id, 1, "make", classSource, 64));
+      EXPECT_STREQ(make, classSource);
     }
     if (!fired) {
       break;
     }
   }
   EXPECT_GT(failedRows, 0u);
+  EXPECT_GT(answeredRows, 0u);
   ao_runtime_shutdown();
 }
