@@ -33,6 +33,15 @@ void Roots::remove(Oop* slot) {
   }
 }
 
+void Roots::removeWithin(const void* first, const void* last) {
+  const auto lo = reinterpret_cast<std::uintptr_t>(first);
+  const auto hi = reinterpret_cast<std::uintptr_t>(last);
+  std::erase_if(slots_, [lo, hi](const Oop* slot) {
+    const auto at = reinterpret_cast<std::uintptr_t>(slot);
+    return at >= lo && at < hi;
+  });
+}
+
 void Roots::reserveSlots(std::size_t n) {
   if (failAfter_ != kNoFailure && failAfter_ < n) {
     failAfter_ = kNoFailure;
