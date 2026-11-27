@@ -304,3 +304,31 @@ TEST(TranscriptModel, LongTextStopsWhenTheHookUnsetsItself) {
   ao_set_transcript_hook(nullptr, nullptr);
   EXPECT_EQ((std::vector<std::string>{"ab"}), seen);
 }
+
+// SPEC §3.10: a hook that sets another hook (ao_set_transcript_hook(fn, user)) while it takes a
+// chunk gets no more chunks of that text; the new hook gets the rest, with its own user.
+TEST(TranscriptModel, LongTextGoesOnToAHookSetWhileItIsTaken) {
+  static std::vector<std::string> first;
+  static std::vector<std::string> second;
+  static int marker = 0;
+  static void* secondUser = nullptr;
+  first.clear();
+  second.clear();
+  secondUser = nullptr;
+  ao_set_transcript_hook(
+      [](const char* utf8, int len, int, void*) {
+        first.emplace_back(utf8, static_cast<std::size_t>(len));
+        ao_set_transcript_hook(
+            [](const char* utf8, int len, int, void* user) {
+              second.emplace_back(utf8, static_cast<std::size_t>(len));
+              secondUser = user;
+            },
+            &marker);
+      },
+      nullptr);
+  ao::deliverTranscriptChunks("abcdef", 6, 2);
+  ao_set_transcript_hook(nullptr, nullptr);
+  EXPECT_EQ((std::vector<std::string>{"ab"}), first);
+  EXPECT_EQ((std::vector<std::string>{"cd", "ef"}), second);
+  EXPECT_EQ(&marker, secondUser);
+}
