@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "SPEC.md": {
-    "mtime": 1795776827.998632,
-    "seen": 1795777117.318493,
-    "ast_hash": "f001f98da6c35c01d78544db0d19d3e5",
+    "mtime": 1795779409.6137245,
+    "seen": 1795779414.154324,
+    "ast_hash": "dc134599de125ecc16ac77bc94ac0613",
     "semantic_hash": ""
   },
   "compiler/CMakeLists.txt": {
