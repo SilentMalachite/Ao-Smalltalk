@@ -1356,9 +1356,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/session_abi_test.cpp": {
-    "mtime": 1795736973.4172556,
-    "seen": 1795737175.373364,
-    "ast_hash": "2918f0965982d0b5149587b535f4fd93",
+    "mtime": 1795738296.655136,
+    "seen": 1795738369.585879,
+    "ast_hash": "dcb6ce161311fe23aafa107770626a07",
     "semantic_hash": ""
   },
   "scripts/package-app.sh": {
@@ -1601,18 +1601,6 @@
     "ast_hash": "83b50a5eeab557194f73f5fb49d28eb9",
     "semantic_hash": "83b50a5eeab557194f73f5fb49d28eb9"
   },
-  "docs/Qiita-part1.md": {
-    "mtime": 1790462866.8334792,
-    "seen": 1791544525.913355,
-    "ast_hash": "237df0a79cb73b4fdcf520e8dca31ace",
-    "semantic_hash": "237df0a79cb73b4fdcf520e8dca31ace"
-  },
-  "docs/Qiita-part2.md": {
-    "mtime": 1790455791.1198032,
-    "seen": 1791544525.913356,
-    "ast_hash": "3aa1913e12c339ee7e1371d34e1522ee",
-    "semantic_hash": "3aa1913e12c339ee7e1371d34e1522ee"
-  },
   ".github/workflows/ci.yml": {
     "mtime": 1795549690.2401636,
     "seen": 1795605031.467526,
@@ -1805,18 +1793,6 @@
     "ast_hash": "09b9262d1e4bc74c95b2ec1ffefaf576",
     "semantic_hash": "09b9262d1e4bc74c95b2ec1ffefaf576"
   },
-  "docs/Qiita3.md": {
-    "mtime": 1790489441.6451366,
-    "seen": 1791544525.913356,
-    "ast_hash": "3f52ee5c3123f6dccc34f0646bb91ba4",
-    "semantic_hash": "3f52ee5c3123f6dccc34f0646bb91ba4"
-  },
-  "docs/Qiita4.md": {
-    "mtime": 1790489454.3494763,
-    "seen": 1791544525.913357,
-    "ast_hash": "410eb8b8858d377c126f1d17169a8016",
-    "semantic_hash": "410eb8b8858d377c126f1d17169a8016"
-  },
   "docs/superpowers/plans/2026-09-30-evaluation-interrupt.md": {
     "mtime": 1790735314.171603,
     "seen": 1791536826.831318,
@@ -1961,40 +1937,10 @@
     "ast_hash": "7a965330e7b975b94d70320f157323ea",
     "semantic_hash": ""
   },
-  "review-agy.md": {
-    "mtime": 1795525488.7363827,
-    "seen": 1795531090.3436959,
-    "ast_hash": "ac53eff45a4a6b2417460cc194e2266e",
-    "semantic_hash": ""
-  },
-  "docs/superpowers/plans/2026-11-25-review-agy-interim-report.md": {
-    "mtime": 1795622378.9039755,
-    "seen": 1795654891.346901,
-    "ast_hash": "b25fc96a1ef3a7c6dd6df2c5b94a9d2d",
-    "semantic_hash": ""
-  },
-  "docs/superpowers/plans/2026-11-26-review-agy-handoff.md": {
-    "mtime": 1795733716.491927,
-    "seen": 1795737175.373478,
-    "ast_hash": "5183483794ae4191618c59d4c1dd9233",
-    "semantic_hash": ""
-  },
-  "docs/superpowers/plans/2026-11-27-o1-diagnosis.md": {
-    "mtime": 1795731518.3576524,
-    "seen": 1795737175.373479,
-    "ast_hash": "a638f8453f9f5081c09e3c4fc847a8e2",
-    "semantic_hash": ""
-  },
   "docs/superpowers/plans/2026-11-27-o1-root-registration.md": {
     "mtime": 1795734947.3682873,
     "seen": 1795737175.3734798,
     "ast_hash": "bb1f33164b273ffcf891e6febc58a45e",
-    "semantic_hash": ""
-  },
-  "docs/superpowers/plans/2026-11-27-review-agy-rulings.md": {
-    "mtime": 1795720243.6996484,
-    "seen": 1795737175.3734798,
-    "ast_hash": "f7384bc3850a423be8c41cb5bf0ee925",
     "semantic_hash": ""
   }
 }
