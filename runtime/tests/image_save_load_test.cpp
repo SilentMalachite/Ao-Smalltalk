@@ -1596,8 +1596,8 @@ TEST(ImageSaveChecks, SaveReasonNamesTheOffsetOfAnObjectWithABadClassWord) {
   std::filesystem::remove_all(dir, ec);
 }
 
-// SPEC §3.11: a reason names a class by its name. A class whose name is nil (`Behavior new`) is
-// "an unnamed class"; a class word that points at an object with too few slots for a class (an
+// SPEC §3.11: a reason names a class by its name. A class whose name is not a byte object (nil, as
+// for `Behavior new`, or an Array) is "an unnamed class"; a class word that points at an object with too few slots for a class (an
 // Array of 1) is "an object that is no class".
 TEST(ImageSaveChecks, SaveReasonNamesAnUnnamedClassAndAnObjectThatIsNoClass) {
   const auto dir = freshDir("r8-save-unnamed");
@@ -1621,6 +1621,10 @@ TEST(ImageSaveChecks, SaveReasonNamesAnUnnamedClassAndAnObjectThatIsNoClass) {
   b.heap.slotAtPut(instance.slot, 0, ao::Oop{});
   ASSERT_TRUE(ao::Globals::bind(b.wk, name.slot, instance.slot));
   EXPECT_EQ("slot 1 of an instance of an unnamed class is an empty OOP", refusal());
+  // A name that is a pointer object (an Array), not bytes, is no name either.
+  b.heap.slotAtPut(unnamed.slot, ao::kClassSlotName, array.slot);
+  EXPECT_EQ("slot 1 of an instance of an unnamed class is an empty OOP", refusal());
+  b.heap.slotAtPut(unnamed.slot, ao::kClassSlotName, ao::Oop::nil());
   b.heap.slotAtPut(instance.slot, 0, ao::Oop::nil());
   b.heap.slotAtPut(odd.slot, 0, ao::Oop{});
   ASSERT_TRUE(ao::Globals::bind(b.wk, name.slot, odd.slot));

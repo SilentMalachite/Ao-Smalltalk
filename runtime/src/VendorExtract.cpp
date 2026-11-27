@@ -3,6 +3,7 @@
 #include "ao/Chunk.hpp"
 #include "ao/Scanner.hpp"
 
+#include <cassert>
 #include <set>
 #include <string>
 #include <string_view>
@@ -60,12 +61,16 @@ constexpr std::string_view kShapeKeywords[] = {
     "weakSubclass:",
 };
 
-void scanShapes(std::string_view changes, const std::vector<std::string>& allow,
-                std::vector<KeptClass>& slots, std::vector<std::string>& notes) {
+// Calls visit(i) at each position of Smalltalk code in text: outside comments ("...") and strings
+// ('...', with '' inside), and not on the character after the `$` of a `$c` literal. visit answers
+// the position to go on from (more than i); text.size() stops. scanShapes and containsHostWord
+// read the text this way.
+template <typename Visit>
+void forEachCodePosition(std::string_view text, Visit visit) {
   enum class Lex { Code, Comment, String };
   Lex lex = Lex::Code;
-  for (std::size_t i = 0; i < changes.size();) {
-    const char c = changes[i];
+  for (std::size_t i = 0; i < text.size();) {
+    const char c = text[i];
     if (lex == Lex::Comment) {
       if (c == '"') {
         lex = Lex::Code;
@@ -75,7 +80,7 @@ void scanShapes(std::string_view changes, const std::vector<std::string>& allow,
     }
     if (lex == Lex::String) {
       if (c == '\'') {
-        if (i + 1 < changes.size() && changes[i + 1] == '\'') {
+        if (i + 1 < text.size() && text[i + 1] == '\'') {
           i += 2;
           continue;
         }
@@ -94,21 +99,27 @@ void scanShapes(std::string_view changes, const std::vector<std::string>& allow,
       ++i;
       continue;
     }
-    if (c == '$' && i + 1 < changes.size()) {
+    if (c == '$' && i + 1 < text.size()) {
       i += 2;
       continue;
     }
+    const std::size_t next = visit(i);
+    assert(next > i);
+    i = next;
+  }
+}
+
+void scanShapes(std::string_view changes, const std::vector<std::string>& allow,
+                std::vector<KeptClass>& slots, std::vector<std::string>& notes) {
+  forEachCodePosition(changes, [&](std::size_t i) -> std::size_t {
     const bool boundary = i == 0 || (!isIdentChar(changes[i - 1]) && changes[i - 1] != '#');
     if (!boundary) {
-      ++i;
-      continue;
+      return i + 1;
     }
-    bool matched = false;
     for (const std::string_view kw : kShapeKeywords) {
       if (!changes.substr(i).starts_with(kw)) {
         continue;
       }
-      matched = true;
       std::size_t j = i + kw.size();
       while (j < changes.size() && isWs(changes[j])) {
         ++j;
@@ -134,13 +145,10 @@ void scanShapes(std::string_view changes, const std::vector<std::string>& allow,
           }
         }
       }
-      i += kw.size();
-      break;
+      return i + kw.size();
     }
-    if (!matched) {
-      ++i;
-    }
-  }
+    return i + 1;
+  });
 }
 
 std::string_view firstNonEmptyLine(std::string_view source) {
@@ -329,43 +337,8 @@ constexpr std::string_view kHostWords[] = {
 };
 
 bool containsHostWord(std::string_view text) {
-  // Same lexing as scanShapes: comments, strings and `$c` literals are not code.
-  enum class Lex { Code, Comment, String };
-  Lex lex = Lex::Code;
-  for (std::size_t i = 0; i < text.size();) {
-    const char c = text[i];
-    if (lex == Lex::Comment) {
-      if (c == '"') {
-        lex = Lex::Code;
-      }
-      ++i;
-      continue;
-    }
-    if (lex == Lex::String) {
-      if (c == '\'') {
-        if (i + 1 < text.size() && text[i + 1] == '\'') {
-          i += 2;
-          continue;
-        }
-        lex = Lex::Code;
-      }
-      ++i;
-      continue;
-    }
-    if (c == '"') {
-      lex = Lex::Comment;
-      ++i;
-      continue;
-    }
-    if (c == '\'') {
-      lex = Lex::String;
-      ++i;
-      continue;
-    }
-    if (c == '$' && i + 1 < text.size()) {
-      i += 2;
-      continue;
-    }
+  bool found = false;
+  forEachCodePosition(text, [&](std::size_t i) -> std::size_t {
     if (i == 0 || !isHostWordChar(text[i - 1])) {
       for (const std::string_view word : kHostWords) {
         if (!text.substr(i).starts_with(word)) {
@@ -373,13 +346,14 @@ bool containsHostWord(std::string_view text) {
         }
         const std::size_t after = i + word.size();
         if (after >= text.size() || !isHostWordChar(text[after])) {
-          return true;
+          found = true;
+          return text.size();
         }
       }
     }
-    ++i;
-  }
-  return false;
+    return i + 1;
+  });
+  return found;
 }
 
 struct MethodParts {

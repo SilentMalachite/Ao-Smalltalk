@@ -1371,23 +1371,69 @@ TEST(GcRoots, CountsFollowEveryKindOfRoot) {
 }
 
 // WellKnown は作るときに自分のスロットを Roots に登録し、intern でも表の項目を登録する。壊したあとに
-// 登録が残ると、GC が解放済みのスロットを読み書きする。前から登録されていたスロットは残る。
+// 登録が残ると、GC が解放済みのスロットを読み書きする。前から登録されていたスロットと、WellKnown の
+// あとに登録して残っているスロット（セッションのメソッドキャッシュのような）は残る。
 TEST(GcRoots, WellKnownDestructorRemovesItsRoots) {
   ao::Heap heap;
   ao::Roots roots;
   ao::Oop kept = ao::Oop::nil();
+  ao::Oop later[3] = {ao::Oop::nil(), ao::Oop::nil(), ao::Oop::nil()};
   roots.add(&kept);
   const std::size_t before = roots.counts().slots;
   {
     ao::WellKnown wk(heap, roots);
     const std::size_t fixed = roots.counts().slots;
     ASSERT_GT(fixed, before);
+    for (ao::Oop& slot : later) {
+      roots.add(&slot);
+    }
     ASSERT_TRUE(wk.intern("foo").isHeap());
     ASSERT_TRUE(wk.intern("bar").isHeap());
-    ASSERT_EQ(fixed + 2, roots.counts().slots);
+    ASSERT_EQ(fixed + 3 + 2, roots.counts().slots);
   }
-  EXPECT_EQ(before, roots.counts().slots);
+  EXPECT_EQ(before + 3, roots.counts().slots);
+  std::vector<ao::Oop*> seen;
+  roots.visitAll(
+      [](void* ctx, ao::Oop* slot) { static_cast<std::vector<ao::Oop*>*>(ctx)->push_back(slot); },
+      &seen);
+  EXPECT_EQ((std::vector<ao::Oop*>{&kept, &later[0], &later[1], &later[2]}), seen);
+  for (ao::Oop& slot : later) {
+    roots.remove(&slot);
+  }
   roots.remove(&kept);
+  EXPECT_EQ(0u, roots.counts().slots);
+}
+
+// removeWithin は、番地が [first, last) にあるスロットの登録を、同じスロットの重ねた登録も含めて
+// すべて、1 回の走査で外す。範囲のすぐ外のスロット（first の直前と、last ちょうど）の登録は、並びを
+// 保って残る。
+TEST(GcRoots, RemoveWithinDropsEverySlotInTheRangeAndKeepsTheRest) {
+  ao::Roots roots;
+  ao::Oop slots[5] = {ao::Oop::nil(), ao::Oop::nil(), ao::Oop::nil(), ao::Oop::nil(),
+                      ao::Oop::nil()};
+  ao::Oop* const first = &slots[1];
+  ao::Oop* const last = &slots[4];
+  roots.add(&slots[0]);
+  roots.add(&slots[1]);
+  roots.add(&slots[4]);
+  roots.add(&slots[3]);
+  roots.add(&slots[3]);
+  roots.add(&slots[0]);
+  roots.add(&slots[2]);
+  ASSERT_EQ(7u, roots.counts().slots);
+  roots.removeWithin(first, last);
+  std::vector<ao::Oop*> seen;
+  roots.visitAll(
+      [](void* ctx, ao::Oop* slot) { static_cast<std::vector<ao::Oop*>*>(ctx)->push_back(slot); },
+      &seen);
+  EXPECT_EQ((std::vector<ao::Oop*>{&slots[0], &slots[4], &slots[0]}), seen);
+  roots.removeWithin(first, last);
+  EXPECT_EQ(3u, roots.counts().slots);
+  roots.removeWithin(&slots[0], &slots[0]);
+  EXPECT_EQ(3u, roots.counts().slots);
+  roots.remove(&slots[0]);
+  roots.remove(&slots[4]);
+  roots.remove(&slots[0]);
   EXPECT_EQ(0u, roots.counts().slots);
 }
 

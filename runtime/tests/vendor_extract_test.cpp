@@ -243,6 +243,34 @@ TEST(VendorExtract, HostWordInCommentOrStringIsNotPatched) {
   EXPECT_EQ(1u, patches);
 }
 
+// SPEC §4.1 vendor_extract_test: the character literals `$'` and `$"` open no string and no
+// comment, so a host word after them is code and the method is patched.
+TEST(VendorExtract, CharacterLiteralQuoteDoesNotHideAHostWord) {
+  const char* src =
+      "!Object subclass: #FileStream\n"
+      "  instanceVariableNames: ''\n"
+      "  classVariableNames: ''\n"
+      "  poolDictionaries: ''\n"
+      "  category: 'Files'!\n"
+      "!FileStream methodsFor: 'notes'!\n"
+      "afterQuote\n"
+      "  ^$' -> StandardFileStream!\n"
+      "!FileStream methodsFor: 'notes'!\n"
+      "afterDoubleQuote\n"
+      "  ^$\" -> Form!\n";
+  auto r = ao::extractVendor(src, {"FileStream"});
+  ASSERT_EQ(1u, r.files.size());
+  const std::string& text = r.files[0].chunkText;
+  EXPECT_EQ(std::string::npos, text.find("StandardFileStream"));
+  EXPECT_EQ(std::string::npos, text.find("-> Form"));
+  const std::string stub = "host file stream is not connected";
+  std::size_t stubs = 0;
+  for (std::size_t at = text.find(stub); at != std::string::npos; at = text.find(stub, at + 1)) {
+    ++stubs;
+  }
+  EXPECT_EQ(2u, stubs);
+}
+
 // B7 review / SPEC §3.8 チャンク形式: the reader turns `!!` into `!` in strings, comments and `$!!`,
 // so render doubles every `!` again. Reading the rendered chunk gives the same method source.
 TEST(VendorExtract, RenderDoublesBangs) {

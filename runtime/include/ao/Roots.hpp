@@ -63,6 +63,10 @@ class Roots {
   // add throws std::bad_alloc when the slot table cannot grow. remove never throws.
   void add(Oop* slot);
   void remove(Oop* slot);
+  // Removes every registration of a slot whose address is in [first, last), in one pass, and keeps
+  // the others in order. Never throws. For an object that registered many of its own members
+  // (WellKnown): remove looks from the newest registration, past every slot added after them.
+  void removeWithin(const void* first, const void* last);
   // Makes room for n more add calls, which then do not allocate and cannot throw. Throws
   // std::bad_alloc before anything is registered, so a group of adds is all or nothing.
   void reserveSlots(std::size_t n);
