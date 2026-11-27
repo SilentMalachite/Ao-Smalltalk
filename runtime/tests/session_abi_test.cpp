@@ -1673,8 +1673,9 @@ void sweepFailedRootAdds(const char* src, const char* answer) {
   ASSERT_EQ(answer, out);
   const std::uint64_t cleanFailures =
       ao::session()->scheduler->processFailures() - failuresBeforeClean;
-  // Rows whose failed evaluation answered AO_OK and had its answer checked: at least one, so the
-  // check is not vacuous.
+  // Rows whose injected failure fired, yet the evaluation answered AO_OK and had its answer
+  // checked: at least one, so the check is not vacuous (the last row, which no failure reaches,
+  // does not count).
   std::size_t answersChecked = 0;
   std::size_t k = 0;
   for (;; ++k) {
@@ -1697,7 +1698,7 @@ void sweepFailedRootAdds(const char* src, const char* answer) {
     // AO_OK answer is the right one.
     const bool extraFailure = s.scheduler->processFailures() - failuresBefore != cleanFailures;
     ASSERT_TRUE(failedRc != AO_OK || extraFailure || out == answer) << out;
-    answersChecked += failedRc == AO_OK && !extraFailure ? 1 : 0;
+    answersChecked += fired && failedRc == AO_OK && !extraFailure ? 1 : 0;
     ao::Gc gc(s.heap, s.roots);
     gc.collectNursery();
     gc.collectOld();
