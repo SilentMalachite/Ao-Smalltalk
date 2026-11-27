@@ -1817,35 +1817,193 @@ TEST(Process, SemaphoreAndSharedQueueNewAnswerForeignBasicNewUntouched) {
   }
 }
 
-// SPEC §3.2, §3.4: the send that makes the ready queue's OrderedCollection (quiescentProcesses
-// holds none) forks another process and then fails. The fork that asked takes only its own entry
-// out of the queue: the nested process stays queued and runs, and no freed record is left there.
-// Accept cannot hide a Kernel native, so the override of basicNew is installed directly.
-TEST(Process, FailedQueueSendKeepsTheProcessItForked) {
+namespace {
+
+// SPEC §3.4 (Scheduler review A1-A3): accepts a class AoProbe with one method, body, on its class
+// side (meta) or instance side. Swapping a method dictionary slot (instVarAt: 2 put:) of
+// OrderedCollection's metaclass or of OrderedCollection for AoProbe's makes Smalltalk's sends reach
+// it, from Smalltalk alone; the scheduler's lists must not.
+void acceptProbe(Boot& b, bool meta, const std::string& body) {
+  ao::compiler::CompileError err;
+  ASSERT_TRUE(ao::acceptClassSource(b.ctx,
+                                    "Object subclass: #AoProbe\n"
+                                    "  instanceVariableNames: ''\n"
+                                    "  classVariableNames: ''\n"
+                                    "  poolDictionaries: ''\n"
+                                    "  category: 'Probe'",
+                                    &err))
+      << err.message;
+  ASSERT_TRUE(ao::acceptMethodSource(b.ctx, "AoProbe", meta, body, &err)) << err.message;
+}
+
+// A class side new that counts its runs in AoProbeCalls and, the first time AoProbeArmed is true,
+// clears it and runs action.
+std::string probeNew(const std::string& action) {
+  return "new\n"
+         "  Smalltalk at: #AoProbeCalls put: (Smalltalk at: #AoProbeCalls) + 1.\n"
+         "  (Smalltalk at: #AoProbeArmed) == true ifTrue: [\n"
+         "    Smalltalk at: #AoProbeArmed put: false.\n"
+         "    " +
+         action +
+         "].\n"
+         "  ^super new";
+}
+
+ao::Oop global(Boot& b, const std::string& name) {
+  return run(b, "doIt\n  ^Smalltalk at: #" + name);
+}
+
+}  // namespace
+
+// SPEC §3.4 (A1): OrderedCollection class's method dictionary is swapped for one whose new yields.
+// The fork that makes the ready queue's list (quiescentProcesses is nil) sends nothing, so the
+// override does not run and cannot switch to the half-made process. The new list holds that
+// process (the one forked before is in the list the slot held, SPEC §3.4), and both run once the
+// base yields.
+TEST(Process, YieldInsideSwappedNewDoesNotRunDuringFork) {
   Boot b;
-  auto img = ao::compiler::compileMethod(
-      "basicNew\n"
-      "  (Smalltalk at: #AoNestedArmed) == true ifTrue: [\n"
-      "    Smalltalk at: #AoNestedArmed put: false.\n"
-      "    [Smalltalk at: #AoNestedRan put: true] fork.\n"
-      "    ^self error: 'no queue'].\n"
-      "  ^super basicNew");
-  ASSERT_TRUE(img.ok) << img.error.message;
-  EXPECT_EQ("<no abort>", runAbort(b, "doIt\n"
-                                      "  Smalltalk at: #AoNestedArmed put: false.\n"
-                                      "  Smalltalk at: #AoNestedRan put: false"));
-  ASSERT_TRUE(
-      ao::installMethod(b.ctx, b.heap.klass(b.wk.orderedCollectionClass), img.image).isHeap());
-  EXPECT_EQ("no queue", runAbort(b, "doIt\n"
-                                    "  Smalltalk at: #AoNestedArmed put: true.\n"
-                                    "  Processor instVarAt: 1 put: nil.\n"
-                                    "  [3 + 4] fork.\n"
-                                    "  ^5"));
-  EXPECT_EQ(1u, b.scheduler.liveFibers());
-  EXPECT_EQ(ao::Oop::true_(), run(b, "doIt\n"
-                                          "  Processor yield.\n"
-                                          "  ^Smalltalk at: #AoNestedRan"));
+  acceptProbe(b, true, probeNew("Processor yield"));
+  ASSERT_FALSE(HasFatalFailure());
+  ao::Root p(b.roots,
+             run(b, "doIt\n"
+                    "  Smalltalk at: #AoProbeCalls put: 0.\n"
+                    "  Smalltalk at: #AoProbeArmed put: false.\n"
+                    "  Smalltalk at: #AoRan put: 0.\n"
+                    "  OrderedCollection class instVarAt: 2 put: (AoProbe class instVarAt: 2).\n"
+                    "  [Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 1] fork.\n"
+                    "  Smalltalk at: #AoProbeArmed put: true.\n"
+                    "  Processor instVarAt: 1 put: nil.\n"
+                    "  ^[Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 10] fork"));
   EXPECT_EQ("<no abort>", takeAbortReason(b));
+  ASSERT_TRUE(p.slot.isHeap());
+  EXPECT_EQ(b.wk.processClass, b.wk.classOf(p.slot));
+  EXPECT_EQ(smi(0), global(b, "AoProbeCalls"));
+  EXPECT_EQ(ao::Oop::true_(), global(b, "AoProbeArmed"));
+  EXPECT_EQ(2u, b.scheduler.liveFibers());
+  ao::Root ready(b.roots, readyList(b));
+  EXPECT_EQ(b.wk.orderedCollectionClass, b.wk.classOf(ready.slot));
+  ASSERT_EQ(1, sizeOf(b, ready.slot));
+  EXPECT_EQ(p.slot, at(b, ready.slot, 1));
+  EXPECT_EQ(ready.slot, myList(b, p.slot));
+  EXPECT_EQ(smi(11), run(b, "doIt\n  Processor yield.\n  ^Smalltalk at: #AoRan"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_EQ(smi(1), run(b, "doIt\n"
+                           "  Smalltalk at: #AoProbeArmed put: false.\n"
+                           "  OrderedCollection new.\n"
+                           "  ^Smalltalk at: #AoProbeCalls"));
+}
+
+// SPEC §3.4 (A2): the same swap, with another process ready, when the base's Processor yield makes
+// the list. The override's yield does not run inside it, so the base is not queued twice: the
+// yield comes back after the other process ran, and the base is in no list.
+TEST(Process, YieldInsideSwappedNewDoesNotRunDuringYield) {
+  Boot b;
+  acceptProbe(b, true, probeNew("Processor yield"));
+  ASSERT_FALSE(HasFatalFailure());
+  EXPECT_EQ(smi(1),
+            run(b, "doIt\n"
+                   "  Smalltalk at: #AoProbeCalls put: 0.\n"
+                   "  Smalltalk at: #AoProbeArmed put: false.\n"
+                   "  Smalltalk at: #AoRan put: 0.\n"
+                   "  OrderedCollection class instVarAt: 2 put: (AoProbe class instVarAt: 2).\n"
+                   "  [Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 1] fork.\n"
+                   "  Smalltalk at: #AoProbeArmed put: true.\n"
+                   "  Processor instVarAt: 1 put: nil.\n"
+                   "  Processor yield.\n"
+                   "  ^Smalltalk at: #AoRan"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(smi(0), global(b, "AoProbeCalls"));
+  EXPECT_EQ(ao::Oop::true_(), global(b, "AoProbeArmed"));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  ao::Root ready(b.roots, readyList(b));
+  EXPECT_EQ(b.wk.orderedCollectionClass, b.wk.classOf(ready.slot));
+  EXPECT_EQ(0, sizeOf(b, ready.slot));
+  EXPECT_TRUE(myList(b, active(b)).isNil());
+  EXPECT_EQ(smi(1), run(b, "doIt\n"
+                           "  Smalltalk at: #AoProbeArmed put: false.\n"
+                           "  OrderedCollection new.\n"
+                           "  ^Smalltalk at: #AoProbeCalls"));
+}
+
+// SPEC §3.4 (A3): the same swap with a new that forks. The fork that makes the list runs no
+// Smalltalk, so no nested process is made while it queues, and no list replaces another:
+// quiescentProcesses holds every ready process, here only the forked one.
+TEST(Process, ForkInsideSwappedNewDoesNotRunDuringFork) {
+  Boot b;
+  acceptProbe(b, true, probeNew("[Smalltalk at: #AoNestedRan put: true] fork"));
+  ASSERT_FALSE(HasFatalFailure());
+  ao::Root p(b.roots,
+             run(b, "doIt\n"
+                    "  Smalltalk at: #AoProbeCalls put: 0.\n"
+                    "  Smalltalk at: #AoProbeArmed put: false.\n"
+                    "  Smalltalk at: #AoNestedRan put: false.\n"
+                    "  OrderedCollection class instVarAt: 2 put: (AoProbe class instVarAt: 2).\n"
+                    "  Smalltalk at: #AoProbeArmed put: true.\n"
+                    "  Processor instVarAt: 1 put: nil.\n"
+                    "  ^[3 + 4] fork"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  ASSERT_TRUE(p.slot.isHeap());
+  EXPECT_EQ(b.wk.processClass, b.wk.classOf(p.slot));
+  EXPECT_EQ(smi(0), global(b, "AoProbeCalls"));
+  EXPECT_EQ(ao::Oop::true_(), global(b, "AoProbeArmed"));
+  EXPECT_EQ(1u, b.scheduler.liveFibers());
+  ao::Root ready(b.roots, readyList(b));
+  EXPECT_EQ(b.wk.orderedCollectionClass, b.wk.classOf(ready.slot));
+  ASSERT_EQ(1, sizeOf(b, ready.slot));
+  EXPECT_EQ(p.slot, at(b, ready.slot, 1));
+  EXPECT_EQ(ready.slot, myList(b, p.slot));
+  EXPECT_EQ(ao::Oop::false_(), run(b, "doIt\n"
+                                       "  Processor yield.\n"
+                                       "  ^Smalltalk at: #AoNestedRan"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  EXPECT_EQ(smi(1), run(b, "doIt\n"
+                           "  Smalltalk at: #AoProbeArmed put: false.\n"
+                           "  OrderedCollection new.\n"
+                           "  ^Smalltalk at: #AoProbeCalls"));
+}
+
+// SPEC §3.4: the lists' add: is not sent either. With OrderedCollection's own method dictionary
+// swapped for one whose add: yields, fork, a wait that blocks, signal, nextPut: and Processor
+// yield each add to their list without running it; the waiter runs after the signal, and once the
+// dictionary is back, next answers the element nextPut: added.
+TEST(Process, SwappedAddDoesNotRunInSchedulerLists) {
+  Boot b;
+  acceptProbe(b, false,
+              "add: anObject\n"
+              "  Smalltalk at: #AoProbeCalls put: (Smalltalk at: #AoProbeCalls) + 1.\n"
+              "  (Smalltalk at: #AoProbeArmed) == true ifTrue: [\n"
+              "    Smalltalk at: #AoProbeArmed put: false.\n"
+              "    Processor yield].\n"
+              "  ^anObject");
+  ASSERT_FALSE(HasFatalFailure());
+  EXPECT_EQ(smi(15), run(b, "doIt\n"
+                            "  | saved sem q calls |\n"
+                            "  Smalltalk at: #AoProbeCalls put: 0.\n"
+                            "  Smalltalk at: #AoProbeArmed put: true.\n"
+                            "  Smalltalk at: #AoRan put: 0.\n"
+                            "  sem := Semaphore new.\n"
+                            "  q := SharedQueue new.\n"
+                            "  saved := OrderedCollection instVarAt: 2.\n"
+                            "  OrderedCollection instVarAt: 2 put: (AoProbe instVarAt: 2).\n"
+                            "  [sem wait. Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 1] fork.\n"
+                            "  Processor yield.\n"
+                            "  sem signal.\n"
+                            "  q nextPut: 5.\n"
+                            "  Processor yield.\n"
+                            "  calls := Smalltalk at: #AoProbeCalls.\n"
+                            "  Smalltalk at: #AoProbeWasArmed put: (Smalltalk at: #AoProbeArmed).\n"
+                            "  Smalltalk at: #AoProbeArmed put: false.\n"
+                            "  OrderedCollection new add: 3.\n"
+                            "  Smalltalk at: #AoProbeLive put: (Smalltalk at: #AoProbeCalls) - calls.\n"
+                            "  Smalltalk at: #AoProbeCalls put: calls.\n"
+                            "  OrderedCollection instVarAt: 2 put: saved.\n"
+                            "  ^(Smalltalk at: #AoRan) * 10 + q next"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(smi(0), global(b, "AoProbeCalls"));
+  EXPECT_EQ(ao::Oop::true_(), global(b, "AoProbeWasArmed"));
+  EXPECT_EQ(smi(1), global(b, "AoProbeLive"));
   EXPECT_EQ(0u, b.scheduler.liveFibers());
 }
 
@@ -1889,33 +2047,20 @@ TEST(Process, FailedSchedulerConstructionLeavesNoRootBehind) {
   EXPECT_GT(failed, 0u);
 }
 
-// SPEC §3.2, §3.4: the same when a C++ exception (a root slot that cannot be registered, at root
-// add k) leaves the queueing after the nested fork. Every row leaves no freed record in the queue:
-// what is left runs to its end.
-TEST(Process, ThrowingQueueSendKeepsTheProcessItForked) {
-  auto img = ao::compiler::compileMethod(
-      "basicNew\n"
-      "  (Smalltalk at: #AoNestedArmed) == true ifTrue: [\n"
-      "    Smalltalk at: #AoNestedArmed put: false.\n"
-      "    [Smalltalk at: #AoNestedRan put: true] fork].\n"
-      "  ^super basicNew");
-  ASSERT_TRUE(img.ok) << img.error.message;
-  // Rows where the nested process was left queued after the throw: at least one, so the row the
-  // exception path takes is not missed.
-  std::size_t nestedLeft = 0;
+// SPEC §3.2, §3.4: a C++ exception (a root slot that cannot be registered, at root add k) while a
+// fork makes and fills the ready queue's list (quiescentProcesses is nil) takes the fork's ready
+// entry out again and drops the half-made process. No row leaves a freed record queued: what is
+// left runs to its end.
+TEST(Process, ThrowingQueueingLeavesNoFreedRecord) {
+  // Rows that threw: at least one, so the sweep reaches the queueing.
+  std::size_t threwRows = 0;
   for (std::size_t k = 0;; ++k) {
     SCOPED_TRACE(k);
     Boot b;
-    ASSERT_EQ("<no abort>", runAbort(b, "doIt\n"
-                                        "  Smalltalk at: #AoNestedArmed put: false.\n"
-                                        "  Smalltalk at: #AoNestedRan put: false"));
-    ASSERT_TRUE(
-        ao::installMethod(b.ctx, b.heap.klass(b.wk.orderedCollectionClass), img.image).isHeap());
     b.roots.failSlotGrowthForTesting(k);
     bool threw = false;
     try {
       run(b, "doIt\n"
-             "  Smalltalk at: #AoNestedArmed put: true.\n"
              "  Processor instVarAt: 1 put: nil.\n"
              "  [3 + 4] fork.\n"
              "  ^5");
@@ -1925,9 +2070,8 @@ TEST(Process, ThrowingQueueSendKeepsTheProcessItForked) {
     const bool fired = !b.roots.slotGrowthFailurePending();
     b.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
     (void)takeAbortReason(b);
-    if (threw && b.scheduler.liveFibers() == 1 &&
-        b.heap.slotAt(b.wk.processor, ao::kSchedulerSlotQuiescent).isHeap()) {
-      ++nestedLeft;
+    if (threw) {
+      ++threwRows;
     }
     b.scheduler.drain(ao::Scheduler::kDrainRounds);
     EXPECT_EQ(0u, b.scheduler.liveFibers());
@@ -1935,5 +2079,5 @@ TEST(Process, ThrowingQueueSendKeepsTheProcessItForked) {
       break;
     }
   }
-  EXPECT_GT(nestedLeft, 0u);
+  EXPECT_GT(threwRows, 0u);
 }

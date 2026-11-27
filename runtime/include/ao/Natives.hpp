@@ -166,6 +166,11 @@ Oop ao_OrderedCollection_size(CallContext& ctx, const Oop& receiver, const Oop* 
                               std::uint32_t argc);
 Oop ao_OrderedCollection_at_(CallContext& ctx, const Oop& receiver, const Oop* args,
                              std::uint32_t argc);
+
+// SPEC §3.4: the scheduler adds to its lists with this, called directly (no lookup, no send).
+Oop ao_OrderedCollection_add_(CallContext& ctx, const Oop& receiver, const Oop* args,
+                              std::uint32_t argc);
+
 Oop ao_String_size(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
 Oop ao_String_at_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
 Oop ao_String_at_put_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc);
