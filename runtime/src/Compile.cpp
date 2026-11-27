@@ -1075,118 +1075,153 @@ bool reshapeClass(CallContext& ctx, Root& old, const std::vector<std::string>& i
     return false;
   }
 
-  if (!applyClassDef(ctx, action, errors)) {
-    // SPEC §3.9: the send may have bound the name to a new class before it failed (a superclass's
-    // class-side override that sends super, then answers no class or aborts). The name goes back.
-    if (ctx.wk.named(action.className) != old.slot) {
-      rebindClassName(ctx, action.className, old.slot);
-    }
-    return false;
-  }
-  Root fresh(ctx.roots, ctx.wk.named(action.className));
-  // A metaclass is no class here (SPEC §3.9): its class side would be Metaclass.
-  if (!isClassObject(ctx, fresh.slot) || fresh.slot == old.slot) {
-    rebindClassName(ctx, action.className, old.slot);
-    addError(errors, {action.span, "subclass failed: " + action.className});
-    return false;
-  }
-  // SPEC §3.9: the moves would put CompiledMethods over a Kernel class's natives. Refused before
-  // the class the send answered changes at all.
-  if (isKernelClass(ctx.wk, fresh.slot)) {
-    const std::string answered = ownClassName(ctx, fresh.slot);
-    rebindClassName(ctx, action.className, old.slot);
-    addError(errors,
-             {action.span, refused + action.className + " answered kernel class " + answered});
-    return false;
-  }
-  // SPEC §3.9: the methods move in the shape and with the class variables the send answered,
-  // which a superclass's class-side override can make differ from the definition's. Checked before
-  // the class the send answered, which may be an existing class, changes at all.
-  {
-    compiler::CompileEnv freshInstanceEnv;
-    compiler::CompileEnv freshClassEnv;
-    fillInstVars(ctx, fresh.slot, freshInstanceEnv);
-    fillClassVars(ctx, fresh.slot, freshInstanceEnv);
-    fillInstVars(ctx, ctx.heap.klass(fresh.slot), freshClassEnv);
-    fillClassVars(ctx, ctx.heap.klass(fresh.slot), freshClassEnv);
-    if ((freshInstanceEnv.instVarNames != instanceEnv.instVarNames ||
-         freshClassEnv.instVarNames != classEnv.instVarNames ||
-         freshInstanceEnv.kernelInstVarCount != instanceEnv.kernelInstVarCount ||
-         freshClassEnv.kernelInstVarCount != classEnv.kernelInstVarCount ||
-         freshInstanceEnv.classVarNames != instanceEnv.classVarNames ||
-         freshClassEnv.classVarNames != classEnv.classVarNames) &&
-        !compileCarried(ctx, old, oldMethods, freshInstanceEnv, freshClassEnv, carried, action,
-                        errors)) {
-      rebindClassName(ctx, action.className, old.slot);
-      return false;
-    }
-  }
-
-  // From here on, only an allocation (old at its max) or a classPool entry that is not a binding
-  // (SPEC §3.6) stops the move. The class the send answered takes a new classPool and new method
-  // dictionaries, copies of its own that the moves go into, and gets its own objects back when the
-  // move stops.
-  Root pool(ctx.roots, ctx.heap.slotAt(fresh.slot, kClassSlotClassPool));
-  Root dict(ctx.roots, ctx.heap.slotAt(fresh.slot, kClassSlotMethodDict));
-  Root metaDict(ctx.roots, ctx.heap.slotAt(ctx.heap.klass(fresh.slot), kClassSlotMethodDict));
-  auto putBack = [&](const std::string& message) {
+  // SPEC §3.9: however the change stops once the send starts, a C++ exception too (§3.2: a root
+  // slot that cannot be registered), the name goes back to the old class and the class the send
+  // answered gets its own classPool and method dictionaries back. What that reads is rooted before
+  // the send can bind the name.
+  Root fresh(ctx.roots, Oop{});
+  Root pool(ctx.roots, Oop{});
+  Root dict(ctx.roots, Oop{});
+  Root metaDict(ctx.roots, Oop{});
+  // Set once pool, dict and metaDict hold the answered class's own objects.
+  bool holdsOwn = false;
+  // Set once every method is in the answered class. Nothing is put back after that.
+  bool moved = false;
+  // Nothing here collects.
+  const auto giveBackOwn = [&] {
     ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, pool.slot);
     ctx.heap.slotAtPut(fresh.slot, kClassSlotMethodDict, dict.slot);
     ctx.heap.slotAtPut(ctx.heap.klass(fresh.slot), kClassSlotMethodDict, metaDict.slot);
-    rebindClassName(ctx, action.className, old.slot);
-    addError(errors, {action.span, message});
-    return false;
   };
-  const std::string failed = "shape change failed: ";
-  // SPEC §3.9: a name the old classPool has keeps its entry in the new class, so its value and the
-  // old class's methods stay shared, and the moved methods box that binding. adopt does not
-  // collect.
-  const std::vector<std::string> poolNames = ClassPool::names(ctx.heap, ctx.wk, pool.slot);
-  if (std::any_of(poolNames.begin(), poolNames.end(), [&](const std::string& name) {
-        return !ClassPool::bindingAt(ctx.heap, ctx.wk, ctx.heap.slotAt(old.slot, kClassSlotClassPool), name)
-                    .isEmpty();
-      })) {
-    const Oop copy = ClassPool::make(ctx, poolNames);
-    if (!copy.isHeap()) {
-      return putBack(failed + action.className + " classPool allocation failed");
+  try {
+    if (!applyClassDef(ctx, action, errors)) {
+      // SPEC §3.9: the send may have bound the name to a new class before it failed (a
+      // superclass's class-side override that sends super, then answers no class or aborts). The
+      // name goes back.
+      if (ctx.wk.named(action.className) != old.slot) {
+        rebindClassName(ctx, action.className, old.slot);
+      }
+      return false;
     }
-    ClassPool::adopt(ctx.heap, ctx.wk, copy, pool.slot);
-    ClassPool::adopt(ctx.heap, ctx.wk, copy, ctx.heap.slotAt(old.slot, kClassSlotClassPool));
-    ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, copy);
-  }
-  // SPEC §3.6: a moved method must find a binding for each class variable it names, in the pool
-  // the new class now has and in its superclasses'.
-  for (const CarriedMethod& m : carried) {
-    const Oop side = m.meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
-    if (const std::string var = unboundClassVariable(ctx, m.image, side); !var.empty()) {
-      return putBack("shape change refused: " + carriedMethodName(action.className, m) + ": " +
-                     unboundClassVariableMessage(var));
+    fresh.slot = ctx.wk.named(action.className);
+    // A metaclass is no class here (SPEC §3.9): its class side would be Metaclass.
+    if (!isClassObject(ctx, fresh.slot) || fresh.slot == old.slot) {
+      rebindClassName(ctx, action.className, old.slot);
+      addError(errors, {action.span, "subclass failed: " + action.className});
+      return false;
     }
-  }
-  for (const bool meta : {false, true}) {
-    const Oop side = meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
-    const Oop copy = copyMethodDictionary(ctx, ctx.heap.slotAt(side, kClassSlotMethodDict));
-    if (!copy.isHeap()) {
-      return putBack(failed + action.className + (meta ? " class" : "") +
-                     " methodDict allocation failed");
+    // SPEC §3.9: the moves would put CompiledMethods over a Kernel class's natives. Refused before
+    // the class the send answered changes at all.
+    if (isKernelClass(ctx.wk, fresh.slot)) {
+      const std::string answered = ownClassName(ctx, fresh.slot);
+      rebindClassName(ctx, action.className, old.slot);
+      addError(errors,
+               {action.span, refused + action.className + " answered kernel class " + answered});
+      return false;
     }
-    ctx.heap.slotAtPut(side, kClassSlotMethodDict, copy);
-  }
-  RootedArray installed(ctx.roots, count);
-  for (std::uint32_t i = 0; i < count; ++i) {
-    const Oop side = carried[i].meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
-    const Oop method = installMethod(ctx, side, carried[i].image);
-    if (!method.isHeap()) {
-      return putBack(failed + carriedMethodName(action.className, carried[i]) + " install failed");
+    // SPEC §3.9: the methods move in the shape and with the class variables the send answered,
+    // which a superclass's class-side override can make differ from the definition's. Checked
+    // before the class the send answered, which may be an existing class, changes at all.
+    {
+      compiler::CompileEnv freshInstanceEnv;
+      compiler::CompileEnv freshClassEnv;
+      fillInstVars(ctx, fresh.slot, freshInstanceEnv);
+      fillClassVars(ctx, fresh.slot, freshInstanceEnv);
+      fillInstVars(ctx, ctx.heap.klass(fresh.slot), freshClassEnv);
+      fillClassVars(ctx, ctx.heap.klass(fresh.slot), freshClassEnv);
+      if ((freshInstanceEnv.instVarNames != instanceEnv.instVarNames ||
+           freshClassEnv.instVarNames != classEnv.instVarNames ||
+           freshInstanceEnv.kernelInstVarCount != instanceEnv.kernelInstVarCount ||
+           freshClassEnv.kernelInstVarCount != classEnv.kernelInstVarCount ||
+           freshInstanceEnv.classVarNames != instanceEnv.classVarNames ||
+           freshClassEnv.classVarNames != classEnv.classVarNames) &&
+          !compileCarried(ctx, old, oldMethods, freshInstanceEnv, freshClassEnv, carried, action,
+                          errors)) {
+        rebindClassName(ctx, action.className, old.slot);
+        return false;
+      }
     }
-    installed[i] = method;
+
+    // From here on, only an allocation (old at its max) or a classPool entry that is not a binding
+    // (SPEC §3.6) stops the move. The class the send answered takes a new classPool and new method
+    // dictionaries, copies of its own that the moves go into, and gets its own objects back when
+    // the move stops.
+    pool.slot = ctx.heap.slotAt(fresh.slot, kClassSlotClassPool);
+    dict.slot = ctx.heap.slotAt(fresh.slot, kClassSlotMethodDict);
+    metaDict.slot = ctx.heap.slotAt(ctx.heap.klass(fresh.slot), kClassSlotMethodDict);
+    holdsOwn = true;
+    auto putBack = [&](const std::string& message) {
+      giveBackOwn();
+      rebindClassName(ctx, action.className, old.slot);
+      addError(errors, {action.span, message});
+      return false;
+    };
+    const std::string failed = "shape change failed: ";
+    // SPEC §3.9: a name the old classPool has keeps its entry in the new class, so its value and
+    // the old class's methods stay shared, and the moved methods box that binding. adopt does not
+    // collect.
+    const std::vector<std::string> poolNames = ClassPool::names(ctx.heap, ctx.wk, pool.slot);
+    if (std::any_of(poolNames.begin(), poolNames.end(), [&](const std::string& name) {
+          return !ClassPool::bindingAt(ctx.heap, ctx.wk,
+                                       ctx.heap.slotAt(old.slot, kClassSlotClassPool), name)
+                      .isEmpty();
+        })) {
+      const Oop copy = ClassPool::make(ctx, poolNames);
+      if (!copy.isHeap()) {
+        return putBack(failed + action.className + " classPool allocation failed");
+      }
+      ClassPool::adopt(ctx.heap, ctx.wk, copy, pool.slot);
+      ClassPool::adopt(ctx.heap, ctx.wk, copy, ctx.heap.slotAt(old.slot, kClassSlotClassPool));
+      ctx.heap.slotAtPut(fresh.slot, kClassSlotClassPool, copy);
+    }
+    // SPEC §3.6: a moved method must find a binding for each class variable it names, in the pool
+    // the new class now has and in its superclasses'.
+    for (const CarriedMethod& m : carried) {
+      const Oop side = m.meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
+      if (const std::string var = unboundClassVariable(ctx, m.image, side); !var.empty()) {
+        return putBack("shape change refused: " + carriedMethodName(action.className, m) + ": " +
+                       unboundClassVariableMessage(var));
+      }
+    }
+    for (const bool meta : {false, true}) {
+      const Oop side = meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
+      const Oop copy = copyMethodDictionary(ctx, ctx.heap.slotAt(side, kClassSlotMethodDict));
+      if (!copy.isHeap()) {
+        return putBack(failed + action.className + (meta ? " class" : "") +
+                       " methodDict allocation failed");
+      }
+      ctx.heap.slotAtPut(side, kClassSlotMethodDict, copy);
+    }
+    RootedArray installed(ctx.roots, count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+      const Oop side = carried[i].meta ? ctx.heap.klass(fresh.slot) : fresh.slot;
+      const Oop method = installMethod(ctx, side, carried[i].image);
+      if (!method.isHeap()) {
+        return putBack(failed + carriedMethodName(action.className, carried[i]) +
+                       " install failed");
+      }
+      installed[i] = method;
+    }
+    // Only the sources move from here on; moveMethodSource catches std::bad_alloc and moves the
+    // text only.
+    moved = true;
+    for (std::uint32_t i = 0; i < count; ++i) {
+      moveMethodSource(oldMethods[i], installed[i], carried[i].image);
+    }
+    // SPEC §3.3: the class was replaced. installMethod dropped each selector already.
+    invalidateMethodCache(ctx.cache, Oop{});
+    return true;
+  } catch (...) {
+    if (!moved) {
+      if (holdsOwn) {
+        giveBackOwn();
+      }
+      if (ctx.wk.named(action.className) != old.slot) {
+        rebindClassName(ctx, action.className, old.slot);
+      }
+    }
+    throw;
   }
-  for (std::uint32_t i = 0; i < count; ++i) {
-    moveMethodSource(oldMethods[i], installed[i], carried[i].image);
-  }
-  // SPEC §3.3: the class was replaced. installMethod dropped each selector already.
-  invalidateMethodCache(ctx.cache, Oop{});
-  return true;
 }
 
 // SPEC §3.9「クラス定義の再 Accept」: a class definition through ao_accept_class. When the name
