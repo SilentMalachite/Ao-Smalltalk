@@ -53183,7 +53183,7 @@
       "node_kind": "heading",
       "norm_label": "accept \u3068\u8a18\u9332(k=0\u301c400)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L41"
+      "source_location": "L43"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_ao_eval_k_0_120",
@@ -53195,7 +53195,7 @@
       "node_kind": "heading",
       "norm_label": "`ao_eval`(k=0\u301c120)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L54"
+      "source_location": "L56"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_fork_k_0_120",
@@ -53207,7 +53207,7 @@
       "node_kind": "heading",
       "norm_label": "fork(k=0\u301c120)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L63"
+      "source_location": "L65"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u4fee\u6b63\u5f8c\u306b\u3082\u6b8b\u308b\u5897\u6e1b_\u3069\u308c\u3082\u610f\u56f3\u3057\u305f\u72b6\u614b",
@@ -53219,7 +53219,7 @@
       "node_kind": "heading",
       "norm_label": "\u4fee\u6b63\u5f8c\u306b\u3082\u6b8b\u308b\u5897\u6e1b(\u3068\u308c\u3082\u610f\u56f3\u3057\u305f\u72b6\u614b)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L71"
+      "source_location": "L73"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u5b9f\u9a13_\u30b9\u30af\u30e9\u30c3\u30c1\u306e_worktree_28a1ccf",
@@ -53231,7 +53231,7 @@
       "node_kind": "heading",
       "norm_label": "\u5b9f\u9a13(\u30b9\u30af\u30e9\u30c3\u30c1\u306e worktree\u3001`28a1ccf`)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L37"
+      "source_location": "L39"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u6383\u5f15\u306e\u672c\u4f53_\u6b21\u306e\u8a08\u753b\u306e\u30c6\u30b9\u30c8\u306e\u4e0b\u6577\u304d",
@@ -53243,7 +53243,7 @@
       "node_kind": "heading",
       "norm_label": "\u6383\u5f15\u306e\u672c\u4f53(\u6b21\u306e\u8a08\u753b\u306e\u30c6\u30b9\u30c8\u306e\u4e0b\u6577\u304d)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L77"
+      "source_location": "L79"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u7d50\u8ad6",
@@ -53255,7 +53255,7 @@
       "node_kind": "heading",
       "norm_label": "\u7d50\u8ad6",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L3"
+      "source_location": "L5"
     },
     {
       "id": "review_agy_4_\u6a2a\u65ad\u30c6\u30fc\u30de_\u6839\u672c\u539f\u56e0",
@@ -57169,7 +57169,7 @@
       "node_kind": "heading",
       "norm_label": "\u5b9f\u884c\u6642\u306b\u306f\u901a\u3089\u306a\u3044\u7b87\u6240",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L32"
+      "source_location": "L34"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u5b9f\u884c\u6642\u306b\u901a\u308b\u7b87\u6240_\u76f4\u3059\u5bfe\u8c61",
@@ -57181,7 +57181,7 @@
       "node_kind": "heading",
       "norm_label": "\u5b9f\u884c\u6642\u306b\u901a\u308b\u7b87\u6240(\u76f4\u3059\u5bfe\u8c61)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L18"
+      "source_location": "L20"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u7a74\u306e\u3042\u308b\u7b87\u6240",
@@ -57193,7 +57193,7 @@
       "node_kind": "heading",
       "norm_label": "\u7a74\u306e\u3042\u308b\u7b87\u6240",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L14"
+      "source_location": "L16"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_root_registration",
@@ -63348,7 +63348,7 @@
       "node_kind": "heading",
       "norm_label": "\u6b8b\u308b\u8ad6\u70b9(\u8aad\u3093\u305f\u305f\u3051\u3002\u76f4\u3057\u65b9\u3068\u306f\u5225)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L112"
+      "source_location": "L114"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u76f4\u3059\u3068\u304d\u306e\u5f62_\u672a\u9069\u7528",
@@ -63360,7 +63360,7 @@
       "node_kind": "heading",
       "norm_label": "\u76f4\u3059\u3068\u304d\u306e\u5f62(\u672a\u9069\u7528)",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L95"
+      "source_location": "L97"
     },
     {
       "id": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u8abf\u3079\u65b9\u306e\u6ce8\u8a18",
@@ -63372,7 +63372,7 @@
       "node_kind": "heading",
       "norm_label": "\u8abf\u3078\u65b9\u306e\u6ce8\u8a18",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L117"
+      "source_location": "L119"
     },
     {
       "id": "classidisstableandonerowperclass",
@@ -132611,7 +132611,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "runtime/tests/session_abi_test.cpp",
-      "source_location": "L1720",
+      "source_location": "L1721",
       "weight": 1.0
     },
     {
@@ -227303,7 +227303,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/session_abi_test.cpp",
-      "source_location": "L1719",
+      "source_location": "L1720",
       "weight": 1.0
     },
     {
@@ -227315,7 +227315,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/session_abi_test.cpp",
-      "source_location": "L1725",
+      "source_location": "L1726",
       "weight": 1.0
     },
     {
@@ -227327,7 +227327,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/session_abi_test.cpp",
-      "source_location": "L1732",
+      "source_location": "L1733",
       "weight": 1.0
     },
     {
@@ -227339,7 +227339,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/session_abi_test.cpp",
-      "source_location": "L1739",
+      "source_location": "L1740",
       "weight": 1.0
     },
     {
@@ -227351,7 +227351,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "runtime/tests/session_abi_test.cpp",
-      "source_location": "L1745",
+      "source_location": "L1746",
       "weight": 1.0
     },
     {
@@ -241148,7 +241148,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L112",
+      "source_location": "L114",
       "weight": 1.0
     },
     {
@@ -241159,7 +241159,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L117",
+      "source_location": "L119",
       "weight": 1.0
     },
     {
@@ -241170,18 +241170,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L14",
-      "weight": 1.0
-    },
-    {
-      "source": "docs_superpowers_plans_2026_11_27_o1_diagnosis_o1_\u306e\u8a3a\u65ad_2026_11_27_\u8aad\u307f\u53d6\u308a\u3068\u4f7f\u3044\u6368\u3066\u306e\u5b9f\u9a13\u3060\u3051\u3067_\u30b3\u30df\u30c3\u30c8\u306f\u3057\u3066\u3044\u306a\u3044",
-      "target": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u7d50\u8ad6",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L3",
+      "source_location": "L16",
       "weight": 1.0
     },
     {
@@ -241192,7 +241181,18 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L37",
+      "source_location": "L39",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_superpowers_plans_2026_11_27_o1_diagnosis_o1_\u306e\u8a3a\u65ad_2026_11_27_\u8aad\u307f\u53d6\u308a\u3068\u4f7f\u3044\u6368\u3066\u306e\u5b9f\u9a13\u3060\u3051\u3067_\u30b3\u30df\u30c3\u30c8\u306f\u3057\u3066\u3044\u306a\u3044",
+      "target": "docs_superpowers_plans_2026_11_27_o1_diagnosis_\u7d50\u8ad6",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -241203,7 +241203,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L95",
+      "source_location": "L97",
       "weight": 1.0
     },
     {
@@ -241214,7 +241214,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L41",
+      "source_location": "L43",
       "weight": 1.0
     },
     {
@@ -241225,7 +241225,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L54",
+      "source_location": "L56",
       "weight": 1.0
     },
     {
@@ -241236,7 +241236,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L63",
+      "source_location": "L65",
       "weight": 1.0
     },
     {
@@ -241247,7 +241247,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L71",
+      "source_location": "L73",
       "weight": 1.0
     },
     {
@@ -241258,7 +241258,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L77",
+      "source_location": "L79",
       "weight": 1.0
     },
     {
@@ -241269,7 +241269,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L18",
+      "source_location": "L20",
       "weight": 1.0
     },
     {
@@ -241280,7 +241280,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L32",
+      "source_location": "L34",
       "weight": 1.0
     },
     {
@@ -286345,7 +286345,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/tests/session_abi_test.cpp",
-      "source_location": "L1702",
+      "source_location": "L1703",
       "weight": 1.0
     },
     {
@@ -286357,7 +286357,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "runtime/tests/session_abi_test.cpp",
-      "source_location": "L1703",
+      "source_location": "L1704",
       "weight": 1.0
     },
     {
@@ -305940,7 +305940,7 @@
       "confidence_score": 0.95,
       "context": "ao_BlockContext_ensure_",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L114",
+      "source_location": "L116",
       "weight": 1.0
     },
     {
@@ -307756,18 +307756,6 @@
       "weight": 1.0
     },
     {
-      "source": "docs_superpowers_plans_2026_11_26_review_agy_handoff_\u5229\u7528\u8005\u306b\u78ba\u304b\u3081\u3066\u307b\u3057\u3044\u3053\u3068",
-      "target": "runtime_src_abi_ao_eval",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "ao_eval",
-      "source_file": "docs/superpowers/plans/2026-11-26-review-agy-handoff.md",
-      "source_location": "L24",
-      "weight": 1.0
-    },
-    {
       "source": "docs_superpowers_plans_2026_11_27_o1_diagnosis_ao_eval_k_0_120",
       "target": "runtime_src_abi_ao_eval",
       "relation": "references",
@@ -307776,7 +307764,7 @@
       "confidence_score": 0.95,
       "context": "ao_eval",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L54",
+      "source_location": "L56",
       "weight": 1.0
     },
     {
@@ -307788,7 +307776,7 @@
       "confidence_score": 0.95,
       "context": "ao_eval",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L74",
+      "source_location": "L76",
       "weight": 1.0
     },
     {
@@ -307800,7 +307788,7 @@
       "confidence_score": 0.95,
       "context": "ao_eval",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L93",
+      "source_location": "L95",
       "weight": 1.0
     },
     {
@@ -307812,7 +307800,7 @@
       "confidence_score": 0.95,
       "context": "ao_eval",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L9",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -309024,7 +309012,7 @@
       "confidence_score": 0.95,
       "context": "callBlock",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L114",
+      "source_location": "L116",
       "weight": 1.0
     },
     {
@@ -310644,7 +310632,7 @@
       "confidence_score": 0.95,
       "context": "guarded",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L9",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -312828,7 +312816,7 @@
       "confidence_score": 0.95,
       "context": "reshapeClass",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L115",
+      "source_location": "L117",
       "weight": 1.0
     },
     {
@@ -312960,7 +312948,7 @@
       "confidence_score": 0.95,
       "context": "rootEntry",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L12",
+      "source_location": "L14",
       "weight": 1.0
     },
     {
@@ -312988,18 +312976,6 @@
       "weight": 1.0
     },
     {
-      "source": "docs_superpowers_plans_2026_11_26_review_agy_handoff_\u5229\u7528\u8005\u306b\u78ba\u304b\u3081\u3066\u307b\u3057\u3044\u3053\u3068",
-      "target": "runtime_src_scheduler_rootrecord",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "rootRecord",
-      "source_file": "docs/superpowers/plans/2026-11-26-review-agy-handoff.md",
-      "source_location": "L24",
-      "weight": 1.0
-    },
-    {
       "source": "docs_superpowers_plans_2026_11_27_o1_diagnosis_fork_k_0_120",
       "target": "runtime_src_scheduler_rootrecord",
       "relation": "references",
@@ -313008,7 +312984,7 @@
       "confidence_score": 0.95,
       "context": "rootRecord",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L69",
+      "source_location": "L71",
       "weight": 1.0
     },
     {
@@ -313020,7 +312996,7 @@
       "confidence_score": 0.95,
       "context": "rootRecord",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L35",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
@@ -313032,7 +313008,7 @@
       "confidence_score": 0.95,
       "context": "rootRecord",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L26",
+      "source_location": "L28",
       "weight": 1.0
     },
     {
@@ -313044,7 +313020,7 @@
       "confidence_score": 0.95,
       "context": "rootRecord",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L107",
+      "source_location": "L109",
       "weight": 1.0
     },
     {
@@ -313056,7 +313032,7 @@
       "confidence_score": 0.95,
       "context": "rootRecord",
       "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
-      "source_location": "L16",
+      "source_location": "L18",
       "weight": 1.0
     },
     {
@@ -313153,6 +313129,30 @@
       "context": "runAside",
       "source_file": "docs/superpowers/plans/2026-11-24-review-agy-fixes.md",
       "source_location": "L348",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_superpowers_plans_2026_11_26_review_agy_handoff_\u5229\u7528\u8005\u306b\u78ba\u304b\u3081\u3066\u307b\u3057\u3044\u3053\u3068",
+      "target": "runtime_src_kernel_blockcontext_runaside",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "context": "runAside",
+      "source_file": "docs/superpowers/plans/2026-11-26-review-agy-handoff.md",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_superpowers_plans_2026_11_27_o1_diagnosis_o1_\u306e\u8a3a\u65ad_2026_11_27_\u8aad\u307f\u53d6\u308a\u3068\u4f7f\u3044\u6368\u3066\u306e\u5b9f\u9a13\u3060\u3051\u3067_\u30b3\u30df\u30c3\u30c8\u306f\u3057\u3066\u3044\u306a\u3044",
+      "target": "runtime_src_kernel_blockcontext_runaside",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "context": "runAside",
+      "source_file": "docs/superpowers/plans/2026-11-27-o1-diagnosis.md",
+      "source_location": "L3",
       "weight": 1.0
     },
     {
@@ -325178,5 +325178,5 @@
       "source_file": "docs/prs/P3-05.md"
     }
   ],
-  "built_at_commit": "075a6f3988d89a5d2ca4f821db658f31899b7947"
+  "built_at_commit": "2dab1374c091b74b846620a50e1f9679b04080c3"
 }

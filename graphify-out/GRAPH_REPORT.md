@@ -1,7 +1,7 @@
 # Graph Report - ao-smalltalk  (2026-11-27)
 
 ## Corpus Check
-- 328 files · ~473,500 words
+- 328 files · ~473,527 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 83 file(s) not represented in the graph (top: .st 67, (none) 13, .toml 1)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `075a6f39`
+- Built from commit: `2dab1374`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -455,7 +455,7 @@ Cohesion: 0.02
 Nodes (83): ArrayEqualsChecksIdentityFirstAndSameClass, BaseDeadlockFailsEvalBaseStays, BlockAssignmentUpdatesWorkspaceBinding, BootThenImageRoundTripKeepsOnePlusTwo, CallFromAnotherThreadWhileEvaluatingIsRefused, ClassDefinedAfterBindingWins, ClassSideConstructorsAllocateTheSubclassInstSize, DeadHomeBlockAbortsWithReason (+75 more)
 
 ### Community 3 - "BlockContext.cpp"
-Cohesion: 0.15
+Cohesion: 0.16
 Nodes (28): O1 の診断（2026-11-27。読み取りと使い捨ての実験だけで、コミットはしていない）, 残る論点（読んだだけ。直し方とは別）, 直すときの形（未適用）, 調べ方の注記, ao_BlockContext_cannotReturn_(), ao_BlockContext_ensure_(), ao_BlockContext_ifCurtailed_(), ao_BlockContext_numArgs() (+20 more)
 
 ### Community 4 - ".fromSmallInteger"
@@ -1419,20 +1419,20 @@ Cohesion: 0.67
 Nodes (3): MethodParts, body, pattern
 
 ## Ambiguous Edges - Review These
-- `Debug it (AO_EVAL_DEBUGIT)` → `SPEC §3.13 デバッガ（捕捉の意味論）`  [AMBIGUOUS]
-  docs/prs/P11-05.md · relation: conceptually_related_to
 - `P5-01: 字句解析` → `P4-09: Kernel NativeMethod 走査と bench`  [AMBIGUOUS]
   docs/prs/P5-01.md · relation: references
 - `P4-08: Point / Rectangle` → `P4-09: Kernel NativeMethod 走査と bench`  [AMBIGUOUS]
   docs/prs/P4-09.md · relation: references
-- `P8-01: Ao.app 骨格` → `P7-03: load と NativeMethod 再結合`  [AMBIGUOUS]
+- `Compile.cpp: acceptMethodSource` → `Image::save(..., haltedProcesses) 保存の拒否`  [AMBIGUOUS]
+  docs/prs/P11-03.md · relation: conceptually_related_to
+- `Debug it (AO_EVAL_DEBUGIT)` → `SPEC §3.13 デバッガ（捕捉の意味論）`  [AMBIGUOUS]
+  docs/prs/P11-05.md · relation: conceptually_related_to
+- `P6b-04: vendor file-in` → `P7-01: .aoimage 形式`  [AMBIGUOUS]
+  docs/prs/P7-01.md · relation: references
+- `P7-03: load と NativeMethod 再結合` → `P8-01: Ao.app 骨格`  [AMBIGUOUS]
   docs/prs/P8-01.md · relation: references
 - `P8-05: メニューとキー` → `P9-01: Do it / Print it / Inspect it`  [AMBIGUOUS]
   docs/prs/P9-01.md · relation: references
-- `Compile.cpp: acceptMethodSource` → `Image::save(..., haltedProcesses) 保存の拒否`  [AMBIGUOUS]
-  docs/prs/P11-03.md · relation: conceptually_related_to
-- `P6b-04: vendor file-in` → `P7-01: .aoimage 形式`  [AMBIGUOUS]
-  docs/prs/P7-01.md · relation: references
 
 ## Knowledge Gaps
 - **1126 isolated node(s):** `.selectedClass`, `.metaFlag`, `.canRemoveMethod`, `.canRemoveClass`, `.hasUnacceptedChanges` (+1121 more)
@@ -1442,17 +1442,17 @@ Nodes (3): MethodParts, body, pattern
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **What is the exact relationship between `Debug it (AO_EVAL_DEBUGIT)` and `SPEC §3.13 デバッガ（捕捉の意味論）`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `P5-01: 字句解析` and `P4-09: Kernel NativeMethod 走査と bench`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **What is the exact relationship between `P4-08: Point / Rectangle` and `P4-09: Kernel NativeMethod 走査と bench`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
-- **What is the exact relationship between `P8-01: Ao.app 骨格` and `P7-03: load と NativeMethod 再結合`?**
-  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
-- **What is the exact relationship between `P8-05: メニューとキー` and `P9-01: Do it / Print it / Inspect it`?**
-  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **What is the exact relationship between `Compile.cpp: acceptMethodSource` and `Image::save(..., haltedProcesses) 保存の拒否`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
+- **What is the exact relationship between `Debug it (AO_EVAL_DEBUGIT)` and `SPEC §3.13 デバッガ（捕捉の意味論）`?**
+  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `P6b-04: vendor file-in` and `P7-01: .aoimage 形式`?**
+  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
+- **What is the exact relationship between `P7-03: load と NativeMethod 再結合` and `P8-01: Ao.app 骨格`?**
+  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
+- **What is the exact relationship between `P8-05: メニューとキー` and `P9-01: Do it / Print it / Inspect it`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._

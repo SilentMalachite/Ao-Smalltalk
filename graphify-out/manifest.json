@@ -1356,9 +1356,9 @@
     "semantic_hash": ""
   },
   "runtime/tests/session_abi_test.cpp": {
-    "mtime": 1795736973.4172556,
-    "seen": 1795737175.373364,
-    "ast_hash": "2918f0965982d0b5149587b535f4fd93",
+    "mtime": 1795738296.655136,
+    "seen": 1795738369.585879,
+    "ast_hash": "dcb6ce161311fe23aafa107770626a07",
     "semantic_hash": ""
   },
   "scripts/package-app.sh": {
@@ -1974,15 +1974,15 @@
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-11-26-review-agy-handoff.md": {
-    "mtime": 1795733716.491927,
-    "seen": 1795737175.373478,
-    "ast_hash": "5183483794ae4191618c59d4c1dd9233",
+    "mtime": 1795738180.4273973,
+    "seen": 1795738369.5859892,
+    "ast_hash": "6b81b9ddea3f38b8613edca49b24f9cd",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-11-27-o1-diagnosis.md": {
-    "mtime": 1795731518.3576524,
-    "seen": 1795737175.373479,
-    "ast_hash": "a638f8453f9f5081c09e3c4fc847a8e2",
+    "mtime": 1795738180.4276237,
+    "seen": 1795738369.5859892,
+    "ast_hash": "70b13529cdb83ebd5aa0790935992453",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-11-27-o1-root-registration.md": {
