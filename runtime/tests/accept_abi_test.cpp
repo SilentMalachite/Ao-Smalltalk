@@ -3695,3 +3695,84 @@ TEST(AcceptAbi, FailedRootAddInsideTheRecordLeavesNoRootBehind) {
   EXPECT_TRUE(swallowed);
   ao_runtime_shutdown();
 }
+
+// SPEC §3.9 (O2): the k-th root slot registration of a shape change fails, for each k up to the
+// first one the Accept no longer reaches. A shape change that does not answer AO_OK leaves the
+// name on the old class, with its shape, methods, sources and class variable, also when the
+// failure throws after the name was bound to the class the send answered; that class, which the
+// superclass's class-side override keeps in O2Answered, has its own method dictionaries and
+// classPool back. Before any GC, no root is left behind and the active context is empty again.
+TEST(AcceptAbi, FailedRootAddInsideAShapeChangePutsTheNameBack) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  const std::string oldDef = b4Definition("O2Sup", "O2Shape", "a", "Count", "O2-Test");
+  const std::string newDef = b4Definition("O2Sup", "O2Shape", "a b", "Count", "O2-Test");
+  const std::string supDef = b4Definition("Object", "O2Sup", "", "", "O2-Test");
+  ASSERT_EQ(AO_OK, ao_accept_class(supDef.c_str(), &err)) << err.message;
+  expectPrints({{"Smalltalk at: #O2Answered put: nil. 0", "0"}});
+  acceptMethods("O2Sup", 1,
+                {"subclass: n instanceVariableNames: i classVariableNames: c poolDictionaries: p "
+                 "category: k\n  | made |\n  made := super subclass: n instanceVariableNames: i "
+                 "classVariableNames: c poolDictionaries: p category: k.\n  Smalltalk at: "
+                 "#O2Answered put: made.\n  ^made\n"});
+  ASSERT_EQ(AO_OK, ao_accept_class(oldDef.c_str(), &err)) << err.message;
+  const char* getA = "a\n  ^a\n";
+  acceptMethods("O2Shape", 0,
+                {getA, "a: v\n  a := v\n", "count\n  ^Count\n", "count: v\n  Count := v\n"});
+  acceptMethods("O2Shape", 1, {"make\n  ^self new\n"});
+  expectPrints({{"O2Shape new count: 3. O2Shape new count", "3"}});
+  // The first change to this shape interns #b, which the symbol table roots for good. It is done
+  // once here, so that no row counts it as a root left behind.
+  ASSERT_EQ(AO_OK, ao_accept_class(newDef.c_str(), &err)) << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_class(oldDef.c_str(), &err)) << err.message;
+  std::size_t k = 0;
+  // Rows whose injected failure fired and failed the shape change.
+  std::size_t failedRows = 0;
+  for (;; ++k) {
+    SCOPED_TRACE(k);
+    expectPrints({{"oldShape := O2Shape. Smalltalk at: #O2Answered put: nil. 0", "0"}});
+    ao::Session& s = *ao::session();
+    const RootShape before = rootShape(s);
+    s.roots.failSlotGrowthForTesting(k);
+    const int rc = ao_accept_class(newDef.c_str(), &err);
+    const bool fired = !s.roots.slotGrowthFailurePending();
+    s.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    ASSERT_TRUE(rc == AO_OK || rc == AO_ERR || rc == AO_ERR_COMPILE) << rc;
+    ASSERT_TRUE(fired || rc == AO_OK) << rc << ": " << err.message;
+    const RootShape after = rootShape(s);
+    ASSERT_TRUE(before == after) << "rc " << rc << " " << err.message << ": slots "
+                                 << before.slots << " -> " << after.slots << ", pinned "
+                                 << before.pinned << " -> " << after.pinned << ", handles "
+                                 << before.handles << " -> " << after.handles;
+    ASSERT_TRUE(s.ctx->activeContext.isEmpty());
+    ao::Gc gc(s.heap, s.roots);
+    gc.collectNursery();
+    gc.collectOld();
+    if (rc == AO_OK) {
+      expectPrints({{"oldShape == O2Shape", "false"},
+                    {"(O2Shape make a: 6) a", "6"},
+                    {"O2Shape new count", "3"}});
+      // The next row changes the shape from the old definition again.
+      ASSERT_EQ(AO_OK, ao_accept_class(oldDef.c_str(), &err)) << err.message;
+    } else {
+      ++failedRows;
+      expectPrints({{"oldShape == O2Shape", "true"},
+                    {"(O2Shape make a: 6) a", "6"},
+                    {"O2Shape new count", "3"},
+                    {"O2Answered isNil or: [O2Answered selectors isEmpty and: [O2Answered class "
+                     "selectors isEmpty and: [(O2Answered classPool at: #Count) ~~ (O2Shape "
+                     "classPool at: #Count)]]]",
+                     "true"}});
+      EXPECT_NE(b5ClassDefinition("O2Shape").find("instanceVariableNames: 'a'\n"),
+                std::string::npos);
+      char source[64];
+      ASSERT_EQ(AO_OK, ao_browser_source(ao_browser_class_id("O2Shape"), 0, "a", source, 64));
+      EXPECT_STREQ(getA, source);
+    }
+    if (!fired) {
+      break;
+    }
+  }
+  EXPECT_GT(failedRows, 0u);
+  ao_runtime_shutdown();
+}
