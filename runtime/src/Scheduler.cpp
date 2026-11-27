@@ -175,6 +175,14 @@ bool isNoArgBlock(Heap& heap, const WellKnown& wk, Oop obj) {
          heap.slotAt(obj, kCtxArgc) == Oop::fromSmallInteger(0);
 }
 
+// SPEC §3.4 (the Processes the scheduler makes): a new instance of Process itself, its slots nil,
+// made without a send (neither Process new nor basicNew), so no Smalltalk runs here whatever
+// Process class's method dictionary was swapped for. Empty when it cannot be allocated (the
+// out-of-memory flag is then set). May collect.
+Oop newProcess(CallContext& ctx) {
+  return allocateInstance(ctx, ctx.wk.processClass, kProcessSlotMyList + 1);
+}
+
 // error: with msg, as the Kernel's failures with a message do (SPEC §3.3). receiver is a rooted
 // slot.
 Oop fail(CallContext& ctx, const Oop& receiver, std::string_view msg) {
@@ -300,10 +308,7 @@ void Scheduler::adoptImage() {
   Oop proc = shaped ? heap.slotAt(sched.slot, kSchedulerSlotActive) : Oop::nil();
   if (!isProcess(heap, ctx.wk, proc)) {
     // SPEC §3.4 ベースプロセス: not a Process there, so a new one becomes the base.
-    proc = send(ctx, ctx.wk.processClass, ctx.wk.selNew, nullptr, 0, nullptr);
-    if (unwinding(ctx)) {
-      clearUnwinding(ctx);
-    }
+    proc = newProcess(ctx);
     if (!proc.isHeap()) {
       proc = Oop::nil();
     }
@@ -350,9 +355,9 @@ Oop Scheduler::fork(CallContext& ctx, Oop block) {
   if (liveFibers() >= kMaxFibers) {
     return abortEvaluation(ctx, "too many processes");
   }
-  Root proc(ctx.roots, send(ctx, wk.processClass, wk.selNew, nullptr, 0, nullptr));
-  if (unwinding(ctx) || !hasSlots(heap, proc.slot, kProcessSlotMyList)) {
-    return Oop{};
+  Root proc(ctx.roots, newProcess(ctx));
+  if (!proc.slot.isHeap()) {
+    return abortEvaluation(ctx, "out of memory");
   }
   heap.slotAtPut(proc.slot, kProcessSlotSuspendedContext, blk.slot);
   Record* r = addFiber(ctx, proc.slot, blk.slot);
@@ -421,19 +426,15 @@ Scheduler::Record* Scheduler::addFiber(CallContext& ctx, Oop process, Oop block)
 std::uint64_t Scheduler::forkEval(CallContext& ctx, Oop method, int mode, bool debugIt) {
   assert(current_ == &base() && "forkEval runs on the base process");
   Heap& heap = ctx.heap;
-  WellKnown& wk = ctx.wk;
   Root meth(ctx.roots, method);
   // SPEC §3.13: an evaluating process counts against the limit as a fork does.
   if (liveFibers() >= kMaxFibers) {
     abortEvaluation(ctx, "too many processes");
     return 0;
   }
-  Root proc(ctx.roots, send(ctx, wk.processClass, wk.selNew, nullptr, 0, nullptr));
-  if (unwinding(ctx)) {
-    return 0;
-  }
-  if (!hasSlots(heap, proc.slot, kProcessSlotMyList)) {
-    abortEvaluation(ctx, "evaluation failed");
+  Root proc(ctx.roots, newProcess(ctx));
+  if (!proc.slot.isHeap()) {
+    abortEvaluation(ctx, "out of memory");
     return 0;
   }
   heap.slotAtPut(proc.slot, kProcessSlotSuspendedContext, Oop::nil());
