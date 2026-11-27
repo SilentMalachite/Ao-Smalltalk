@@ -1170,7 +1170,7 @@ File メニュー:
 File Out の形式（チャンク形式。§3.8）:
 
 1. 見出しのコメント `"Change Set: <name>` 改行 `Date: <YYYY-MM-DD>` 改行 `Ao <版>"`（ローカルの日付。版は `ao_version`。名前の中の `"` は `""`）
-2. 定義の種類が Added か Changed のクラスの定義（`ao_browser_class_definition` と同じ本文）。セットの中にスーパークラスがあれば、それを先に書く。スーパークラスの名前が nil のクラス（`instVarAt:put:` で名前を nil にした場合）は、スーパークラスがセットに無いものとして扱う。ほかはセットの順。自分の名前が nil のクラス、スーパークラスが nil のクラス（`instVarAt:put:` でルートにした場合）、またはスーパークラスの名前が nil のクラスの定義は書かない（File In が読み飛ばす定義か、`missing class: nil` で止まる `nil subclass:` の定義になるため。4.）。
+2. 定義の種類が Added か Changed のクラスの定義（`ao_browser_class_definition` と同じ本文）。セットの中にスーパークラスがあれば、それを先に書く。スーパークラスの名前が nil のクラス（`instVarAt:put:` で名前を nil にした場合）は、スーパークラスがセットに無いものとして扱う。ほかはセットの順。自分の名前が nil のクラス、またはスーパークラスが nil でなくその名前が nil のクラスの定義は書かない（File In が読み飛ばす定義になるため）。スーパークラスが nil のクラス（`instVarAt:put:` でルートにした場合）の定義も書かない（`nil subclass:` の定義では、File In が `missing class: nil` で止まるため）。どちらも 4. のコメントのチャンクになる。
 3. クラスごと（セットの順）に、インスタンス側、クラス側の順で、`!<Class> methodsFor: 'user'!`（クラス側は `!<Class> class methodsFor: 'user'!`）と、種類が Added か Changed のメソッドのソースをセレクタのバイト順に、`!` と空行で区切って並べ、最後のメソッドを ` !` で閉じる。ソースのあるメソッドが無い側は書かない。
 4. コメントのチャンク。Removed のメソッド `"Removed: <Class>>><selector>"`、Removed のクラス `"Removed class: <Class>"`、ソースの無いメソッド `"<Class>>><selector> source not available"`、名前がクラスを指さない定義、および 2. で書かなかった定義 `"<Class> definition not available"`（`<Class>` はセットが持つクラス名）の順（定義のコメントは 2. の順。ほかはそれぞれセットの順、側、セレクタの順）。
 
