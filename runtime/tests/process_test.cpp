@@ -1816,3 +1816,43 @@ TEST(Process, SemaphoreAndSharedQueueNewAnswerForeignBasicNewUntouched) {
     EXPECT_EQ("<no abort>", takeAbortReason(b));
   }
 }
+
+// SPEC §3.2: making a session's scheduler roots its base process all or nothing. When a root
+// slot cannot be registered, the constructor throws and leaves no slot and no stack registered (a
+// constructor that throws runs no destructor), so the Roots it was given points at no freed record.
+TEST(Process, FailedSchedulerConstructionLeavesNoRootBehind) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::ClassMethodCache cache;
+  ao::CallContext ctx{heap, roots, wk, &cache};
+  const ao::Roots::Counts before = roots.counts();
+  std::size_t failed = 0;
+  for (std::size_t k = 0;; ++k) {
+    SCOPED_TRACE(k);
+    roots.failSlotGrowthForTesting(k);
+    bool threw = false;
+    try {
+      ao::Scheduler scheduler(ctx);
+    } catch (const std::bad_alloc&) {
+      threw = true;
+    }
+    const bool fired = !roots.slotGrowthFailurePending();
+    roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    const ao::Roots::Counts after = roots.counts();
+    EXPECT_EQ(before.slots, after.slots);
+    EXPECT_EQ(before.pinnedSlots, after.pinnedSlots);
+    EXPECT_EQ(before.ranges, after.ranges);
+    EXPECT_EQ(before.frameSlots, after.frameSlots);
+    EXPECT_EQ(before.handles, after.handles);
+    EXPECT_EQ(before.attachedStacks, after.attachedStacks);
+    EXPECT_EQ(nullptr, ctx.scheduler);
+    if (!fired) {
+      EXPECT_FALSE(threw);
+      break;
+    }
+    EXPECT_TRUE(threw);
+    ++failed;
+  }
+  EXPECT_GT(failed, 0u);
+}

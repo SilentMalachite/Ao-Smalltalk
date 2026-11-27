@@ -253,8 +253,13 @@ Scheduler::Scheduler(CallContext& base) : base_(base) {
   rec->ctx = &base_;
   rec->state = State::Running;
   rec->started = true;
-  rootRecord(base_.roots, &rec->process, &rec->block, &rec->waitingOn, &rec->signaledBy);
+  // SPEC §3.2: all or nothing. A constructor that throws runs no destructor, so every step that
+  // can throw comes before the first registration: the room in records_, the room for the five
+  // slots below (the record's four and evalValue_), and the attached stack (still empty).
+  records_.reserve(1);
+  base_.roots.reserveSlots(5);
   base_.roots.attachStack(&rec->rootStack);
+  rootRecord(base_.roots, &rec->process, &rec->block, &rec->waitingOn, &rec->signaledBy);
   base_.roots.add(&evalValue_);
   current_ = rec.get();
   records_.push_back(std::move(rec));
