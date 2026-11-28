@@ -69,6 +69,23 @@ class Heap {
   bool outOfMemory() const { return outOfMemory_; }
   void clearOutOfMemory() { outOfMemory_ = false; }
 
+  // Test seam: allocateRetry fails once, as at old's max (the out-of-memory flag set, the empty
+  // Oop), after `allocations` more calls of it. allocationFailurePending is true until it has.
+  void failAllocationForTesting(std::size_t allocations) { allocFailAfter_ = allocations; }
+  bool allocationFailurePending() const { return allocFailAfter_ != kNoAllocFailure; }
+  // allocateRetry's side of the seam: true for the call that is to fail, which disarms it.
+  bool allocationFailureDue() {
+    if (allocFailAfter_ == kNoAllocFailure) {
+      return false;
+    }
+    if (allocFailAfter_ == 0) {
+      allocFailAfter_ = kNoAllocFailure;
+      return true;
+    }
+    --allocFailAfter_;
+    return false;
+  }
+
   ObjectHeader* header(Oop obj);
   const ObjectHeader* header(Oop obj) const;
   Oop klass(Oop obj) const;
@@ -160,6 +177,8 @@ class Heap {
   std::uint64_t oldCollections_ = 0;
   std::uint64_t nurseryCollections_ = 0;
   bool outOfMemory_ = false;
+  static constexpr std::size_t kNoAllocFailure = static_cast<std::size_t>(-1);
+  std::size_t allocFailAfter_ = kNoAllocFailure;  // test seam, see failAllocationForTesting
 };
 
 }  // namespace ao

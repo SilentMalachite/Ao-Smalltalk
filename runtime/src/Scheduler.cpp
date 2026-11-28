@@ -42,7 +42,8 @@ std::int64_t ocSize(Heap& heap, const WellKnown& wk, Oop oc) {
   return listShape(heap, wk, oc, &s) == OcShape::Sound ? s.last - s.first + 1 : 0;
 }
 
-// SPEC §3.13: the scheduler's own sends (its lists) never halt the process that runs them: a
+// SPEC §3.13: the scheduler never halts the running process while it updates its lists. They send
+// nothing (SPEC §3.4), but the add: native's failure on a damaged list goes through error:, and a
 // halt there would leave a list and the C++ queue half updated.
 struct NoHalt {
   CallContext& ctx;
@@ -52,21 +53,20 @@ struct NoHalt {
   NoHalt& operator=(const NoHalt&) = delete;
 };
 
-// Sends add: (the Kernel native). May collect; unwinding afterwards when it failed, and then the
-// collection is as it was.
+// Adds value to oc, an instance of OrderedCollection itself (what ensureOc answers). SPEC §3.4:
+// the add: native is called directly, with no lookup and no send, so no Smalltalk runs while a
+// process is half queued, whatever a method dictionary was swapped for. NoHalt still matters: the
+// native's failure on a damaged oc goes through error:. May collect; unwinding afterwards when it
+// failed, and then the collection is as it was.
 Oop ocAdd(CallContext& ctx, Oop oc, Oop value) {
   const NoHalt noHalt(ctx);
-  Root list(ctx.roots, oc);
-  Root v(ctx.roots, value);
-  Root sel(ctx.roots, ctx.wk.intern("add:"));
-  if (!sel.slot.isHeap()) {
-    return abortEvaluation(ctx, "out of memory");
-  }
-  const Oop added = send(ctx, list.slot, sel.slot, &v.slot, 1, nullptr);
-  // A native that fails answers the empty Oop without an abort (an Array that cannot grow: out
-  // of memory). Here that is a failed send too (SPEC §3.3), so the caller sees it unwinding.
+  // invoke roots oc and value for the native.
+  const Oop added = NativeMethod::invoke(ctx, ao_OrderedCollection_add_, oc, &value, 1);
+  // The native answers the empty Oop without an abort when the Array cannot grow (out of
+  // memory). Here that is a failed add: (SPEC §3.3), so the caller sees it unwinding.
   if (added.isEmpty() && !unwinding(ctx)) {
-    return abortFailedSend(ctx, sel.slot);
+    const Oop sel = ctx.wk.intern("add:");
+    return sel.isHeap() ? abortFailedSend(ctx, sel) : abortEvaluation(ctx, "out of memory");
   }
   return added;
 }
@@ -125,10 +125,12 @@ bool ocRemoveIdentity(Heap& heap, const WellKnown& wk, Oop oc, Oop target) {
   return false;
 }
 
-// The OrderedCollection in holder's slot, made (OrderedCollection new) when the slot holds
-// something else. Empty when holder has no such slot, or when making one failed (unwinding).
+// The OrderedCollection in holder's slot, made when the slot holds something else. Empty when
+// holder has no such slot, or when making one failed (out of memory: unwinding). SPEC §3.4: made
+// without a send (neither OrderedCollection new nor basicNew), so no Smalltalk runs here: an
+// instance of OrderedCollection itself in the empty form (array nil, firstIndex 1, lastIndex 0),
+// whose first add: makes its Array.
 Oop ensureOc(CallContext& ctx, Root& holder, std::uint32_t slot) {
-  const NoHalt noHalt(ctx);
   if (!hasSlots(ctx.heap, holder.slot, slot)) {
     return Oop{};
   }
@@ -136,12 +138,16 @@ Oop ensureOc(CallContext& ctx, Root& holder, std::uint32_t slot) {
   if (oc.isHeap() && ctx.wk.classOf(oc) == ctx.wk.orderedCollectionClass) {
     return oc;
   }
-  Oop neu = send(ctx, ctx.wk.orderedCollectionClass, ctx.wk.selNew, nullptr, 0, nullptr);
-  if (neu.isHeap() && !unwinding(ctx)) {
-    ctx.heap.slotAtPut(holder.slot, slot, neu);
-    return neu;
+  // May collect: holder is a Root, and nothing else here lives across it.
+  const Oop neu = allocateRetry(ctx, ctx.wk.orderedCollectionClass, kOcLast + 1, 0);
+  if (!neu.isHeap()) {
+    return abortEvaluation(ctx, "out of memory");
   }
-  return Oop{};
+  ctx.heap.slotAtPut(neu, kOcArray, Oop::nil());
+  ctx.heap.slotAtPut(neu, kOcFirst, Oop::fromSmallInteger(1));
+  ctx.heap.slotAtPut(neu, kOcLast, Oop::fromSmallInteger(0));
+  ctx.heap.slotAtPut(holder.slot, slot, neu);
+  return neu;
 }
 
 void setMyList(Heap& heap, Oop process, Oop list) {
@@ -1115,11 +1121,11 @@ bool Scheduler::enqueue(CallContext& ctx, Record& r) {
   Heap& heap = ctx.heap;
   // The C++ queue first: if growing it throws, nothing has changed yet.
   ready_.push_back(&r);
-  // SPEC §3.2, §3.4: a failed send below, or a C++ exception from one, takes this call's entry
-  // out again, so the queue never keeps a record its caller then drops. The sends can run
-  // Smalltalk that queues other processes after this entry (a fork), so the undo finds it by
-  // identity, from the end, and leaves the others; it does nothing if the entry is gone. Does not
-  // throw.
+  // SPEC §3.2, §3.4: a failure below (out of memory, a damaged list), or a C++ exception, takes
+  // this call's entry out again, so the queue never keeps a record its caller then drops. No
+  // Smalltalk runs below (ensureOc and ocAdd send nothing), so no other process is queued in
+  // between; the undo still finds the entry by identity, from the end, and does nothing if it is
+  // gone. Does not throw.
   const auto takeBack = [this, &r] {
     const auto it = std::find(ready_.rbegin(), ready_.rend(), &r);
     if (it != ready_.rend()) {
