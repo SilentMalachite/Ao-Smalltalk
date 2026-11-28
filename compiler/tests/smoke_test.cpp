@@ -10,6 +10,6 @@ TEST(CompilerSmoke, VersionIsNonEmpty) {
 }
 
 // SPEC §2.4: ao::compiler::version は ao::version_string と同じ版。
-TEST(CompilerSmoke, VersionIsReleaseOneSevenZero) {
-  EXPECT_STREQ("1.7.0", ao::compiler::version());
+TEST(CompilerSmoke, VersionIsReleaseOneSevenOne) {
+  EXPECT_STREQ("1.7.1", ao::compiler::version());
 }

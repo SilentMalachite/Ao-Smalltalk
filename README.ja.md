@@ -15,7 +15,7 @@ English (canonical GitHub text): [README.md](README.md)
 
 ## 現状
 
-**Ao 1.7.0** が現在のリリースです。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P18 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を（1.3.0）、P15 で Debugger の編集と Accept を（1.4.0）、P16–P18 でチェンジセット、Change Sorter、イメージへのメソッドソースの保存を足しました（1.7.0。1.5.0 と 1.6.0 はリリースしていません）。
+**Ao 1.7.1** が現在のリリースです。1.7.0 のレビューで見つかった誤りを直したパッチ版です。[SPEC.md](SPEC.md) §2.3 のフェーズ P0–P18 をすべて終えています。P0–P9 が v1 の定義で、1.0.0 としてリリースしました。P10–P12 でデバッガと Browser の削除を足し（1.1.0）、P13 で評価の中断を（1.2.0）、P14 で Debugger の Restart を（1.3.0）、P15 で Debugger の編集と Accept を（1.4.0）、P16–P18 でチェンジセット、Change Sorter、イメージへのメソッドソースの保存を足しました（1.7.0。1.5.0 と 1.6.0 はリリースしていません）。
 
 | 領域 | できること |
 |---|---|
@@ -38,8 +38,8 @@ English (canonical GitHub text): [README.md](README.md)
 
 | ファイル | 中身 |
 |---|---|
-| `Ao-1.7.0-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
-| `ao-cli-1.7.0-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
+| `Ao-1.7.1-macos-arm64.zip` | `Ao.app`、`LICENSE`、`NOTICE` |
+| `ao-cli-1.7.1-macos-arm64.tar.gz` | コマンドラインツール `ao`、それが file-in するクラスライブラリ（`vendor/`）、`LICENSE`、`NOTICE` |
 | `SHA256SUMS` | 上の 2 つのアーカイブの SHA-256 |
 
 ダウンロードを確かめます。
@@ -52,7 +52,7 @@ shasum -a 256 -c SHA256SUMS
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.7.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.7.1-macos-arm64/ao
 ```
 
 ## Ao.app の使い方
@@ -111,7 +111,7 @@ Accept と削除はすべて現在のチェンジセットに記録されます�
 ## `ao` CLI の使い方
 
 ```sh
-ao --version                               # 1.7.0
+ao --version                               # 1.7.1
 ao filein hello.st                         # チャンク形式のファイルを 1 つ file-in する
 ao filein --load-order vendor/LOAD_ORDER   # クラスライブラリを順に file-in する
 ao --test tests/                           # tests/ の *.st をすべてゴールデンテストとして実行する

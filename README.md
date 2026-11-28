@@ -15,7 +15,7 @@ Product spec: [SPEC.md](SPEC.md) (Japanese; product authority). Agent process: [
 
 ## Status
 
-**Ao 1.7.0** is the current release. It completes phases P0–P18 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0); P14 adds Restart in the Debugger (1.3.0); P15 adds editing and Accept in the Debugger (1.4.0); P16–P18 add change sets, the Change Sorter, and method sources saved in the image (1.7.0; 1.5.0 and 1.6.0 were not released):
+**Ao 1.7.1** is the current release, a patch of 1.7.0 with the fixes from a review of it. It completes phases P0–P18 of [SPEC.md](SPEC.md) §2.3. Phases P0–P9 are the v1 definition, released as 1.0.0; P10–P12 add a debugger and removal in the Browser (1.1.0); P13 adds the evaluation interrupt (1.2.0); P14 adds Restart in the Debugger (1.3.0); P15 adds editing and Accept in the Debugger (1.4.0); P16–P18 add change sets, the Change Sorter, and method sources saved in the image (1.7.0; 1.5.0 and 1.6.0 were not released):
 
 | Area | What Ao does |
 |---|---|
@@ -38,8 +38,8 @@ Download from the [Releases](https://github.com/SilentMalachite/Ao-Smalltalk/rel
 
 | File | Contents |
 |---|---|
-| `Ao-1.7.0-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
-| `ao-cli-1.7.0-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
+| `Ao-1.7.1-macos-arm64.zip` | `Ao.app`, `LICENSE`, `NOTICE` |
+| `ao-cli-1.7.1-macos-arm64.tar.gz` | The `ao` command-line tool, the class library it files in (`vendor/`), `LICENSE`, `NOTICE` |
 | `SHA256SUMS` | SHA-256 checksums of the two archives |
 
 Check the downloads:
@@ -52,7 +52,7 @@ The builds are ad-hoc signed, not notarized. macOS blocks them the first time. E
 
 ```sh
 xattr -dr com.apple.quarantine Ao.app
-xattr -d com.apple.quarantine ao-cli-1.7.0-macos-arm64/ao
+xattr -d com.apple.quarantine ao-cli-1.7.1-macos-arm64/ao
 ```
 
 ## Using Ao.app
@@ -111,7 +111,7 @@ Evaluation runs on the main thread. **Smalltalk → Interrupt** (⌘.) stops a l
 ## Using the `ao` CLI
 
 ```sh
-ao --version                               # 1.7.0
+ao --version                               # 1.7.1
 ao filein hello.st                         # file in one chunk-format file
 ao filein --load-order vendor/LOAD_ORDER   # file in the class library in order
 ao --test tests/                           # run every *.st in tests/ as a golden test
