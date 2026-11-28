@@ -1816,3 +1816,124 @@ TEST(Process, SemaphoreAndSharedQueueNewAnswerForeignBasicNewUntouched) {
     EXPECT_EQ("<no abort>", takeAbortReason(b));
   }
 }
+
+// SPEC §3.2, §3.4: the send that makes the ready queue's OrderedCollection (quiescentProcesses
+// holds none) forks another process and then fails. The fork that asked takes only its own entry
+// out of the queue: the nested process stays queued and runs, and no freed record is left there.
+// Accept cannot hide a Kernel native, so the override of basicNew is installed directly.
+TEST(Process, FailedQueueSendKeepsTheProcessItForked) {
+  Boot b;
+  auto img = ao::compiler::compileMethod(
+      "basicNew\n"
+      "  (Smalltalk at: #AoNestedArmed) == true ifTrue: [\n"
+      "    Smalltalk at: #AoNestedArmed put: false.\n"
+      "    [Smalltalk at: #AoNestedRan put: true] fork.\n"
+      "    ^self error: 'no queue'].\n"
+      "  ^super basicNew");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  EXPECT_EQ("<no abort>", runAbort(b, "doIt\n"
+                                      "  Smalltalk at: #AoNestedArmed put: false.\n"
+                                      "  Smalltalk at: #AoNestedRan put: false"));
+  ASSERT_TRUE(
+      ao::installMethod(b.ctx, b.heap.klass(b.wk.orderedCollectionClass), img.image).isHeap());
+  EXPECT_EQ("no queue", runAbort(b, "doIt\n"
+                                    "  Smalltalk at: #AoNestedArmed put: true.\n"
+                                    "  Processor instVarAt: 1 put: nil.\n"
+                                    "  [3 + 4] fork.\n"
+                                    "  ^5"));
+  EXPECT_EQ(1u, b.scheduler.liveFibers());
+  EXPECT_EQ(ao::Oop::true_(), run(b, "doIt\n"
+                                          "  Processor yield.\n"
+                                          "  ^Smalltalk at: #AoNestedRan"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}
+
+// SPEC §3.2: making a session's scheduler roots its base process all or nothing. When a root
+// slot cannot be registered, the constructor throws and leaves no slot and no stack registered (a
+// constructor that throws runs no destructor), so the Roots it was given points at no freed record.
+TEST(Process, FailedSchedulerConstructionLeavesNoRootBehind) {
+  ao::Heap heap;
+  ao::Roots roots;
+  ao::WellKnown wk(heap, roots);
+  ao::ClassMethodCache cache;
+  ao::CallContext ctx{heap, roots, wk, &cache};
+  const ao::Roots::Counts before = roots.counts();
+  std::size_t failed = 0;
+  for (std::size_t k = 0;; ++k) {
+    SCOPED_TRACE(k);
+    roots.failSlotGrowthForTesting(k);
+    bool threw = false;
+    try {
+      ao::Scheduler scheduler(ctx);
+    } catch (const std::bad_alloc&) {
+      threw = true;
+    }
+    const bool fired = !roots.slotGrowthFailurePending();
+    roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    const ao::Roots::Counts after = roots.counts();
+    EXPECT_EQ(before.slots, after.slots);
+    EXPECT_EQ(before.pinnedSlots, after.pinnedSlots);
+    EXPECT_EQ(before.ranges, after.ranges);
+    EXPECT_EQ(before.frameSlots, after.frameSlots);
+    EXPECT_EQ(before.handles, after.handles);
+    EXPECT_EQ(before.attachedStacks, after.attachedStacks);
+    EXPECT_EQ(nullptr, ctx.scheduler);
+    if (!fired) {
+      EXPECT_FALSE(threw);
+      break;
+    }
+    EXPECT_TRUE(threw);
+    ++failed;
+  }
+  EXPECT_GT(failed, 0u);
+}
+
+// SPEC §3.2, §3.4: the same when a C++ exception (a root slot that cannot be registered, at root
+// add k) leaves the queueing after the nested fork. Every row leaves no freed record in the queue:
+// what is left runs to its end.
+TEST(Process, ThrowingQueueSendKeepsTheProcessItForked) {
+  auto img = ao::compiler::compileMethod(
+      "basicNew\n"
+      "  (Smalltalk at: #AoNestedArmed) == true ifTrue: [\n"
+      "    Smalltalk at: #AoNestedArmed put: false.\n"
+      "    [Smalltalk at: #AoNestedRan put: true] fork].\n"
+      "  ^super basicNew");
+  ASSERT_TRUE(img.ok) << img.error.message;
+  // Rows where the nested process was left queued after the throw: at least one, so the row the
+  // exception path takes is not missed.
+  std::size_t nestedLeft = 0;
+  for (std::size_t k = 0;; ++k) {
+    SCOPED_TRACE(k);
+    Boot b;
+    ASSERT_EQ("<no abort>", runAbort(b, "doIt\n"
+                                        "  Smalltalk at: #AoNestedArmed put: false.\n"
+                                        "  Smalltalk at: #AoNestedRan put: false"));
+    ASSERT_TRUE(
+        ao::installMethod(b.ctx, b.heap.klass(b.wk.orderedCollectionClass), img.image).isHeap());
+    b.roots.failSlotGrowthForTesting(k);
+    bool threw = false;
+    try {
+      run(b, "doIt\n"
+             "  Smalltalk at: #AoNestedArmed put: true.\n"
+             "  Processor instVarAt: 1 put: nil.\n"
+             "  [3 + 4] fork.\n"
+             "  ^5");
+    } catch (const std::bad_alloc&) {
+      threw = true;
+    }
+    const bool fired = !b.roots.slotGrowthFailurePending();
+    b.roots.failSlotGrowthForTesting(static_cast<std::size_t>(-1));
+    (void)takeAbortReason(b);
+    if (threw && b.scheduler.liveFibers() == 1 &&
+        b.heap.slotAt(b.wk.processor, ao::kSchedulerSlotQuiescent).isHeap()) {
+      ++nestedLeft;
+    }
+    b.scheduler.drain(ao::Scheduler::kDrainRounds);
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+    if (!fired) {
+      break;
+    }
+  }
+  EXPECT_GT(nestedLeft, 0u);
+}

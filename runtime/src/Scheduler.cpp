@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
+#include <iterator>
 #include <string_view>
 #include <utility>
 
@@ -253,8 +254,13 @@ Scheduler::Scheduler(CallContext& base) : base_(base) {
   rec->ctx = &base_;
   rec->state = State::Running;
   rec->started = true;
-  rootRecord(base_.roots, &rec->process, &rec->block, &rec->waitingOn, &rec->signaledBy);
+  // SPEC §3.2: all or nothing. A constructor that throws runs no destructor, so every step that
+  // can throw comes before the first registration: the room in records_, the room for the five
+  // slots below (the record's four and evalValue_), and the attached stack (still empty).
+  records_.reserve(1);
+  base_.roots.reserveSlots(5);
   base_.roots.attachStack(&rec->rootStack);
+  rootRecord(base_.roots, &rec->process, &rec->block, &rec->waitingOn, &rec->signaledBy);
   base_.roots.add(&evalValue_);
   current_ = rec.get();
   records_.push_back(std::move(rec));
@@ -1109,27 +1115,36 @@ bool Scheduler::enqueue(CallContext& ctx, Record& r) {
   Heap& heap = ctx.heap;
   // The C++ queue first: if growing it throws, nothing has changed yet.
   ready_.push_back(&r);
-  // SPEC §3.2 (O1): a C++ exception from the sends below takes the entry out again, as a failed
-  // send does, so the queue never keeps a record its caller then drops.
+  // SPEC §3.2, §3.4: a failed send below, or a C++ exception from one, takes this call's entry
+  // out again, so the queue never keeps a record its caller then drops. The sends can run
+  // Smalltalk that queues other processes after this entry (a fork), so the undo finds it by
+  // identity, from the end, and leaves the others; it does nothing if the entry is gone. Does not
+  // throw.
+  const auto takeBack = [this, &r] {
+    const auto it = std::find(ready_.rbegin(), ready_.rend(), &r);
+    if (it != ready_.rend()) {
+      ready_.erase(std::next(it).base());
+    }
+  };
   try {
     Root sched(ctx.roots, ctx.wk.processor);
     if (hasSlots(heap, sched.slot, kSchedulerSlotActive)) {
       Root list(ctx.roots, ensureOc(ctx, sched, kSchedulerSlotQuiescent));
       if (unwinding(ctx)) {
-        ready_.pop_back();
+        takeBack();
         return false;
       }
       if (list.slot.isHeap()) {
         ocAdd(ctx, list.slot, r.process);
         if (unwinding(ctx)) {
-          ready_.pop_back();
+          takeBack();
           return false;
         }
         setMyList(heap, r.process, list.slot);
       }
     }
   } catch (...) {
-    ready_.pop_back();
+    takeBack();
     throw;
   }
   r.state = State::Ready;
