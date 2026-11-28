@@ -1,7 +1,7 @@
 # Graph Report - ao-smalltalk  (2026-11-28)
 
 ## Corpus Check
-- 319 files · ~465,822 words
+- 319 files · ~466,990 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 83 file(s) not represented in the graph (top: .st 67, (none) 13, .toml 1)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c0ce10c4`
+- Built from commit: `a3b15355`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1261,7 +1261,7 @@ Nodes (16): DeepRecursionOnFiberStack, Fiber, GuardPageIsProtNone, PingPongKeeps
 
 ### Community 217 - "TEST"
 Cohesion: 0.50
-Nodes (4): TEST(), CompilerSmoke, VersionIsNonEmpty, VersionIsReleaseOneSevenZero
+Nodes (4): TEST(), CompilerSmoke, VersionIsNonEmpty, VersionIsReleaseOneSevenOne
 
 ### Community 218 - "abortingNew"
 Cohesion: 0.67
@@ -1324,8 +1324,6 @@ Cohesion: 0.08
 Nodes (22): AoTranscriptFn, Task 4: 項目を忘れる・移す（Remove from Change Set / Move to）, Review Focus, Task 1: SPEC と PHASE を P18 にする, Task 4: ロードのあとの操作とチェンジセット, Task 6: CHANGELOG、受け入れ、グラフ, ao_set_debug_capture(), ao_set_debug_mode() (+14 more)
 
 ## Ambiguous Edges - Review These
-- `Debug it (AO_EVAL_DEBUGIT)` → `SPEC §3.13 デバッガ（捕捉の意味論）`  [AMBIGUOUS]
-  docs/prs/P11-05.md · relation: conceptually_related_to
 - `P5-01: 字句解析` → `P4-09: Kernel NativeMethod 走査と bench`  [AMBIGUOUS]
   docs/prs/P5-01.md · relation: references
 - `P4-08: Point / Rectangle` → `P4-09: Kernel NativeMethod 走査と bench`  [AMBIGUOUS]
@@ -1336,6 +1334,8 @@ Nodes (22): AoTranscriptFn, Task 4: 項目を忘れる・移す（Remove from Ch
   docs/prs/P8-01.md · relation: references
 - `P8-05: メニューとキー` → `P9-01: Do it / Print it / Inspect it`  [AMBIGUOUS]
   docs/prs/P9-01.md · relation: references
+- `Debug it (AO_EVAL_DEBUGIT)` → `SPEC §3.13 デバッガ（捕捉の意味論）`  [AMBIGUOUS]
+  docs/prs/P11-05.md · relation: conceptually_related_to
 - `Compile.cpp: acceptMethodSource` → `Image::save(..., haltedProcesses) 保存の拒否`  [AMBIGUOUS]
   docs/prs/P11-03.md · relation: conceptually_related_to
 
@@ -1347,8 +1347,6 @@ Nodes (22): AoTranscriptFn, Task 4: 項目を忘れる・移す（Remove from Ch
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **What is the exact relationship between `Debug it (AO_EVAL_DEBUGIT)` and `SPEC §3.13 デバッガ（捕捉の意味論）`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `P5-01: 字句解析` and `P4-09: Kernel NativeMethod 走査と bench`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **What is the exact relationship between `P4-08: Point / Rectangle` and `P4-09: Kernel NativeMethod 走査と bench`?**
@@ -1359,5 +1357,7 @@ _Questions this graph is uniquely positioned to answer:_
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **What is the exact relationship between `P8-05: メニューとキー` and `P9-01: Do it / Print it / Inspect it`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
+- **What is the exact relationship between `Debug it (AO_EVAL_DEBUGIT)` and `SPEC §3.13 デバッガ（捕捉の意味論）`?**
+  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `Compile.cpp: acceptMethodSource` and `Image::save(..., haltedProcesses) 保存の拒否`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._

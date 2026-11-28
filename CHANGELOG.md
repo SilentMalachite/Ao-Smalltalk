@@ -2,6 +2,68 @@
 
 All notable changes to Ao are recorded here. Versions follow [Semantic Versioning](https://semver.org/) (SPEC §2.4).
 
+## [1.7.1] - 2026-11-28
+
+Fixes from a full review of 1.7.0, released as a patch (SPEC §2.4). No phase is added. The `.aoimage` format stays at version 4, and the C ABI has no new or changed functions. Images saved by 1.7.0 still load, with one exception: an image that 1.7.0 saved after running out of memory can hold an empty slot, and loading now refuses it with `damaged image` (see below).
+
+### Runtime
+
+- Kernel classes are guarded in class definitions and `methodsFor:` chunks. `!Smalltalk methodsFor: …!` (or another global that is no class) used to answer `AO_OK` and corrupt Object; it now fails with `missing class: <name>`. A shape change whose `subclass:` override answers a Kernel class is refused with `shape change refused: <Name> answered kernel class <Answered>`.
+- `subclass:` with more than 65535 instance variables aborts with `too many instance variables`. An `instanceVariableNames:` argument that is not a byte string fails.
+- `OrderedCollection new`, `Semaphore new` and `SharedQueue new` initialise only an instance of their own class (subclasses included). Anything else that a class-side `basicNew` override answers is answered untouched. After running out of memory they no longer store an empty value in a slot.
+- `select:`, `reject:`, `collect:`, `detect:ifNone:`, `inject:into:`, `includes:` and `nextPutAll:` no longer treat a failed `do:` as an empty receiver. `isEmpty` and `ArrayedCollection>>do:` check a `size` that is not a SmallInteger. A Fraction whose normalisation runs out of memory is not answered.
+- LargeInteger bit lengths are 64-bit. A magnitude above 4 GiB fails with out of memory instead of being truncated. `ArrayedCollection>>do:` and Stream `contents` reach a safepoint every 64K iterations.
+- Objects damaged by reflection stay memory-safe:
+  - `basicAt:` and `basicAt:put:` fail with `basicAt: object does not match its class format` (or the `basicAt:put:` form) when the class format disagrees with the instance.
+  - 13 Behavior natives and `Metaclass>>thisClass` fail with `failed: #<selector>` on a receiver that is not class-shaped.
+  - A NativeMethod with too few slots in a method dictionary fails the send (`failed: #<selector>`) instead of being read past its end.
+  - A method dictionary whose array has an odd length or whose tally is wrong still takes an install.
+- The scheduler reads its lists (a Semaphore's linkedList, the ready queue, a SharedQueue's contents) by their slots. A damaged list fails `signal`, `wait`, `suspend`, `terminate` and `next` with `damaged ordered collection` instead of being read out of bounds.
+- The scheduler runs no Smalltalk while it makes or fills its lists, or while it makes a Process. A method dictionary swapped with `instVarAt:put:` (`new`, `basicNew` or `add:` of OrderedCollection, `new` or `basicNew` of Process) can no longer switch to a half-made process, queue a process twice, or attach a second fiber to an existing Process.
+- A C++ allocation failure (a root slot that cannot be registered) no longer leaves a freed process record in the ready queue, or stray roots behind:
+  - Activations, process creation, inline caches and the scheduler register their slots all or nothing.
+  - A shape change that is left by such a failure puts the class name back.
+- A DNU with no room left for its Message aborts with `out of memory` instead of `doesNotUnderstand: #<selector>`. Running out of memory after a Proceed aborts at that send, so the next statement does not run.
+- An old-space collection also clears weak slots that point to nursery objects nothing reaches.
+- Transcript text longer than `INT_MAX` bytes is delivered in chunks on UTF-8 boundaries. A hook that unsets itself between chunks no longer causes a call through NULL. A hook that sets another hook hands the rest of the text to it.
+- C ABI:
+  - The seven `ao_browser_*` reads leave the caller's buffer NUL-terminated when they are refused.
+  - An Accept whose rooting fails after the install no longer answers `AO_ERR` with the method already replaced.
+
+### Debugger
+
+- A Debugger Accept into a method rewritten while halted is refused with `debugger accept refused: not an accepted method`, and `ao_debug_can_accept` answers 0. Before, it could read out of bounds or install into another class.
+- Step from an `interrupted` stop runs the stopped instruction first. A block frame of a method from a loaded image shows its home method's source. Defining the DNU selector while halted keeps the frame count and numbers.
+- Closing a live Debugger window (⌘W or the close button) aborts its halted process first. Before, it could leave a process behind that blocked Save Image.
+- Proceed, Step, Restart, Accept or a variable inspect pumped during an evaluation is refused as busy and changes nothing.
+- The frame list always keeps one frame selected. Showing another frame, reloading, or discarding an edit drops the Undo history of the text it replaces.
+
+### Ao.app
+
+- Only the window that installed the Transcript hook can remove it, and removing it no longer reads a dangling pointer.
+- A Browser delete question answered after Open Image… does nothing. The Change Sorter clears its error and reads again after Open Image….
+
+### Compiler and file-in
+
+- A send with more than 255 arguments is a compile error, `too many arguments`. A character literal must be one well-formed UTF-8 scalar, or the error is `invalid character literal`.
+- An instance variable named `nil`, `true`, `false`, `self` or `super` hides the pseudo-variable, following the resolution order of SPEC §3.8.
+- A method that mentions `commentStamp:` in a `methodsFor:` section no longer turns the next chunk into a class comment.
+- File Out writes a `"<Class> definition not available"` comment in place of a definition that File In would lose, and still writes the class's methods. This covers a class whose superclass is nil, and a class whose own name or superclass name is nil. `ChangeSet superclassOrder:` no longer aborts on a superclass with a nil name.
+
+### Images and CLI
+
+- Loading refuses a file with `damaged image` when a pointer slot or a record word is an empty OOP, or when a Character is not a Unicode scalar value.
+- Save Image flushes the method cache first. It no longer traces, or refuses, a class that only the cache still reaches.
+- `ao --test <dir> extra` prints the usage and exits 2. So does `ao image save … --load-order` with the flag last, which used to write a file named `--load-order`.
+
+### Known limitations
+
+The known limitations listed for 1.7.0 still apply.
+
+### Install
+
+Requires an Apple Silicon Mac with macOS 14 or later. Download `Ao-1.7.1-macos-arm64.zip` (the app) and/or `ao-cli-1.7.1-macos-arm64.tar.gz` (the CLI), then check them with `shasum -a 256 -c SHA256SUMS`. The builds are not notarized: after the first launch attempt, choose **Open Anyway** in System Settings → Privacy & Security, or run `xattr -dr com.apple.quarantine Ao.app`. See the [README](https://github.com/SilentMalachite/Ao-Smalltalk/blob/v1.7.1/README.md) for usage.
+
 ## [1.7.0] - 2026-10-13
 
 Phases P16, P17 and P18 of SPEC §2.3, released together. Versions 1.5.0 (P16) and 1.6.0 (P17) were never released: the release after 1.4.0 is 1.7.0 (SPEC §2.4).
@@ -246,7 +308,9 @@ The first release. It completes phases P0–P9 of SPEC §2.3, the v1 definition:
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
 
-[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.4.0...v1.7.0
 [1.4.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.1.0...v1.2.0
