@@ -1,7 +1,7 @@
 # Graph Report - ao-smalltalk  (2026-11-28)
 
 ## Corpus Check
-- 319 files · ~464,833 words
+- 319 files · ~464,890 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 83 file(s) not represented in the graph (top: .st 67, (none) 13, .toml 1)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `79a4a526`
+- Built from commit: `efe38957`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1343,6 +1343,8 @@ Cohesion: 0.12
 Nodes (14): AoTranscriptFn, ao_set_debug_capture(), ao_set_debug_mode(), ao_set_inspect_hook(), ao_set_runloop_pump_hook(), ao_set_transcript_hook(), AoInspectFn, AoRunLoopPumpFn (+6 more)
 
 ## Ambiguous Edges - Review These
+- `Debug it (AO_EVAL_DEBUGIT)` → `SPEC §3.13 デバッガ（捕捉の意味論）`  [AMBIGUOUS]
+  docs/prs/P11-05.md · relation: conceptually_related_to
 - `P5-01: 字句解析` → `P4-09: Kernel NativeMethod 走査と bench`  [AMBIGUOUS]
   docs/prs/P5-01.md · relation: references
 - `P4-08: Point / Rectangle` → `P4-09: Kernel NativeMethod 走査と bench`  [AMBIGUOUS]
@@ -1355,8 +1357,6 @@ Nodes (14): AoTranscriptFn, ao_set_debug_capture(), ao_set_debug_mode(), ao_set_
   docs/prs/P9-01.md · relation: references
 - `Compile.cpp: acceptMethodSource` → `Image::save(..., haltedProcesses) 保存の拒否`  [AMBIGUOUS]
   docs/prs/P11-03.md · relation: conceptually_related_to
-- `Debug it (AO_EVAL_DEBUGIT)` → `SPEC §3.13 デバッガ（捕捉の意味論）`  [AMBIGUOUS]
-  docs/prs/P11-05.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
 - **1110 isolated node(s):** `.selectedClass`, `.metaFlag`, `.canRemoveMethod`, `.canRemoveClass`, `.hasUnacceptedChanges` (+1105 more)
@@ -1366,6 +1366,8 @@ Nodes (14): AoTranscriptFn, ao_set_debug_capture(), ao_set_debug_mode(), ao_set_
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
+- **What is the exact relationship between `Debug it (AO_EVAL_DEBUGIT)` and `SPEC §3.13 デバッガ（捕捉の意味論）`?**
+  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `P5-01: 字句解析` and `P4-09: Kernel NativeMethod 走査と bench`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **What is the exact relationship between `P4-08: Point / Rectangle` and `P4-09: Kernel NativeMethod 走査と bench`?**
@@ -1377,6 +1379,4 @@ _Questions this graph is uniquely positioned to answer:_
 - **What is the exact relationship between `P8-05: メニューとキー` and `P9-01: Do it / Print it / Inspect it`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **What is the exact relationship between `Compile.cpp: acceptMethodSource` and `Image::save(..., haltedProcesses) 保存の拒否`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **What is the exact relationship between `Debug it (AO_EVAL_DEBUGIT)` and `SPEC §3.13 デバッガ（捕捉の意味論）`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
