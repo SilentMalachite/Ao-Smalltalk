@@ -2339,3 +2339,90 @@ TEST(Process, FailedListAllocationLeavesNoFreedRecord) {
   }
   EXPECT_GT(emptyListRows, 0u);
 }
+
+// H1: ライブ評価中に fork した上で Processor の quiescentProcesses を破損させて wait/suspend
+// しても、awaitEval の yield(base_) 失敗時に無限ループせず ready_ のプロセスを進めて有限時間で
+// 終了する。
+TEST(Process, AwaitEvalDoesNotHangWhenQuiescentProcessesIsDamaged) {
+  Boot b;
+  auto doIt = ao::compiler::compileMethod(
+      "doIt\n"
+      "  [Smalltalk at: #H1ForkRan put: 42] fork.\n"
+      "  (Processor instVarAt: 1) instVarAt: 1 put: 123.\n"
+      "  Semaphore new wait.\n"
+      "  ^1");
+  ASSERT_TRUE(doIt.ok) << doIt.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, doIt.image, b.wk.objectClass));
+  const std::uint64_t pid = b.scheduler.forkEval(b.ctx, cm.slot, 2);
+  ASSERT_NE(0u, pid);
+  EXPECT_EQ(ao::Scheduler::EvalEnd::Failed, b.scheduler.awaitEval(pid));
+  EXPECT_EQ("deadlock: no runnable process", b.scheduler.evalReason());
+  EXPECT_EQ(smi(42), ao::Globals::at(b.wk, "H1ForkRan"));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}
+
+// quiescentProcesses が破損した状態で drain を呼んでも無限ループせず、ready_ のファイバを
+// 実行して有限時間で終了する。
+TEST(Process, DrainDoesNotHangWhenQuiescentProcessesIsDamaged) {
+  Boot b;
+  run(b,
+      "doIt\n"
+      "  [Smalltalk at: #H1DrainRan put: 99] fork.\n"
+      "  (Processor instVarAt: 1) instVarAt: 1 put: 123.\n"
+      "  ^1");
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  b.scheduler.drain(ao::Scheduler::kDrainRounds);
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_FALSE(b.heap.outOfMemory());
+  EXPECT_EQ(smi(99), ao::Globals::at(b.wk, "H1DrainRan"));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}
+
+// awaitEval 中に yield(base_) が OOM で失敗しても、base_ の outOfMemory フラグが評価結果に
+// 漏れず、drain でも同様に outOfMemory が残らない。
+TEST(Process, YieldOomInAwaitEvalAndDrainDoesNotLeakOutOfMemory) {
+  {
+    Boot b;
+    b.ctx.inspectHook = [](ao::CallContext& ctx, ao::Oop n) {
+      ctx.heap.failAllocationForTesting(static_cast<std::size_t>(n.smallIntegerValue()));
+    };
+    auto doIt = ao::compiler::compileMethod(
+        "doIt\n"
+        "  | s |\n"
+        "  s := Semaphore new.\n"
+        "  [Smalltalk at: #H1OomForkRan put: 7. s signal] fork.\n"
+        "  Processor instVarAt: 1 put: nil.\n"
+        "  1 inspect.\n"
+        "  s wait.\n"
+        "  ^99");
+    ASSERT_TRUE(doIt.ok) << doIt.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, doIt.image, b.wk.objectClass));
+    const std::uint64_t pid = b.scheduler.forkEval(b.ctx, cm.slot, 2);
+    ASSERT_NE(0u, pid);
+    EXPECT_EQ(ao::Scheduler::EvalEnd::Finished, b.scheduler.awaitEval(pid));
+    b.ctx.inspectHook = nullptr;
+    EXPECT_FALSE(b.heap.allocationFailurePending());
+    b.heap.failAllocationForTesting(static_cast<std::size_t>(-1));
+    EXPECT_FALSE(b.heap.outOfMemory());
+    EXPECT_EQ(smi(99), b.scheduler.evalValue());
+    EXPECT_EQ(smi(7), ao::Globals::at(b.wk, "H1OomForkRan"));
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+  }
+  {
+    Boot b;
+    run(b,
+        "doIt\n"
+        "  [Smalltalk at: #H1DrainOomRan put: 11] fork.\n"
+        "  Processor instVarAt: 1 put: nil.\n"
+        "  ^1");
+    ASSERT_EQ("<no abort>", takeAbortReason(b));
+    b.heap.failAllocationForTesting(0);
+    b.scheduler.drain(ao::Scheduler::kDrainRounds);
+    EXPECT_FALSE(b.heap.allocationFailurePending());
+    b.heap.failAllocationForTesting(static_cast<std::size_t>(-1));
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+    EXPECT_FALSE(b.heap.outOfMemory());
+    EXPECT_EQ(smi(11), ao::Globals::at(b.wk, "H1DrainOomRan"));
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+  }
+}

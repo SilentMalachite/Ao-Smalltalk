@@ -547,3 +547,20 @@ TEST(Chunk, OnlyOneChunkAfterCommentStampHeaderIsProse) {
   EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[2].kind);
   EXPECT_EQ("Foo bar. \"a ! b\"", acts[2].source);
 }
+
+// M10: クラスコメント prose 内の単独アポストロフィ（英字に挟まれないもの）が文字列を開いて
+// チャンク終端の ! を飲み込まない。
+TEST(Chunk, ProseTrailingApostropheDoesNotSwallowBang) {
+  const char* src =
+      "!Foo commentStamp: 'x' prior: 0!\n"
+      "The dogs' bones!\n"
+      "!Object subclass: #Bar\n"
+      "  category: 'T'!\n";
+  std::vector<ao::compiler::CompileError> errs;
+  auto acts = ao::compiler::parseChunks(src, errs);
+  ASSERT_EQ(3u, acts.size());
+  EXPECT_EQ(ao::compiler::ChunkKind::DoIt, acts[1].kind);
+  EXPECT_EQ("The dogs' bones", acts[1].source);
+  ASSERT_EQ(ao::compiler::ChunkKind::ClassDef, acts[2].kind);
+  EXPECT_EQ("Bar", acts[2].className);
+}

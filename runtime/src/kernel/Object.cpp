@@ -38,7 +38,7 @@ bool isBytesString(CallContext& ctx, Oop obj) {
 
 Oop classFormat(CallContext& ctx, Oop receiver) {
   const Oop cls = ctx.wk.classOf(receiver);
-  if (!cls.isHeap()) {
+  if (!isClassShaped(ctx.heap, cls)) {
     return Oop{};
   }
   return ctx.heap.slotAt(cls, kClassSlotFormat);
@@ -280,7 +280,7 @@ Oop ao_Object_shallowCopy(CallContext& ctx, const Oop& receiver, const Oop*, std
     return receiver;
   }
   const auto n = ctx.heap.size(receiver);
-  const auto flags = ctx.heap.flags(receiver);
+  const auto flags = ctx.heap.flags(receiver) & (kFlagBytes | kFlagWeak);
   // GC で receiver が動いても、ルート済みスロットを指す参照なので読み直さなくてよい。
   const Oop copy = allocateRetry(ctx, ctx.heap.klass(receiver), n, flags);
   if (!copy.isHeap()) {
@@ -434,7 +434,7 @@ Oop ao_Object_basicAt_put_(CallContext& ctx, const Oop& receiver, const Oop* arg
 Oop ao_Object_printString(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
   if (argc != 0) return Oop{};
   const Oop cls = ctx.wk.classOf(receiver);
-  const Oop name = cls.isHeap() ? ctx.heap.slotAt(cls, kClassSlotName) : Oop{};
+  const Oop name = isClassShaped(ctx.heap, cls) ? ctx.heap.slotAt(cls, kClassSlotName) : Oop{};
   // 名前は割り当ての前に写す。allocateRetry の GC で名前のオブジェクトが動いても読まない。
   const std::string text = name.isHeap() ? Str::toUtf8(ctx.heap, name) : std::string();
   return Str::fromUtf8(ctx, text);

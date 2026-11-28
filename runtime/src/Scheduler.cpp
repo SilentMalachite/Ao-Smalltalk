@@ -481,7 +481,7 @@ Scheduler::EvalEnd Scheduler::awaitEval(std::uint64_t pid) {
       runAwaited(*r);
       continue;
     }
-    yield(base_);
+    yieldBaseOrRunNext();
   }
   if (unwinding(base_)) {
     clearUnwinding(base_);
@@ -501,7 +501,35 @@ void Scheduler::runAwaited(Record& r) {
   afterResume(base_, b);
 }
 
+// ベースプロセスから ready_ の先頭プロセスへ切り替える。quiescentProcesses の破損や
+// OOM 等で yield(base_) が失敗した場合は、unwinding と yield 起因の outOfMemory を
+// クリアした上で ready_ の先頭を直接走らせる。
+void Scheduler::yieldBaseOrRunNext() {
+  const bool hadOom = base_.heap.outOfMemory();
+  if (yield(base_)) {
+    return;
+  }
+  if (unwinding(base_)) {
+    clearUnwinding(base_);
+  }
+  if (!hadOom) {
+    base_.heap.clearOutOfMemory();
+  }
+  if (!ready_.empty()) {
+    Record* next = ready_.front();
+    leaveLists(*next);
+    runAwaited(*next);
+  }
+}
+
 bool Scheduler::runningEval() const { return current_->isEval; }
+
+void Scheduler::syncHooksToCurrent() {
+  if (current_ != nullptr && !current_->isBase() && !current_->abandon && current_->ctx != nullptr) {
+    current_->ctx->transcriptHook = base_.transcriptHook;
+    current_->ctx->debug = base_.debug;
+  }
+}
 
 
 bool Scheduler::canHalt(const CallContext& ctx) const {
@@ -934,7 +962,7 @@ Oop Scheduler::next(CallContext& ctx, Oop queue) {
 void Scheduler::drain(int rounds) {
   assert(current_ == &base() && "drain runs on the base process");
   for (int i = 0; i < rounds && !ready_.empty(); ++i) {
-    yield(base_);
+    yieldBaseOrRunNext();
     if (unwinding(base_)) {
       clearUnwinding(base_);
     }

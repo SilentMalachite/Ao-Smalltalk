@@ -118,6 +118,8 @@ class Scheduler {
   const std::string& evalReason() const { return evalReason_; }
   // The running process is an evaluating process.
   bool runningEval() const;
+  // M4: propagates hook/debug capture updates from the base context to the active fiber.
+  void syncHooksToCurrent();
 
   // SPEC §3.13 止める: at most this many processes are halted at once.
   static constexpr std::size_t kMaxHalted = 8;
@@ -169,6 +171,7 @@ class Scheduler {
   void endEval(Record& me, CallContext& ctx, Oop result);
   Record* addFiber(CallContext& ctx, Oop process, Oop block);
   void runAwaited(Record& r);
+  void yieldBaseOrRunNext();
   [[noreturn]] void finishFiber(Record& me);
   Record& base() const;
   Record* find(Oop process) const;

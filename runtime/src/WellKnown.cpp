@@ -342,6 +342,7 @@ Oop WellKnown::internWith(std::string_view utf8, bool tenured) {
   if (n != 0) {
     std::memcpy(heap_->bytes(sym), utf8.data(), n);
   }
+  roots_->reserveSlots(1);
   intern_->table.push_back(sym);
   roots_->add(&intern_->table.back());
   intern_->byBytes.emplace(std::move(key), intern_->table.size() - 1);
@@ -402,6 +403,15 @@ bool WellKnown::bindImageSlot(std::string_view name, Oop value) {
   return false;
 }
 
+Oop WellKnown::classSlot(std::string_view name) const {
+  for (const auto& e : kNamedClasses) {
+    if (name == e.name) {
+      return this->*e.cls;
+    }
+  }
+  return Oop{};
+}
+
 bool WellKnown::rememberSymbol(Oop sym) {
   if (!sym.isHeap()) {
     return false;
@@ -418,6 +428,7 @@ bool WellKnown::rememberSymbol(Oop sym) {
   if (it != intern_->byBytes.end()) {
     return intern_->table[it->second] == sym;
   }
+  roots_->reserveSlots(1);
   intern_->table.push_back(sym);
   roots_->add(&intern_->table.back());
   intern_->byBytes.emplace(std::move(key), intern_->table.size() - 1);

@@ -357,3 +357,12 @@ TEST(MethodDictionary, InstallMethodOnStringAnswersEmptyAndLeavesItIntact) {
   EXPECT_EQ("abc", ao::Str::toUtf8(b.heap, text.slot));
   EXPECT_EQ(b.wk.stringClass, b.heap.klass(text.slot));
 }
+
+// L3: MethodDictionary::at は非ヒープキー（SmallInteger や nil）に対して安全に nil を返す。
+TEST(MethodDictionary, AtRejectsImmediateAndNilKeys) {
+  Boot b;
+  const ao::Oop dict = ao::MethodDictionary::create(b.heap, b.wk, 4);
+  ASSERT_TRUE(dict.isHeap());
+  EXPECT_TRUE(ao::MethodDictionary::at(b.heap, dict, ao::Oop::fromSmallInteger(3)).isNil());
+  EXPECT_TRUE(ao::MethodDictionary::at(b.heap, dict, ao::Oop::nil()).isNil());
+}

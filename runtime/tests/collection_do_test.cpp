@@ -2,8 +2,10 @@
 
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
+#include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1242,4 +1244,125 @@ TEST(KernelBench, StringDoOverStrayContinuationBytesIsLinear) {
   std::printf("B9 40000 stray continuation bytes do: %lld ms\n", static_cast<long long>(ms));
   EXPECT_EQ("true", printed);
   EXPECT_LT(ms, 3000);
+}
+
+// C2: 独自 do: 内で渡された thunk の kCtxReceiver (instVarAt: 5) を 0 スロットやバイト列へ
+// 書き換えて value: を呼んでも、OOB 読み書きやアサート失敗を起こさず失敗する。
+TEST(CollectionDo, ThunksRejectMalformedReceiverSlots) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Collection subclass: #C2FakeDo\n"
+                               "  instanceVariableNames: 'bad'\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'C2-Test'!\n"
+                               "!C2FakeDo methodsFor: 'enumerating'!\n"
+                               "bad: obj\n"
+                               "  bad := obj!\n"
+                               "size\n"
+                               "  ^1!\n"
+                               "do: aBlock\n"
+                               "  aBlock instVarAt: 5 put: bad.\n"
+                               "  aBlock value: 1! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  for (const char* badExpr : {"Object new", "'x'"}) {
+    SCOPED_TRACE(badExpr);
+    const std::string setup = std::string("| c | c := C2FakeDo new bad: ") + badExpr + ". ";
+    EXPECT_EQ("<abort: failed: #value:>",
+              printOf(b, setup + "^c collect: [:x | x]"));
+    EXPECT_EQ("<abort: failed: #value:>",
+              printOf(b, setup + "^c select: [:x | true]"));
+    EXPECT_EQ("<abort: failed: #value:>",
+              printOf(b, setup + "^c reject: [:x | false]"));
+    EXPECT_EQ("<abort: failed: #value:>",
+              printOf(b, setup + "^c detect: [:x | true] ifNone: [0]"));
+    EXPECT_EQ("<abort: failed: #value:>",
+              printOf(b, setup + "^c inject: 0 into: [:a :x | a + x]"));
+    EXPECT_EQ("<abort: failed: #value:>",
+              printOf(b, setup + "^c includes: 1"));
+  }
+}
+
+// C3: filterBuffer は kBlockHome の Array に kFlagBytes が立っていたら拒否する（OOB 書込防止）。
+TEST(CollectionDo, FilterBufferRejectsByteShapedArray) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Collection subclass: #C3ByteBufDo\n"
+                               "  instanceVariableNames: 'buf'\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'C3-Test'!\n"
+                               "!C3ByteBufDo methodsFor: 'enumerating'!\n"
+                               "buf: b\n"
+                               "  buf := b!\n"
+                               "do: aBlock\n"
+                               "  aBlock instVarAt: 7 put: buf; instVarAt: 2 put: 0.\n"
+                               "  aBlock value: 1! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  const auto byteFmt = std::to_string((1 << 16) | (1 << 17));
+  EXPECT_EQ("<abort: select: count out of range>",
+            printOf(b, "| byteArr | Array instVarAt: 3 put: " + byteFmt + ".\n"
+                       "byteArr := Array basicNew: 8.\n"
+                       "^(C3ByteBufDo new buf: byteArr) select: [:x | true]"));
+}
+
+// collect_fill は at:put: 送信の空 OOP 失敗を握りつぶさず、送信後に kCtxPc を読み直す。
+TEST(CollectionDo, CollectFillPropagatesEmptyAtPutAndReloadsPc) {
+  Boot b;
+  std::vector<ao::compiler::CompileError> errs;
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Object subclass: #CollectBadArr\n"
+                               "  instanceVariableNames: ''\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'C-Test'!\n"
+                               "!Collection subclass: #CollectBadDo\n"
+                               "  instanceVariableNames: 'arr'\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'C-Test'!\n"
+                               "!CollectBadDo methodsFor: 'enumerating'!\n"
+                               "arr: obj\n"
+                               "  arr := obj!\n"
+                               "size\n"
+                               "  ^1!\n"
+                               "do: aBlock\n"
+                               "  aBlock instVarAt: 7 put: arr.\n"
+                               "  aBlock value: 1! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  const ao::Oop badCls = b.wk.named("CollectBadArr");
+  ASSERT_TRUE(badCls.isHeap());
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, &b.cache, badCls, "at:put:", 2,
+                                    "ao_BlockContext_value_value_",
+                                    ao::ao_BlockContext_value_value_));
+  EXPECT_EQ("<abort: failed: #value:>",
+            printOf(b, "^(CollectBadDo new arr: CollectBadArr new) collect: [:x | x]"));
+
+  errs.clear();
+  ASSERT_TRUE(ao::fileInString(b.ctx,
+                               "!Collection subclass: #CollectPcMutator\n"
+                               "  instanceVariableNames: 'thunk'\n"
+                               "  classVariableNames: ''\n"
+                               "  poolDictionaries: ''\n"
+                               "  category: 'C-Test'!\n"
+                               "!CollectPcMutator methodsFor: 'enumerating'!\n"
+                               "size\n"
+                               "  ^2!\n"
+                               "do: aBlock\n"
+                               "  thunk := aBlock.\n"
+                               "  aBlock instVarAt: 7 put: self.\n"
+                               "  aBlock value: 1.\n"
+                               "  aBlock value: 2!\n"
+                               "at: i put: v\n"
+                               "  thunk instVarAt: 2 put: (1 bitShift: 62) - 1.\n"
+                               "  ^v! !\n",
+                               errs))
+      << (errs.empty() ? "" : errs[0].message);
+  EXPECT_EQ("<abort: collect: index out of range>",
+            printOf(b, "^CollectPcMutator new collect: [:x | x]"));
 }

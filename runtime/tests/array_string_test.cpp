@@ -231,3 +231,34 @@ TEST(ArrayString, SymbolCopyAnswersTheSymbolItself) {
   EXPECT_EQ(b.wk.stringClass, b.heap.klass(sc.slot));
   EXPECT_EQ("abc", ao::Str::toUtf8(b.heap, sc.slot));
 }
+
+// H4: Array の format を kBytes へ改変して作った偽 Array に対して printString や = 比較を
+// 行っても OOB 読み取りしない。
+TEST(ArrayString, ByteShapedArrayRejectsSlotReadsInPrintStringAndEquals) {
+  Boot b;
+  ao::Oop slots[2] = {ao::Oop::fromSmallInteger(1), ao::Oop::fromSmallInteger(2)};
+  ao::Root ptrArr(b.roots, ao::Arr::fromSlots(b.heap, b.wk, slots, 2));
+
+  const std::int64_t byteFmt = (std::int64_t{1} << 16) | (std::int64_t{1} << 17);
+  b.heap.slotAtPut(b.wk.arrayClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(byteFmt));
+  ao::Root byteArr(b.roots, send1(b, b.wk.arrayClass, "basicNew:", ao::Oop::fromSmallInteger(2)));
+  ASSERT_TRUE(byteArr.slot.isHeap());
+
+  EXPECT_TRUE(send1(b, ptrArr.slot, "=", byteArr.slot).isFalse());
+  ao::Root printed(b.roots, send0(b, byteArr.slot, "printString"));
+  ASSERT_TRUE(printed.slot.isHeap());
+  EXPECT_EQ("Array", ao::Str::toUtf8(b.heap, printed.slot));
+}
+
+// L5: String の format をポインタ形状へ改変して作った偽 String と = で比較しても false を返す。
+TEST(ArrayString, PointerShapedStringRejectsByteComparisonInEquals) {
+  Boot b;
+  ao::Root realStr(b.roots, ao::Str::fromUtf8(b.ctx, "abc"));
+  const ao::Oop origFmt = b.heap.slotAt(b.wk.stringClass, ao::kClassSlotFormat);
+  b.heap.slotAtPut(b.wk.stringClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(3));
+  ao::Root ptrStr(b.roots, send0(b, b.wk.stringClass, "basicNew"));
+  b.heap.slotAtPut(b.wk.stringClass, ao::kClassSlotFormat, origFmt);
+  ASSERT_TRUE(ptrStr.slot.isHeap());
+  EXPECT_EQ(0, b.heap.flags(ptrStr.slot) & ao::kFlagBytes);
+  EXPECT_TRUE(send1(b, realStr.slot, "=", ptrStr.slot).isFalse());
+}

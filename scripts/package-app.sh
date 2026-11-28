@@ -17,9 +17,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/AoApp" "$APP/Contents/MacOS/Ao"
 chmod +x "$APP/Contents/MacOS/Ao"
 cp -R "$ROOT/image/vendor" "$APP/Contents/Resources/vendor"
-find "$APP/Contents/Resources/vendor" -name .DS_Store -exec rm -f {} +
+find "$APP/Contents/Resources/vendor" \( -name .DS_Store -o -name .gitkeep \) -exec rm -f {} +
 cp -R "$ROOT/image/Tools-model" "$APP/Contents/Resources/Tools-model"
-find "$APP/Contents/Resources/Tools-model" -name .DS_Store -exec rm -f {} +
+find "$APP/Contents/Resources/Tools-model" \( -name .DS_Store -o -name .gitkeep \) -exec rm -f {} +
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -47,3 +47,4 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 codesign --force --sign - "$APP"
+codesign --verify --strict "$APP"

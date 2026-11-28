@@ -10,6 +10,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -1302,4 +1303,113 @@ TEST_F(ChangesAbi, DebuggerAcceptRefusesWhenTheRecordTerminatesTheProcess) {
   EXPECT_EQ(0, ao_debug_halted_count());
   EXPECT_EQ("42", printIt("P17Victim new answer"));
   EXPECT_EQ("7", printIt("3 + 4"));
+}
+
+// C1: ChangeSet を MethodDictionary の内部配列（klass == nil）や偽メタクラスインスタンスに
+// 差し替えても、boundClassNamed が非ヒープ klass 逆参照や偽クラス通過でクラッシュしない。
+TEST_F(ChangesAbi, RejectsNonClassBoundToChangeSetWithoutCrash) {
+  EXPECT_NE(0u, printIt("Smalltalk at: #ChangeSet put: ((Object instVarAt: 2) instVarAt: 2)").size());
+  EXPECT_EQ(0, ao_changes_count());
+  AoSpan err{};
+  std::int64_t setId = 42;
+  EXPECT_EQ(AO_ERR, ao_changes_new("Work", &setId, &err));
+  EXPECT_EQ(0, setId);
+  EXPECT_STREQ("change sets unavailable", err.message);
+
+  EXPECT_NE(0u, printIt("Smalltalk at: #ChangeSet put: Object class basicNew").size());
+  EXPECT_EQ(0, ao_changes_count());
+  EXPECT_EQ(AO_ERR, ao_changes_new("Work2", &setId, &err));
+  EXPECT_EQ(0, setId);
+  EXPECT_STREQ("change sets unavailable", err.message);
+}
+
+// L9: 空白のみのソースを持つメソッドを File Out しても空チャンク ! で methodsFor: を閉じない。
+TEST_F(ChangesAbi, FileOutMovesBlankSourceToLostAndStaysValid) {
+  defineClass("L9Blank", "Object");
+  accept("L9Blank", 0, "first\n  ^1");
+  accept("L9Blank", 0, "second\n  ^2");
+  const std::int64_t set = ao_changes_current();
+  const std::string imgPath = tempPath("l9-blank.aoimage");
+  ASSERT_EQ(AO_OK, ao_image_save(imgPath.c_str()));
+
+  std::string bytes = readFile(imgPath);
+  const std::string needle = "first\n  ^1";
+  const std::size_t pos = bytes.rfind(needle);
+  ASSERT_NE(std::string::npos, pos);
+  bytes.replace(pos, needle.size(), std::string(needle.size(), ' '));
+  {
+    std::ofstream out(imgPath, std::ios::binary | std::ios::trunc);
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    ASSERT_TRUE(static_cast<bool>(out));
+  }
+
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_image_load(imgPath.c_str(), &err)) << err.message;
+  std::filesystem::remove(imgPath);
+
+  const std::string filedOut = fileOut(set, "l9-blank.st");
+  EXPECT_NE(std::string::npos, filedOut.find("\"L9Blank>>first source not available\"!"))
+      << filedOut;
+  EXPECT_NE(std::string::npos, filedOut.find("second\n  ^2")) << filedOut;
+
+  ao_runtime_shutdown();
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  ASSERT_EQ(AO_OK, ao_filein_load_order(AO_SOURCE_DIR "/image/Tools-model/LOAD_ORDER"));
+  const std::string stPath = writeTemp("l9-refile.st", filedOut);
+  ASSERT_EQ(AO_OK, ao_filein_file(stPath.c_str(), &err)) << err.message;
+  std::filesystem::remove(stPath);
+  EXPECT_EQ("2", printIt("L9Blank new second"));
+}
+
+// L10: ChangeSet の fileOut は空パスや既存ディレクトリ・読み取り専用ファイル上書きなどの失敗時に
+// エラーを返して元ファイルと一時ファイルを残さず、新規作成時の umask 適用と上書き時の権限保持を行う。
+TEST_F(ChangesAbi, FileOutReplacesAtomicallyAndKeepsExistingTargetOnError) {
+  namespace fs = std::filesystem;
+  const std::int64_t set = ao_changes_current();
+  AoSpan err{};
+  EXPECT_EQ(AO_ERR, ao_changes_file_out(set, "", &err));
+
+  const fs::path dirTarget = tempPath("l10-dir");
+  fs::create_directories(dirTarget);
+  EXPECT_EQ(AO_ERR, ao_changes_file_out(set, dirTarget.c_str(), &err));
+  EXPECT_TRUE(fs::is_directory(dirTarget));
+
+  // 新規作成時は mkstemp の 0600 固定にならず umask (0022 -> 0644) が効く。
+  const std::string created = tempPath("l10-new.st");
+  fs::remove(created);
+  {
+    struct UmaskGuard {
+      mode_t prev;
+      explicit UmaskGuard(mode_t m) : prev(::umask(m)) {}
+      ~UmaskGuard() { ::umask(prev); }
+    } guard(0022);
+    ASSERT_EQ(AO_OK, ao_changes_file_out(set, created.c_str(), &err)) << err.message;
+  }
+  const auto expectedNewPerms =
+      fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::others_read;
+  EXPECT_EQ(expectedNewPerms, fs::status(created).permissions() & fs::perms::mask);
+
+  // 既存ファイル上書き時は元のパーミッションを引き継ぐ。
+  const std::string target = writeTemp("l10-out.st", "placeholder");
+  const auto customPerms = fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read;
+  fs::permissions(target, customPerms, fs::perm_options::replace);
+  ASSERT_EQ(AO_OK, ao_changes_file_out(set, target.c_str(), &err)) << err.message;
+  EXPECT_NE("placeholder", readFile(target));
+  EXPECT_EQ(customPerms, fs::status(target).permissions() & fs::perms::mask);
+
+  // 読み取り専用ファイルへの上書きは拒否され、元の内容が保たれる。
+  const std::string roTarget = writeTemp("l10-readonly.st", "keep-me");
+  fs::permissions(roTarget, fs::perms::owner_read | fs::perms::group_read, fs::perm_options::replace);
+  EXPECT_EQ(AO_ERR, ao_changes_file_out(set, roTarget.c_str(), &err));
+  EXPECT_EQ("keep-me", readFile(roTarget));
+
+  for (const auto& entry : fs::directory_iterator(dirTarget.parent_path())) {
+    const std::string name = entry.path().filename().string();
+    EXPECT_EQ(std::string::npos, name.find(".ao-changeset-")) << name;
+  }
+  fs::permissions(roTarget, fs::perms::owner_all, fs::perm_options::replace);
+  fs::remove(roTarget);
+  fs::remove(created);
+  fs::remove(target);
+  fs::remove_all(dirTarget);
 }

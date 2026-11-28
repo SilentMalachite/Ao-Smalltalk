@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ao/Lookup.hpp"
 #include "ao/NativeMethod.hpp"
 
 #include <cstdint>
@@ -15,6 +16,9 @@ inline constexpr std::uint32_t kCmSlotMethodClass = 5;
 inline constexpr std::uint32_t kCmSlotCount       = 6;
 
 namespace CompiledMethod {
+inline bool hasSlots(const Heap& heap, Oop method) {
+  return ao::hasSlots(heap, method, kCmSlotCount - 1);
+}
 Oop create(CallContext& ctx, std::uint8_t numArgs, std::uint8_t numTemps, std::uint16_t prim,
            Oop literals, Oop bytes, Oop selector, Oop methodClass);
 }

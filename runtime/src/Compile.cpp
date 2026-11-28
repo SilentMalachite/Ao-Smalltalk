@@ -670,8 +670,8 @@ bool anyMethodIn(CallContext& ctx, Oop method, Visit&& visit) {
   while (!work.empty()) {
     const Oop m = work.back();
     work.pop_back();
-    if (!m.isHeap() || ctx.heap.klass(m) != ctx.wk.compiledMethodClass ||
-        ctx.heap.size(m) <= kCmSlotLiterals ||
+    if (!m.isHeap() || (ctx.heap.flags(m) & kFlagBytes) != 0 ||
+        ctx.heap.klass(m) != ctx.wk.compiledMethodClass || ctx.heap.size(m) <= kCmSlotLiterals ||
         std::find(seen.begin(), seen.end(), m) != seen.end()) {
       continue;
     }
@@ -1244,7 +1244,8 @@ bool acceptClassDef(CallContext& ctx, const compiler::ChunkAction& action,
                                        action.className + " or its subclass"});
     return false;
   }
-  if (isKernelClass(ctx.wk, old.slot) || ownClassName(ctx, old.slot) != action.className) {
+  if (!isClassObject(ctx, old.slot) || isKernelClass(ctx.wk, old.slot) ||
+      ownClassName(ctx, old.slot) != action.className) {
     return applyClassDef(ctx, action, errors);
   }
   const std::vector<std::string> instVars = definedInstVarNames(action.instVars);

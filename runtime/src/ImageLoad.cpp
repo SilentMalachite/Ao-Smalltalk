@@ -34,6 +34,8 @@ constexpr std::uint16_t kImageFlags = static_cast<std::uint16_t>(kFlagBytes | kF
 // SPEC §3.11: a record is a u32 name length, 1 to 256 name bytes padded to 4, and the u64 bits.
 constexpr std::uint64_t kMinRecordBytes = 4 + 4 + 8;
 constexpr std::uint64_t kMaxRecordBytes = 4 + 256 + 8;
+// M7: 細工されたスパースファイルの過大確保を防ぐため、ソース節のサイズ上限を設ける。
+constexpr std::uint64_t kMaxSourcesBytes = std::uint64_t{256} * 1024 * 1024;
 
 struct ImageRecord {
   std::string name;
@@ -221,8 +223,9 @@ bool walkObjects(const Heap& heap, const std::byte* section, std::size_t heapByt
     }
     ObjectHeader hdr{};
     std::memcpy(&hdr, section + off, sizeof hdr);
-    if ((hdr.flags & ~kImageFlags) != 0) {
-      return fail(detail, atOffset(off) + " has flags other than Bytes and Weak");
+    if ((hdr.flags & ~kImageFlags) != 0 ||
+        ((hdr.flags & kFlagBytes) != 0 && (hdr.flags & kFlagWeak) != 0)) {
+      return fail(detail, atOffset(off) + " has invalid object flags");
     }
     const std::size_t n = heap.objectBytes(&hdr);
     if (n < sizeof(ObjectHeader) || n > heapBytes - off) {
@@ -513,7 +516,8 @@ class ObjectRules {
         return fail(detail, "a MethodDictionary has fewer than 2 slots");
       }
       const std::uint64_t array = slotBits(section_, off, kDictSlotArray);
-      if (array != nilBits && (!heapShaped(array) || !pointerObject(headerAt(section_, array)))) {
+      if (array != nilBits && (!heapShaped(array) || !pointerObject(headerAt(section_, array)) ||
+                               (headerAt(section_, array).flags & kFlagWeak) != 0)) {
         return fail(detail, "the array of a MethodDictionary is not an object of pointers");
       }
     }
@@ -636,10 +640,17 @@ bool checkGlobals(Heap& heap, const WellKnown& wk, const std::vector<ImageRecord
     if (bound.isEmpty() || got != bound) {
       return false;
     }
-    if (globals[i].name == "Processor" && got != wk.processor) {
-      return false;
+    if (globals[i].name == "Processor") {
+      if (got != wk.processor) {
+        return false;
+      }
+    } else {
+      const Oop expected = wk.classSlot(globals[i].name);
+      if (expected.isEmpty() || got != expected) {
+        return false;
+      }
     }
-    if (globals[i].name == "Transcript" && (got != wk.transcriptClass || got == wk.transcript)) {
+    if (globals[i].name == "Transcript" && got == wk.transcript) {
       return false;
     }
   }
@@ -743,7 +754,7 @@ bool headerOk(const ImageFormat::ImageHeader& header, std::uint64_t fileSize,
   const std::uint64_t beforeRecords =
       ImageFormat::kImageHeaderBytes + std::uint64_t{header.heapBytes};
   // SPEC §3.11 (P18): the sources section follows the records; readHeader bounds its size.
-  if (header.sourcesBytes > fileSize ||
+  if (header.sourcesBytes > kMaxSourcesBytes || header.sourcesBytes > fileSize ||
       fileSize - header.sourcesBytes < beforeRecords + records * kMinRecordBytes ||
       fileSize - header.sourcesBytes > beforeRecords + records * kMaxRecordBytes) {
     return refuse("damaged image", "the file is " + std::to_string(fileSize) +

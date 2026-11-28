@@ -38,7 +38,8 @@ const unsigned char* payload(const Heap& heap, Oop bytes) {
 }
 
 bool isArray(CallContext& ctx, Oop obj) {
-  return obj.isHeap() && ctx.wk.classOf(obj) == ctx.wk.arrayClass;
+  return obj.isHeap() && (ctx.heap.flags(obj) & kFlagBytes) == 0 &&
+         ctx.wk.classOf(obj) == ctx.wk.arrayClass;
 }
 
 bool isStringy(CallContext& ctx, Oop obj) {
@@ -49,7 +50,7 @@ bool isStringy(CallContext& ctx, Oop obj) {
 }
 
 bool hasWriteLimit(const Heap& heap, Oop stream) {
-  return stream.isHeap() && heap.size(stream) > kStreamWriteLimit;
+  return hasSlots(heap, stream, kStreamWriteLimit);
 }
 
 std::int64_t smiOr(Oop v, std::int64_t fallback) {
@@ -67,9 +68,14 @@ void noteWrite(Heap& heap, Oop stream, std::int64_t neu) {
   }
 }
 
-std::int64_t collectionSize(CallContext& ctx, Root& coll) {
+// size 送信が巻き戻しや空 OOP で失敗した場合は false を返し、失敗を握りつぶさない。
+bool collectionSize(CallContext& ctx, Root& coll, std::int64_t* out) {
   const Oop n = send(ctx, coll.slot, ctx.wk.selSize, nullptr, 0, nullptr);
-  return smiOr(n, 0);
+  if (unwinding(ctx) || n.isEmpty()) {
+    return false;
+  }
+  *out = smiOr(n, 0);
+  return true;
 }
 
 // SPEC §3.6: an Array of twice arr's size (at least minSize, at most 2^32 - 1 slots) holding its
@@ -196,7 +202,9 @@ Oop stringNextPut(CallContext& ctx, Root& self, Root& coll, Root& val, std::int6
   std::int64_t at = -1;
   if (limitKnown && pos <= limit) {
     if (total == limit) {
-      at = pos;  // every character is one byte
+      if (reserveOffsetLooksSound(p, total, pos)) {
+        at = pos;  // every character is one byte
+      }
     } else if (inReserve && limit - pos <= total &&
                reserveOffsetLooksSound(p, total, total - (limit - pos))) {
       at = total - (limit - pos);
@@ -246,7 +254,7 @@ Oop stringNextPut(CallContext& ctx, Root& self, Root& coll, Root& val, std::int6
 }
 
 Oop classFormat(const Heap& heap, Oop cls) {
-  return cls.isHeap() ? heap.slotAt(cls, kClassSlotFormat) : Oop{};
+  return isClassShaped(heap, cls) ? heap.slotAt(cls, kClassSlotFormat) : Oop{};
 }
 
 // Sends at: i to coll. Empty Oop when the frames unwind (the send failed or aborted).
@@ -435,12 +443,16 @@ void callTranscriptHook(CallContext& ctx, Oop value) {
 Oop forwardTranscriptClass(CallContext& ctx, Oop receiver, const char* selector, const Oop* args,
                            std::uint32_t argc) {
   Root self(ctx.roots, receiver);
+  Oop res;
   if (argc == 0) {
-    send(ctx, ctx.wk.transcript, ctx.wk.intern(selector), nullptr, 0, nullptr);
-    return self.slot;
+    res = send(ctx, ctx.wk.transcript, ctx.wk.intern(selector), nullptr, 0, nullptr);
+  } else {
+    Root arg(ctx.roots, args[0]);
+    res = send(ctx, ctx.wk.transcript, ctx.wk.intern(selector), &arg.slot, 1, nullptr);
   }
-  Root arg(ctx.roots, args[0]);
-  send(ctx, ctx.wk.transcript, ctx.wk.intern(selector), &arg.slot, 1, nullptr);
+  if (unwinding(ctx) || res.isEmpty()) {
+    return Oop{};
+  }
   return self.slot;
 }
 
@@ -464,7 +476,7 @@ Oop ao_Stream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop*, std::u
 
 Oop ao_Stream_nextPutAll_each(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
-  if (argc != 1) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kBlockCopied)) {
     return Oop{};
   }
   Root stream(ctx.roots, ctx.heap.slotAt(receiver, kBlockHome));
@@ -505,13 +517,15 @@ Oop ao_Stream_cr(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_
 
 Oop ao_PositionableStream_on_(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1 || !isClassShaped(ctx.heap, receiver)) {
     return Oop{};
   }
   Root cls(ctx.roots, receiver);
   Root coll(ctx.roots, args[0]);
-  const auto inst = Format::instSize(ctx.heap.slotAt(cls.slot, kClassSlotFormat));
-  if (inst < 3) {
+  const Oop fmt = ctx.heap.slotAt(cls.slot, kClassSlotFormat);
+  const auto inst = Format::instSize(fmt);
+  // バイト列フォーマットのクラスに対してポインタオブジェクトのストリームを作らない。
+  if (Format::isBytes(fmt) || inst < 3) {
     return Oop{};
   }
   Oop s = allocateRetry(ctx, cls.slot, static_cast<std::uint32_t>(inst), 0);
@@ -521,8 +535,8 @@ Oop ao_PositionableStream_on_(CallContext& ctx, const Oop& receiver, const Oop* 
   Root stream(ctx.roots, s);
   ctx.heap.slotAtPut(stream.slot, kStreamCollection, coll.slot);
   ctx.heap.slotAtPut(stream.slot, kStreamPosition, Oop::fromSmallInteger(0));
-  const auto n = collectionSize(ctx, coll);
-  if (unwinding(ctx)) {
+  std::int64_t n = 0;
+  if (!collectionSize(ctx, coll, &n)) {
     return Oop{};
   }
   const Oop limit = Oop::fromSmallInteger(n);
@@ -535,7 +549,7 @@ Oop ao_PositionableStream_on_(CallContext& ctx, const Oop& receiver, const Oop* 
 
 Oop ao_PositionableStream_next(CallContext& ctx, const Oop& receiver, const Oop*,
                                std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kStreamReadLimit)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -556,7 +570,7 @@ Oop ao_PositionableStream_next(CallContext& ctx, const Oop& receiver, const Oop*
 // grows by doubling; anything else gets at:put:.
 Oop ao_WriteStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* args,
                             std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kStreamReadLimit)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -580,8 +594,8 @@ Oop ao_WriteStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* ar
     return stringNextPut(ctx, self, coll, val, pos);
   }
   const auto neu = pos + 1;
-  const auto n = collectionSize(ctx, coll);
-  if (unwinding(ctx)) {
+  std::int64_t n = 0;
+  if (!collectionSize(ctx, coll, &n)) {
     return Oop{};
   }
   if (neu > n) {
@@ -610,8 +624,8 @@ Oop ao_WriteStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* ar
     }
   }
   Oop put[2] = {Oop::fromSmallInteger(neu), val.slot};
-  send(ctx, coll.slot, ctx.wk.selAt_put_, put, 2, nullptr);
-  if (unwinding(ctx)) {
+  const Oop r = send(ctx, coll.slot, ctx.wk.selAt_put_, put, 2, nullptr);
+  if (unwinding(ctx) || r.isEmpty()) {
     return Oop{};
   }
   noteWrite(ctx.heap, self.slot, neu);
@@ -620,7 +634,7 @@ Oop ao_WriteStream_nextPut_(CallContext& ctx, const Oop& receiver, const Oop* ar
 
 Oop ao_PositionableStream_position(CallContext& ctx, const Oop& receiver, const Oop*,
                                    std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kStreamPosition)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kStreamPosition);
@@ -630,7 +644,7 @@ Oop ao_PositionableStream_position(CallContext& ctx, const Oop& receiver, const 
 // or a doubled Array carries past readLimit (Squeak's WriteStream>>position:).
 Oop ao_PositionableStream_position_(CallContext& ctx, const Oop& receiver, const Oop* args,
                                     std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kStreamReadLimit)) {
     return Oop{};
   }
   if (!args[0].isSmallInteger()) {
@@ -651,7 +665,7 @@ Oop ao_PositionableStream_position_(CallContext& ctx, const Oop& receiver, const
 
 Oop ao_PositionableStream_reset(CallContext& ctx, const Oop& receiver, const Oop*,
                                 std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kStreamPosition)) {
     return Oop{};
   }
   ctx.heap.slotAtPut(receiver, kStreamPosition, Oop::fromSmallInteger(0));
@@ -660,7 +674,7 @@ Oop ao_PositionableStream_reset(CallContext& ctx, const Oop& receiver, const Oop
 
 Oop ao_PositionableStream_contents(CallContext& ctx, const Oop& receiver, const Oop*,
                                    std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kStreamReadLimit)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -670,7 +684,7 @@ Oop ao_PositionableStream_contents(CallContext& ctx, const Oop& receiver, const 
 }
 
 Oop ao_WriteStream_contents(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kStreamPosition)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -683,7 +697,7 @@ Oop ao_WriteStream_contents(CallContext& ctx, const Oop& receiver, const Oop*, s
 // answers what was written.
 Oop ao_ReadWriteStream_contents(CallContext& ctx, const Oop& receiver, const Oop*,
                                 std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kStreamReadLimit)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -719,7 +733,13 @@ Oop ao_Transcript_nextPutAll_(CallContext& ctx, const Oop&, const Oop* args, std
 
 Oop ao_Transcript_show_(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  ao_Transcript_nextPutAll_(ctx, receiver, args, argc);
+  if (argc != 1) {
+    return Oop{};
+  }
+  const Oop r = ao_Transcript_nextPutAll_(ctx, receiver, args, argc);
+  if (unwinding(ctx) || r.isEmpty()) {
+    return Oop{};
+  }
   return receiver;
 }
 

@@ -348,7 +348,19 @@ extern "C" int ao_debug_frame_total(void) {
   return guarded(-1, [] { return ao::debugFrameTotal(); });
 }
 
+namespace {
+
+// 失敗時や拒否時でも文字列バッファが NUL 終端されるようにあらかじめ空にする（SPEC §3.10）。
+void blankBuf(char* buf, int len) {
+  if (buf != nullptr && len > 0) {
+    buf[0] = '\0';
+  }
+}
+
+}  // namespace
+
 extern "C" int ao_debug_reason(char* buf, int len) {
+  blankBuf(buf, len);
   return guarded(AO_ERR, [&] { return ao::debugReason(buf, len); });
 }
 
@@ -357,6 +369,7 @@ extern "C" int ao_debug_frame_kind(int i) {
 }
 
 extern "C" int ao_debug_frame_label(int i, char* buf, int len) {
+  blankBuf(buf, len);
   return guarded(AO_ERR, [&] { return ao::debugFrameLabel(i, buf, len); });
 }
 
@@ -365,6 +378,7 @@ extern "C" int ao_debug_frame_pc(int i) {
 }
 
 extern "C" int ao_debug_frame_source(int i, char* buf, int len, AoSpan* highlight) {
+  blankBuf(buf, len);
   return guarded(AO_ERR, [&] { return ao::debugFrameSource(i, buf, len, highlight); });
 }
 
@@ -373,6 +387,7 @@ extern "C" int ao_debug_frame_temp_count(int i) {
 }
 
 extern "C" int ao_debug_frame_temp_name(int i, int j, char* buf, int len) {
+  blankBuf(buf, len);
   return guarded(AO_ERR, [&] { return ao::debugTempName(i, j, buf, len); });
 }
 
@@ -405,25 +420,14 @@ extern "C" int ao_debug_select(int64_t pid) {
   return guarded(AO_ERR, [&] { return ao::debugSelect(pid); });
 }
 
-namespace {
-
-// A refused call still leaves a string buffer ending in NUL (SPEC §3.10 buffer rule).
-void blankBuf(char* buf, int len) {
-  if (buf != nullptr && len > 0) {
-    buf[0] = '\0';
-  }
-}
-
-}  // namespace
-
 // SPEC §3.10: these four are outermost entries (printString, inspect, the clear), refused while
 // busy.
 extern "C" int ao_debug_frame_receiver_print(int i, char* class_buf, int class_len, char* buf,
                                              int len) {
+  blankBuf(class_buf, class_len);
+  blankBuf(buf, len);
   const AbiEntry entry;
   if (!entry.entered()) {
-    blankBuf(class_buf, class_len);
-    blankBuf(buf, len);
     return AO_ERR;
   }
   return guarded(AO_ERR, [&] { return ao::debugReceiverPrint(i, class_buf, class_len, buf, len); });
@@ -431,10 +435,10 @@ extern "C" int ao_debug_frame_receiver_print(int i, char* class_buf, int class_l
 
 extern "C" int ao_debug_frame_temp_print(int i, int j, char* class_buf, int class_len, char* buf,
                                          int len) {
+  blankBuf(class_buf, class_len);
+  blankBuf(buf, len);
   const AbiEntry entry;
   if (!entry.entered()) {
-    blankBuf(class_buf, class_len);
-    blankBuf(buf, len);
     return AO_ERR;
   }
   return guarded(AO_ERR, [&] { return ao::debugTempPrint(i, j, class_buf, class_len, buf, len); });

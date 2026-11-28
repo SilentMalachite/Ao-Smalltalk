@@ -366,6 +366,9 @@ bool writeFile(std::string_view path, const std::byte* data, std::size_t n, std:
     *why = what;
     return false;
   };
+  if (path.empty()) {
+    return fail("image path is empty");
+  }
   const std::string target = saveTarget(std::string(path));
   if (target.empty()) {
     return fail("the symbolic links at the image path do not end");
@@ -521,6 +524,26 @@ bool Image::save(Heap& heap, Roots& roots, WellKnown& wk, std::string_view path,
   std::string detail;
   if (!Image::check(heap, wk, file, oldMax, &refusal, &detail)) {
     return refuse(detail.empty() ? refusal : detail);
+  }
+  // H2 / M5: Image::load の checkGlobals が検査する不変条件を保存側でも確認し、ロード不能な
+  // イメージで既存ファイルを上書きしない。
+  if (Globals::lookup(wk, wk.findSymbol("Smalltalk")) != wk.smalltalk) {
+    return refuse("Smalltalk is not bound to itself");
+  }
+  for (const auto& g : globals) {
+    if (g.name == "Processor") {
+      if (g.value != wk.processor) {
+        return refuse("the global Processor does not match the image's Processor");
+      }
+    } else {
+      const Oop expected = wk.classSlot(g.name);
+      if (expected.isEmpty() || g.value != expected) {
+        return refuse("the global " + g.name + " does not match the image's " + g.name);
+      }
+    }
+    if (g.name == "Transcript" && g.value == wk.transcript) {
+      return refuse("the global Transcript cannot be the Transcript instance");
+    }
   }
   std::string why;
   if (!writeFile(path, file.data(), file.size(), &why)) {

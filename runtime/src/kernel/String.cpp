@@ -332,7 +332,7 @@ Oop ao_String_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std
   if (receiver == args[0]) {
     return Oop::true_();
   }
-  if (!isBytes(ctx.heap, receiver) || !isStringy(ctx, args[0])) {
+  if (!isBytes(ctx.heap, receiver) || !isBytes(ctx.heap, args[0]) || !isStringy(ctx, args[0])) {
     return Oop::false_();
   }
   const auto n = ctx.heap.size(receiver);

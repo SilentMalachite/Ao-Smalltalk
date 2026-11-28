@@ -33,6 +33,9 @@ Oop pairArray(const Heap& heap, Oop dict) {
 }
 
 Oop at(const Heap& heap, Oop dict, Oop key) {
+  if (!key.isHeap()) {
+    return Oop::nil();
+  }
   const Oop inner = pairArray(heap, dict);
   if (inner.isEmpty()) {
     return Oop::nil();

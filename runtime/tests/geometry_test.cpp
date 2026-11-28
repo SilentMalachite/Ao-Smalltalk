@@ -122,3 +122,22 @@ TEST(Geometry, RectangleWidthHeightContainsAndIntersect) {
   EXPECT_EQ(10, send0(b, send0(b, inter.slot, "corner"), "x").smallIntegerValue());
   EXPECT_EQ(10, send0(b, send0(b, inter.slot, "corner"), "y").smallIntegerValue());
 }
+
+// H4: Point class / Rectangle class が非クラス形状になった場合に x:y: / origin:corner: で
+// 非クラス形状 klass を持つインスタンスを作らない。
+TEST(Geometry, ConstructorsRejectNonClassShapedReceiver) {
+  Boot b;
+  const ao::Oop ptMeta = b.heap.klass(b.wk.pointClass);
+  b.heap.slotAtPut(ptMeta, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(0));
+  ao::Root fakePtCls(b.roots, send0(b, ptMeta, "basicNew"));
+  ASSERT_TRUE(fakePtCls.slot.isHeap());
+  EXPECT_TRUE(send2(b, fakePtCls.slot, "x:y:", ao::Oop::fromSmallInteger(1),
+                    ao::Oop::fromSmallInteger(2))
+                  .isEmpty());
+
+  const ao::Oop rectMeta = b.heap.klass(b.wk.rectangleClass);
+  b.heap.slotAtPut(rectMeta, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(0));
+  ao::Root fakeRectCls(b.roots, send0(b, rectMeta, "basicNew"));
+  ASSERT_TRUE(fakeRectCls.slot.isHeap());
+  EXPECT_TRUE(send2(b, fakeRectCls.slot, "origin:corner:", ao::Oop::nil(), ao::Oop::nil()).isEmpty());
+}

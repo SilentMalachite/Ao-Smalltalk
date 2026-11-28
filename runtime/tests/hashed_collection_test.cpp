@@ -14,6 +14,7 @@
 #include "ao/HashedCollection.hpp"
 #include "ao/LargeInteger.hpp"
 #include "ao/Natives.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1569,4 +1570,50 @@ TEST(KernelBench, IdentitySetNinetyThousandObjects) {
   EXPECT_TRUE(all);
   EXPECT_EQ(smi(kCount), send0(b, s.slot, "size"));
   EXPECT_LT(ms, 2000);
+}
+
+// C3 / H4: クラス format を 0 スロットや byte 配列に書き換えた Association は key / value / key: /
+// value: で OOB 読み書きせず失敗する。
+TEST(DamagedAssociation, RejectsSlotAccess) {
+  Boot b;
+  const std::int64_t byteFmt = (std::int64_t{1} << 16) | (std::int64_t{1} << 17);
+  b.heap.slotAtPut(b.wk.associationClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(0));
+  ao::Root emptyAssoc(b.roots, send0(b, b.wk.associationClass, "basicNew"));
+  ASSERT_TRUE(emptyAssoc.slot.isHeap());
+  EXPECT_TRUE(send0(b, emptyAssoc.slot, "key").isEmpty());
+  EXPECT_TRUE(send0(b, emptyAssoc.slot, "value").isEmpty());
+  EXPECT_TRUE(send1(b, emptyAssoc.slot, "key:", ao::Oop::fromSmallInteger(1)).isEmpty());
+  EXPECT_TRUE(send1(b, emptyAssoc.slot, "value:", ao::Oop::fromSmallInteger(2)).isEmpty());
+
+  b.heap.slotAtPut(b.wk.associationClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(byteFmt));
+  ao::Root byteAssoc(b.roots, send1(b, b.wk.associationClass, "basicNew:", smi(2)));
+  ASSERT_TRUE(byteAssoc.slot.isHeap());
+  EXPECT_TRUE(send0(b, byteAssoc.slot, "key").isEmpty());
+  EXPECT_TRUE(send0(b, byteAssoc.slot, "value").isEmpty());
+  EXPECT_TRUE(send1(b, byteAssoc.slot, "key:", ao::Oop::fromSmallInteger(1)).isEmpty());
+  EXPECT_TRUE(send1(b, byteAssoc.slot, "value:", ao::Oop::fromSmallInteger(2)).isEmpty());
+
+  b.heap.slotAtPut(b.wk.intervalClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(0));
+  ao::Root emptyIv(b.roots, send0(b, b.wk.intervalClass, "basicNew"));
+  ASSERT_TRUE(emptyIv.slot.isHeap());
+  EXPECT_TRUE(send0(b, emptyIv.slot, "size").isEmpty());
+  EXPECT_TRUE(send1(b, emptyIv.slot, "do:", ao::Oop::nil()).isEmpty());
+}
+
+// Dictionary>>collect: は Array>>at:put: 送信の空 OOP 失敗を握りつぶさない。
+TEST(HashedCollectionCollect, PropagatesEmptyAtPutFailure) {
+  Boot b;
+  ao::Root d(b.roots, send0(b, b.wk.dictionaryClass, "new"));
+  ASSERT_TRUE(d.slot.isHeap());
+  send2(b, d.slot, "at:put:", b.wk.intern("a"), smi(1));
+  auto body = [](ao::CallContext&, const ao::Oop&, const ao::Oop* args, std::uint32_t) {
+    return args[0];
+  };
+  ao::Root blk(b.roots, ao::makeNativeBlock(b.ctx, body, 1));
+  ASSERT_TRUE(blk.slot.isHeap());
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, &b.cache, b.wk.arrayClass, "at:put:", 2,
+                                    "ao_BlockContext_value_value_",
+                                    ao::ao_BlockContext_value_value_));
+  const ao::Oop r = send1(b, d.slot, "collect:", blk.slot);
+  EXPECT_TRUE(r.isEmpty());
 }

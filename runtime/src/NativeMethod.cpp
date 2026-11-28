@@ -161,7 +161,7 @@ std::string_view nameBytes(Heap& heap, Oop method) {
     return {};
   }
   const auto name = heap.slotAt(method, kNativeSlotName);
-  if (!name.isHeap()) {
+  if (!name.isHeap() || (heap.flags(name) & kFlagBytes) == 0) {
     return {};
   }
   const ObjectHeader* h = heap.header(name);

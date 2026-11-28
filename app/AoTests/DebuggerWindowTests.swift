@@ -327,7 +327,7 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(debugger.buttons.map { $0.accessibilityLabel() ?? "" }, debugger.buttons.map(\.title))
   }
 
-  // 合成ネイティブ行では Restart は無効、解釈フレームでは有効。
+  // Restart is disabled on a synthesized native frame and enabled on an interpreted frame.
   func testRestartDisabledOnNativeFrameEnabledOnInterpreted() {
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
     let workspace = workspace("self halt. 1")
@@ -343,7 +343,7 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertFalse(restart?.isEnabled ?? true)
     debugger.selectFrame(1)
     XCTAssertTrue(restart?.isEnabled ?? false)
-    // 空き所のクリックでは選択を外せない（M19）ので、Restart は選んだ解釈フレームのまま有効。
+    // Clicking empty space cannot deselect (M19), so Restart stays enabled for the selected frame.
     table(labelled: "Frames", in: debugger.window)?.deselectAll(nil)
     XCTAssertEqual(debugger.selectedFrame, 1)
     XCTAssertTrue(restart?.isEnabled ?? false)
@@ -352,7 +352,7 @@ final class DebuggerWindowTests: XCTestCase {
     button("Abort", in: debugger)?.performClick(nil)
   }
 
-  // Restart は本体を先頭からやり直す（halt の送信値 nil にはしない）。
+  // Restart reruns the method body from the start (does not answer nil from halt).
   func testRestartRerunsMethodFromStart() {
     ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
     let def =
@@ -403,6 +403,10 @@ final class DebuggerWindowTests: XCTestCase {
     var seen: [String] = []
     let box = Unmanaged.passRetained(TranscriptBox { seen.append($0) })
     ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    defer {
+      ao_set_transcript_hook(nil, nil)
+      box.release()
+    }
     let workspace = workspace("[self error: 'x'] ensure: [Transcript show: 'done']")
     workspace.selectAll()
     workspace.doIt()
@@ -415,8 +419,6 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(seen, ["done"])
     XCTAssertFalse(debugger.window.isVisible)
     XCTAssertEqual(ao_debug_halted_count(), 0)
-    ao_set_transcript_hook(nil, nil)
-    box.release()
   }
 
   // Step over moves the selection to the next statement; Step into enters a method; Step out
@@ -470,6 +472,10 @@ final class DebuggerWindowTests: XCTestCase {
     var seen: [String] = []
     let box = Unmanaged.passRetained(TranscriptBox { seen.append($0) })
     ao_set_transcript_hook(transcriptBoxHook, box.toOpaque())
+    defer {
+      ao_set_transcript_hook(nil, nil)
+      box.release()
+    }
     let workspace = workspace("[self halt] ensure: [Transcript show: 'closed']")
     workspace.selectAll()
     workspace.doIt()
@@ -482,8 +488,6 @@ final class DebuggerWindowTests: XCTestCase {
     XCTAssertEqual(ao_debug_halted_count(), 0)
     XCTAssertEqual(seen, ["closed"])
     XCTAssertTrue(workspace.debuggers.isEmpty)
-    ao_set_transcript_hook(nil, nil)
-    box.release()
   }
 
   // SPEC §3.9 評価の中断: a live Debugger cannot abort while another evaluation runs (busy), so
@@ -1408,6 +1412,200 @@ final class DebuggerWindowTests: XCTestCase {
     button("Abort", in: b)?.performClick(nil)
   }
 
+  // M1: a RunLoopPump callback changing the selected frame during printValue must not pollute the
+  // newly selected frame's cached variable values.
+  func testPumpSwitchingFrameDuringVariablePrintDoesNotPolluteCache() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineDbgWin()
+    acceptDbgWin("slow: x\n  self halt.\n  ^x")
+    let def =
+      "Object subclass: #M1SlowPrint\n  instanceVariableNames: ''\n  classVariableNames: ''\n"
+      + "  poolDictionaries: ''\n  category: 'M1-Test'!\n"
+    var err = AoSpan()
+    let defined = def.withCString { src in
+      withUnsafeMutablePointer(to: &err) { ao_accept_class(src, $0) }
+    }
+    XCTAssertEqual(defined, Int32(AO_OK), spanMessage(err))
+    acceptMethod("M1SlowPrint", "printString\n  1 to: 5000 do: [:i | ].\n  ^'slow-value'")
+    let workspace = workspace("DbgWin new slow: M1SlowPrint new")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    gPumpSwitchTarget = debugger
+    gPumpSwitches = 0
+    ao_set_runloop_pump_hook(switchToFrameZeroPump, nil)
+    defer {
+      ao_set_runloop_pump_hook(nil, nil)
+      gPumpSwitchTarget = nil
+    }
+    debugger.selectFrame(1)
+    // Reading temp 0 triggers M1SlowPrint>>printString -> RunLoopPump -> selectFrame(0).
+    _ = debugger.variable(at: 1)
+    ao_set_runloop_pump_hook(nil, nil)
+    XCTAssertGreaterThan(gPumpSwitches, 0, "the pump ran during variable print")
+    XCTAssertEqual(debugger.selectedFrame, 0)
+    // Frame 0 (halt) has only `self` (row 0); row 1 must not hold frame 1's cached value.
+    let v = debugger.variable(at: 1)
+    XCTAssertEqual(v.name, "")
+    XCTAssertEqual(v.className, "")
+    XCTAssertEqual(v.value, "")
+    button("Abort", in: debugger)?.performClick(nil)
+  }
+
+  // M3: Open Image clears Workspace error/Debug button and refreshes open Debuggers.
+  func testImageLoadUpdatesOpenDebuggersAndWorkspace() {
+    ao_set_debug_mode(Int32(AO_DEBUG_POSTMORTEM))
+    ao_set_debug_capture(1)
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("m3-img-\(UUID().uuidString).aoimage").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    XCTAssertEqual(path.withCString { ao_image_save($0) }, Int32(AO_OK))
+
+    let workspace = workspace("1 / 0")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertFalse(workspace.debugButton.isHidden)
+    XCTAssertFalse(workspace.errorText.isEmpty)
+    guard let debugger = workspace.openDebugger() else {
+      XCTFail("post-mortem Debugger did not open")
+      return
+    }
+    XCTAssertNotEqual(debugger.shownValue(row: 0), "-")
+
+    var err = AoSpan()
+    let loaded = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded, Int32(AO_OK), spanMessage(err))
+    workspace.noteImageLoaded()
+    DebuggerWindow.noteImageLoaded()
+    XCTAssertTrue(workspace.debugButton.isHidden)
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertEqual(debugger.shownValue(row: 0), "-")
+  }
+
+  // Stale discard sheet callback on a Debugger after Open Image… must not run the deferred action.
+  func testConfirmDiscardAfterImageLoadDoesNotRunStaleAction() {
+    ao_set_debug_mode(Int32(AO_DEBUG_LIVE))
+    defineAccClass("DbgWinLoadSheet")
+    acceptMethod("DbgWinLoadSheet", "bar\n  self halt.\n  ^1")
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dbg-sheet-load-\(UUID().uuidString).aoimage").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    XCTAssertEqual(path.withCString { ao_image_save($0) }, Int32(AO_OK))
+
+    let workspace = workspace("DbgWinLoadSheet new bar")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.debuggers.last else {
+      XCTFail("halt opened no Debugger")
+      return
+    }
+    debugger.selectFrame(1)
+    debugger.replaceSource("bar\n  ^2")
+    var pending: (@MainActor (Bool) -> Void)?
+    debugger.confirmDiscard = { _, decide in pending = decide }
+    debugger.selectFrame(0)
+    XCTAssertNotNil(pending)
+
+    var err = AoSpan()
+    let loaded = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded, Int32(AO_OK), spanMessage(err))
+    DebuggerWindow.noteImageLoaded()
+
+    pending?(true)
+    XCTAssertEqual(debugger.selectedFrame, 1)
+    XCTAssertEqual(debugger.sourceText, "bar\n  ^2")
+    XCTAssertTrue(debugger.buttons.allSatisfy { !$0.isEnabled })
+    XCTAssertFalse(debugger.sourceIsEditable)
+  }
+
+  // AoApp.openImage refreshes Workspace, live Debuggers, and post-mortem Debuggers.
+  func testAppOpenImageUpdatesWorkspaceAndLiveAndPostMortemDebuggers() {
+    ao_runtime_shutdown()
+    let app = AoApp()
+    app.applicationWillFinishLaunching(
+      Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApplication.shared)
+    )
+    defer { app.launch?.tearDown() }
+    guard let workspace = app.launch?.workspace else {
+      XCTFail("missing launch workspace")
+      return
+    }
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("app-open-dbg-\(UUID().uuidString).aoimage")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertTrue(app.saveImage(to: url))
+
+    defineAccClass("DbgAppOpen")
+    acceptMethod("DbgAppOpen", "bar\n  self halt.\n  ^1")
+    workspace.replaceText("DbgAppOpen new bar")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let liveDebugger = workspace.debuggers.last, liveDebugger.isLive else {
+      XCTFail("halt opened no live Debugger")
+      return
+    }
+    liveDebugger.selectFrame(1)
+    XCTAssertTrue(liveDebugger.sourceIsEditable)
+    XCTAssertTrue(liveDebugger.buttons.contains(where: \.isEnabled))
+    XCTAssertNotEqual(liveDebugger.shownValue(row: 0), "-")
+
+    ao_set_debug_mode(Int32(AO_DEBUG_POSTMORTEM))
+    workspace.replaceText("1 / 0")
+    workspace.selectAll()
+    workspace.doIt()
+    XCTAssertFalse(workspace.debugButton.isHidden)
+    XCTAssertFalse(workspace.errorText.isEmpty)
+    guard let postMortemDebugger = workspace.openDebugger(), !postMortemDebugger.isLive else {
+      XCTFail("post-mortem Debugger did not open")
+      return
+    }
+    XCTAssertNotEqual(postMortemDebugger.shownValue(row: 0), "-")
+
+    XCTAssertTrue(app.openImage(from: url))
+    XCTAssertTrue(workspace.debugButton.isHidden)
+    XCTAssertEqual(workspace.errorText, "")
+    XCTAssertEqual(postMortemDebugger.shownValue(row: 0), "-")
+    XCTAssertTrue(liveDebugger.buttons.allSatisfy { !$0.isEnabled })
+    XCTAssertFalse(liveDebugger.sourceIsEditable)
+    XCTAssertEqual(liveDebugger.shownValue(row: 0), "-")
+  }
+
+  // Closing a post-mortem Debugger via RunLoopPump during inspectVariable must neither crash nor
+  // open an orphan InspectorWindow.
+  func testPumpClosingPostMortemDebuggerDuringInspectDoesNotOpenInspector() {
+    ao_set_debug_mode(Int32(AO_DEBUG_POSTMORTEM))
+    ao_set_debug_capture(1)
+    defineAccClass("M1SlowInspect")
+    acceptMethod("M1SlowInspect", "printString\n  1 to: 5000 do: [:i | ].\n  ^'inspected'")
+    let workspace = workspace("| x | x := M1SlowInspect new. 1 / 0")
+    workspace.selectAll()
+    workspace.doIt()
+    guard let debugger = workspace.openDebugger() else {
+      XCTFail("post-mortem Debugger did not open")
+      return
+    }
+    debugger.selectFrame(1)
+    gPumpCloseTarget = debugger
+    gPumpCloses = 0
+    ao_set_runloop_pump_hook(closeDebuggerOncePump, nil)
+    defer {
+      ao_set_runloop_pump_hook(nil, nil)
+      gPumpCloseTarget = nil
+    }
+    debugger.inspectVariable(at: 1)
+    ao_set_runloop_pump_hook(nil, nil)
+    XCTAssertGreaterThan(gPumpCloses, 0, "the pump ran during inspectVariable")
+    XCTAssertFalse(debugger.window.isVisible)
+    XCTAssertEqual(debugger.inspectorCount, 0)
+  }
+
   private func acceptDbgWin(_ source: String) {
     acceptMethod("DbgWin", source)
   }
@@ -1464,5 +1662,33 @@ private func selectOtherPump(_ user: UnsafeMutableRawPointer?) {
   _ = user
   if ao_debug_select(gPumpSelectPid) == Int32(AO_OK) {
     gPumpSelects += 1
+  }
+}
+
+private nonisolated(unsafe) weak var gPumpSwitchTarget: DebuggerWindow?
+private nonisolated(unsafe) var gPumpSwitches = 0
+
+private func switchToFrameZeroPump(_ user: UnsafeMutableRawPointer?) {
+  _ = user
+  MainActor.assumeIsolated {
+    guard gPumpSwitches == 0, let debugger = gPumpSwitchTarget else {
+      return
+    }
+    gPumpSwitches = 1
+    debugger.selectFrame(0)
+  }
+}
+
+private nonisolated(unsafe) weak var gPumpCloseTarget: DebuggerWindow?
+private nonisolated(unsafe) var gPumpCloses = 0
+
+private func closeDebuggerOncePump(_ user: UnsafeMutableRawPointer?) {
+  _ = user
+  MainActor.assumeIsolated {
+    guard gPumpCloses == 0, let debugger = gPumpCloseTarget else {
+      return
+    }
+    gPumpCloses = 1
+    debugger.window.performClose(nil)
   }
 }

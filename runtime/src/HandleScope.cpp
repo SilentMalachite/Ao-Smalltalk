@@ -90,10 +90,10 @@ Oop allocateRetry(CallContext& ctx, Oop cls, std::uint32_t size, std::uint16_t f
 }
 
 Oop allocateInstance(CallContext& ctx, Oop cls, std::uint32_t kernelSlots) {
-  std::int64_t inst = 0;
-  if (isClassShaped(ctx.heap, cls)) {
-    inst = Format::instSize(ctx.heap.slotAt(cls, kClassSlotFormat));
+  if (!isClassShaped(ctx.heap, cls)) {
+    return Oop{};
   }
+  const std::int64_t inst = Format::instSize(ctx.heap.slotAt(cls, kClassSlotFormat));
   const auto size = static_cast<std::uint32_t>(std::max<std::int64_t>(inst, kernelSlots));
   return allocateRetry(ctx, cls, size, 0);
 }

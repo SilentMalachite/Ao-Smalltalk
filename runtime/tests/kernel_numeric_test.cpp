@@ -775,3 +775,21 @@ TEST(KernelBench, RightShiftOfAMillionBitsIsLinear) {
   EXPECT_EQ(65540u, b.heap.size(negDown.slot));
   EXPECT_LT(ms, 3000);
 }
+
+// H4: Fraction の format を kBytes へ改変して basicNew: しても asNumDen が OOB せず失敗する。
+TEST_F(KernelNumeric, ByteShapedFractionFailsWithoutOob) {
+  const std::string byteFmt = std::to_string((1 << 16) | (1 << 17));
+  EXPECT_EQ("<eval error: failed: #+>",
+            printIt("| f | Fraction instVarAt: 3 put: " + byteFmt +
+                    ". f := Fraction basicNew: 2. f + 1"));
+}
+
+// L5: Float の format をポインタ形状へ改変して作った偽 Float でもバイト誤読せずフォールバックする。
+TEST_F(KernelNumeric, PointerShapedFloatFallsBackWithoutReadingSlotsAsBytes) {
+  EXPECT_EQ("'Float'",
+            printIt("| fmt f | fmt := Float instVarAt: 3. Float instVarAt: 3 put: 2. "
+                    "f := Float basicNew. Float instVarAt: 3 put: fmt. f printString"));
+  EXPECT_EQ("1.5",
+            printIt("| fmt f | fmt := Float instVarAt: 3. Float instVarAt: 3 put: 2. "
+                    "f := Float basicNew. Float instVarAt: 3 put: fmt. f + 1.5"));
+}

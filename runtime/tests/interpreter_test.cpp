@@ -8,6 +8,7 @@
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/MethodDictionary.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Oop.hpp"
 
@@ -429,4 +430,68 @@ TEST(Interpreter, DepthCountsActivationsOnTheContext) {
   EXPECT_EQ((std::vector<int>{1, 2}), depths);
   EXPECT_EQ((std::vector<int>{0, 0}), baseDepths);
   EXPECT_EQ(0, other.depth);
+}
+
+// H3: スロット不足や kFlagBytes を持つ偽の CompiledMethod / BlockContext を作っても、
+// Interpreter::run / icMatches / applyBlock / numArgs が OOB 読み出しせず拒否する。
+TEST(Interpreter, RejectsMalformedCompiledMethodAndBlockContext) {
+  Boot b;
+  const std::int64_t byteFmt = (std::int64_t{1} << 16) | (std::int64_t{1} << 17);
+
+  // CompiledMethod のスロット不足 (size = 2) と byte 形状
+  b.heap.slotAtPut(b.wk.compiledMethodClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(2));
+  ao::Root shortCm(b.roots, send0(b, b.wk.compiledMethodClass, "basicNew"));
+  ASSERT_TRUE(shortCm.slot.isHeap());
+  EXPECT_TRUE(
+      ao::Interpreter::run(b.ctx, shortCm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil()).isEmpty());
+
+  b.heap.slotAtPut(b.wk.compiledMethodClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(byteFmt));
+  ao::Root byteCm(b.roots, send1(b, b.wk.compiledMethodClass, "basicNew:", smallInt(4)));
+  ASSERT_TRUE(byteCm.slot.isHeap());
+  EXPECT_TRUE(
+      ao::Interpreter::run(b.ctx, byteCm.slot, ao::Oop::nil(), nullptr, 0, ao::Oop::nil()).isEmpty());
+
+  // BlockContext のスロット不足 (size = 0 および size = 6) と byte 形状
+  b.heap.slotAtPut(b.wk.blockContextClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(0));
+  ao::Root emptyBlk(b.roots, send0(b, b.wk.blockContextClass, "basicNew"));
+  ASSERT_TRUE(emptyBlk.slot.isHeap());
+  EXPECT_TRUE(send0(b, emptyBlk.slot, "value").isEmpty());
+  EXPECT_TRUE(send0(b, emptyBlk.slot, "numArgs").isEmpty());
+
+  b.heap.slotAtPut(b.wk.blockContextClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(6));
+  ao::Root sixBlk(b.roots, send0(b, b.wk.blockContextClass, "basicNew"));
+  ASSERT_TRUE(sixBlk.slot.isHeap());
+  ao::Root validCm(b.roots, compileObjectMethod(b, "foo\n  ^1"));
+  b.heap.slotAtPut(sixBlk.slot, ao::kCtxMethod, validCm.slot);
+  b.heap.slotAtPut(sixBlk.slot, ao::kCtxReceiver, ao::Oop::nil());
+  EXPECT_TRUE(send0(b, sixBlk.slot, "value").isEmpty());
+
+  // BlockContext の byte 形状
+  b.heap.slotAtPut(b.wk.blockContextClass, ao::kClassSlotFormat, ao::Oop::fromSmallInteger(byteFmt));
+  ao::Root byteBlk(b.roots, send1(b, b.wk.blockContextClass, "basicNew:", smallInt(8)));
+  ASSERT_TRUE(byteBlk.slot.isHeap());
+  EXPECT_TRUE(send0(b, byteBlk.slot, "value").isEmpty());
+  EXPECT_TRUE(send0(b, byteBlk.slot, "numArgs").isEmpty());
+
+  // icMatches はスロット不足や kFlagBytes の CompiledMethod を OOB 読み出しせず拒否し、
+  // 通常のメソッド探索へフォールバックする。
+  ao::Root probeCm(b.roots, compileObjectMethod(b, "h3IcProbe\n  ^42"));
+  ASSERT_TRUE(probeCm.slot.isHeap());
+  const ao::Oop probeSel = b.wk.intern("h3IcProbe");
+  ASSERT_TRUE(probeSel.isHeap());
+  ASSERT_TRUE(ao::MethodDictionary::atPut(
+      b.heap, b.heap.slotAt(b.wk.objectClass, ao::kClassSlotMethodDict), probeSel, probeCm.slot));
+
+  ao::InlineCache ic;
+  b.cache.flushAll();
+  ic.cachedClass = b.wk.undefinedObjectClass;
+  ic.cachedMethod = shortCm.slot;
+  EXPECT_EQ(smallInt(42), ao::send(b.ctx, ao::Oop::nil(), probeSel, nullptr, 0, &ic));
+  EXPECT_EQ(probeCm.slot, ic.cachedMethod);
+
+  b.cache.flushAll();
+  ic.cachedClass = b.wk.undefinedObjectClass;
+  ic.cachedMethod = byteCm.slot;
+  EXPECT_EQ(smallInt(42), ao::send(b.ctx, ao::Oop::nil(), probeSel, nullptr, 0, &ic));
+  EXPECT_EQ(probeCm.slot, ic.cachedMethod);
 }

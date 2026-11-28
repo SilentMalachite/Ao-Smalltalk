@@ -206,6 +206,9 @@ Leave consumeNonlocal(CallContext& ctx, const Frame& frame, bool isMethod, bool 
 }
 
 bool decodeHeader(CallContext& ctx, Oop method, std::uint8_t* numArgs, std::uint8_t* numTemps) {
+  if (!CompiledMethod::hasSlots(ctx.heap, method)) {
+    return false;
+  }
   const Oop hdr = ctx.heap.slotAt(method, kCmSlotHeader);
   if (!hdr.isSmallInteger()) {
     return false;
@@ -574,7 +577,8 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
   if (unwinding(ctx)) {
     return Oop{};
   }
-  if (!method.isHeap() || ctx.heap.klass(method) != ctx.wk.compiledMethodClass) {
+  if (!CompiledMethod::hasSlots(ctx.heap, method) ||
+      ctx.heap.klass(method) != ctx.wk.compiledMethodClass) {
     return Oop{};
   }
   std::uint8_t numArgs = 0;
@@ -610,6 +614,9 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
 
   frame->isBlock = blockHold.slot.isHeap() &&
                    ctx.heap.klass(blockHold.slot) == ctx.wk.blockContextClass;
+  if (frame->isBlock && !hasSlots(ctx.heap, blockHold.slot, kBlockCopied)) {
+    return Oop{};
+  }
   // activeContext defaults to empty, not nil. Top-level sender is nil.
   const Oop caller = ctx.activeContext.isHeap() ? ctx.activeContext : Oop::nil();
   if (frame->isBlock) {
@@ -927,7 +934,7 @@ Oop Interpreter::run(CallContext& ctx, Oop method, Oop receiver, const Oop* args
           return Oop{};
         }
         Root blockMethod(ctx.roots, lit);
-        if (!blockMethod.slot.isHeap() ||
+        if (!CompiledMethod::hasSlots(ctx.heap, blockMethod.slot) ||
             ctx.heap.klass(blockMethod.slot) != ctx.wk.compiledMethodClass) {
           return Oop{};
         }

@@ -4,6 +4,7 @@
 #include "ao/Gc.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 #include "ao/Send.hpp"
 
@@ -47,7 +48,7 @@ bool bumpCounter(Heap& heap, Oop thunk, Oop n) {
 
 Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop* args,
                                std::uint32_t argc) {
-  if (argc != 1) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kBlockCopied)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -63,11 +64,12 @@ Oop ao_Collection_collect_fill(CallContext& ctx, const Oop& receiver, const Oop*
   Root arr(ctx.roots, ctx.heap.slotAt(self.slot, kBlockHome));
   const Oop idx = ctx.heap.slotAt(self.slot, kCtxPc);
   Oop put[2] = {idx, mapped.slot};
-  send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
-  if (unwinding(ctx)) {
+  const Oop r = send(ctx, arr.slot, ctx.wk.selAt_put_, put, 2, nullptr);
+  if (unwinding(ctx) || r.isEmpty()) {
     return Oop{};
   }
-  if (!bumpCounter(ctx.heap, self.slot, idx)) {
+  // at:put: 送信中の GC やスロット書き換えに備え、kCtxPc をスロットから読み直す。
+  if (!bumpCounter(ctx.heap, self.slot, ctx.heap.slotAt(self.slot, kCtxPc))) {
     return fail(ctx, self.slot, "collect: index out of range");
   }
   return mapped.slot;
@@ -83,7 +85,8 @@ const char* filterCountMessage(bool keepTrue) {
 Oop filterBuffer(CallContext& ctx, Oop thunk, std::int64_t* count) {
   const Oop buf = ctx.heap.slotAt(thunk, kBlockHome);
   const Oop n = ctx.heap.slotAt(thunk, kCtxPc);
-  if (!buf.isHeap() || ctx.heap.klass(buf) != ctx.wk.arrayClass || !n.isSmallInteger() ||
+  if (!buf.isHeap() || (ctx.heap.flags(buf) & kFlagBytes) != 0 ||
+      ctx.heap.klass(buf) != ctx.wk.arrayClass || !n.isSmallInteger() ||
       n.smallIntegerValue() < 0 ||
       n.smallIntegerValue() > static_cast<std::int64_t>(ctx.heap.size(buf))) {
     return Oop{};
@@ -98,7 +101,7 @@ Oop filterBuffer(CallContext& ctx, Oop thunk, std::int64_t* count) {
 // when it is full.
 Oop ao_Collection_filter_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
-  if (argc != 1) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kBlockCopied)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -152,7 +155,7 @@ Oop ao_Collection_filter_scan(CallContext& ctx, const Oop& receiver, const Oop* 
 
 Oop ao_Collection_detect_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
-  if (argc != 1) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kBlockCopied)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -179,7 +182,7 @@ Oop ao_Collection_detect_scan(CallContext& ctx, const Oop& receiver, const Oop* 
 
 Oop ao_Collection_inject_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
                               std::uint32_t argc) {
-  if (argc != 1) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kBlockCopied)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -201,7 +204,7 @@ Oop ao_Collection_inject_scan(CallContext& ctx, const Oop& receiver, const Oop* 
 // holds =) must answer a Boolean, or includes: fails.
 Oop ao_Collection_includes_scan(CallContext& ctx, const Oop& receiver, const Oop* args,
                                 std::uint32_t argc) {
-  if (argc != 1) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kBlockCopied)) {
     return Oop{};
   }
   Root self(ctx.roots, receiver);
@@ -303,12 +306,15 @@ Oop ao_Collection_collect_(CallContext& ctx, const Oop& receiver, const Oop* arg
     return Oop{};
   }
   Root arr(ctx.roots, send(ctx, ctx.wk.arrayClass, ctx.wk.selBasicNew_, &nOop, 1, nullptr));
-  Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_collect_fill, 1));
-  if (!thunk.slot.isHeap()) {
+  if (unwinding(ctx)) {
     return Oop{};
   }
   if (!arr.slot.isHeap()) {
     return arr.slot;
+  }
+  Root thunk(ctx.roots, makeThunk(ctx, ao_Collection_collect_fill, 1));
+  if (!thunk.slot.isHeap()) {
+    return Oop{};
   }
   ctx.heap.slotAtPut(thunk.slot, kBlockCopied, blk.slot);
   ctx.heap.slotAtPut(thunk.slot, kBlockHome, arr.slot);

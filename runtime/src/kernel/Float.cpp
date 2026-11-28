@@ -3,6 +3,7 @@
 #include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/LargeInteger.hpp"
+#include "ao/Lookup.hpp"
 #include "ao/Natives.hpp"
 
 #include <cmath>
@@ -38,7 +39,7 @@ Oop fromDouble(CallContext& ctx, double v) {
 
 double asDouble(Heap& heap, Oop o) {
   double v = 0;
-  if (heap.size(o) >= 8) {
+  if ((heap.flags(o) & kFlagBytes) != 0 && heap.size(o) >= 8) {
     std::memcpy(&v, heap.bytes(o), sizeof(v));
   }
   return v;
@@ -109,7 +110,7 @@ bool asNumDen(CallContext& ctx, Oop o, Oop* num, Oop* den) {
     *den = Oop::fromSmallInteger(1);
     return true;
   }
-  if (!isFrac(ctx.wk, o) || ctx.heap.size(o) < 2) {
+  if (!isFrac(ctx.wk, o) || !hasSlots(ctx.heap, o, 1)) {
     return false;
   }
   *num = ctx.heap.slotAt(o, 0);
@@ -496,7 +497,8 @@ Oop ao_Float_printString(CallContext& ctx, const Oop& receiver, const Oop*, std:
   if (argc != 0) {
     return Oop{};
   }
-  if (!receiver.isHeap() || ctx.wk.classOf(receiver) != ctx.wk.floatClass) {
+  if (!receiver.isHeap() || (ctx.heap.flags(receiver) & kFlagBytes) == 0 ||
+      ctx.wk.classOf(receiver) != ctx.wk.floatClass) {
     return ao_Object_printString(ctx, receiver, nullptr, 0);
   }
   double value = 0;
