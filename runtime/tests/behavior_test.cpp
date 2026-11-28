@@ -325,10 +325,15 @@ TEST(Behavior, NativesOnNonClassShapedReceiverFail) {
       {"name", "failed: #name"},
       {"category", "failed: #category"},
       {"classPool", "failed: #classPool"},
+      {"definition", "failed: #definition"},
+      {"subclass: #AoBadSub instanceVariableNames: '' classVariableNames: '' "
+       "poolDictionaries: '' category: ''",
+       "failed: #subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:"},
   };
   for (const Row& row : rows) {
     EXPECT_EQ(row.reason, run(std::string("  ^AoP8Bytes ") + row.send)) << row.send;
   }
+  EXPECT_TRUE(b.wk.named("AoBadSub").isNil());
   // review-agy R5 F3: a pointer object with fewer slots than a class is not class-shaped either,
   // so sourceCodeAt: fails on it outside a session too instead of answering nil. The format is
   // restored in the same doIt.

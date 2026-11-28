@@ -2856,4 +2856,89 @@ TEST_F(LiveAccept, KernelScanStaysGreenAfterDebuggerAccept) {
   EXPECT_STREQ("7", out_);
 }
 
+// M4: ライブ評価中に RunLoopPump から設定した transcriptHook と debugCapture が、プロセス切替なしでも
+// 実行中の評価ファイバへ即時反映される。
+TEST_F(LiveDebug, TranscriptHookAndDebugCaptureSetDuringLiveEvalApplyImmediately) {
+  struct State {
+    bool set = false;
+    std::string seen;
+  };
+  static State* sState = nullptr;
+  State state;
+  sState = &state;
+  ao_set_debug_capture(0);
+  ao_set_transcript_hook(nullptr, nullptr);
+  ao_set_runloop_pump_hook(
+      [](void*) {
+        if (sState == nullptr || sState->set) {
+          return;
+        }
+        sState->set = true;
+        ao_set_debug_capture(1);
+        ao_set_transcript_hook(
+            [](const char* utf8, int len, int isClear, void*) {
+              if (isClear == 0 && utf8 != nullptr && len > 0 && sState != nullptr) {
+                sState->seen.append(utf8, static_cast<std::size_t>(len));
+              }
+            },
+            nullptr);
+      },
+      nullptr);
+  // ループの safepoint でポンプが発火した後に Transcript show: を実行し、最後に abort させる。
+  // ライブモードで 8 件を超えると通常の abort になり、debugCapture=1 が反映されていれば捕捉される。
+  for (int k = 0; k < 8; ++k) {
+    ASSERT_EQ(AO_ERR_HALT, doIt("self halt")) << k;
+  }
+  const int beforeGen = ao_debug_generation();
+  ASSERT_EQ(AO_ERR_EVAL, doIt("1 to: 2000 do: [:i | ]. Transcript show: 'live-hook'. 1 / 0"));
+  ao_set_runloop_pump_hook(nullptr, nullptr);
+  ao_set_transcript_hook(nullptr, nullptr);
+  sState = nullptr;
+  EXPECT_TRUE(state.seen.find("live-hook") != std::string::npos) << state.seen;
+  EXPECT_NE(beforeGen, ao_debug_generation());
+  EXPECT_EQ(AO_OK, ao_debug_select(0));
+  EXPECT_GT(ao_debug_frame_count(), 0);
+}
+
+// L1: デバッグ読み出し ABI がエラーで失敗したときも、出力先バッファの先頭に NUL を置く。
+TEST_F(LiveDebug, DebugReadErrorsBlankOutputBuffers) {
+  auto dirty = [](char* p, std::size_t n) {
+    std::memset(p, 'X', n);
+    p[n - 1] = '\0';
+  };
+  char buf[32];
+  char cbuf[32];
+  AoSpan hl{};
+
+  dirty(buf, sizeof(buf));
+  EXPECT_EQ(AO_ERR, ao_debug_reason(buf, static_cast<int>(sizeof(buf))));
+  EXPECT_EQ('\0', buf[0]);
+
+  dirty(buf, sizeof(buf));
+  EXPECT_EQ(AO_ERR, ao_debug_frame_label(0, buf, static_cast<int>(sizeof(buf))));
+  EXPECT_EQ('\0', buf[0]);
+
+  dirty(buf, sizeof(buf));
+  EXPECT_EQ(AO_ERR, ao_debug_frame_source(0, buf, static_cast<int>(sizeof(buf)), &hl));
+  EXPECT_EQ('\0', buf[0]);
+
+  dirty(buf, sizeof(buf));
+  EXPECT_EQ(AO_ERR, ao_debug_frame_temp_name(0, 0, buf, static_cast<int>(sizeof(buf))));
+  EXPECT_EQ('\0', buf[0]);
+
+  dirty(cbuf, sizeof(cbuf));
+  dirty(buf, sizeof(buf));
+  EXPECT_EQ(AO_ERR, ao_debug_frame_receiver_print(0, cbuf, static_cast<int>(sizeof(cbuf)), buf,
+                                                  static_cast<int>(sizeof(buf))));
+  EXPECT_EQ('\0', cbuf[0]);
+  EXPECT_EQ('\0', buf[0]);
+
+  dirty(cbuf, sizeof(cbuf));
+  dirty(buf, sizeof(buf));
+  EXPECT_EQ(AO_ERR, ao_debug_frame_temp_print(0, 0, cbuf, static_cast<int>(sizeof(cbuf)), buf,
+                                              static_cast<int>(sizeof(buf))));
+  EXPECT_EQ('\0', cbuf[0]);
+  EXPECT_EQ('\0', buf[0]);
+}
+
 }  // namespace

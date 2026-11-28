@@ -221,6 +221,8 @@ public final class AoApp: NSObject, NSApplicationDelegate {
     }
     browser?.noteImageLoaded()
     changeSorter?.noteImageLoaded()
+    launch?.workspace.noteImageLoaded()
+    DebuggerWindow.noteImageLoaded()
     return true
   }
 

@@ -227,7 +227,15 @@ commentChunk: aString on: aStream
 		c = $" ifTrue: [body nextPut: $"].
 		body nextPut: c].
 	body nextPut: $".
-	self chunk: body contents on: aStream! !
+	self chunk: body contents on: aStream!
+
+isBlankSource: aString
+	"空または空白文字のみのソースなら true（File Out で methodsFor: を閉じないようにする）。"
+	| code |
+	aString do: [:c |
+		code := c asInteger.
+		(code = 32 or: [code >= 9 and: [code <= 13]]) ifFalse: [^false]].
+	^true! !
 
 !ChangeSet methodsFor: 'private'!
 setName: aString id: anInteger
@@ -405,7 +413,7 @@ fileOut: entry meta: meta on: out lost: lost
 	(entry selectorsMeta: meta) do: [:sel |
 		(entry kindOf: sel meta: meta) == #removed ifFalse: [
 			source := side isNil ifTrue: [nil] ifFalse: [side sourceCodeAt: sel].
-			source isNil
+			(source isNil or: [ChangeSet isBlankSource: source])
 				ifTrue: [lost add: (ChangeSet text: (ChangeSet entryName: entry className selector: sel meta: meta) with: ' source not available')]
 				ifFalse: [sources add: source]]].
 	sources size = 0 ifTrue: [^self].

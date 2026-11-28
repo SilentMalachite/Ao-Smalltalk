@@ -3799,3 +3799,53 @@ TEST(AcceptAbi, FailedRootAddInsideAShapeChangePutsTheNameBack) {
   EXPECT_GT(answeredRows, 0u);
   ao_runtime_shutdown();
 }
+
+// H4: ユーザークラスのメソッド辞書に kFlagBytes の CompiledMethod が入っていても、
+// クラス再定義 (anyMethodIn) が OOB 読み取りしない。
+TEST(AcceptAbi, ReshapeSkipsByteShapedCompiledMethodWithoutOob) {
+  ASSERT_EQ(AO_OK, ao_runtime_boot());
+  AoSpan err{};
+  ASSERT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "H4Reshape", "x", "H4-Test").c_str(), &err))
+      << err.message;
+  ASSERT_EQ(AO_OK, ao_accept_method("H4Reshape", 0, "getX\n  ^x\n", &err)) << err.message;
+  char out[64] = "";
+  const std::string byteFmt = std::to_string((1 << 16) | (1 << 17));
+  const std::string setup =
+      "| fmt m |\n"
+      "fmt := CompiledMethod instVarAt: 3.\n"
+      "CompiledMethod instVarAt: 3 put: " +
+      byteFmt +
+      ".\n"
+      "m := CompiledMethod basicNew: 3.\n"
+      "CompiledMethod instVarAt: 3 put: fmt.\n"
+      "Smalltalk at: #H4FakeM put: m.\n"
+      "0";
+  ASSERT_EQ(AO_OK, ao_eval(setup.c_str(), static_cast<int>(setup.size()), AO_EVAL_PRINTIT, out,
+                           sizeof out, &err))
+      << err.message;
+  {
+    ao::Session& s = *ao::session();
+    const ao::Oop cls = s.wk.named("H4Reshape");
+    const ao::Oop dict = s.heap.slotAt(cls, ao::kClassSlotMethodDict);
+    const ao::Oop arr = s.heap.slotAt(dict, ao::kDictSlotArray);
+    const std::uint32_t n = s.heap.size(arr);
+    const ao::Oop getXSel = s.wk.intern("getX");
+    ao::Oop getXMeth;
+    for (std::uint32_t i = 0; i + 1 < n; i += 2) {
+      if (s.heap.slotAt(arr, i) == getXSel) {
+        getXMeth = s.heap.slotAt(arr, i + 1);
+        break;
+      }
+    }
+    ASSERT_TRUE(getXMeth.isHeap());
+    ao::Root meth(s.roots, getXMeth);
+    ao::Root fake(s.roots, s.wk.named("H4FakeM"));
+    const ao::Oop lits = s.heap.allocate(s.wk.arrayClass, 1, 0);
+    ASSERT_TRUE(lits.isHeap());
+    s.heap.slotAtPut(lits, 0, fake.slot);
+    s.heap.slotAtPut(meth.slot, ao::kCmSlotLiterals, lits);
+  }
+  EXPECT_EQ(AO_OK, ao_accept_class(b5Definition("Object", "H4Reshape", "x y", "H4-Test").c_str(), &err))
+      << err.message;
+  ao_runtime_shutdown();
+}

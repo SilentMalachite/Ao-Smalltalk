@@ -160,6 +160,12 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     owning(keyWindow)?.canAcceptEdit ?? true
   }
 
+  static func noteImageLoaded() {
+    for debugger in open {
+      debugger.noteImageLoaded()
+    }
+  }
+
   let window: NSWindow
   // 0: the post-mortem Debugger of the snapshot; else the halted process it shows (SPEC §3.9).
   let pid: Int64
@@ -188,6 +194,8 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
   // replace it.
   var confirmDiscard: BrowserWindow.DiscardConfirmation = BrowserWindow.askToDiscard
   private var confirming = false
+  // Image loads seen (noteImageLoaded). A discard sheet opened before a load must not run after it.
+  private var loads = 0
   private let uniformFont = UniformFont()
   private var values: [Int: (className: String, value: String)] = [:]
   private var inspectors: [InspectorWindow] = []
@@ -403,10 +411,11 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       return
     }
     confirming = true
+    let loadsAsked = loads
     confirmDiscard(window) { discard in
       self.confirming = false
-      // Cancel changes nothing, even if the halt ended elsewhere while the question was up.
-      guard discard else {
+      // Cancel changes nothing, and a load while the sheet was up cancels the stale action too.
+      guard discard, self.loads == loadsAsked else {
         return
       }
       self.showSource(self.shownSource)
@@ -428,7 +437,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       return (name, cached.className, cached.value)
     }
     let read = printValue(frame: Int32(selectedFrame), temp: Int32(row - 1))
-    guard let read else {
+    guard let read, self.selectedFrame == selectedFrame, readable() else {
       return (name, "", "-")
     }
     values[row] = read
@@ -452,8 +461,10 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
     defer {
       ao_set_inspect_hook(nil, nil)
     }
-    let status = ao_debug_inspect(Int32(selectedFrame), Int32(row - 1))
-    guard status == Int32(AO_OK), inspectReceived else {
+    let status = withExtendedLifetime(self) {
+      ao_debug_inspect(Int32(selectedFrame), Int32(row - 1))
+    }
+    guard status == Int32(AO_OK), inspectReceived, window.isVisible else {
       return
     }
     openInspector(className: inspectClassName, printString: inspectPrint)
@@ -612,6 +623,16 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
   // SPEC §3.9: once its process is gone (ended elsewhere), the buttons go off and the shown
   // values become `-`.
+  func noteImageLoaded() {
+    loads += 1
+    if isLive {
+      refreshLive()
+      return
+    }
+    values = [:]
+    variableTable.reloadData()
+  }
+
   private func refreshLive() {
     updateButtons()
     // SPEC §3.9 Debugger の編集: a re-accept elsewhere (the Browser) can take the frame's Accept
@@ -784,7 +805,7 @@ final class DebuggerWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate
       sourceView.scrollRangeToVisible(NSRange(location: 0, length: 0))
     }
     variableTable.reloadData()
-    // SPEC §3.9: Restart は選んだ行の種類で有効/無効が変わる。
+    // SPEC §3.9: Restart availability depends on the selected frame kind.
     updateButtons()
   }
 

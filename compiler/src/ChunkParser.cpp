@@ -42,18 +42,6 @@ bool isCharacterLiteral(std::string_view src, std::uint32_t i) {
   return dollars % 2 == 1;
 }
 
-bool isLetter(char c) {
-  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-}
-
-// Prose uses ASCII apostrophes in words ("don't"). Those are not strings.
-bool isProseApostrophe(std::string_view src, std::uint32_t i) {
-  if (i == 0 || i + 1 >= src.size()) {
-    return false;
-  }
-  return isLetter(src[i - 1]) && isLetter(src[i + 1]);
-}
-
 // True when the chunk's tokens begin `Ident [class] <keyword>`: a header message sent to a name
 // or to `Name class`.
 bool beginsWithHeaderKeyword(std::string_view text, std::string_view keyword) {
@@ -124,12 +112,7 @@ std::vector<RawChunk> splitChunks(std::string_view src) {
         i++;
         continue;
       }
-      if (!inCmt && c == '\'') {
-        if (prose && !inStr && isProseApostrophe(src, i)) {
-          text.push_back(c);
-          i++;
-          continue;
-        }
+      if (!prose && !inCmt && c == '\'') {
         if (inStr && i + 1 < n && src[i + 1] == '\'') {
           text.push_back('\'');
           text.push_back('\'');

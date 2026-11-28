@@ -129,3 +129,13 @@ TEST(NativeMethod, InvokeRootsDirectCall) {
   const ao::Oop meth = probeMethod(b, callsWithLocal, 0);
   expectArray42(b, ao::NativeMethod::apply(b.ctx, meth, ao::Oop::nil(), nullptr, 0));
 }
+
+// M11: NativeMethod の kNativeSlotName がポインタオブジェクトに差し替えられても、nameBytes が
+// 生のポインタ列を返さず空を返す。
+TEST(NativeMethod, NameBytesRejectsPointerObject) {
+  Boot b;
+  ao::Root meth(b.roots, probeMethod(b, gcThenReceiver, 0));
+  ao::Root fakeName(b.roots, b.heap.allocate(b.wk.arrayClass, 4, 0));
+  b.heap.slotAtPut(meth.slot, ao::kNativeSlotName, fakeName.slot);
+  EXPECT_TRUE(ao::NativeMethod::nameBytes(b.heap, meth.slot).empty());
+}

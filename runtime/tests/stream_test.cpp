@@ -8,8 +8,10 @@
 
 #include "ao/Compile.hpp"
 #include "ao/Compiler.hpp"
+#include "ao/Context.hpp"
 #include "ao/HandleScope.hpp"
 #include "ao/Interpreter.hpp"
+#include "ao/kernel/Install.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -680,4 +682,125 @@ TEST(KernelBench, WriteStreamTwentyThousandNextPut) {
   std::printf("B9 WriteStream 20000 nextPut: into an Array %lld ms\n", static_cast<long long>(ms));
   EXPECT_EQ("20000", printed);
   EXPECT_LT(ms, 1000);
+}
+
+// C2: nextPutAll: が do: へ渡す thunk の kCtxReceiver を壊されても OOB せず失敗する。
+TEST_F(Streams, NextPutAllThunkRejectsMalformedReceiver) {
+  acceptClass("Object", "C2StreamDo", "bad");
+  acceptMethod("C2StreamDo", "bad: obj\n  bad := obj");
+  acceptMethod("C2StreamDo", "do: aBlock\n  aBlock instVarAt: 5 put: bad.\n  aBlock value: $a");
+  for (const char* badExpr : {"Object new", "'x'"}) {
+    SCOPED_TRACE(badExpr);
+    EXPECT_EQ("<eval error: failed: #value:>",
+              printIt(std::string("(WriteStream on: String new) nextPutAll: (C2StreamDo new bad: ") +
+                      badExpr + ")"));
+  }
+}
+
+// C3: クラス format 改変で 0 スロットや byte 配列になった Stream / PositionableStream class /
+// Array に対しても、next / nextPut: / position / position: / reset / contents / on: が OOB しない。
+TEST_F(Streams, DamagedStreamAndArrayShapesFailWithoutOob) {
+  const std::string byteFmt = std::to_string((1 << 16) | (1 << 17));
+  // Array クラスがバイト列化された場合の growArray / nextPut: (WriteStream 改変前に実行)
+  EXPECT_EQ("<eval error: nextPut: past end>",
+            printIt("| b w | w := WriteStream on: (Array new: 4).\n"
+                    "Array instVarAt: 3 put: " + byteFmt + ".\n"
+                    "b := Array basicNew: 4.\n"
+                    "w instVarAt: 1 put: b.\n"
+                    "w position: 4.\n"
+                    "w nextPut: 1"));
+  EXPECT_EQ("<eval error: failed: #on:>",
+            printIt("PositionableStream class instVarAt: 3 put: 0.\n"
+                    "(PositionableStream class basicNew) on: 'abc'"));
+  EXPECT_EQ("<eval error: failed: #next>",
+            printIt("ReadStream instVarAt: 3 put: 0. (ReadStream basicNew) next"));
+  EXPECT_EQ("<eval error: failed: #nextPut:>",
+            printIt("WriteStream instVarAt: 3 put: 0. (WriteStream basicNew) nextPut: $a"));
+  EXPECT_EQ("<eval error: failed: #position>",
+            printIt("ReadStream instVarAt: 3 put: " + byteFmt + ". (ReadStream basicNew: 2) position"));
+  EXPECT_EQ("<eval error: failed: #position:>",
+            printIt("ReadStream instVarAt: 3 put: " + byteFmt + ". (ReadStream basicNew: 2) position: 0"));
+  EXPECT_EQ("<eval error: failed: #reset>",
+            printIt("ReadStream instVarAt: 3 put: " + byteFmt + ". (ReadStream basicNew: 2) reset"));
+  EXPECT_EQ("<eval error: failed: #contents>",
+            printIt("ReadStream instVarAt: 3 put: 0. (ReadStream basicNew) contents"));
+  EXPECT_EQ("<eval error: failed: #contents>",
+            printIt("WriteStream instVarAt: 3 put: 0. (WriteStream basicNew) contents"));
+  EXPECT_EQ("<eval error: failed: #contents>",
+            printIt("ReadWriteStream instVarAt: 3 put: 0. (ReadWriteStream basicNew) contents"));
+}
+
+// M8 / M9: total == writeLimit でもマルチバイト文字を含むなら文字境界を計算して上書きし、
+// forwardTranscriptClass・WriteStream>>nextPut:・Transcript>>show: が失敗を握りつぶさない。
+TEST_F(Streams, MultibyteTotalEqualsLimitAndTranscriptFailures) {
+  // M8: 'abcd' (4B) の先頭2Bを 'é' (0xC3 0xA9) にし、total == limit == 4 で pos = 1 に $X を書く。
+  EXPECT_EQ("'\xC3\xA9Xd'",
+            printIt("| s w | s := 'abcd' copy. w := WriteStream on: s.\n"
+                    "s basicAt: 1 put: 16rC3; basicAt: 2 put: 16rA9.\n"
+                    "w next. w nextPut: $X. s"));
+  // M9: at:put: が失敗したとき、WriteStream>>nextPut: は position を進めない。
+  EXPECT_EQ("<eval error: basicAt:put: index out of range>",
+            printIt("| w | w := WriteStream on: (ByteArray new: 5).\n"
+                    "Smalltalk at: #M9W put: w.\n"
+                    "w nextPut: 'x'"));
+  EXPECT_EQ("0", printIt("(Smalltalk at: #M9W) position"));
+}
+
+// Transcript>>show: は transcriptHook 中の中断（unwinding）を握りつぶさず失敗する。
+TEST(StreamTranscript, ShowPropagatesHookAbort) {
+  Boot b;
+  b.ctx.transcriptHook = [](ao::CallContext& c, ao::Oop) {
+    ao::abortEvaluation(c, "transcript hook abort");
+  };
+  ao::Root msg(b.roots, ao::Str::fromUtf8(b.ctx, "hello"));
+  EXPECT_TRUE(send1(b, b.wk.transcript, "show:", msg.slot).isEmpty());
+  EXPECT_EQ("transcript hook abort", takeAbortReason(b));
+}
+
+// Transcript class（forwardTranscriptClass）が中断および空 OOP 失敗を握りつぶさない。
+TEST(StreamTranscript, ForwardClassPropagatesFailures) {
+  Boot b;
+  b.ctx.transcriptHook = [](ao::CallContext& c, ao::Oop) {
+    ao::abortEvaluation(c, "transcript hook abort");
+  };
+  ao::Root msg(b.roots, ao::Str::fromUtf8(b.ctx, "hello"));
+  EXPECT_TRUE(send1(b, b.wk.transcriptClass, "show:", msg.slot).isEmpty());
+  EXPECT_EQ("transcript hook abort", takeAbortReason(b));
+
+  // unwinding を伴わない空 OOP 返却でも forwardTranscriptClass が self を返さないことを確認する。
+  b.ctx.transcriptHook = nullptr;
+  const ao::Oop empty = b.wk.intern("");
+  ao::Oop subArgs[5] = {b.wk.intern("BadTranscript"), empty, empty, empty, empty};
+  ao::Root badCls(
+      b.roots,
+      ao::send(b.ctx, b.wk.objectClass,
+               b.wk.intern(
+                   "subclass:instanceVariableNames:classVariableNames:poolDictionaries:category:"),
+               subArgs, 5, nullptr));
+  ASSERT_TRUE(badCls.slot.isHeap());
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, &b.cache, badCls.slot, "cr", 0,
+                                    "ao_BlockContext_value", ao::ao_BlockContext_value));
+  ASSERT_TRUE(ao::kernel::putNative(b.heap, b.wk, &b.cache, badCls.slot, "show:", 1,
+                                    "ao_BlockContext_value_", ao::ao_BlockContext_value_));
+  b.wk.transcript = send0(b, badCls.slot, "new");
+  ASSERT_TRUE(b.wk.transcript.isHeap());
+  EXPECT_TRUE(send0(b, b.wk.transcriptClass, "cr").isEmpty());
+  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_TRUE(send1(b, b.wk.transcriptClass, "show:", msg.slot).isEmpty());
+  EXPECT_FALSE(b.ctx.aborting);
+}
+
+// PositionableStream>>on: はバイト列フォーマットのクラスを拒否し、collectionSize は空 OOP を握りつぶさない。
+TEST_F(Streams, PositionableStreamOnRejectsByteShapedClassAndSizeFailure) {
+  const std::string byteInstFmt = std::to_string((1 << 16) | (1 << 17) | 4);
+  EXPECT_EQ("<eval error: failed: #on:>",
+            printIt("ReadStream instVarAt: 3 put: " + byteInstFmt + ". ReadStream on: 'abc'"));
+  EXPECT_EQ("<eval error: failed: #on:>",
+            printIt("Interval instVarAt: 3 put: 0. PositionableStream on: Interval basicNew"));
+  EXPECT_EQ("<eval error: failed: #nextPut:>",
+            printIt("| w |\n"
+                    "Interval instVarAt: 3 put: 0.\n"
+                    "w := WriteStream on: 'a'.\n"
+                    "w instVarAt: 1 put: Interval basicNew.\n"
+                    "w nextPut: $x"));
 }

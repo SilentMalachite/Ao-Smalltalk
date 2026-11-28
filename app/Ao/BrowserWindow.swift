@@ -548,6 +548,7 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
     loads += 1
     showingHierarchy = false
     hierarchy = []
+    errorField.stringValue = ""
     publish()
   }
 
@@ -592,8 +593,13 @@ final class BrowserWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate,
   // edit left, Cancel has nothing to keep, so the change goes ahead.
   private func confirmBeforeDiscarding(_ proceed: @escaping @MainActor (Bool) -> Void) {
     confirming = true
+    let loadsAsked = loads
     confirmDiscard(window) { discard in
       self.confirming = false
+      guard self.loads == loadsAsked else {
+        proceed(false)
+        return
+      }
       proceed(discard || !self.hasUnacceptedChanges)
     }
   }

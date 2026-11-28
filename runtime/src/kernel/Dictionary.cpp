@@ -688,8 +688,8 @@ Oop ao_Dictionary_collect_(CallContext& ctx, const Oop& receiver, const Oop* arg
       return false;
     }
     slots[2] = Oop::fromSmallInteger(idx);
-    send(ctx, arr.slot, ctx.wk.selAt_put_, &slots[2], 2, nullptr);
-    if (unwinding(ctx)) {
+    const Oop r = send(ctx, arr.slot, ctx.wk.selAt_put_, &slots[2], 2, nullptr);
+    if (unwinding(ctx) || r.isEmpty()) {
       return false;
     }
     ++idx;
@@ -902,14 +902,14 @@ Oop ao_Association_key_value_(CallContext& ctx, const Oop& receiver, const Oop* 
 }
 
 Oop ao_Association_key(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kAssocKey)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kAssocKey);
 }
 
 Oop ao_Association_value(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kAssocValue)) {
     return Oop{};
   }
   return ctx.heap.slotAt(receiver, kAssocValue);
@@ -917,7 +917,7 @@ Oop ao_Association_value(CallContext& ctx, const Oop& receiver, const Oop*, std:
 
 Oop ao_Association_key_(CallContext& ctx, const Oop& receiver, const Oop* args,
                         std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kAssocKey)) {
     return Oop{};
   }
   ctx.heap.slotAtPut(receiver, kAssocKey, args[0]);
@@ -926,7 +926,7 @@ Oop ao_Association_key_(CallContext& ctx, const Oop& receiver, const Oop* args,
 
 Oop ao_Association_value_(CallContext& ctx, const Oop& receiver, const Oop* args,
                           std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kAssocValue)) {
     return Oop{};
   }
   ctx.heap.slotAtPut(receiver, kAssocValue, args[0]);
@@ -1070,7 +1070,7 @@ bool intervalWalk(CallContext& ctx, Root& iv, Visit visit) {
 }  // namespace
 
 Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kIvStep)) {
     return Oop{};
   }
   const Oop start = ctx.heap.slotAt(receiver, kIvStart);
@@ -1096,7 +1096,7 @@ Oop ao_Interval_size(CallContext& ctx, const Oop& receiver, const Oop*, std::uin
 }
 
 Oop ao_Interval_do_(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (argc != 1 || !receiver.isHeap()) {
+  if (argc != 1 || !hasSlots(ctx.heap, receiver, kIvStep)) {
     return Oop{};
   }
   Root iv(ctx.roots, receiver);

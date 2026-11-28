@@ -22,10 +22,20 @@ final class ChangeSorterTests: XCTestCase {
     // tearDown is nonisolated; XCTest calls it on the main thread.
     MainActor.assumeIsolated {
       Self.closeVisibleWindows()
+      Self.dropMainMenu()
       Self.tearDownLaunches()
     }
+    ao_set_transcript_hook(nil, nil)
+    ao_set_inspect_hook(nil, nil)
     ao_runtime_shutdown()
     super.tearDown()
+  }
+
+  private static func dropMainMenu() {
+    let menu = NSApplication.shared.mainMenu
+    NSApplication.shared.mainMenu = nil
+    NSApplication.shared.windowsMenu = nil
+    menu?.removeAllItems()
   }
 
   // Nothing the test opened outlives it: sheets end first, then every visible window closes.

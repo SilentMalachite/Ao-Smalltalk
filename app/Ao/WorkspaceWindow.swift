@@ -356,6 +356,11 @@ final class WorkspaceWindow {
     show(result, mode: mode, source: source, range: range)
   }
 
+  func noteImageLoaded() {
+    debugButton.isHidden = true
+    errorField.stringValue = ""
+  }
+
   // An Inspect it's hook is set around `body`, whose inspect it hears.
   private func withInspectHook<T>(_ mode: Int32, _ body: () -> T) -> T {
     let inspecting = mode == Int32(AO_EVAL_INSPECTIT)
@@ -371,7 +376,9 @@ final class WorkspaceWindow {
         ao_set_inspect_hook(nil, nil)
       }
     }
-    return body()
+    return withExtendedLifetime(self) {
+      body()
+    }
   }
 
   // The answer of an evaluation, or of the live Debugger's Proceed or Step that ended one. source

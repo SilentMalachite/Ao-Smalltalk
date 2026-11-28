@@ -2,6 +2,47 @@
 
 All notable changes to Ao are recorded here. Versions follow [Semantic Versioning](https://semver.org/) (SPEC §2.4).
 
+## [1.7.2] - 2026-11-28
+
+Additional safety, scheduler, image validation, and UI fixes from a follow-up review of 1.7.1, released as a patch (SPEC §2.4). No phase is added, the `.aoimage` format stays at version 4, and the C ABI is unchanged.
+
+### Runtime
+
+- `boundClassNamed` now verifies class shape, metaclass identity, and `thisClass` back-links instead of trusting any object bound to `ChangeSet`, preventing segmentation faults when sending to malformed bindings.
+- Native block thunks (`collect:`, `select:`, `reject:`, `detect:`, `inject:into:`, `includes:`, `nextPutAll:`) verify `kBlockCopied` slot counts; `ao_Collection_collect_fill` and `ao_Dictionary_collect_` propagate empty OOP failures from `at:put:` and reload `kCtxPc` after sends.
+- Pointer-vs-byte shape checks are enforced consistently across `Interpreter`, `Send` inline caches, `BlockContext`, `CompiledMethod::hasSlots`, `FilterBuffer`, streams (`PositionableStream>>on:`, `next`, `nextPut:`, `position:`, `contents`, `collectionSize`), `Association`, `Array`, `Interval`, `Float`, `String`, `Behavior` (`definition`, `subclass:…`), `NativeMethod::nameBytes`, `Object>>shallowCopy` flag masking, and `HandleScope::allocateInstance`.
+- `Scheduler::awaitEval` and `Scheduler::drain` share a fallback that avoids infinite waits when `Processor quiescentProcesses` is damaged and clears spurious out-of-memory flags raised inside `yield(base_)`.
+- Transcript and debug capture hooks set mid-evaluation during a run-loop pump are synchronized to the currently active fiber immediately, and `WriteStream>>nextPut:` / `Transcript>>show:` / `forwardTranscriptClass` propagate unwinding and empty OOP failures.
+- `MethodDictionary::at` rejects immediate/nil keys cleanly, `Session::methodsOf` skips non-byte selector keys, `WellKnown` reserves root slots before appending interned symbols, and `ao_Collection_collect_` checks `unwinding` before allocating its thunk.
+
+### Debugger
+
+- `ao_debug_reason`, `ao_debug_frame_label`, `ao_debug_frame_source`, `ao_debug_frame_temp_name`, `ao_debug_frame_receiver_print`, and `ao_debug_frame_temp_print` pre-NUL output buffers before guarded execution.
+
+### Ao.app
+
+- `DebuggerWindow` prevents variable-print pump reentrancy from polluting stale frame caches, drops orphan inspector creation if its window closes mid-pump, and guards `confirmIfEdited` sheet callbacks across image loads.
+- `AoApp.openImage` synchronizes open `WorkspaceWindow` and live/post-mortem `DebuggerWindow` instances, and `BrowserWindow` guards discard/hierarchy sheet callbacks across image loads.
+
+### Compiler and file-in
+
+- `ChunkParser` no longer treats standalone prose apostrophes as quote delimiters outside code chunks, and `Compile::acceptClassDef` verifies `isClassObject` before reshaping.
+- `ChangeSet class>>fileOut:meta:on:lost:` moves blank/whitespace-only method sources to `lost` instead of emitting empty closing chunks, and `sessionChangesFileOut` writes atomically via a temporary file preserving `umask` / existing permissions and rejecting read-only targets.
+
+### Images, CLI, and packaging
+
+- `Image::load` bounds the sources section (`kMaxSourcesBytes`), rejects objects combining `kFlagBytes` and `kFlagWeak` or weak `MethodDictionary` backing arrays, and checks catalog globals against `WellKnown`.
+- `Image::save` rejects empty paths and verifies required globals (`Smalltalk`, `Processor`, `Transcript`, and catalog classes) before committing the image file.
+- `scripts/package-app.sh` strips `.gitkeep` alongside `.DS_Store` from bundled Smalltalk resources and runs `codesign --verify --strict`.
+
+### Known limitations
+
+The known limitations listed for 1.7.0 still apply.
+
+### Install
+
+Requires an Apple Silicon Mac with macOS 14 or later. Download `Ao-1.7.2-macos-arm64.zip` (the app) and/or `ao-cli-1.7.2-macos-arm64.tar.gz` (the CLI), then check them with `shasum -a 256 -c SHA256SUMS`. The builds are not notarized: after the first launch attempt, choose **Open Anyway** in System Settings → Privacy & Security, or run `xattr -dr com.apple.quarantine Ao.app`. See the [README](https://github.com/SilentMalachite/Ao-Smalltalk/blob/v1.7.2/README.md) for usage.
+
 ## [1.7.1] - 2026-11-28
 
 Fixes from a full review of 1.7.0, released as a patch (SPEC §2.4). No phase is added. The `.aoimage` format stays at version 4, and the C ABI has no new or changed functions. Images saved by 1.7.0 still load, with one exception: an image that 1.7.0 saved after running out of memory can hold an empty slot, and loading now refuses it with `damaged image` (see below).
@@ -308,7 +349,8 @@ The first release. It completes phases P0–P9 of SPEC §2.3, the v1 definition:
 - The bytecode interpreter is not optimized ([docs/bench.md](docs/bench.md)).
 - The builds are ad-hoc signed and not notarized, so macOS asks before the first launch.
 
-[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.4.0...v1.7.0
 [1.4.0]: https://github.com/SilentMalachite/Ao-Smalltalk/compare/v1.3.0...v1.4.0

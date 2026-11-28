@@ -2397,3 +2397,141 @@ TEST(ImageSaveChecks, SaveRefusesEmptyRecord) {
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
 }
+
+// H2 / M5 / L10: Smalltalk・Processor・Transcript・カタログクラスが破壊された状態では保存を拒否し、
+// 既存の正常なイメージファイルを上書きしない。また空パスも明確な理由で拒否する。
+TEST(ImageSaveChecks, SaveRefusesBrokenRequiredGlobalsAndKeepsExistingFile) {
+  const auto dir = freshDir("h2-save-globals");
+  const auto path = dir / "keep.aoimage";
+  Boot b;
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  const std::vector<char> baseline = readAll(path);
+
+  // L10: empty path
+  {
+    std::string reason;
+    EXPECT_FALSE(ao::Image::save(b.heap, b.roots, b.wk, "", &reason));
+    EXPECT_EQ("image path is empty", reason);
+  }
+
+  auto saveAndCheckUnchanged = [&](const char* name, ao::Oop badValue) {
+    SCOPED_TRACE(name);
+    Boot dirty;
+    ASSERT_TRUE(ao::Globals::bind(dirty.wk, dirty.wk.intern(name), badValue));
+    std::string reason;
+    EXPECT_FALSE(ao::Image::save(dirty.heap, dirty.roots, dirty.wk, path.string(), &reason));
+    EXPECT_FALSE(reason.empty());
+    EXPECT_EQ(baseline, readAll(path));
+  };
+  saveAndCheckUnchanged("Smalltalk", ao::Oop::nil());
+  saveAndCheckUnchanged("Processor", ao::Oop::nil());
+  saveAndCheckUnchanged("Transcript", ao::Oop::nil());
+  saveAndCheckUnchanged("Transcript", b.wk.transcript);
+  saveAndCheckUnchanged("Array", ao::Oop::nil());
+
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// M5 / M6: checkGlobals はカタログクラス（#Array 等）の WellKnown 一致も検証し、
+// ObjectRules::objectOk は MethodDictionary の内部配列に kFlagWeak が立つ細工イメージを拒否する。
+TEST(ImageLoadChecks, RefusesTamperedCatalogGlobalAndWeakMethodDictionaryArray) {
+  const auto good = std::filesystem::path(testing::TempDir()) / "m5m6-good.aoimage";
+  const auto bad = std::filesystem::path(testing::TempDir()) / "m5m6-bad.aoimage";
+  saveFreshImage(good);
+  const ImageSurgery image(good);
+
+  // M5: Smalltalk 辞書内の #Array の値と globals レコードの Array を両方 nil に書き換える。
+  {
+    ImageSurgery damaged = image;
+    const std::uint64_t arrayCls = damaged.record("Array");
+    const std::uint64_t smalltalk = damaged.record("Smalltalk");
+    const std::uint64_t pairs =
+        damaged.word(damaged.slotPos(smalltalk, ao::Globals::kSmalltalkSlotArray));
+    const std::uint32_t pairCount = damaged.object(pairs).size;
+    std::size_t dictValuePos = 0;
+    for (std::uint32_t i = 0; i + 1 < pairCount; i += 2) {
+      if (damaged.word(damaged.slotPos(pairs, i + 1)) == arrayCls) {
+        dictValuePos = damaged.slotPos(pairs, i + 1);
+        break;
+      }
+    }
+    ASSERT_NE(0u, dictValuePos);
+    damaged.setWord(dictValuePos, ao::Oop::nil().bits());
+
+    std::size_t cursor = 0;
+    ASSERT_NE(0u, wellKnownBitsAt(damaged.bytes, "Smalltalk", &cursor));
+    std::size_t globalValuePos = 0;
+    for (std::uint32_t g = 0; g < damaged.header.globalCount; ++g) {
+      std::uint32_t n = 0;
+      std::memcpy(&n, damaged.bytes.data() + cursor, sizeof n);
+      const std::string_view gname(damaged.bytes.data() + cursor + sizeof n, n);
+      cursor += sizeof n + n + (4u - n % 4u) % 4u;
+      if (gname == "Array") {
+        globalValuePos = cursor;
+        break;
+      }
+      cursor += 8;
+    }
+    ASSERT_NE(0u, globalValuePos);
+    damaged.setWord(globalValuePos, ao::Oop::nil().bits());
+    ASSERT_TRUE(damaged.write(bad));
+    Loaded image;
+    std::string reason;
+    EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, bad.string(), &reason));
+    EXPECT_EQ("damaged image", reason);
+  }
+
+  // M6: MethodDictionary の内部配列（klass == nil）に kFlagWeak を立てたイメージを拒否する。
+  {
+    ImageSurgery damaged = image;
+    const std::uint64_t md = damaged.firstInstanceOf("MethodDictionary");
+    ASSERT_NE(0u, md);
+    const std::uint64_t arr = damaged.word(damaged.slotPos(md, 1));
+    ASSERT_NE(ao::Oop::nil().bits(), arr);
+    ao::ObjectHeader h = damaged.object(arr);
+    h.flags = static_cast<std::uint16_t>(h.flags | ao::kFlagWeak);
+    damaged.setObject(arr, h);
+    ASSERT_TRUE(damaged.write(bad));
+    expectRefused(bad, "damaged image");
+  }
+
+  std::filesystem::remove(good);
+  std::filesystem::remove(bad);
+}
+
+// M7: 許容上限（256 MiB）を超える sourcesBytes を持つスパースなファイルは拒否される。
+TEST(ImageSaveLoad, RefusesSparseSourcesSectionPastSizeLimit) {
+  Boot b;
+  const auto path = std::filesystem::path(testing::TempDir()) / "load-limit-sources.aoimage";
+  ASSERT_TRUE(ao::Image::save(b.heap, b.roots, b.wk, path.string()));
+  std::vector<char> bytes = readAll(path);
+  ao::ImageFormat::ImageHeader header;
+  ASSERT_TRUE(ao::ImageFormat::readHeader(reinterpret_cast<const std::byte*>(bytes.data()),
+                                          bytes.size(), &header));
+  const std::uint64_t overLimit = std::uint64_t{300} << 20;
+  const std::size_t srcAt = bytes.size() - 8;
+  // sourcesFitFile を通過する正当なペア構造（count = 1, length = overLimit - 24）のスパースファイルを作る。
+  bytes.resize(srcAt + 24, '\0');
+  putU32(bytes, srcAt, 1);
+  putU32(bytes, srcAt + 4, 0);
+  const std::uint64_t filler = ao::ImageFormat::kImageFillerBytes;
+  std::memcpy(bytes.data() + srcAt + 8, &filler, sizeof filler);
+  putU32(bytes, srcAt + 16, static_cast<std::uint32_t>(overLimit - 24));
+  putU32(bytes, srcAt + 20, 0);
+  header.sourcesBytes = overLimit;
+  ao::ImageFormat::writeHeader(reinterpret_cast<std::byte*>(bytes.data()), header);
+  ASSERT_TRUE(writeAll(path, bytes));
+  std::error_code ec;
+  std::filesystem::resize_file(path, srcAt + overLimit, ec);
+  if (ec) {
+    std::filesystem::remove(path);
+    GTEST_SKIP() << "the file system cannot make a sparse file: " << ec.message();
+  }
+  Loaded image;
+  std::string reason;
+  EXPECT_FALSE(ao::Image::load(image.heap, image.roots, image.wk, path.string(), &reason));
+  EXPECT_EQ("damaged image", reason);
+  EXPECT_EQ(0u, image.heap.oldUsed());
+  std::filesystem::remove(path);
+}

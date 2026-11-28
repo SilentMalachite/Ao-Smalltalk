@@ -1749,6 +1749,84 @@ final class AcceptTests: XCTestCase {
     }
     return found
   }
+
+  // M2 / M3: cancelling or discarding a confirmation after Open Image… neither applies the stale
+  // selection/hierarchy change nor keeps the previous image's error text.
+  func testDiscardBeforeSelectionAndHierarchyAfterImageLoadDoesNothing() {
+    let browser = BrowserWindow()
+    defer { browser.window.close() }
+    selectCategory("Kernel", in: browser)
+    selectClass("Object", in: browser)
+    selectProtocol("user", in: browser)
+    browser.replaceSource("invalid syntax ???")
+    browser.accept()
+    XCTAssertFalse(browser.errorText.isEmpty)
+
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("m2-load-\(UUID().uuidString).aoimage").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    XCTAssertEqual(path.withCString { ao_image_save($0) }, Int32(AO_OK))
+
+    browser.replaceSource("m2Unaccepted\n  ^1")
+    XCTAssertTrue(browser.hasUnacceptedChanges)
+    var pending: (@MainActor (Bool) -> Void)?
+    browser.confirmDiscard = { _, decide in pending = decide }
+
+    // Trigger discard confirmation via Show Hierarchy, then load an image and Cancel.
+    browser.showHierarchy()
+    XCTAssertNotNil(pending)
+    var err = AoSpan()
+    let loaded = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    XCTAssertEqual(browser.errorText, "")
+    let classesAfterLoad = browser.model.classes
+    pending?(false)
+    XCTAssertEqual(browser.model.classes, classesAfterLoad)
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+
+    // Trigger discard confirmation via Show Hierarchy, then load an image and answer Discard.
+    browser.replaceSource("m2UnacceptedHierarchyDiscard\n  ^3")
+    pending = nil
+    browser.showHierarchy()
+    XCTAssertNotNil(pending)
+    let loadedHierarchy = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loadedHierarchy, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    pending?(true)
+    XCTAssertEqual(browser.model.classes, classesAfterLoad)
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+
+    // Trigger discard confirmation via selecting another class, load again, and Cancel.
+    browser.replaceSource("m2UnacceptedAgain\n  ^2")
+    pending = nil
+    selectClass("Array", in: browser, expecting: "Object")
+    XCTAssertNotNil(pending)
+    let loaded2 = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded2, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    pending?(false)
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+
+    // Trigger discard confirmation via selecting another class, load again, and answer Discard.
+    browser.replaceSource("m2UnacceptedDiscardSelect\n  ^4")
+    pending = nil
+    selectClass("Array", in: browser, expecting: "Object")
+    XCTAssertNotNil(pending)
+    let loaded3 = path.withCString { file in
+      withUnsafeMutablePointer(to: &err) { ao_image_load(file, $0) }
+    }
+    XCTAssertEqual(loaded3, Int32(AO_OK), spanMessage(err))
+    browser.noteImageLoaded()
+    pending?(true)
+    XCTAssertEqual(browser.model.selectedClass, "Object")
+  }
 }
 
 // An answer a test changes after a confirm closure has captured it (Swift 6: no captured `var`).

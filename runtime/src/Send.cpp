@@ -57,7 +57,8 @@ bool icMatches(CallContext& ctx, InlineCache* ic, Oop klass, Oop selector) {
            ctx.heap.slotAt(meth, kNativeSlotSelector) == selector;
   }
   if (mk == ctx.wk.compiledMethodClass) {
-    return ctx.heap.slotAt(meth, kCmSlotSelector) == selector;
+    return CompiledMethod::hasSlots(ctx.heap, meth) &&
+           ctx.heap.slotAt(meth, kCmSlotSelector) == selector;
   }
   return false;
 }

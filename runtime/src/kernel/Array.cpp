@@ -32,7 +32,8 @@ namespace {
 constexpr int kArrayPrintMaxDepth = 4;
 
 bool isArray(const CallContext& ctx, Oop obj) {
-  return obj.isHeap() && ctx.wk.classOf(obj) == ctx.wk.arrayClass;
+  return obj.isHeap() && (ctx.heap.flags(obj) & kFlagBytes) == 0 &&
+         ctx.wk.classOf(obj) == ctx.wk.arrayClass;
 }
 
 Oop bytesFrom(CallContext& ctx, std::string_view text) {
@@ -96,7 +97,8 @@ Oop ao_Array_equals(CallContext& ctx, const Oop& receiver, const Oop* args, std:
   }
   // Same class (an Array subclass too), as `class ==`. Pointer slots only.
   if (!receiver.isHeap() || (ctx.heap.flags(receiver) & kFlagBytes) != 0 ||
-      !args[0].isHeap() || ctx.wk.classOf(args[0]) != ctx.wk.classOf(receiver)) {
+      !args[0].isHeap() || (ctx.heap.flags(args[0]) & kFlagBytes) != 0 ||
+      ctx.wk.classOf(args[0]) != ctx.wk.classOf(receiver)) {
     return Oop::false_();
   }
   Root left(ctx.roots, receiver);

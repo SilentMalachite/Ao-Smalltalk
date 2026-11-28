@@ -68,6 +68,7 @@ class WellKnown {
   void eachNativeRequiredClass(void (*fn)(void* baton, Oop cls), void* baton) const;
   void eachImageSlot(void (*fn)(void*, const char* name, Oop value), void* baton) const;
   bool bindImageSlot(std::string_view name, Oop value);
+  Oop classSlot(std::string_view name) const;
   bool rememberSymbol(Oop sym);
 
   // SendSpecial's selector table (compiler::specialSelector), interned ahead of use so the

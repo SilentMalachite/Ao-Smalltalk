@@ -375,6 +375,9 @@ void setSessionTranscriptHook(HostOopHook hook) {
   g_transcriptHook = hook;
   if (g_session != nullptr && g_session->ctx != nullptr) {
     g_session->ctx->transcriptHook = hook;
+    if (g_session->scheduler != nullptr) {
+      g_session->scheduler->syncHooksToCurrent();
+    }
   }
 }
 
@@ -384,11 +387,17 @@ void setSessionDebugCapture(bool on) {
   // recorded; ~DebugEntry applies it, so an abort later in that print is still not captured.
   if (g_debugEntries == 0 && g_session != nullptr && g_session->ctx != nullptr) {
     g_session->ctx->debug = on ? g_session.get() : nullptr;
+    if (g_session->scheduler != nullptr) {
+      g_session->scheduler->syncHooksToCurrent();
+    }
   }
 }
 
 void beginDebugFreeEntry(Session& s) {
   s.ctx->debug = nullptr;
+  if (s.scheduler != nullptr) {
+    s.scheduler->syncHooksToCurrent();
+  }
   ++g_debugEntries;
 }
 
@@ -396,6 +405,9 @@ void endDebugFreeEntry(Session& s) {
   // The capture setting as the ABI last set it; a hook may have changed it meanwhile.
   if (--g_debugEntries == 0) {
     s.ctx->debug = g_debugCapture ? &s : nullptr;
+    if (s.scheduler != nullptr) {
+      s.scheduler->syncHooksToCurrent();
+    }
   }
 }
 
@@ -929,6 +941,9 @@ std::vector<ListedMethod> methodsOf(Session& s, Oop side) {
       continue;
     }
     ListedMethod row;
+    if ((s.heap.flags(key) & kFlagBytes) == 0) {
+      continue;
+    }
     row.selector = byteText(s.heap, key);
     if (row.selector.empty() && s.heap.size(key) != 0) {
       continue;
@@ -2081,8 +2096,12 @@ Oop boundClassNamed(Session& s, const std::string& name) {
   // As ao_browser_class_id resolves a name (SPEC §3.9 File Out items 2 and 4): the class Smalltalk
   // binds it to, whatever that class's own name.
   const Oop cls = s.wk.named(name);
-  if (!pointerSlots(s.heap, cls, kClassSlotCount) ||
-      s.heap.klass(s.heap.klass(cls)) != s.wk.metaclassClass) {
+  if (!isClassShaped(s.heap, cls)) {
+    return Oop{};
+  }
+  const Oop meta = s.heap.klass(cls);
+  if (!isClassShaped(s.heap, meta) || s.heap.klass(meta) != s.wk.metaclassClass ||
+      s.heap.slotAt(meta, kClassSlotThisClass) != cls) {
     return Oop{};
   }
   return cls;

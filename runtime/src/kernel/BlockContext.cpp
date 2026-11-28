@@ -18,7 +18,7 @@ namespace ao {
 namespace {
 
 Oop applyBlock(CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (!receiver.isHeap()) {
+  if (!hasSlots(ctx.heap, receiver, kBlockCopied)) {
     return Oop{};
   }
   const Oop meth = ctx.heap.slotAt(receiver, kCtxMethod);
@@ -202,7 +202,7 @@ Oop ao_BlockContext_value_value_value_value_(CallContext& ctx, const Oop& receiv
 
 Oop ao_BlockContext_numArgs(CallContext& ctx, const Oop& receiver, const Oop*,
                             std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !hasSlots(ctx.heap, receiver, kCtxArgc)) {
     return Oop{};
   }
   const Oop n = ctx.heap.slotAt(receiver, kCtxArgc);

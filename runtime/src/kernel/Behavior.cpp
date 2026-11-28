@@ -254,7 +254,7 @@ Oop ao_Behavior_sourceCodeAt_(CallContext& ctx, const Oop& receiver, const Oop* 
 
 // SPEC §3.10 Class>>definition (P17): ao_browser_class_definition's text as a String.
 Oop ao_Class_definition(CallContext& ctx, const Oop& receiver, const Oop*, std::uint32_t argc) {
-  if (argc != 0 || !receiver.isHeap()) {
+  if (argc != 0 || !isClassShaped(ctx.heap, receiver)) {
     return Oop{};
   }
   return Str::fromUtf8(ctx, classDefinitionText(ctx.heap, ctx.wk, receiver));
@@ -271,7 +271,7 @@ Oop ao_Class_classPool(CallContext& ctx, const Oop& receiver, const Oop*, std::u
 
 Oop ao_Class_subclass_instanceVariableNames_classVariableNames_poolDictionaries_category_(
     CallContext& ctx, const Oop& receiver, const Oop* args, std::uint32_t argc) {
-  if (argc != 5 || !receiver.isHeap()) return Oop{};
+  if (argc != 5 || !isClassShaped(ctx.heap, receiver)) return Oop{};
   // receiver と args[i] は NativeMethod::invoke がルートしたスロットを指し、GC のあとも正しい。
   // ヒープの値はローカルにコピーして GC をまたがず、使う箇所ごとにそこから読み直す。
   // SPEC §3.6: the name, like instanceVariableNames below, is a byte object. A pointer object,

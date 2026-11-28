@@ -7,9 +7,15 @@
 #include "ao/Runtime.hpp"
 #include "ao/Send.hpp"
 
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <cerrno>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <ctime>
-#include <fstream>
 #include <initializer_list>
 #include <string>
 #include <string_view>
@@ -208,6 +214,87 @@ int reasonOrOk(Session& s, Oop answer, std::string* reason) {
     *reason = kFailed;
   }
   return AO_ERR;
+}
+
+// パスのディレクトリ部分を返す。区切りが無い場合は "."、ルート直下は "/" を返す。
+std::string directoryOf(std::string_view path) {
+  const std::size_t slash = path.find_last_of('/');
+  if (slash == std::string_view::npos) {
+    return ".";
+  }
+  return slash == 0 ? std::string("/") : std::string(path.substr(0, slash));
+}
+
+// umask を効かせるため mkstemp (0600 固定) ではなく 0666 + O_EXCL で一時ファイルを作成する。
+int makeTemporary(const std::string& dir, std::string* name) {
+  static constexpr char kChars[] =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const std::string prefix =
+      (!dir.empty() && dir.back() == '/') ? dir + ".ao-changeset-" : dir + "/.ao-changeset-";
+  for (int attempt = 0; attempt < 64; ++attempt) {
+    std::string candidate = prefix;
+    for (int i = 0; i < 6; ++i) {
+      candidate += kChars[arc4random_uniform(sizeof kChars - 1)];
+    }
+    const int fd = ::open(candidate.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    if (fd >= 0) {
+      *name = std::move(candidate);
+      return fd;
+    }
+    if (errno != EEXIST) {
+      return -1;
+    }
+  }
+  return -1;
+}
+
+// write の部分書き込み、EINTR、戻り値 0 による無限ループを防ぎつつ全バイトを書き出す。
+bool writeAllBytes(int fd, const char* data, std::size_t n) {
+  std::size_t written = 0;
+  while (written < n) {
+    const ssize_t w = ::write(fd, data + written, n - written);
+    if (w < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+    if (w == 0) {
+      return false;
+    }
+    written += static_cast<std::size_t>(w);
+  }
+  return true;
+}
+
+// 元のファイルと権限を壊さないよう書き込み可否を確認し、同一ディレクトリの一時ファイル経由で原子置換する。
+bool writeChangesFile(std::string_view path, const std::string& text) {
+  if (path.empty()) {
+    return false;
+  }
+  const std::string target(path);
+  struct stat old {};
+  const bool exists = ::stat(target.c_str(), &old) == 0;
+  if (exists && (S_ISDIR(old.st_mode) || ::access(target.c_str(), W_OK) != 0)) {
+    return false;
+  }
+  const std::string dir = directoryOf(target);
+  std::string temp;
+  const int fd = makeTemporary(dir, &temp);
+  if (fd < 0) {
+    return false;
+  }
+  // 既存の通常ファイルを上書きする場合は元のパーミッションを引き継ぐ。
+  bool ok = !exists || !S_ISREG(old.st_mode) || ::fchmod(fd, old.st_mode & 07777) == 0;
+  ok = ok && writeAllBytes(fd, text.data(), text.size());
+  if (::close(fd) != 0) {
+    ok = false;
+  }
+  if (!ok || ::rename(temp.c_str(), target.c_str()) != 0) {
+    ::unlink(temp.c_str());
+    return false;
+  }
+  return true;
 }
 
 }  // namespace
@@ -626,10 +713,7 @@ int sessionChangesFileOut(std::int64_t setId, const char* path, std::string* rea
       return AO_ERR;
     }
   }
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  out.write(text.data(), static_cast<std::streamsize>(text.size()));
-  out.close();
-  if (!out) {
+  if (!writeChangesFile(path, text)) {
     *reason = std::string("cannot write file: ") + path;
     return AO_ERR;
   }
