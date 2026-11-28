@@ -2028,6 +2028,179 @@ TEST(Process, SwappedAddDoesNotRunInSchedulerLists) {
   EXPECT_EQ(0u, b.scheduler.liveFibers());
 }
 
+namespace {
+
+// The class side selectors whose send makes a Process. The scheduler sends neither.
+constexpr const char* kProcessMakers[] = {"new", "basicNew"};
+
+// SPEC §3.4 (the Processes the scheduler makes): accepts AoProbe with a class side method selector
+// (new or basicNew; the dictionary has only that) that counts its runs in AoProbeCalls and answers
+// answer. Accepting it drops every cached send of selector (SPEC §3.3), so once kSwapProcessNew has
+// run, a send of selector to Process runs it.
+void acceptProcessProbe(Boot& b, const std::string& selector, const std::string& answer) {
+  acceptProbe(b, true,
+              selector +
+                  "\n"
+                  "  Smalltalk at: #AoProbeCalls put: (Smalltalk at: #AoProbeCalls) + 1.\n"
+                  "  ^" +
+                  answer);
+}
+
+const char* const kSwapProcessNew =
+    "  Process class instVarAt: 2 put: (AoProbe class instVarAt: 2).\n";
+
+// The swap is in effect: a send of selector to Process from Smalltalk runs the probe, once.
+void expectProbeRunsForASend(Boot& b, const std::string& selector) {
+  EXPECT_EQ(smi(1), run(b, "doIt\n  Process " + selector + ".\n  ^Smalltalk at: #AoProbeCalls"));
+}
+
+// SPEC §3.4: with Process class's method dictionary swapped for one whose selector answers answer
+// (a Process forked before, the running process, an Array), fork sends nothing. It answers a new
+// Process, the ready queue holds the earlier fork and the new one once each, and both run once.
+void expectForkMakesItsOwnProcess(const std::string& selector, const std::string& answer) {
+  Boot b;
+  run(b, "doIt\n"
+         "  Smalltalk at: #AoProbeCalls put: 0.\n"
+         "  Smalltalk at: #AoRan put: 0.\n"
+         "  Smalltalk at: #AoP put: [Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 1] fork");
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  acceptProcessProbe(b, selector, answer);
+  ASSERT_FALSE(testing::Test::HasFatalFailure());
+  ao::Root q(b.roots, run(b, std::string("doIt\n") + kSwapProcessNew +
+                                 "  ^[Smalltalk at: #AoRan put: (Smalltalk at: #AoRan) + 10] fork"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  ASSERT_TRUE(q.slot.isHeap());
+  EXPECT_EQ(b.wk.processClass, b.wk.classOf(q.slot));
+  ao::Root p(b.roots, global(b, "AoP"));
+  EXPECT_NE(p.slot, q.slot);
+  EXPECT_NE(active(b), q.slot);
+  EXPECT_EQ(smi(0), global(b, "AoProbeCalls"));
+  EXPECT_EQ(2u, b.scheduler.liveFibers());
+  EXPECT_EQ(2u, b.scheduler.readyCount());
+  ao::Root ready(b.roots, readyList(b));
+  ASSERT_EQ(2, sizeOf(b, ready.slot));
+  EXPECT_EQ(p.slot, at(b, ready.slot, 1));
+  EXPECT_EQ(q.slot, at(b, ready.slot, 2));
+  EXPECT_EQ(ready.slot, myList(b, q.slot));
+  EXPECT_EQ(smi(11), run(b, "doIt\n  Processor yield.\n  ^Smalltalk at: #AoRan"));
+  EXPECT_EQ("<no abort>", takeAbortReason(b));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  expectProbeRunsForASend(b, selector);
+}
+
+}  // namespace
+
+TEST(Process, ForkDoesNotSendProcessNew) {
+  for (const char* selector : kProcessMakers) {
+    for (const char* answer : {"Smalltalk at: #AoP", "Processor activeProcess", "Array new: 6"}) {
+      SCOPED_TRACE(std::string(selector) + " answers " + answer);
+      expectForkMakesItsOwnProcess(selector, answer);
+    }
+  }
+}
+
+// SPEC §3.13: the same swap, with a new or basicNew that answers the running process (the base).
+// The evaluating process is a new Process too, not the base, and the base is active again after it.
+TEST(Process, EvalProcessDoesNotSendProcessNew) {
+  for (const char* selector : kProcessMakers) {
+    SCOPED_TRACE(selector);
+    Boot b;
+    run(b, "doIt\n  Smalltalk at: #AoProbeCalls put: 0");
+    acceptProcessProbe(b, selector, "Processor activeProcess");
+    ASSERT_FALSE(HasFatalFailure());
+    run(b, std::string("doIt\n") + kSwapProcessNew);
+    ASSERT_EQ("<no abort>", takeAbortReason(b));
+    ao::Root base(b.roots, active(b));
+    auto doIt = ao::compiler::compileMethod("doIt\n  ^Processor activeProcess");
+    ASSERT_TRUE(doIt.ok) << doIt.error.message;
+    ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, doIt.image, b.wk.objectClass));
+    const std::uint64_t pid = b.scheduler.forkEval(b.ctx, cm.slot, 2);
+    ASSERT_NE(0u, pid);
+    ASSERT_EQ(ao::Scheduler::EvalEnd::Finished, b.scheduler.awaitEval(pid));
+    ao::Root ran(b.roots, b.scheduler.evalValue());
+    b.scheduler.clearEvalValue();
+    EXPECT_EQ(b.wk.processClass, b.wk.classOf(ran.slot));
+    EXPECT_NE(base.slot, ran.slot);
+    EXPECT_EQ(base.slot, active(b));
+    EXPECT_EQ(smi(0), global(b, "AoProbeCalls"));
+    EXPECT_EQ(0u, b.scheduler.liveFibers());
+    expectProbeRunsForASend(b, selector);
+  }
+}
+
+// SPEC §3.4 ベースプロセス: the same swap, with a new or basicNew that answers an Array. Adoption
+// with no Process in activeProcess puts a new Process there as the base, and the base runs: a fork
+// and a yield come back to it.
+TEST(Process, AdoptionDoesNotSendProcessNew) {
+  for (const char* selector : kProcessMakers) {
+    SCOPED_TRACE(selector);
+    Boot b;
+    run(b, "doIt\n  Smalltalk at: #AoProbeCalls put: 0");
+    acceptProcessProbe(b, selector, "Array new: 6");
+    ASSERT_FALSE(HasFatalFailure());
+    ao::Root old(b.roots, active(b));
+    run(b, std::string("doIt\n") + kSwapProcessNew + "  Processor instVarAt: 2 put: nil");
+    ASSERT_EQ("<no abort>", takeAbortReason(b));
+    b.scheduler.adoptImage();
+    ao::Root base(b.roots, active(b));
+    EXPECT_EQ(b.wk.processClass, b.wk.classOf(base.slot));
+    EXPECT_NE(old.slot, base.slot);
+    EXPECT_EQ(smi(0), global(b, "AoProbeCalls"));
+    EXPECT_EQ(smi(7), run(b, "doIt\n"
+                             "  | env |\n"
+                             "  env := Array new: 1.\n"
+                             "  [env at: 1 put: 7] fork.\n"
+                             "  Processor yield.\n"
+                             "  ^env at: 1"));
+    EXPECT_EQ("<no abort>", takeAbortReason(b));
+    EXPECT_EQ(base.slot, active(b));
+    expectProbeRunsForASend(b, selector);
+  }
+}
+
+// SPEC §3.4, §3.13: when the evaluating process's Process cannot be allocated, no process is made
+// and the evaluation fails with out of memory. The next one that can allocate is made and runs.
+TEST(Process, EvalProcessThatCannotBeAllocatedFails) {
+  Boot b;
+  auto doIt = ao::compiler::compileMethod("doIt\n  ^3 + 4");
+  ASSERT_TRUE(doIt.ok) << doIt.error.message;
+  ao::Root cm(b.roots, ao::boxMethodImage(b.ctx, doIt.image, b.wk.objectClass));
+  b.heap.failAllocationForTesting(0);
+  EXPECT_EQ(0u, b.scheduler.forkEval(b.ctx, cm.slot, 2));
+  EXPECT_FALSE(b.heap.allocationFailurePending());
+  b.heap.failAllocationForTesting(static_cast<std::size_t>(-1));
+  EXPECT_EQ("out of memory", takeAbortReason(b));
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+  b.heap.clearOutOfMemory();
+  const std::uint64_t pid = b.scheduler.forkEval(b.ctx, cm.slot, 2);
+  ASSERT_NE(0u, pid);
+  EXPECT_EQ(ao::Scheduler::EvalEnd::Finished, b.scheduler.awaitEval(pid));
+  EXPECT_EQ(smi(7), b.scheduler.evalValue());
+  b.scheduler.clearEvalValue();
+  EXPECT_EQ(0u, b.scheduler.liveFibers());
+}
+
+// SPEC §3.4: adoption that cannot allocate the base's Process (activeProcess holds none) leaves
+// activeProcess nil and the out-of-memory mark set, with no abort. The next adoption that can
+// allocate puts a Process there.
+TEST(Process, AdoptionThatCannotAllocateLeavesNoBase) {
+  Boot b;
+  run(b, "doIt\n  Processor instVarAt: 2 put: nil");
+  ASSERT_EQ("<no abort>", takeAbortReason(b));
+  b.heap.failAllocationForTesting(0);
+  b.scheduler.adoptImage();
+  EXPECT_FALSE(b.heap.allocationFailurePending());
+  b.heap.failAllocationForTesting(static_cast<std::size_t>(-1));
+  EXPECT_TRUE(b.heap.outOfMemory());
+  EXPECT_FALSE(b.ctx.aborting);
+  EXPECT_TRUE(b.scheduler.activeProcess().isNil());
+  EXPECT_TRUE(send1(b, b.wk.processor, "instVarAt:", smi(2)).isNil());
+  b.heap.clearOutOfMemory();
+  b.scheduler.adoptImage();
+  EXPECT_EQ(b.wk.processClass, b.wk.classOf(active(b)));
+  EXPECT_EQ(smi(7), run(b, "doIt\n  ^3 + 4"));
+}
+
 // SPEC §3.2: making a session's scheduler roots its base process all or nothing. When a root
 // slot cannot be registered, the constructor throws and leaves no slot and no stack registered (a
 // constructor that throws runs no destructor), so the Roots it was given points at no freed record.

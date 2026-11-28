@@ -61,8 +61,8 @@ class Scheduler {
   // when they failed; ctx is then unwinding, except for a malformed receiver (the native answers
   // the empty Oop and the send fails, SPEC §3.3).
   //
-  // The new Process, or the empty Oop (not a 0-argument block: no abort; too many processes: an
-  // abort). Does not switch.
+  // The new Process, or the empty Oop (not a 0-argument block: no abort; too many processes, out
+  // of memory, a damaged ready queue: an abort). Does not switch.
   Oop fork(CallContext& ctx, Oop block);
   bool yield(CallContext& ctx);
   bool wait(CallContext& ctx, Oop semaphore);
